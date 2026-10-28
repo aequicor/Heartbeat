@@ -16651,10 +16651,297 @@
      "y": 8559.1,
      "width": 1616,
      "height": 1358
+    },
+    {
+     "id": "ds-effects",
+     "type": "frame",
+     "name": "Design system / Effects",
+     "x": 0,
+     "y": 9997,
+     "width": 1200,
+     "height": 500,
+     "layout": "none",
+     "fill": "$hb:surfaces.backdrop",
+     "theme": {
+      "hb:mode": "light",
+      "hb:host": "desktop"
+     },
+     "children": [
+      {
+       "id": "ds-effects-title",
+       "type": "text",
+       "content": "Эффекты",
+       "fill": "$hb:colors.textPrimary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.display.size",
+       "lineHeight": "$hb:typography.display.lineHeight",
+       "fontWeight": "600",
+       "x": 48,
+       "y": 48
+      },
+      {
+       "id": "ds-effects-intro",
+       "type": "text",
+       "content": "Затухание текста (HbText, maxLines = 1): однострочный текст, который не поместился, обрезается и гаснет к правому краю на dimensions.textOverflowFade (24) — как в нативных сайдбарах, без многоточия и без выхода за рамки; пока он обрезан, тултип показывает полный текст. В макете — прямоугольник с градиентом effects.fade.<поверхность> → surfaces.<поверхность> поверх обрезанной строки (clip). Фон под градиентом — поверхность строки: sidebar, selected, assistant, composer, header, backdrop. TextOverflow.Ellipsis для однострочного текста запрещён.",
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.body.size",
+       "lineHeight": "$hb:typography.body.lineHeight",
+       "fontWeight": "$hb:typography.body.weight",
+       "width": 1104,
+       "textGrowth": "fixed-width",
+       "x": 48,
+       "y": 104
+      },
+      {
+       "id": "ds-effects-fade",
+       "type": "frame",
+       "name": "Затухание (верно)",
+       "x": 48,
+       "y": 220,
+       "width": 340,
+       "height": 220,
+       "layout": "none",
+       "children": [
+        {
+         "id": "ds-effects-fade-title",
+         "type": "text",
+         "content": "Затухание (верно)",
+         "fill": "$hb:colors.textPrimary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.label.size",
+         "lineHeight": "$hb:typography.label.lineHeight",
+         "fontWeight": "600",
+         "x": 0,
+         "y": 0
+        },
+        {
+         "id": "ds-effects-fade-note",
+         "type": "text",
+         "content": "Строка обрезана рамкой, последние 24 гаснут в фон.",
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.label.size",
+         "lineHeight": "$hb:typography.label.lineHeight",
+         "fontWeight": "$hb:typography.label.weight",
+         "width": 320,
+         "textGrowth": "fixed-width",
+         "x": 0,
+         "y": 24
+        },
+        {
+         "id": "ds-effects-fade-row",
+         "type": "frame",
+         "name": "Строка",
+         "x": 0,
+         "y": 56,
+         "width": 320,
+         "height": 32,
+         "layout": "none",
+         "clip": true,
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "fill": "$hb:surfaces.sidebar",
+         "children": [
+          {
+           "id": "ds-effects-fade-row-text",
+           "type": "text",
+           "content": "Задержка ответа после отправки в студии при длинном названии чата",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "x": 8,
+           "y": 6
+          },
+          {
+           "id": "ds-effects-fade-row-fade",
+           "type": "rectangle",
+           "name": "Затухание текста",
+           "x": 296,
+           "y": 0,
+           "width": 24,
+           "height": 32,
+           "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 270,
+            "colors": [
+             {
+              "color": "$hb:effects.fade.sidebar",
+              "position": 0
+             },
+             {
+              "color": "$hb:surfaces.sidebar",
+              "position": 1
+             }
+            ]
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "ds-effects-fade-selected",
+       "type": "frame",
+       "name": "Затухание на выбранной строке",
+       "x": 408,
+       "y": 220,
+       "width": 340,
+       "height": 220,
+       "layout": "none",
+       "children": [
+        {
+         "id": "ds-effects-fade-selected-title",
+         "type": "text",
+         "content": "Затухание на выбранной строке",
+         "fill": "$hb:colors.textPrimary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.label.size",
+         "lineHeight": "$hb:typography.label.lineHeight",
+         "fontWeight": "600",
+         "x": 0,
+         "y": 0
+        },
+        {
+         "id": "ds-effects-fade-selected-note",
+         "type": "text",
+         "content": "Градиент берёт surfaces.selected.",
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.label.size",
+         "lineHeight": "$hb:typography.label.lineHeight",
+         "fontWeight": "$hb:typography.label.weight",
+         "width": 320,
+         "textGrowth": "fixed-width",
+         "x": 0,
+         "y": 24
+        },
+        {
+         "id": "ds-effects-fade-selected-row",
+         "type": "frame",
+         "name": "Строка",
+         "x": 0,
+         "y": 56,
+         "width": 320,
+         "height": 32,
+         "layout": "none",
+         "clip": true,
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "fill": "$hb:surfaces.selected",
+         "children": [
+          {
+           "id": "ds-effects-fade-selected-row-text",
+           "type": "text",
+           "content": "Задержка ответа после отправки в студии при длинном названии чата",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "x": 8,
+           "y": 6
+          },
+          {
+           "id": "ds-effects-fade-selected-row-fade",
+           "type": "rectangle",
+           "name": "Затухание текста",
+           "x": 296,
+           "y": 0,
+           "width": 24,
+           "height": 32,
+           "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 270,
+            "colors": [
+             {
+              "color": "$hb:effects.fade.selected",
+              "position": 0
+             },
+             {
+              "color": "$hb:surfaces.selected",
+              "position": 1
+             }
+            ]
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "ds-effects-clip",
+       "type": "frame",
+       "name": "Обрыв (неверно)",
+       "x": 768,
+       "y": 220,
+       "width": 340,
+       "height": 220,
+       "layout": "none",
+       "children": [
+        {
+         "id": "ds-effects-clip-title",
+         "type": "text",
+         "content": "Обрыв (неверно)",
+         "fill": "$hb:colors.textPrimary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.label.size",
+         "lineHeight": "$hb:typography.label.lineHeight",
+         "fontWeight": "600",
+         "x": 0,
+         "y": 0
+        },
+        {
+         "id": "ds-effects-clip-note",
+         "type": "text",
+         "content": "Резкий срез — выглядит как ошибка вёрстки.",
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.label.size",
+         "lineHeight": "$hb:typography.label.lineHeight",
+         "fontWeight": "$hb:typography.label.weight",
+         "width": 320,
+         "textGrowth": "fixed-width",
+         "x": 0,
+         "y": 24
+        },
+        {
+         "id": "ds-effects-clip-row",
+         "type": "frame",
+         "name": "Строка",
+         "x": 0,
+         "y": 56,
+         "width": 320,
+         "height": 32,
+         "layout": "none",
+         "clip": true,
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "fill": "$hb:surfaces.sidebar",
+         "children": [
+          {
+           "id": "ds-effects-clip-row-text",
+           "type": "text",
+           "content": "Задержка ответа после отправки в студии при длинном названии чата",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "x": 8,
+           "y": 6
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "context": "Эффекты ДС. Затухание текста: HbText(maxLines = 1) → hbTrailingFade, ширина dimensions.textOverflowFade; тултип с полным текстом при обрезке. Многоточие для однострочного текста запрещено."
     }
    ],
    "width": 2480,
-   "height": 9917.1
+   "height": 10497
   }
  ]
 }

@@ -326,11 +326,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 5
+                  },
+                  {
+                   "id": "studio-empty-desktop-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 168,
+                   "y": 0,
+                   "width": 80,
+                   "height": 28,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 90,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-empty-desktop-sb-session-review",
@@ -376,11 +405,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 5
+                  },
+                  {
+                   "id": "studio-empty-desktop-sb-session-tests-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 168,
+                   "y": 0,
+                   "width": 80,
+                   "height": 28,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 146,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-empty-desktop-sb-recent",
@@ -1348,11 +1406,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-empty-tablet-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 150,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-empty-tablet-sb-session-review",
@@ -1398,11 +1485,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-empty-tablet-sb-session-tests-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 246,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-empty-tablet-sb-recent",
@@ -1447,11 +1563,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 8,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-empty-tablet-sb-recent-1-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 342,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 }
                ],
                "x": 0,
@@ -3026,11 +3171,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 5
+                  },
+                  {
+                   "id": "studio-conversation-desktop-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 168,
+                   "y": 0,
+                   "width": 80,
+                   "height": 28,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.selected",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 90,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-conversation-desktop-sb-session-review",
@@ -3076,11 +3250,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 5
+                  },
+                  {
+                   "id": "studio-conversation-desktop-sb-session-tests-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 168,
+                   "y": 0,
+                   "width": 80,
+                   "height": 28,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 146,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-conversation-desktop-sb-recent",
@@ -4547,11 +4750,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-conversation-tablet-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.selected",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 150,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-conversation-tablet-sb-session-review",
@@ -4597,11 +4829,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-conversation-tablet-sb-session-tests-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 246,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-conversation-tablet-sb-recent",
@@ -4646,11 +4907,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 8,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-conversation-tablet-sb-recent-1-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 342,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 }
                ],
                "x": 0,
@@ -7162,11 +7452,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 5
+                  },
+                  {
+                   "id": "studio-streaming-desktop-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 168,
+                   "y": 0,
+                   "width": 80,
+                   "height": 28,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.selected",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 90,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-streaming-desktop-sb-session-review",
@@ -7212,11 +7531,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 5
+                  },
+                  {
+                   "id": "studio-streaming-desktop-sb-session-tests-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 168,
+                   "y": 0,
+                   "width": 80,
+                   "height": 28,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 146,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-streaming-desktop-sb-recent",
@@ -8813,11 +9161,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-streaming-tablet-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.selected",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 150,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-streaming-tablet-sb-session-review",
@@ -8863,11 +9240,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-streaming-tablet-sb-session-tests-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 246,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-streaming-tablet-sb-recent",
@@ -8912,11 +9318,40 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 8,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-streaming-tablet-sb-recent-1-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 342,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 }
                ],
                "x": 0,
@@ -11380,6 +11815,3396 @@
      "height": 2332
     },
     {
+     "id": "g-studio-update",
+     "type": "frame",
+     "name": "Studio / Update — доступно обновление: кнопка в шапке сайдбара (Desktop, Tablet)",
+     "layout": "none",
+     "children": [
+      {
+       "id": "g-studio-update-title",
+       "type": "text",
+       "content": "Studio / Update — доступно обновление: кнопка в шапке сайдбара (Desktop, Tablet)",
+       "fill": "$hb:colors.textPrimary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.title.size",
+       "lineHeight": "$hb:typography.title.lineHeight",
+       "fontWeight": "600",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "g-studio-update-light",
+       "type": "frame",
+       "name": "Светлая тема",
+       "children": [
+        {
+         "id": "g-studio-update-desktop-cell",
+         "type": "frame",
+         "name": "Desktop · светлая",
+         "layout": "none",
+         "children": [
+          {
+           "id": "g-studio-update-desktop-cell-caption",
+           "type": "text",
+           "content": "Desktop · светлая",
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight",
+           "x": 0,
+           "y": 0
+          },
+          {
+           "id": "studio-update-desktop",
+           "type": "frame",
+           "name": "Studio / Update / Desktop",
+           "reusable": true,
+           "width": 1280,
+           "height": 800,
+           "layout": "none",
+           "theme": {
+            "hb:mode": "light",
+            "hb:host": "desktop"
+           },
+           "fill": "$hb:surfaces.backdrop",
+           "clip": true,
+           "stroke": "$hb:surfaces.outline",
+           "strokeWidth": 2,
+           "strokeAlignment": "outer",
+           "children": [
+            {
+             "id": "studio-update-desktop-sb",
+             "type": "frame",
+             "name": "Studio / Sidebar",
+             "width": 264,
+             "height": 800,
+             "layout": "none",
+             "fill": "$hb:surfaces.sidebar",
+             "children": [
+              {
+               "id": "studio-update-desktop-sb-header",
+               "type": "frame",
+               "width": 264,
+               "height": 44,
+               "children": [
+                {
+                 "id": "studio-update-desktop-sb-lights",
+                 "type": "frame",
+                 "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
+                 "width": 96,
+                 "height": 28,
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-lights-window-traffic-lights-0",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 8,
+                   "y": 8
+                  },
+                  {
+                   "id": "studio-update-desktop-sb-lights-window-traffic-lights-1",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 28,
+                   "y": 8
+                  },
+                  {
+                   "id": "studio-update-desktop-sb-lights-window-traffic-lights-2",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 48,
+                   "y": 8
+                  }
+                 ],
+                 "x": 4,
+                 "y": 8,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-sb-update",
+                 "type": "frame",
+                 "name": "AppUpdateButton",
+                 "width": 84,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "fill": "$hb:surfaces.selected",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-update-label",
+                   "type": "text",
+                   "content": "Обновить",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500",
+                   "x": 12,
+                   "y": 5
+                  },
+                  {
+                   "id": "studio-update-desktop-sb-update-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 48,
+                   "y": 0,
+                   "width": 36,
+                   "height": 28,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.selected",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 0.6666666666666666
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 1
+                     }
+                    ]
+                   }
+                  }
+                 ],
+                 "x": 100,
+                 "y": 8,
+                 "layout": "none",
+                 "context": "Кнопка обновления · AppUpdateButton\nЕсть только когда доступно обновление; занимает место названия «Heartbeat». Подписи: Обновить, Повторить, Скачать, Загрузка…, Подготовка…, Перезапуск…; подпись гаснет к краю. Drawer на телефоне содержит ту же кнопку.",
+                 "clip": true
+                },
+                {
+                 "id": "studio-update-desktop-sb-brand-gap",
+                 "type": "frame",
+                 "width": 16,
+                 "height": 1,
+                 "x": 184,
+                 "y": 21.5,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-sb-new",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 28,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-new-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-plus",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
+                  }
+                 ],
+                 "x": 200,
+                 "y": 8,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-sb-hide",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 28,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-hide-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-sidebar",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
+                  }
+                 ],
+                 "x": 228,
+                 "y": 8,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 0,
+               "layout": "none"
+              },
+              {
+               "id": "studio-update-desktop-sb-list",
+               "type": "frame",
+               "width": 264,
+               "height": 720,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "studio-update-desktop-sb-search",
+                 "type": "frame",
+                 "name": "Поиск по сессиям",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-search-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-search",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "studio-update-desktop-sb-search-label",
+                   "type": "text",
+                   "content": "Поиск по сессиям",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  },
+                  {
+                   "id": "studio-update-desktop-sb-search-hint",
+                   "type": "text",
+                   "content": "⌘K",
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 223.9,
+                   "y": 6
+                  }
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-sb-projects",
+                 "type": "frame",
+                 "name": "Проекты",
+                 "width": 248,
+                 "height": 28,
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-projects-label",
+                   "type": "text",
+                   "content": "Проекты",
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 8,
+                   "y": 6
+                  }
+                 ],
+                 "x": 8,
+                 "y": 34,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-sb-project",
+                 "type": "frame",
+                 "name": "Heartbeat",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-project-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-folder-open",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "studio-update-desktop-sb-project-label",
+                   "type": "text",
+                   "content": "Heartbeat",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 62,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-sb-session-latency",
+                 "type": "frame",
+                 "name": "Задержка ответа после отправки",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "fill": "$hb:surfaces.selected",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-session-latency-label",
+                   "type": "text",
+                   "content": "Задержка ответа после отправки",
+                   "fill": "$hb:surfaces.onSelected",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 24,
+                   "y": 5
+                  },
+                  {
+                   "id": "studio-update-desktop-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 168,
+                   "y": 0,
+                   "width": 80,
+                   "height": 28,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.selected",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 1
+                     }
+                    ]
+                   }
+                  }
+                 ],
+                 "x": 8,
+                 "y": 90,
+                 "layout": "none",
+                 "clip": true
+                },
+                {
+                 "id": "studio-update-desktop-sb-session-review",
+                 "type": "frame",
+                 "name": "Ревью PR дизайна",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-session-review-label",
+                   "type": "text",
+                   "content": "Ревью PR дизайна",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 24,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 118,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-sb-session-tests",
+                 "type": "frame",
+                 "name": "Тесты визарда подключений",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-session-tests-label",
+                   "type": "text",
+                   "content": "Тесты визарда подключений",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 24,
+                   "y": 5
+                  },
+                  {
+                   "id": "studio-update-desktop-sb-session-tests-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 168,
+                   "y": 0,
+                   "width": 80,
+                   "height": 28,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
+                  }
+                 ],
+                 "x": 8,
+                 "y": 146,
+                 "layout": "none",
+                 "clip": true
+                },
+                {
+                 "id": "studio-update-desktop-sb-recent",
+                 "type": "frame",
+                 "name": "Без проекта",
+                 "width": 248,
+                 "height": 28,
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-recent-label",
+                   "type": "text",
+                   "content": "Без проекта",
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 8,
+                   "y": 6
+                  }
+                 ],
+                 "x": 8,
+                 "y": 174,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-sb-recent-1",
+                 "type": "frame",
+                 "name": "Как устроен планировщик",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-recent-1-label",
+                   "type": "text",
+                   "content": "Как устроен планировщик",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 8,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 202,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 44
+              },
+              {
+               "id": "studio-update-desktop-sb-footer",
+               "type": "frame",
+               "width": 264,
+               "children": [
+                {
+                 "id": "studio-update-desktop-sb-rail-sessions",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 28,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-rail-sessions-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-chats",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
+                  }
+                 ],
+                 "x": 12,
+                 "y": 4,
+                 "layout": "none",
+                 "fill": "$hb:surfaces.selected"
+                },
+                {
+                 "id": "studio-update-desktop-sb-rail-archive",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 28,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-rail-archive-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-archive",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
+                  }
+                 ],
+                 "x": 48,
+                 "y": 4,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-sb-rail-browser",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 28,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-rail-browser-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-globe",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
+                  }
+                 ],
+                 "x": 84,
+                 "y": 4,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-sb-rail-settings",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 28,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-sb-rail-settings-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-settings",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
+                  }
+                 ],
+                 "x": 120,
+                 "y": 4,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 764,
+               "height": 36,
+               "layout": "none"
+              }
+             ],
+             "x": 0,
+             "y": 0
+            },
+            {
+             "id": "studio-update-desktop-content",
+             "type": "frame",
+             "name": "Content",
+             "width": 1016,
+             "height": 800,
+             "layout": "none",
+             "children": [
+              {
+               "id": "studio-update-desktop-content-header",
+               "type": "frame",
+               "name": "Header",
+               "width": 1016,
+               "height": 44,
+               "fill": "$hb:surfaces.header",
+               "children": [
+                {
+                 "id": "studio-update-desktop-content-header-title",
+                 "type": "text",
+                 "content": "Задержка ответа после отправки",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.title.size",
+                 "lineHeight": "$hb:typography.title.lineHeight",
+                 "fontWeight": "$hb:typography.title.weight",
+                 "x": 8,
+                 "y": 12
+                },
+                {
+                 "id": "studio-update-desktop-content-header-more",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 28,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-content-header-more-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-more-vertical",
+                   "width": 18,
+                   "height": 18,
+                   "fill": "$hb:colors.textSecondary",
+                   "x": 5,
+                   "y": 5
+                  }
+                 ],
+                 "x": 838.7,
+                 "y": 8,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-content-header-summary",
+                 "type": "frame",
+                 "name": "Summary chip",
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "fill": "$hb:surfaces.composerPill",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-content-header-summary-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-sidebar",
+                   "width": 14,
+                   "height": 14,
+                   "stroke": "$hb:colors.textPrimary",
+                   "strokeWidth": 0.98,
+                   "x": 10,
+                   "y": 7
+                  },
+                  {
+                   "id": "studio-update-desktop-content-header-summary-label",
+                   "type": "text",
+                   "content": "Сводка",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 28,
+                   "y": 6
+                  },
+                  {
+                   "id": "studio-update-desktop-content-header-summary-chevron",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-chevron-down",
+                   "width": 12,
+                   "height": 12,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 0.84,
+                   "x": 75.3,
+                   "y": 8
+                  }
+                 ],
+                 "x": 874.7,
+                 "y": 8,
+                 "width": 97.3,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-desktop-content-header-split",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 28,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-content-header-split-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-grid",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
+                  }
+                 ],
+                 "x": 980,
+                 "y": 8,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 0,
+               "layout": "none"
+              },
+              {
+               "id": "studio-update-desktop-content-transcript",
+               "type": "frame",
+               "width": 1016,
+               "height": 621,
+               "layout": "none",
+               "clip": true,
+               "children": [
+                {
+                 "id": "studio-update-desktop-content-column",
+                 "type": "frame",
+                 "name": "Transcript",
+                 "width": 760,
+                 "layout": "none",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-content-date",
+                   "type": "frame",
+                   "width": 760,
+                   "children": [
+                    {
+                     "id": "studio-update-desktop-content-date-chip",
+                     "type": "frame",
+                     "cornerRadius": "$hb:shapes.small",
+                     "fill": "$hb:surfaces.header",
+                     "children": [
+                      {
+                       "id": "studio-update-desktop-content-date-label",
+                       "type": "text",
+                       "content": "Сегодня",
+                       "fill": "$hb:colors.textSecondary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.caption.size",
+                       "lineHeight": "$hb:typography.caption.lineHeight",
+                       "fontWeight": "$hb:typography.caption.weight",
+                       "x": 16,
+                       "y": 4
+                      }
+                     ],
+                     "x": 339.5,
+                     "y": 0,
+                     "width": 81.1,
+                     "height": 24,
+                     "layout": "none"
+                    }
+                   ],
+                   "x": 0,
+                   "y": 0,
+                   "height": 24,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "studio-update-desktop-content-user",
+                   "type": "frame",
+                   "name": "Message / User",
+                   "width": 760,
+                   "layout": "none",
+                   "children": [
+                    {
+                     "id": "studio-update-desktop-content-user-time",
+                     "type": "text",
+                     "content": "14:02",
+                     "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.metadata.size",
+                     "lineHeight": "$hb:typography.metadata.lineHeight",
+                     "fontWeight": "$hb:typography.metadata.weight",
+                     "x": 729,
+                     "y": 0
+                    },
+                    {
+                     "id": "studio-update-desktop-content-user-bubble",
+                     "type": "frame",
+                     "name": "Bubble",
+                     "cornerRadius": "$hb:shapes.medium",
+                     "fill": "$hb:surfaces.outgoing",
+                     "children": [
+                      {
+                       "id": "studio-update-desktop-content-user-text",
+                       "type": "text",
+                       "content": "Почему ответ приходит с задержкой после отправки?",
+                       "fill": "$hb:colors.textPrimary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.body.size",
+                       "lineHeight": "$hb:typography.body.lineHeight",
+                       "fontWeight": "$hb:typography.body.weight",
+                       "x": 12,
+                       "y": 12
+                      }
+                     ],
+                     "x": 362.5,
+                     "y": 20,
+                     "width": 397.5,
+                     "height": 45,
+                     "layout": "none"
+                    }
+                   ],
+                   "x": 0,
+                   "y": 40,
+                   "height": 65
+                  },
+                  {
+                   "id": "studio-update-desktop-content-reply",
+                   "type": "frame",
+                   "name": "Message / Assistant",
+                   "width": 760,
+                   "layout": "none",
+                   "cornerRadius": 12,
+                   "fill": "$hb:surfaces.assistant",
+                   "children": [
+                    {
+                     "id": "studio-update-desktop-content-reply-head",
+                     "type": "frame",
+                     "children": [
+                      {
+                       "id": "studio-update-desktop-content-reply-mark",
+                       "type": "frame",
+                       "name": "HbStudioMark · dimensions.avatarSize",
+                       "width": 28,
+                       "height": 28,
+                       "layout": "none",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-reply-mark-hb-studio-mark-disc",
+                         "type": "ellipse",
+                         "x": 0.5,
+                         "y": 0.5,
+                         "width": 27,
+                         "height": 27,
+                         "fill": "$hb:surfaces.avatar"
+                        },
+                        {
+                         "id": "studio-update-desktop-content-reply-mark-hb-studio-mark-wave",
+                         "type": "path",
+                         "geometry": "M20,52 C37,55 32,29 43,29 C56,29 50,73 63,73 C74,73 68,48 81,49",
+                         "viewBox": [
+                          0,
+                          0,
+                          100,
+                          100
+                         ],
+                         "x": 0,
+                         "y": 0,
+                         "width": 28,
+                         "height": 28,
+                         "stroke": "$hb:surfaces.accent",
+                         "strokeWidth": 2,
+                         "strokeLinecap": "round",
+                         "strokeLinejoin": "round"
+                        }
+                       ],
+                       "x": 0,
+                       "y": 0
+                      },
+                      {
+                       "id": "studio-update-desktop-content-reply-author",
+                       "type": "text",
+                       "content": "Heartbeat",
+                       "fill": "$hb:colors.textPrimary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.label.size",
+                       "lineHeight": "$hb:typography.label.lineHeight",
+                       "fontWeight": "600",
+                       "x": 40,
+                       "y": 5
+                      },
+                      {
+                       "id": "studio-update-desktop-content-reply-time",
+                       "type": "text",
+                       "content": "14:02",
+                       "fill": "$hb:colors.textSecondary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.metadata.size",
+                       "lineHeight": "$hb:typography.metadata.lineHeight",
+                       "fontWeight": "$hb:typography.metadata.weight",
+                       "x": 115,
+                       "y": 6
+                      }
+                     ],
+                     "x": 16,
+                     "y": 16,
+                     "width": 146,
+                     "height": 28,
+                     "layout": "none"
+                    },
+                    {
+                     "id": "studio-update-desktop-content-reply-body",
+                     "type": "frame",
+                     "width": 728,
+                     "layout": "none",
+                     "children": [
+                      {
+                       "id": "studio-update-desktop-content-reasoning",
+                       "type": "frame",
+                       "name": "HbToolCall / Reasoning",
+                       "width": 688,
+                       "cornerRadius": 8,
+                       "fill": "$hb:surfaces.tool",
+                       "stroke": "$hb:surfaces.outline",
+                       "strokeWidth": 1,
+                       "strokeAlignment": "inner",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-reasoning-hb-tool-row-reasoning-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-sparkles",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:surfaces.accent",
+                         "strokeWidth": 1.26,
+                         "x": 8,
+                         "y": 16
+                        },
+                        {
+                         "id": "studio-update-desktop-content-reasoning-hb-tool-row-reasoning-text",
+                         "type": "frame",
+                         "width": 616,
+                         "layout": "none",
+                         "children": [
+                          {
+                           "id": "studio-update-desktop-content-reasoning-hb-tool-row-reasoning-title",
+                           "type": "text",
+                           "content": "Размышление",
+                           "fill": "$hb:colors.textPrimary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.label.size",
+                           "lineHeight": "$hb:typography.label.lineHeight",
+                           "fontWeight": "$hb:typography.label.weight",
+                           "x": 0,
+                           "y": 0
+                          },
+                          {
+                           "id": "studio-update-desktop-content-reasoning-hb-tool-row-reasoning-summary",
+                           "type": "text",
+                           "content": "Сначала найду, где композер ждёт ответ",
+                           "fill": "$hb:colors.textSecondary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.caption.size",
+                           "lineHeight": "$hb:typography.caption.lineHeight",
+                           "fontWeight": "$hb:typography.caption.weight",
+                           "x": 0,
+                           "y": 18
+                          }
+                         ],
+                         "x": 38,
+                         "y": 8,
+                         "height": 34
+                        },
+                        {
+                         "id": "studio-update-desktop-content-reasoning-hb-tool-row-reasoning-chevron",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-chevron-right",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 0.98,
+                         "x": 666,
+                         "y": 18
+                        }
+                       ],
+                       "x": 40,
+                       "y": 0,
+                       "height": 50,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-desktop-content-read",
+                       "type": "frame",
+                       "name": "HbToolCall / Done",
+                       "width": 688,
+                       "cornerRadius": 8,
+                       "fill": "$hb:surfaces.tool",
+                       "stroke": "$hb:surfaces.outline",
+                       "strokeWidth": 1,
+                       "strokeAlignment": "inner",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-read-hb-tool-row-done-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-success",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:surfaces.success",
+                         "strokeWidth": 1.26,
+                         "x": 8,
+                         "y": 16
+                        },
+                        {
+                         "id": "studio-update-desktop-content-read-hb-tool-row-done-text",
+                         "type": "frame",
+                         "width": 564.2,
+                         "layout": "none",
+                         "children": [
+                          {
+                           "id": "studio-update-desktop-content-read-hb-tool-row-done-title",
+                           "type": "text",
+                           "content": "Прочитан файл",
+                           "fill": "$hb:colors.textPrimary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.label.size",
+                           "lineHeight": "$hb:typography.label.lineHeight",
+                           "fontWeight": "$hb:typography.label.weight",
+                           "x": 0,
+                           "y": 0
+                          },
+                          {
+                           "id": "studio-update-desktop-content-read-hb-tool-row-done-summary",
+                           "type": "text",
+                           "content": "StudioComposer.kt",
+                           "fill": "$hb:colors.textSecondary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.caption.size",
+                           "lineHeight": "$hb:typography.caption.lineHeight",
+                           "fontWeight": "$hb:typography.caption.weight",
+                           "x": 0,
+                           "y": 18
+                          }
+                         ],
+                         "x": 38,
+                         "y": 8,
+                         "height": 34
+                        },
+                        {
+                         "id": "studio-update-desktop-content-read-hb-tool-row-done-status",
+                         "type": "text",
+                         "content": "Готово",
+                         "fill": "$hb:surfaces.success",
+                         "fontFamily": "$hb:typography.family",
+                         "fontSize": "$hb:typography.caption.size",
+                         "lineHeight": "$hb:typography.caption.lineHeight",
+                         "fontWeight": "$hb:typography.caption.weight",
+                         "x": 614.2,
+                         "y": 17
+                        },
+                        {
+                         "id": "studio-update-desktop-content-read-hb-tool-row-done-chevron",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-chevron-right",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 0.98,
+                         "x": 666,
+                         "y": 18
+                        }
+                       ],
+                       "x": 40,
+                       "y": 58,
+                       "height": 50,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-desktop-content-grep",
+                       "type": "frame",
+                       "name": "HbToolCall / Done",
+                       "width": 688,
+                       "cornerRadius": 8,
+                       "fill": "$hb:surfaces.tool",
+                       "stroke": "$hb:surfaces.outline",
+                       "strokeWidth": 1,
+                       "strokeAlignment": "inner",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-grep-hb-tool-row-done-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-success",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:surfaces.success",
+                         "strokeWidth": 1.26,
+                         "x": 8,
+                         "y": 16
+                        },
+                        {
+                         "id": "studio-update-desktop-content-grep-hb-tool-row-done-text",
+                         "type": "frame",
+                         "width": 564.2,
+                         "layout": "none",
+                         "children": [
+                          {
+                           "id": "studio-update-desktop-content-grep-hb-tool-row-done-title",
+                           "type": "text",
+                           "content": "Поиск",
+                           "fill": "$hb:colors.textPrimary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.label.size",
+                           "lineHeight": "$hb:typography.label.lineHeight",
+                           "fontWeight": "$hb:typography.label.weight",
+                           "x": 0,
+                           "y": 0
+                          },
+                          {
+                           "id": "studio-update-desktop-content-grep-hb-tool-row-done-summary",
+                           "type": "text",
+                           "content": "debounce в StudioPaneView.kt",
+                           "fill": "$hb:colors.textSecondary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.caption.size",
+                           "lineHeight": "$hb:typography.caption.lineHeight",
+                           "fontWeight": "$hb:typography.caption.weight",
+                           "x": 0,
+                           "y": 18
+                          }
+                         ],
+                         "x": 38,
+                         "y": 8,
+                         "height": 34
+                        },
+                        {
+                         "id": "studio-update-desktop-content-grep-hb-tool-row-done-status",
+                         "type": "text",
+                         "content": "Готово",
+                         "fill": "$hb:surfaces.success",
+                         "fontFamily": "$hb:typography.family",
+                         "fontSize": "$hb:typography.caption.size",
+                         "lineHeight": "$hb:typography.caption.lineHeight",
+                         "fontWeight": "$hb:typography.caption.weight",
+                         "x": 614.2,
+                         "y": 17
+                        },
+                        {
+                         "id": "studio-update-desktop-content-grep-hb-tool-row-done-chevron",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-chevron-right",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 0.98,
+                         "x": 666,
+                         "y": 18
+                        }
+                       ],
+                       "x": 40,
+                       "y": 116,
+                       "height": 50,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-desktop-content-answer",
+                       "type": "text",
+                       "content": "Задержка возникает до отправки: композер ждёт 300 мс debounce, прежде чем передать черновик в стор. Для отправки debounce не нужен — интент можно отправлять сразу, а debounce оставить только для автосохранения черновика.",
+                       "fill": "$hb:colors.textPrimary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.body.size",
+                       "lineHeight": "$hb:typography.body.lineHeight",
+                       "fontWeight": "$hb:typography.body.weight",
+                       "width": 688,
+                       "textGrowth": "fixed-width",
+                       "x": 40,
+                       "y": 174
+                      }
+                     ],
+                     "x": 16,
+                     "y": 56,
+                     "height": 237
+                    },
+                    {
+                     "id": "studio-update-desktop-content-reply-footer",
+                     "type": "frame",
+                     "width": 728,
+                     "children": [
+                      {
+                       "id": "studio-update-desktop-content-reply-copy",
+                       "type": "frame",
+                       "name": "HbIconButton",
+                       "width": 28,
+                       "height": 28,
+                       "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-reply-copy-glyph",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-copy",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 1.26,
+                         "x": 5,
+                         "y": 5
+                        }
+                       ],
+                       "x": 36,
+                       "y": 0,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-desktop-content-reply-footer-gap",
+                       "type": "frame",
+                       "width": 664,
+                       "height": 1,
+                       "x": 64,
+                       "y": 13.5,
+                       "layout": "none"
+                      }
+                     ],
+                     "x": 16,
+                     "y": 305,
+                     "height": 28,
+                     "layout": "none"
+                    }
+                   ],
+                   "x": 0,
+                   "y": 121,
+                   "height": 349
+                  }
+                 ],
+                 "x": 128,
+                 "y": 16,
+                 "height": 469.9
+                }
+               ],
+               "x": 0,
+               "y": 44
+              },
+              {
+               "id": "studio-update-desktop-content-footer",
+               "type": "frame",
+               "name": "Footer",
+               "width": 1016,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "studio-update-desktop-content-composer",
+                 "type": "frame",
+                 "name": "HbChatComposer",
+                 "width": 760,
+                 "layout": "none",
+                 "children": [
+                  {
+                   "id": "studio-update-desktop-content-composer-context",
+                   "type": "frame",
+                   "name": "Context",
+                   "width": 760,
+                   "children": [
+                    {
+                     "id": "studio-update-desktop-content-composer-project",
+                     "type": "frame",
+                     "children": [
+                      {
+                       "id": "studio-update-desktop-content-composer-project-icon",
+                       "type": "ref",
+                       "ref": "hb:hb-icon-folder",
+                       "width": 14,
+                       "height": 14,
+                       "stroke": "$hb:colors.textSecondary",
+                       "strokeWidth": 0.98,
+                       "x": 0,
+                       "y": 1
+                      },
+                      {
+                       "id": "studio-update-desktop-content-composer-project-label",
+                       "type": "text",
+                       "content": "Heartbeat",
+                       "fill": "$hb:colors.textSecondary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.caption.size",
+                       "lineHeight": "$hb:typography.caption.lineHeight",
+                       "fontWeight": "$hb:typography.caption.weight",
+                       "x": 18,
+                       "y": 0
+                      }
+                     ],
+                     "x": 8,
+                     "y": 12,
+                     "width": 74.5,
+                     "height": 16,
+                     "layout": "none"
+                    },
+                    {
+                     "id": "studio-update-desktop-content-composer-usage",
+                     "type": "frame",
+                     "name": "HbComposerUsageButton",
+                     "height": 32,
+                     "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                     "fill": "$hb:surfaces.composerPill",
+                     "children": [
+                      {
+                       "id": "studio-update-desktop-content-composer-usage-ring",
+                       "type": "frame",
+                       "name": "Usage ring",
+                       "width": 14,
+                       "height": 14,
+                       "layout": "none",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-composer-usage-track",
+                         "type": "ellipse",
+                         "x": 0,
+                         "y": 0,
+                         "width": 14,
+                         "height": 14,
+                         "innerRadius": 0.7,
+                         "fill": "$hb:surfaces.outline"
+                        },
+                        {
+                         "id": "studio-update-desktop-content-composer-usage-arc",
+                         "type": "ellipse",
+                         "x": 0,
+                         "y": 0,
+                         "width": 14,
+                         "height": 14,
+                         "innerRadius": 0.7,
+                         "startAngle": 90,
+                         "sweepAngle": -122,
+                         "fill": "$hb:colors.brand"
+                        }
+                       ],
+                       "x": 8,
+                       "y": 9
+                      },
+                      {
+                       "id": "studio-update-desktop-content-composer-usage-label",
+                       "type": "text",
+                       "content": "34%",
+                       "fill": "$hb:colors.textPrimary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.caption.size",
+                       "lineHeight": "$hb:typography.caption.lineHeight",
+                       "fontWeight": "$hb:typography.caption.weight",
+                       "x": 28,
+                       "y": 8
+                      }
+                     ],
+                     "x": 88.5,
+                     "y": 4,
+                     "width": 63,
+                     "layout": "none"
+                    }
+                   ],
+                   "x": 0,
+                   "y": 0,
+                   "height": 40,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "studio-update-desktop-content-composer-panel",
+                   "type": "frame",
+                   "name": "Panel",
+                   "width": 760,
+                   "layout": "none",
+                   "cornerRadius": 12,
+                   "fill": "$hb:surfaces.composer",
+                   "stroke": "$hb:surfaces.outline",
+                   "strokeWidth": 1,
+                   "strokeAlignment": "inner",
+                   "children": [
+                    {
+                     "id": "studio-update-desktop-content-composer-placeholder",
+                     "type": "text",
+                     "content": "Работайте с Heartbeat",
+                     "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.body.size",
+                     "lineHeight": "$hb:typography.body.lineHeight",
+                     "fontWeight": "$hb:typography.body.weight",
+                     "x": 8,
+                     "y": 8
+                    },
+                    {
+                     "id": "studio-update-desktop-content-composer-toolbar",
+                     "type": "frame",
+                     "width": 744,
+                     "children": [
+                      {
+                       "id": "studio-update-desktop-content-composer-add",
+                       "type": "frame",
+                       "name": "HbIconButton",
+                       "width": 28,
+                       "height": 28,
+                       "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-composer-add-glyph",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-plus",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 1.26,
+                         "x": 5,
+                         "y": 5
+                        }
+                       ],
+                       "x": 0,
+                       "y": 2,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-desktop-content-composer-image",
+                       "type": "frame",
+                       "name": "HbButton / Ghost / Small",
+                       "height": 28,
+                       "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-composer-image-hb-button-ghost-small-label",
+                         "type": "text",
+                         "content": "Вставить изображение",
+                         "fill": "$hb:colors.textPrimary",
+                         "fontFamily": "$hb:typography.family",
+                         "fontSize": "$hb:typography.label.size",
+                         "lineHeight": "$hb:typography.label.lineHeight",
+                         "fontWeight": "500",
+                         "x": 8,
+                         "y": 5
+                        }
+                       ],
+                       "x": 32,
+                       "y": 2,
+                       "width": 165,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-desktop-content-composer-toolbar-gap",
+                       "type": "frame",
+                       "width": 280.2,
+                       "height": 1,
+                       "x": 201,
+                       "y": 15.5,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-desktop-content-composer-model",
+                       "type": "frame",
+                       "name": "HbComposerMenuButton / Pill",
+                       "height": 32,
+                       "cornerRadius": "$hb:shapes.small",
+                       "fill": "$hb:surfaces.composerPill",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-composer-model-hb-composer-pill-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-layers",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:colors.textPrimary",
+                         "strokeWidth": 0.98,
+                         "x": 8,
+                         "y": 9
+                        },
+                        {
+                         "id": "studio-update-desktop-content-composer-model-hb-composer-pill-label",
+                         "type": "text",
+                         "content": "Sonnet 5.5",
+                         "fill": "$hb:colors.textPrimary",
+                         "fontFamily": "$hb:typography.family",
+                         "fontSize": "$hb:typography.label.size",
+                         "lineHeight": "$hb:typography.label.lineHeight",
+                         "fontWeight": "$hb:typography.label.weight",
+                         "x": 26,
+                         "y": 7
+                        },
+                        {
+                         "id": "studio-update-desktop-content-composer-model-hb-composer-pill-chevron",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-chevron-down",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:colors.textPrimary",
+                         "strokeWidth": 0.98,
+                         "x": 95.6,
+                         "y": 9
+                        }
+                       ],
+                       "x": 485.2,
+                       "y": 0,
+                       "width": 117.6,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-desktop-content-composer-effort",
+                       "type": "frame",
+                       "name": "HbComposerMenuButton / AccentPill",
+                       "height": 32,
+                       "cornerRadius": "$hb:shapes.small",
+                       "fill": "$hb:surfaces.composerPillAccent",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-composer-effort-hb-composer-accentpill-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-sparkles",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:surfaces.onComposerPillAccent",
+                         "strokeWidth": 0.98,
+                         "x": 8,
+                         "y": 9
+                        },
+                        {
+                         "id": "studio-update-desktop-content-composer-effort-hb-composer-accentpill-label",
+                         "type": "text",
+                         "content": "medium",
+                         "fill": "$hb:surfaces.onComposerPillAccent",
+                         "fontFamily": "$hb:typography.family",
+                         "fontSize": "$hb:typography.label.size",
+                         "lineHeight": "$hb:typography.label.lineHeight",
+                         "fontWeight": "$hb:typography.label.weight",
+                         "x": 26,
+                         "y": 7
+                        },
+                        {
+                         "id": "studio-update-desktop-content-composer-effort-hb-composer-accentpill-chevron",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-chevron-down",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:surfaces.onComposerPillAccent",
+                         "strokeWidth": 0.98,
+                         "x": 79.2,
+                         "y": 9
+                        }
+                       ],
+                       "x": 606.8,
+                       "y": 0,
+                       "width": 101.2,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-desktop-content-composer-send",
+                       "type": "frame",
+                       "name": "HbComposer / Send",
+                       "width": 32,
+                       "height": 32,
+                       "cornerRadius": "$hb:shapes.small",
+                       "fill": "$hb:surfaces.composerAction",
+                       "children": [
+                        {
+                         "id": "studio-update-desktop-content-composer-send-hb-composer-send-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-arrow-up",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:surfaces.onComposerAction",
+                         "strokeWidth": 1.26,
+                         "x": 7,
+                         "y": 7
+                        }
+                       ],
+                       "x": 712,
+                       "y": 0,
+                       "layout": "none"
+                      }
+                     ],
+                     "x": 8,
+                     "y": 33,
+                     "height": 32,
+                     "layout": "none"
+                    }
+                   ],
+                   "x": 0,
+                   "y": 46,
+                   "height": 73
+                  }
+                 ],
+                 "x": 128,
+                 "y": 8,
+                 "height": 119
+                }
+               ],
+               "x": 0,
+               "y": 665,
+               "height": 135
+              }
+             ],
+             "x": 264,
+             "y": 0
+            }
+           ],
+           "x": 0,
+           "y": 24
+          }
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 1280,
+         "height": 824
+        },
+        {
+         "id": "g-studio-update-tablet-cell",
+         "type": "frame",
+         "name": "Tablet · светлая",
+         "layout": "none",
+         "children": [
+          {
+           "id": "g-studio-update-tablet-cell-caption",
+           "type": "text",
+           "content": "Tablet · светлая",
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight",
+           "x": 0,
+           "y": 0
+          },
+          {
+           "id": "studio-update-tablet",
+           "type": "frame",
+           "name": "Studio / Update / Tablet",
+           "reusable": true,
+           "width": 834,
+           "height": 1112,
+           "layout": "none",
+           "theme": {
+            "hb:mode": "light",
+            "hb:host": "mobile"
+           },
+           "fill": "$hb:surfaces.backdrop",
+           "clip": true,
+           "stroke": "$hb:surfaces.outline",
+           "strokeWidth": 2,
+           "strokeAlignment": "outer",
+           "children": [
+            {
+             "id": "studio-update-tablet-sb",
+             "type": "frame",
+             "name": "Studio / Sidebar",
+             "width": 240,
+             "height": 1112,
+             "layout": "none",
+             "fill": "$hb:surfaces.sidebar",
+             "children": [
+              {
+               "id": "studio-update-tablet-sb-header",
+               "type": "frame",
+               "width": 240,
+               "height": 56,
+               "children": [
+                {
+                 "id": "studio-update-tablet-sb-mark",
+                 "type": "frame",
+                 "name": "HbStudioMark · dimensions.avatarSize",
+                 "width": 28,
+                 "height": 28,
+                 "layout": "none",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-mark-hb-studio-mark-disc",
+                   "type": "ellipse",
+                   "x": 0.5,
+                   "y": 0.5,
+                   "width": 27,
+                   "height": 27,
+                   "fill": "$hb:surfaces.avatar"
+                  },
+                  {
+                   "id": "studio-update-tablet-sb-mark-hb-studio-mark-wave",
+                   "type": "path",
+                   "geometry": "M20,52 C37,55 32,29 43,29 C56,29 50,73 63,73 C74,73 68,48 81,49",
+                   "viewBox": [
+                    0,
+                    0,
+                    100,
+                    100
+                   ],
+                   "x": 0,
+                   "y": 0,
+                   "width": 28,
+                   "height": 28,
+                   "stroke": "$hb:surfaces.accent",
+                   "strokeWidth": 2,
+                   "strokeLinecap": "round",
+                   "strokeLinejoin": "round"
+                  }
+                 ],
+                 "x": 16,
+                 "y": 14
+                },
+                {
+                 "id": "studio-update-tablet-sb-update",
+                 "type": "frame",
+                 "name": "AppUpdateButton",
+                 "width": 84,
+                 "height": 36,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "fill": "$hb:surfaces.selected",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-update-label",
+                   "type": "text",
+                   "content": "Обновить",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500",
+                   "x": 12,
+                   "y": 8
+                  },
+                  {
+                   "id": "studio-update-tablet-sb-update-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 48,
+                   "y": 0,
+                   "width": 36,
+                   "height": 36,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.selected",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 0.6666666666666666
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 1
+                     }
+                    ]
+                   }
+                  }
+                 ],
+                 "x": 52,
+                 "y": 10,
+                 "layout": "none",
+                 "clip": true
+                },
+                {
+                 "id": "studio-update-tablet-sb-brand-gap",
+                 "type": "frame",
+                 "width": 0,
+                 "height": 1,
+                 "x": 144,
+                 "y": 27.5,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-tablet-sb-new",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 48,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-new-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-plus",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 15,
+                   "y": 15
+                  }
+                 ],
+                 "x": 152,
+                 "y": 4,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-tablet-sb-hide",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 48,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-hide-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-sidebar",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 15,
+                   "y": 15
+                  }
+                 ],
+                 "x": 208,
+                 "y": 4,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 0,
+               "layout": "none"
+              },
+              {
+               "id": "studio-update-tablet-sb-list",
+               "type": "frame",
+               "width": 240,
+               "height": 1000,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "studio-update-tablet-sb-search",
+                 "type": "frame",
+                 "name": "Поиск по сессиям",
+                 "width": 224,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-search-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-search",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 15
+                  },
+                  {
+                   "id": "studio-update-tablet-sb-search-label",
+                   "type": "text",
+                   "content": "Поиск по сессиям",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 14
+                  },
+                  {
+                   "id": "studio-update-tablet-sb-search-hint",
+                   "type": "text",
+                   "content": "⌘K",
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 198.3,
+                   "y": 15
+                  }
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-tablet-sb-projects",
+                 "type": "frame",
+                 "name": "Проекты",
+                 "width": 224,
+                 "height": 48,
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-projects-label",
+                   "type": "text",
+                   "content": "Проекты",
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 8,
+                   "y": 15
+                  }
+                 ],
+                 "x": 8,
+                 "y": 54,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-tablet-sb-project",
+                 "type": "frame",
+                 "name": "Heartbeat",
+                 "width": 224,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-project-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-folder-open",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 15
+                  },
+                  {
+                   "id": "studio-update-tablet-sb-project-label",
+                   "type": "text",
+                   "content": "Heartbeat",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 14
+                  }
+                 ],
+                 "x": 8,
+                 "y": 102,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-tablet-sb-session-latency",
+                 "type": "frame",
+                 "name": "Задержка ответа после отправки",
+                 "width": 224,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "fill": "$hb:surfaces.selected",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-session-latency-label",
+                   "type": "text",
+                   "content": "Задержка ответа после отправки",
+                   "fill": "$hb:surfaces.onSelected",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 24,
+                   "y": 14
+                  },
+                  {
+                   "id": "studio-update-tablet-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.selected",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 1
+                     }
+                    ]
+                   }
+                  }
+                 ],
+                 "x": 8,
+                 "y": 150,
+                 "layout": "none",
+                 "clip": true
+                },
+                {
+                 "id": "studio-update-tablet-sb-session-review",
+                 "type": "frame",
+                 "name": "Ревью PR дизайна",
+                 "width": 224,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-session-review-label",
+                   "type": "text",
+                   "content": "Ревью PR дизайна",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 24,
+                   "y": 14
+                  }
+                 ],
+                 "x": 8,
+                 "y": 198,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-tablet-sb-session-tests",
+                 "type": "frame",
+                 "name": "Тесты визарда подключений",
+                 "width": 224,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-session-tests-label",
+                   "type": "text",
+                   "content": "Тесты визарда подключений",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 24,
+                   "y": 14
+                  },
+                  {
+                   "id": "studio-update-tablet-sb-session-tests-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
+                  }
+                 ],
+                 "x": 8,
+                 "y": 246,
+                 "layout": "none",
+                 "clip": true
+                },
+                {
+                 "id": "studio-update-tablet-sb-recent",
+                 "type": "frame",
+                 "name": "Без проекта",
+                 "width": 224,
+                 "height": 48,
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-recent-label",
+                   "type": "text",
+                   "content": "Без проекта",
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 8,
+                   "y": 15
+                  }
+                 ],
+                 "x": 8,
+                 "y": 294,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-tablet-sb-recent-1",
+                 "type": "frame",
+                 "name": "Как устроен планировщик",
+                 "width": 224,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-recent-1-label",
+                   "type": "text",
+                   "content": "Как устроен планировщик",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 8,
+                   "y": 14
+                  },
+                  {
+                   "id": "studio-update-tablet-sb-recent-1-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 144,
+                   "y": 0,
+                   "width": 80,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 0.3
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
+                  }
+                 ],
+                 "x": 8,
+                 "y": 342,
+                 "layout": "none",
+                 "clip": true
+                }
+               ],
+               "x": 0,
+               "y": 56
+              },
+              {
+               "id": "studio-update-tablet-sb-footer",
+               "type": "frame",
+               "width": 240,
+               "children": [
+                {
+                 "id": "studio-update-tablet-sb-rail-sessions",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 48,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-rail-sessions-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-chats",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 15,
+                   "y": 15
+                  }
+                 ],
+                 "x": 12,
+                 "y": 4,
+                 "layout": "none",
+                 "fill": "$hb:surfaces.selected"
+                },
+                {
+                 "id": "studio-update-tablet-sb-rail-archive",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 48,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-rail-archive-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-archive",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 15,
+                   "y": 15
+                  }
+                 ],
+                 "x": 68,
+                 "y": 4,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-tablet-sb-rail-browser",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 48,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-rail-browser-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-globe",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 15,
+                   "y": 15
+                  }
+                 ],
+                 "x": 124,
+                 "y": 4,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-tablet-sb-rail-settings",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 48,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-sb-rail-settings-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-settings",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 15,
+                   "y": 15
+                  }
+                 ],
+                 "x": 180,
+                 "y": 4,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 1056,
+               "height": 56,
+               "layout": "none"
+              }
+             ],
+             "x": 0,
+             "y": 0
+            },
+            {
+             "id": "studio-update-tablet-content",
+             "type": "frame",
+             "name": "Content",
+             "width": 594,
+             "height": 1112,
+             "layout": "none",
+             "children": [
+              {
+               "id": "studio-update-tablet-content-header",
+               "type": "frame",
+               "name": "Header",
+               "width": 594,
+               "height": 56,
+               "fill": "$hb:surfaces.header",
+               "children": [
+                {
+                 "id": "studio-update-tablet-content-header-title",
+                 "type": "text",
+                 "content": "Задержка ответа после отправки",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.title.size",
+                 "lineHeight": "$hb:typography.title.lineHeight",
+                 "fontWeight": "$hb:typography.title.weight",
+                 "x": 8,
+                 "y": 16.5
+                },
+                {
+                 "id": "studio-update-tablet-content-header-more",
+                 "type": "frame",
+                 "name": "HbIconButton",
+                 "width": 48,
+                 "height": 48,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-content-header-more-glyph",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-more-vertical",
+                   "width": 18,
+                   "height": 18,
+                   "fill": "$hb:colors.textSecondary",
+                   "x": 15,
+                   "y": 15
+                  }
+                 ],
+                 "x": 429,
+                 "y": 4,
+                 "layout": "none"
+                },
+                {
+                 "id": "studio-update-tablet-content-header-summary",
+                 "type": "frame",
+                 "name": "Summary chip",
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "fill": "$hb:surfaces.composerPill",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-content-header-summary-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-sidebar",
+                   "width": 14,
+                   "height": 14,
+                   "stroke": "$hb:colors.textPrimary",
+                   "strokeWidth": 0.98,
+                   "x": 10,
+                   "y": 7
+                  },
+                  {
+                   "id": "studio-update-tablet-content-header-summary-label",
+                   "type": "text",
+                   "content": "Сводка",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 28,
+                   "y": 5
+                  },
+                  {
+                   "id": "studio-update-tablet-content-header-summary-chevron",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-chevron-down",
+                   "width": 12,
+                   "height": 12,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 0.84,
+                   "x": 79,
+                   "y": 8
+                  }
+                 ],
+                 "x": 485,
+                 "y": 14,
+                 "width": 101,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 0,
+               "layout": "none"
+              },
+              {
+               "id": "studio-update-tablet-content-transcript",
+               "type": "frame",
+               "width": 594,
+               "height": 889,
+               "layout": "none",
+               "clip": true,
+               "children": [
+                {
+                 "id": "studio-update-tablet-content-column",
+                 "type": "frame",
+                 "name": "Transcript",
+                 "width": 562,
+                 "layout": "none",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-content-date",
+                   "type": "frame",
+                   "width": 562,
+                   "children": [
+                    {
+                     "id": "studio-update-tablet-content-date-chip",
+                     "type": "frame",
+                     "cornerRadius": "$hb:shapes.small",
+                     "fill": "$hb:surfaces.header",
+                     "children": [
+                      {
+                       "id": "studio-update-tablet-content-date-label",
+                       "type": "text",
+                       "content": "Сегодня",
+                       "fill": "$hb:colors.textSecondary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.caption.size",
+                       "lineHeight": "$hb:typography.caption.lineHeight",
+                       "fontWeight": "$hb:typography.caption.weight",
+                       "x": 16,
+                       "y": 4
+                      }
+                     ],
+                     "x": 238.4,
+                     "y": 0,
+                     "width": 85.2,
+                     "height": 26,
+                     "layout": "none"
+                    }
+                   ],
+                   "x": 0,
+                   "y": 0,
+                   "height": 26,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "studio-update-tablet-content-user",
+                   "type": "frame",
+                   "name": "Message / User",
+                   "width": 562,
+                   "layout": "none",
+                   "children": [
+                    {
+                     "id": "studio-update-tablet-content-user-time",
+                     "type": "text",
+                     "content": "14:02",
+                     "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.metadata.size",
+                     "lineHeight": "$hb:typography.metadata.lineHeight",
+                     "fontWeight": "$hb:typography.metadata.weight",
+                     "x": 528.4,
+                     "y": 0
+                    },
+                    {
+                     "id": "studio-update-tablet-content-user-bubble",
+                     "type": "frame",
+                     "name": "Bubble",
+                     "width": 380,
+                     "layout": "none",
+                     "cornerRadius": "$hb:shapes.medium",
+                     "fill": "$hb:surfaces.outgoing",
+                     "children": [
+                      {
+                       "id": "studio-update-tablet-content-user-text",
+                       "type": "text",
+                       "content": "Почему ответ приходит с задержкой после отправки?",
+                       "fill": "$hb:colors.textPrimary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.body.size",
+                       "lineHeight": "$hb:typography.body.lineHeight",
+                       "fontWeight": "$hb:typography.body.weight",
+                       "width": 356,
+                       "textGrowth": "fixed-width",
+                       "x": 12,
+                       "y": 12
+                      }
+                     ],
+                     "x": 182,
+                     "y": 22,
+                     "height": 74
+                    }
+                   ],
+                   "x": 0,
+                   "y": 42,
+                   "height": 96
+                  },
+                  {
+                   "id": "studio-update-tablet-content-reply",
+                   "type": "frame",
+                   "name": "Message / Assistant",
+                   "width": 562,
+                   "layout": "none",
+                   "cornerRadius": 16,
+                   "fill": "$hb:surfaces.assistant",
+                   "stroke": "$hb:surfaces.outline",
+                   "strokeWidth": 1,
+                   "strokeAlignment": "inner",
+                   "children": [
+                    {
+                     "id": "studio-update-tablet-content-reply-head",
+                     "type": "frame",
+                     "children": [
+                      {
+                       "id": "studio-update-tablet-content-reply-mark",
+                       "type": "frame",
+                       "name": "HbStudioMark · dimensions.avatarSize",
+                       "width": 36,
+                       "height": 36,
+                       "layout": "none",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-reply-mark-hb-studio-mark-disc",
+                         "type": "ellipse",
+                         "x": 0.5,
+                         "y": 0.5,
+                         "width": 27,
+                         "height": 27,
+                         "fill": "$hb:surfaces.avatar"
+                        },
+                        {
+                         "id": "studio-update-tablet-content-reply-mark-hb-studio-mark-wave",
+                         "type": "path",
+                         "geometry": "M20,52 C37,55 32,29 43,29 C56,29 50,73 63,73 C74,73 68,48 81,49",
+                         "viewBox": [
+                          0,
+                          0,
+                          100,
+                          100
+                         ],
+                         "x": 0,
+                         "y": 0,
+                         "width": 28,
+                         "height": 28,
+                         "stroke": "$hb:surfaces.accent",
+                         "strokeWidth": 2,
+                         "strokeLinecap": "round",
+                         "strokeLinejoin": "round"
+                        }
+                       ],
+                       "x": 0,
+                       "y": 0
+                      },
+                      {
+                       "id": "studio-update-tablet-content-reply-author",
+                       "type": "text",
+                       "content": "Heartbeat",
+                       "fill": "$hb:colors.textPrimary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.label.size",
+                       "lineHeight": "$hb:typography.label.lineHeight",
+                       "fontWeight": "600",
+                       "x": 48,
+                       "y": 8
+                      },
+                      {
+                       "id": "studio-update-tablet-content-reply-time",
+                       "type": "text",
+                       "content": "14:02",
+                       "fill": "$hb:colors.textSecondary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.metadata.size",
+                       "lineHeight": "$hb:typography.metadata.lineHeight",
+                       "fontWeight": "$hb:typography.metadata.weight",
+                       "x": 127.8,
+                       "y": 9
+                      }
+                     ],
+                     "x": 24,
+                     "y": 24,
+                     "width": 161.4,
+                     "height": 36,
+                     "layout": "none"
+                    },
+                    {
+                     "id": "studio-update-tablet-content-reply-body",
+                     "type": "frame",
+                     "width": 514,
+                     "layout": "none",
+                     "children": [
+                      {
+                       "id": "studio-update-tablet-content-reasoning",
+                       "type": "frame",
+                       "name": "HbToolCall / Reasoning",
+                       "width": 466,
+                       "cornerRadius": 8,
+                       "fill": "$hb:surfaces.tool",
+                       "stroke": "$hb:surfaces.outline",
+                       "strokeWidth": 1,
+                       "strokeAlignment": "inner",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-reasoning-hb-tool-row-reasoning-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-sparkles",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:surfaces.accent",
+                         "strokeWidth": 1.26,
+                         "x": 12,
+                         "y": 22
+                        },
+                        {
+                         "id": "studio-update-tablet-content-reasoning-hb-tool-row-reasoning-text",
+                         "type": "frame",
+                         "width": 386,
+                         "layout": "none",
+                         "children": [
+                          {
+                           "id": "studio-update-tablet-content-reasoning-hb-tool-row-reasoning-title",
+                           "type": "text",
+                           "content": "Размышление",
+                           "fill": "$hb:colors.textPrimary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.label.size",
+                           "lineHeight": "$hb:typography.label.lineHeight",
+                           "fontWeight": "$hb:typography.label.weight",
+                           "x": 0,
+                           "y": 0
+                          },
+                          {
+                           "id": "studio-update-tablet-content-reasoning-hb-tool-row-reasoning-summary",
+                           "type": "text",
+                           "content": "Сначала найду, где композер ждёт ответ",
+                           "fill": "$hb:colors.textSecondary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.caption.size",
+                           "lineHeight": "$hb:typography.caption.lineHeight",
+                           "fontWeight": "$hb:typography.caption.weight",
+                           "x": 0,
+                           "y": 20
+                          }
+                         ],
+                         "x": 42,
+                         "y": 12,
+                         "height": 38
+                        },
+                        {
+                         "id": "studio-update-tablet-content-reasoning-hb-tool-row-reasoning-chevron",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-chevron-right",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 0.98,
+                         "x": 440,
+                         "y": 24
+                        }
+                       ],
+                       "x": 48,
+                       "y": 0,
+                       "height": 62,
+                       "layout": "none",
+                       "padding": 12
+                      },
+                      {
+                       "id": "studio-update-tablet-content-read",
+                       "type": "frame",
+                       "name": "HbToolCall / Done",
+                       "width": 466,
+                       "cornerRadius": 8,
+                       "fill": "$hb:surfaces.tool",
+                       "stroke": "$hb:surfaces.outline",
+                       "strokeWidth": 1,
+                       "strokeAlignment": "inner",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-read-hb-tool-row-done-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-success",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:surfaces.success",
+                         "strokeWidth": 1.26,
+                         "x": 12,
+                         "y": 22
+                        },
+                        {
+                         "id": "studio-update-tablet-content-read-hb-tool-row-done-text",
+                         "type": "frame",
+                         "width": 330.9,
+                         "layout": "none",
+                         "children": [
+                          {
+                           "id": "studio-update-tablet-content-read-hb-tool-row-done-title",
+                           "type": "text",
+                           "content": "Прочитан файл",
+                           "fill": "$hb:colors.textPrimary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.label.size",
+                           "lineHeight": "$hb:typography.label.lineHeight",
+                           "fontWeight": "$hb:typography.label.weight",
+                           "x": 0,
+                           "y": 0
+                          },
+                          {
+                           "id": "studio-update-tablet-content-read-hb-tool-row-done-summary",
+                           "type": "text",
+                           "content": "StudioComposer.kt",
+                           "fill": "$hb:colors.textSecondary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.caption.size",
+                           "lineHeight": "$hb:typography.caption.lineHeight",
+                           "fontWeight": "$hb:typography.caption.weight",
+                           "x": 0,
+                           "y": 20
+                          }
+                         ],
+                         "x": 42,
+                         "y": 12,
+                         "height": 38
+                        },
+                        {
+                         "id": "studio-update-tablet-content-read-hb-tool-row-done-status",
+                         "type": "text",
+                         "content": "Готово",
+                         "fill": "$hb:surfaces.success",
+                         "fontFamily": "$hb:typography.family",
+                         "fontSize": "$hb:typography.caption.size",
+                         "lineHeight": "$hb:typography.caption.lineHeight",
+                         "fontWeight": "$hb:typography.caption.weight",
+                         "x": 384.9,
+                         "y": 22
+                        },
+                        {
+                         "id": "studio-update-tablet-content-read-hb-tool-row-done-chevron",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-chevron-right",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 0.98,
+                         "x": 440,
+                         "y": 24
+                        }
+                       ],
+                       "x": 48,
+                       "y": 70,
+                       "height": 62,
+                       "layout": "none",
+                       "padding": 12
+                      },
+                      {
+                       "id": "studio-update-tablet-content-grep",
+                       "type": "frame",
+                       "name": "HbToolCall / Done",
+                       "width": 466,
+                       "cornerRadius": 8,
+                       "fill": "$hb:surfaces.tool",
+                       "stroke": "$hb:surfaces.outline",
+                       "strokeWidth": 1,
+                       "strokeAlignment": "inner",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-grep-hb-tool-row-done-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-success",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:surfaces.success",
+                         "strokeWidth": 1.26,
+                         "x": 12,
+                         "y": 22
+                        },
+                        {
+                         "id": "studio-update-tablet-content-grep-hb-tool-row-done-text",
+                         "type": "frame",
+                         "width": 330.9,
+                         "layout": "none",
+                         "children": [
+                          {
+                           "id": "studio-update-tablet-content-grep-hb-tool-row-done-title",
+                           "type": "text",
+                           "content": "Поиск",
+                           "fill": "$hb:colors.textPrimary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.label.size",
+                           "lineHeight": "$hb:typography.label.lineHeight",
+                           "fontWeight": "$hb:typography.label.weight",
+                           "x": 0,
+                           "y": 0
+                          },
+                          {
+                           "id": "studio-update-tablet-content-grep-hb-tool-row-done-summary",
+                           "type": "text",
+                           "content": "debounce в StudioPaneView.kt",
+                           "fill": "$hb:colors.textSecondary",
+                           "fontFamily": "$hb:typography.family",
+                           "fontSize": "$hb:typography.caption.size",
+                           "lineHeight": "$hb:typography.caption.lineHeight",
+                           "fontWeight": "$hb:typography.caption.weight",
+                           "x": 0,
+                           "y": 20
+                          }
+                         ],
+                         "x": 42,
+                         "y": 12,
+                         "height": 38
+                        },
+                        {
+                         "id": "studio-update-tablet-content-grep-hb-tool-row-done-status",
+                         "type": "text",
+                         "content": "Готово",
+                         "fill": "$hb:surfaces.success",
+                         "fontFamily": "$hb:typography.family",
+                         "fontSize": "$hb:typography.caption.size",
+                         "lineHeight": "$hb:typography.caption.lineHeight",
+                         "fontWeight": "$hb:typography.caption.weight",
+                         "x": 384.9,
+                         "y": 22
+                        },
+                        {
+                         "id": "studio-update-tablet-content-grep-hb-tool-row-done-chevron",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-chevron-right",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 0.98,
+                         "x": 440,
+                         "y": 24
+                        }
+                       ],
+                       "x": 48,
+                       "y": 140,
+                       "height": 62,
+                       "layout": "none",
+                       "padding": 12
+                      },
+                      {
+                       "id": "studio-update-tablet-content-answer",
+                       "type": "text",
+                       "content": "Задержка возникает до отправки: композер ждёт 300 мс debounce, прежде чем передать черновик в стор. Для отправки debounce не нужен — интент можно отправлять сразу, а debounce оставить только для автосохранения черновика.",
+                       "fill": "$hb:colors.textPrimary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.body.size",
+                       "lineHeight": "$hb:typography.body.lineHeight",
+                       "fontWeight": "$hb:typography.body.weight",
+                       "width": 466,
+                       "textGrowth": "fixed-width",
+                       "x": 48,
+                       "y": 210
+                      }
+                     ],
+                     "x": 24,
+                     "y": 72,
+                     "height": 334.9
+                    },
+                    {
+                     "id": "studio-update-tablet-content-reply-footer",
+                     "type": "frame",
+                     "width": 514,
+                     "children": [
+                      {
+                       "id": "studio-update-tablet-content-reply-copy",
+                       "type": "frame",
+                       "name": "HbIconButton",
+                       "width": 48,
+                       "height": 48,
+                       "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-reply-copy-glyph",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-copy",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 1.26,
+                         "x": 15,
+                         "y": 15
+                        }
+                       ],
+                       "x": 44,
+                       "y": 0,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-tablet-content-reply-footer-gap",
+                       "type": "frame",
+                       "width": 422,
+                       "height": 1,
+                       "x": 92,
+                       "y": 23.5,
+                       "layout": "none"
+                      }
+                     ],
+                     "x": 24,
+                     "y": 418.9,
+                     "height": 48,
+                     "layout": "none"
+                    }
+                   ],
+                   "x": 0,
+                   "y": 154,
+                   "height": 490.9
+                  }
+                 ],
+                 "x": 16,
+                 "y": 16,
+                 "height": 644.9
+                }
+               ],
+               "x": 0,
+               "y": 56
+              },
+              {
+               "id": "studio-update-tablet-content-footer",
+               "type": "frame",
+               "name": "Footer",
+               "width": 594,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "studio-update-tablet-content-composer",
+                 "type": "frame",
+                 "name": "HbChatComposer",
+                 "width": 562,
+                 "layout": "none",
+                 "children": [
+                  {
+                   "id": "studio-update-tablet-content-composer-context",
+                   "type": "frame",
+                   "name": "Context",
+                   "width": 562,
+                   "children": [
+                    {
+                     "id": "studio-update-tablet-content-composer-project",
+                     "type": "frame",
+                     "children": [
+                      {
+                       "id": "studio-update-tablet-content-composer-project-icon",
+                       "type": "ref",
+                       "ref": "hb:hb-icon-folder",
+                       "width": 14,
+                       "height": 14,
+                       "stroke": "$hb:colors.textSecondary",
+                       "strokeWidth": 0.98,
+                       "x": 0,
+                       "y": 2
+                      },
+                      {
+                       "id": "studio-update-tablet-content-composer-project-label",
+                       "type": "text",
+                       "content": "Heartbeat",
+                       "fill": "$hb:colors.textSecondary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.caption.size",
+                       "lineHeight": "$hb:typography.caption.lineHeight",
+                       "fontWeight": "$hb:typography.caption.weight",
+                       "x": 18,
+                       "y": 0
+                      }
+                     ],
+                     "x": 8,
+                     "y": 17,
+                     "width": 79.2,
+                     "height": 18,
+                     "layout": "none"
+                    },
+                    {
+                     "id": "studio-update-tablet-content-composer-usage",
+                     "type": "frame",
+                     "name": "HbComposerUsageButton",
+                     "height": 44,
+                     "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                     "fill": "$hb:surfaces.composerPill",
+                     "children": [
+                      {
+                       "id": "studio-update-tablet-content-composer-usage-ring",
+                       "type": "frame",
+                       "name": "Usage ring",
+                       "width": 14,
+                       "height": 14,
+                       "layout": "none",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-composer-usage-track",
+                         "type": "ellipse",
+                         "x": 0,
+                         "y": 0,
+                         "width": 14,
+                         "height": 14,
+                         "innerRadius": 0.7,
+                         "fill": "$hb:surfaces.outline"
+                        },
+                        {
+                         "id": "studio-update-tablet-content-composer-usage-arc",
+                         "type": "ellipse",
+                         "x": 0,
+                         "y": 0,
+                         "width": 14,
+                         "height": 14,
+                         "innerRadius": 0.7,
+                         "startAngle": 90,
+                         "sweepAngle": -122,
+                         "fill": "$hb:colors.brand"
+                        }
+                       ],
+                       "x": 8,
+                       "y": 15
+                      },
+                      {
+                       "id": "studio-update-tablet-content-composer-usage-label",
+                       "type": "text",
+                       "content": "34%",
+                       "fill": "$hb:colors.textPrimary",
+                       "fontFamily": "$hb:typography.family",
+                       "fontSize": "$hb:typography.caption.size",
+                       "lineHeight": "$hb:typography.caption.lineHeight",
+                       "fontWeight": "$hb:typography.caption.weight",
+                       "x": 28,
+                       "y": 13
+                      }
+                     ],
+                     "x": 93.2,
+                     "y": 4,
+                     "width": 65.2,
+                     "layout": "none"
+                    }
+                   ],
+                   "x": 0,
+                   "y": 0,
+                   "height": 52,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "studio-update-tablet-content-composer-panel",
+                   "type": "frame",
+                   "name": "Panel",
+                   "width": 562,
+                   "layout": "none",
+                   "cornerRadius": 16,
+                   "fill": "$hb:surfaces.composer",
+                   "stroke": "$hb:surfaces.outline",
+                   "strokeWidth": 1,
+                   "strokeAlignment": "inner",
+                   "children": [
+                    {
+                     "id": "studio-update-tablet-content-composer-placeholder",
+                     "type": "text",
+                     "content": "Работайте с Heartbeat",
+                     "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.body.size",
+                     "lineHeight": "$hb:typography.body.lineHeight",
+                     "fontWeight": "$hb:typography.body.weight",
+                     "x": 8,
+                     "y": 8
+                    },
+                    {
+                     "id": "studio-update-tablet-content-composer-toolbar",
+                     "type": "frame",
+                     "width": 546,
+                     "children": [
+                      {
+                       "id": "studio-update-tablet-content-composer-add",
+                       "type": "frame",
+                       "name": "HbIconButton",
+                       "width": 48,
+                       "height": 48,
+                       "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-composer-add-glyph",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-plus",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 1.26,
+                         "x": 15,
+                         "y": 15
+                        }
+                       ],
+                       "x": 0,
+                       "y": 0,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-tablet-content-composer-image",
+                       "type": "frame",
+                       "name": "HbIconButton",
+                       "width": 48,
+                       "height": 48,
+                       "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-composer-image-glyph",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-image",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:colors.textSecondary",
+                         "strokeWidth": 1.26,
+                         "x": 15,
+                         "y": 15
+                        }
+                       ],
+                       "x": 52,
+                       "y": 0,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-tablet-content-composer-toolbar-gap",
+                       "type": "frame",
+                       "width": 154.4,
+                       "height": 1,
+                       "x": 104,
+                       "y": 23.5,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-tablet-content-composer-model",
+                       "type": "frame",
+                       "name": "HbComposerMenuButton / Pill",
+                       "height": 44,
+                       "cornerRadius": "$hb:shapes.small",
+                       "fill": "$hb:surfaces.composerPill",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-composer-model-hb-composer-pill-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-layers",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:colors.textPrimary",
+                         "strokeWidth": 0.98,
+                         "x": 8,
+                         "y": 15
+                        },
+                        {
+                         "id": "studio-update-tablet-content-composer-model-hb-composer-pill-label",
+                         "type": "text",
+                         "content": "Sonnet 5.5",
+                         "fill": "$hb:colors.textPrimary",
+                         "fontFamily": "$hb:typography.family",
+                         "fontSize": "$hb:typography.label.size",
+                         "lineHeight": "$hb:typography.label.lineHeight",
+                         "fontWeight": "$hb:typography.label.weight",
+                         "x": 26,
+                         "y": 12
+                        },
+                        {
+                         "id": "studio-update-tablet-content-composer-model-hb-composer-pill-chevron",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-chevron-down",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:colors.textPrimary",
+                         "strokeWidth": 0.98,
+                         "x": 100.7,
+                         "y": 15
+                        }
+                       ],
+                       "x": 262.4,
+                       "y": 2,
+                       "width": 122.7,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-tablet-content-composer-effort",
+                       "type": "frame",
+                       "name": "HbComposerMenuButton / AccentPill",
+                       "height": 44,
+                       "cornerRadius": "$hb:shapes.small",
+                       "fill": "$hb:surfaces.composerPillAccent",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-composer-effort-hb-composer-accentpill-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-sparkles",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:surfaces.onComposerPillAccent",
+                         "strokeWidth": 0.98,
+                         "x": 8,
+                         "y": 15
+                        },
+                        {
+                         "id": "studio-update-tablet-content-composer-effort-hb-composer-accentpill-label",
+                         "type": "text",
+                         "content": "medium",
+                         "fill": "$hb:surfaces.onComposerPillAccent",
+                         "fontFamily": "$hb:typography.family",
+                         "fontSize": "$hb:typography.label.size",
+                         "lineHeight": "$hb:typography.label.lineHeight",
+                         "fontWeight": "$hb:typography.label.weight",
+                         "x": 26,
+                         "y": 12
+                        },
+                        {
+                         "id": "studio-update-tablet-content-composer-effort-hb-composer-accentpill-chevron",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-chevron-down",
+                         "width": 14,
+                         "height": 14,
+                         "stroke": "$hb:surfaces.onComposerPillAccent",
+                         "strokeWidth": 0.98,
+                         "x": 82.9,
+                         "y": 15
+                        }
+                       ],
+                       "x": 389.1,
+                       "y": 2,
+                       "width": 104.9,
+                       "layout": "none"
+                      },
+                      {
+                       "id": "studio-update-tablet-content-composer-send",
+                       "type": "frame",
+                       "name": "HbComposer / Send",
+                       "width": 48,
+                       "height": 48,
+                       "cornerRadius": "$hb:shapes.small",
+                       "fill": "$hb:surfaces.composerAction",
+                       "children": [
+                        {
+                         "id": "studio-update-tablet-content-composer-send-hb-composer-send-icon",
+                         "type": "ref",
+                         "ref": "hb:hb-icon-arrow-up",
+                         "width": 18,
+                         "height": 18,
+                         "stroke": "$hb:surfaces.onComposerAction",
+                         "strokeWidth": 1.26,
+                         "x": 15,
+                         "y": 15
+                        }
+                       ],
+                       "x": 498,
+                       "y": 0,
+                       "layout": "none"
+                      }
+                     ],
+                     "x": 8,
+                     "y": 37,
+                     "height": 48,
+                     "layout": "none"
+                    }
+                   ],
+                   "x": 0,
+                   "y": 58,
+                   "height": 93
+                  }
+                 ],
+                 "x": 16,
+                 "y": 8,
+                 "height": 151
+                }
+               ],
+               "x": 0,
+               "y": 945,
+               "height": 167
+              }
+             ],
+             "x": 240,
+             "y": 0
+            }
+           ],
+           "x": 0,
+           "y": 24
+          }
+         ],
+         "x": 1360,
+         "y": 0,
+         "width": 834,
+         "height": 1136
+        }
+       ],
+       "x": 0,
+       "y": 40,
+       "width": 2194,
+       "height": 1136,
+       "layout": "none"
+      },
+      {
+       "id": "g-studio-update-dark",
+       "type": "frame",
+       "name": "Тёмная тема",
+       "children": [
+        {
+         "id": "g-studio-update-desktop-dark-cell",
+         "type": "frame",
+         "name": "Desktop · тёмная",
+         "layout": "none",
+         "children": [
+          {
+           "id": "g-studio-update-desktop-dark-cell-caption",
+           "type": "text",
+           "content": "Desktop · тёмная",
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight",
+           "x": 0,
+           "y": 0
+          },
+          {
+           "id": "studio-update-desktop-dark",
+           "type": "ref",
+           "ref": "studio-update-desktop",
+           "name": "Studio / Update / Desktop (dark)",
+           "width": 1280,
+           "height": 800,
+           "theme": {
+            "hb:mode": "dark",
+            "hb:host": "desktop"
+           },
+           "x": 0,
+           "y": 24
+          }
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 1280,
+         "height": 824
+        },
+        {
+         "id": "g-studio-update-tablet-dark-cell",
+         "type": "frame",
+         "name": "Tablet · тёмная",
+         "layout": "none",
+         "children": [
+          {
+           "id": "g-studio-update-tablet-dark-cell-caption",
+           "type": "text",
+           "content": "Tablet · тёмная",
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight",
+           "x": 0,
+           "y": 0
+          },
+          {
+           "id": "studio-update-tablet-dark",
+           "type": "ref",
+           "ref": "studio-update-tablet",
+           "name": "Studio / Update / Tablet (dark)",
+           "width": 834,
+           "height": 1112,
+           "theme": {
+            "hb:mode": "dark",
+            "hb:host": "mobile"
+           },
+           "x": 0,
+           "y": 24
+          }
+         ],
+         "x": 1360,
+         "y": 0,
+         "width": 834,
+         "height": 1136
+        }
+       ],
+       "x": 0,
+       "y": 1196,
+       "width": 2194,
+       "height": 1136,
+       "layout": "none"
+      }
+     ],
+     "x": 60,
+     "y": 7415.9,
+     "width": 2194,
+     "height": 2332
+    },
+    {
      "id": "g-studio-drawer",
      "type": "frame",
      "name": "Studio / Drawer — выезжающий сайдбар на телефоне",
@@ -12902,7 +16727,7 @@
       }
      ],
      "x": 60,
-     "y": 7415.9,
+     "y": 9867.9,
      "width": 390,
      "height": 1796
     }
@@ -12910,7 +16735,7 @@
    "x": 0,
    "y": 0,
    "width": 2784,
-   "height": 9271.9
+   "height": 11723.8
   },
   {
    "id": "section-flows",
