@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlRout
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityRoute
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdatesRoute
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
@@ -46,6 +47,7 @@ class SettingsSectionsTest {
                 isLearningEnabled = true,
                 isHarnessEnabled = true,
                 isContextEnabled = true,
+                isAutoContinueEnabled = true,
                 isInterfacesEnabled = true,
                 isSubagentsEnabled = true,
                 isProjectConfigEnabled = true,
@@ -183,6 +185,18 @@ class SettingsSectionsTest {
         }
         assertEquals(ContextOptimizationRoute(isEmbedded = true), SettingsSection.Context.route())
         assertEquals("context", SettingsSection.Context.deepLinkName)
+    }
+
+    @Test
+    fun `auto-continue is offered only with its toggle and an active profile and opens embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isAutoContinueEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.AutoContinue in sections)
+            }
+        }
+        assertEquals(AutoContinueRoute(isEmbedded = true), SettingsSection.AutoContinue.route())
+        assertEquals(SettingsSection.AutoContinue, settingsSectionOf("auto_continue"))
     }
 
     @Test

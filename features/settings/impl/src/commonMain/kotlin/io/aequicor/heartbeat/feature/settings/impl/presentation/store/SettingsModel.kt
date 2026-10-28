@@ -30,6 +30,7 @@ enum class SettingsSectionUi {
     ChromiumBrowser,
     AgentLearning,
     Context,
+    AutoContinue,
     Builds,
     Harness,
     Interfaces,

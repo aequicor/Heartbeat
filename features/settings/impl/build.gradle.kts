@@ -21,6 +21,7 @@ kotlin {
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.contextWindowOptimization.api)
+            implementation(projects.features.autoContinue.api)
             implementation(projects.features.harness.api)
             implementation(projects.features.serviceAsUi.api)
             implementation(projects.features.projectConfig.api)
