@@ -5,5 +5,7 @@ gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary
 *.png binary
+# pen.dev mockups (design/) are reviewed in pen.dev: their JSON diff is unreadable and must not spend the commit budget.
+*.pen binary
 # Unified-diff context lines intentionally contain one space; preserve the locked patch hash.
 native/jcef/**/*.patch text eol=lf whitespace=-blank-at-eol
