@@ -193,7 +193,7 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 2. Подними `HARNESS_API_VERSION` при любом несовместимом изменении: он входит в ключ кэша компиляции,
    старые jar перекомпилируются.
 3. Обнови `defaultImports` в `HarnessCompilerConfiguration.kt`, если новый тип должен быть доступен без импорта
-   (поимённо: `Duration.Companion.*` нельзя), и keep-правила ProGuard в `platform-main/desktop` для новых пакетов.
+   (поимённо: `Duration.Companion.*` нельзя), и keep-правила ProGuard в `platform-main/desktop/train-rules.pro` для новых пакетов.
 4. Обнови справочник `domain/authoring/HarnessApiReference.kt` (темы guide/api/events/examples).
    Примеры `EXAMPLE_VERIFY_SCRIPT` и `EXAMPLE_SCREEN_WORKFLOW` компилирует `HarnessReferenceExamplesTest` (jvmTest) —
    он должен оставаться зелёным.

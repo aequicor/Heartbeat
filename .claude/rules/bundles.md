@@ -83,6 +83,39 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   у `contracts` зависимость `foundation`; у обычных бандлов поле `kind` не пишется). Готовые jar-ы подаются
   `-Pheartbeat.baseArtifacts=foundation,contracts -Pheartbeat.baseArtifactDir=<каталог с bundle-<id>-<версия>.jar>`;
   версия — `heartbeat.bundleVersion`. Jar-ы собирает плагин `heartbeat.train` (`:platform-main:desktop`): `assembleFoundation` (код проекта, не вошедший в контракты и бандлы) и `assembleContracts` (`:features:*:api`) попадают в `bundleManifest`; сторонние библиотеки остаются в платформе установщика, а не в поезде.
+- **SDK поезда и обработка ProGuard.** Явный список модулей фундамента — `heartbeatTrain { sdk(...) }` в
+  `platform-main/desktop/build.gradle.kts`: `contracts` целиком, `core:bundles:api` и публичное API перечисленных модулей.
+  Бандл и его `…:impl` видят из фундамента только SDK (прямо и через `api`-зависимости контрактов и SDK-модулей); корневая
+  `verifyTrainSdk` (в `check` desktop и каждого бандла) падает при выходе за SDK. Новый модуль фундамента, нужный бандлу,
+  вносится в список явно, вместе с его транзитивными `api`-зависимостями.
+  `-Pheartbeat.trainShrink=off|shrink|obfuscate` (по умолчанию `off`, разработка и тесты идут на необработанном classpath):
+  `foundation` и каждый бандл проходят отдельный прогон ProGuard (`shrinkFoundation`, `shrinkBundle`); `contracts` и
+  сторонние библиотеки платформы не обрабатываются. Порядок: `foundation` (вместе с `contracts`, которые сохраняются
+  целиком) → бандлы против обработанного `foundation`, `contracts` и jar установленной платформы (`TrainPlatformJars`).
+  `assembleFoundation` и `assembleBundle` остаются задачами, дающими итоговый jar в `build/bundle`; сырой лежит в
+  `build/bundle-raw`. SHA-256 манифеста, seed и дельты считаются по обработанным jar; выход нормализуется (время записей
+  jar), одинаковые входы дают одинаковые байты.
+  Keep-правила: `generateTrainSdkRules` строит `-keep` для публичного API SDK по Kotlin-метаданным (`public`/`protected`/
+  `@PublishedApi`; `internal`/`private` свободны; Java — по флагам байткода); `platform-main/desktop/train-rules.pro` —
+  то, что не выводится из SDK (входы лаунчера и воркеров, `BundleEntry`, `Foundation*`-интерфейсы, сериализация, enum, Room,
+  API харнесса для скриптов). Правила пишутся только про код Heartbeat; `-dontwarn` не добавляй — предупреждение ProGuard
+  означает ссылку бандла за пределы SDK или платформы. Код, который грузится по имени (`Class.forName`, `ServiceLoader`,
+  рефлексивные аксессоры, имена сериализаторов, JNA-интерфейсы/структуры/колбэки с нативными именами), требует строки в
+  `train-rules.pro`: тест `BundleKeepRulesTest` следит за интерфейсами `core:bundles:api` (`Foundation*` и `*Part`), правилами
+  JNA и формой условий сериализации. Что в `-if` стоит до первого `**`, не попадает в `<1>`: условие пиши `class **`.
+  Ограничения: граница SDK не видит тела публичных `inline`-функций (их ссылки на не-SDK модули ловит только смоук); простые
+  имена классов, которые код пишет в лог через `::class.simpleName`, `retrace.py` не восстанавливает; sealed-иерархии с вложенным
+  sealed-интерфейсом проходят проверку только в рантайме (следи за `IncompatibleClassChangeError`).
+  `obfuscate` дополнительно сокращает имена внутренностей: пакеты остаются, имена классов — из словаря артефакта (префикс из
+  SHA-256 его id), оптимизации нет. Маппинги — `build/train/mapping-bundle-<id>-<версия>.txt`; репозиторий публичный, обфускация
+  нужна ради размера и скорости, не секретности. Запуск пишет в лог `Launch: train=<id> version=<v>`;
+  `python3 scripts/retrace.py --mappings <каталог> [--manifest train-manifest.json] <лог или ZIP>` восстанавливает имена
+  классов и методов в стек-трейсах.
+  Проверка: `./gradlew -Pheartbeat.trainShrink=shrink|obfuscate :platform-main:desktop:verifyShrunkTrain` — headless-запуск
+  production-графа на обработанных jar поезда (список — из `bundleManifest`), открытие профиля, все бандлы обязаны быть
+  `Healthy` и на уровне приложения, и в профильном графе (`BundleHost.lastProfileHealth`); логи прогона — `build/train-smoke/smoke.log`
+  (смоук `TrainSmoke` в тестах desktop; не покрывает UI и JCEF-браузер). Перед включением `obfuscate` в CI прогнан `e2e-regression` (core) на упакованном
+  `HeartbeatE2E`; в CI смоук идёт перед записью поезда, маппинги публикуются вместе с jar (`ci.md`).
 - **Профильный граф бандла.** Фичи профиля (`ProfileScope`) живут в `@GraphExtension(ProfileScope::class)` бандла
   (`WebProfileGraph`), который создаётся из app-графа бандла (`val profileGraphs: …Graph.Factory`) и получает
   `@Includes FoundationProfileBindings`. `BundleEntry.hasProfileGraph = true`, `createProfileGraph` и

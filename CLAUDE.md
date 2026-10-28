@@ -511,6 +511,13 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > ходах через `StudioTurnLifecycle` координатора запусков и отправляет реплики как SPI `AutoContinueHost`; фича живёт
 > в фундаменте рядом с `ai-studio`. Раздел настроек «Автопродолжение» (`AutoContinueRoute`): режим новых чатов, модель
 > продолжателя (модель чата или модель профиля по умолчанию), лимит, пауза, число вариантов.
+> Обработка поезда desktop (`-Pheartbeat.trainShrink=off|shrink|obfuscate`, по умолчанию `off`): `foundation` и каждый бандл
+> проходят отдельный прогон ProGuard по явной SDK-границе (`heartbeatTrain { sdk(...) }`, `verifyTrainSdk`); keep-правила SDK
+> генерирует `generateTrainSdkRules`, остальное — `platform-main/desktop/train-rules.pro`. `verifyShrunkTrain` запускает
+> обработанный поезд headless (все бандлы `Healthy`), маппинги — `build/train/mapping-*.txt`, имена в логах
+> восстанавливает `scripts/retrace.py` (в логе строка `Launch: train=…`). CI (`bundle-train`) собирает поезд с `obfuscate`,
+> гоняет `verifyShrunkTrain` перед записью и публикует маппинги ассетами пре-релиза `train-*`.
+> Правила и ограничения — `.claude/rules/bundles.md`.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)

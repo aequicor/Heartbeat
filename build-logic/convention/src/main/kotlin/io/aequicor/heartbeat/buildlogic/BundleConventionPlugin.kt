@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.buildlogic
 
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.artifacts.ProjectDependency
@@ -66,14 +67,29 @@ class BundleConventionPlugin : Plugin<Project> {
             }
         }
         verify.configure { membership.put(bundlePath, implDependencies()) }
-        tasks.matching { it.name == "check" }.configureEach { dependsOn(verify) }
+        tasks.matching { it.name == "check" }.configureEach {
+            dependsOn(verify)
+            // Registered by `heartbeat.train` in the desktop module; absent in builds without it.
+            dependsOn(root.tasks.matching { it.name == VERIFY_TRAIN_SDK_TASK })
+        }
 
         val bundleVersion = providers.gradleProperty(BUNDLE_VERSION_PROPERTY).orElse(provider { version.toString() })
-        val assemble = registerAssembleBundle(bundleVersion)
+        val mode = TrainShrinkMode.parse(providers.gradleProperty(TrainShrinkMode.PROPERTY).orNull)
+        val assemble = registerAssembleBundle(
+            bundleVersion,
+            if (mode == TrainShrinkMode.Off) FINAL_JAR_DIRECTORY else RAW_JAR_DIRECTORY,
+            if (mode == TrainShrinkMode.Off) ASSEMBLE_TASK else ASSEMBLE_RAW_TASK,
+        )
         val bundleId = name
+        // The jar the manifest takes: the processed one when the train is shrunk.
+        val bundleJar: Any = if (mode == TrainShrinkMode.Off) {
+            assemble
+        } else {
+            registerShrinkBundle(assemble, bundleVersion, mode).flatMap { it.output }
+        }
         registerTrainTasks(root).first.configure {
             versions.put(bundleId, bundleVersion)
-            jars.from(assemble)
+            jars.from(bundleJar)
         }
     }
 
@@ -81,7 +97,11 @@ class BundleConventionPlugin : Plugin<Project> {
      * `assembleBundle`: one reproducible jar with the bundle's own classes and the classes of its direct `…:impl`
      * dependencies. Entries are sorted, timestamps and permissions are fixed, so equal sources give equal bytes.
      */
-    private fun Project.registerAssembleBundle(bundleVersion: Provider<String>): TaskProvider<Jar> {
+    private fun Project.registerAssembleBundle(
+        bundleVersion: Provider<String>,
+        directory: String,
+        taskName: String,
+    ): TaskProvider<Jar> {
         val implPaths = implDependencies()
         val implClasses = configurations.getByName("jvmRuntimeClasspath").incoming.artifactView {
             componentFilter { id -> id is ProjectComponentIdentifier && id.projectPath in implPaths.get() }
@@ -89,11 +109,11 @@ class BundleConventionPlugin : Plugin<Project> {
         val ownClasses = extensions.getByType<KotlinMultiplatformExtension>()
             .targets.getByName("jvm").compilations.getByName("main").output.allOutputs
         val bundleId = name
-        return tasks.register<Jar>(ASSEMBLE_TASK) {
+        return tasks.register<Jar>(taskName) {
             group = "build"
             description = "Assembles the reproducible jar of bundle $bundleId."
             archiveFileName.set(bundleVersion.map { bundleJarName(bundleId, it) })
-            destinationDirectory.set(layout.buildDirectory.dir("bundle"))
+            destinationDirectory.set(layout.buildDirectory.dir(directory))
             isPreserveFileTimestamps = false
             isReproducibleFileOrder = true
             duplicatesStrategy = DuplicatesStrategy.FAIL
@@ -103,6 +123,56 @@ class BundleConventionPlugin : Plugin<Project> {
             dependsOn(implClasses)
             from(ownClasses)
             from({ implClasses.files.map { zipTree(it) } })
+        }
+    }
+
+    /**
+     * `shrinkBundle`: ProGuard over the assembled bundle jar against the processed foundation, the contracts and the
+     * third-party libraries of the installed platform. Any reference outside them fails the run: bundles may use the
+     * train SDK only. `assembleBundle` then depends on it, so building a bundle gives the final jar.
+     */
+    private fun Project.registerShrinkBundle(
+        assemble: TaskProvider<Jar>,
+        bundleVersion: Provider<String>,
+        mode: TrainShrinkMode,
+    ): TaskProvider<ShrinkTrainJar> {
+        val desktop = rootProject.project(DESKTOP_PROJECT)
+        // The third-party jars of the installed platform, not the bundle's own resolution: the two may differ in versions.
+        val libraries = desktop.provider { desktop.extensions.getByType(TrainPlatformJars::class.java).jars.get() }
+        val bundleId = name
+        return registerShrinkTrainJar(
+            "shrinkBundle",
+            assemble.flatMap { it.archiveFile }.map { it.asFile },
+            bundleVersion.map { bundleJarName(bundleId, it) },
+            bundleId,
+            mode,
+        ) {
+            libraryJars.from(libraries)
+            // The processed foundation and the contracts jar are the outputs of the desktop module's tasks: taken from
+            // them, not from a guessed file name, so that the task dependencies follow.
+            libraryJars.from(
+                // Looked up by name among the registered tasks: `matching { }` would create every task of the module.
+                desktop.provider {
+                    val names = desktop.tasks.names
+                    if ("shrinkFoundation" !in names || "assembleContracts" !in names) {
+                        throw GradleException(
+                            "${desktop.path} registers no shrinkFoundation and assembleContracts: heartbeat.train is missing",
+                        )
+                    }
+                    listOf(
+                        // The jar only: the mapping the task also writes is a text file, not a library.
+                        desktop.tasks.named("shrinkFoundation", ShrinkTrainJar::class.java).flatMap { it.output },
+                        desktop.tasks.named("assembleContracts", Jar::class.java).flatMap { it.archiveFile },
+                    )
+                },
+            )
+        }.also { shrunk ->
+            // `assembleBundle` stays the task that gives the final jar.
+            tasks.register(ASSEMBLE_TASK) {
+                group = "build"
+                description = "Assembles and processes the jar of bundle $bundleId."
+                dependsOn(shrunk)
+            }
         }
     }
 
@@ -186,7 +256,9 @@ class BundleConventionPlugin : Plugin<Project> {
         const val JDK_VERSION = 17
         const val VERIFY_TASK = "verifyBundleMembership"
         const val FOUNDATION_PROJECT = ":platform-main:di-bundle"
+        const val DESKTOP_PROJECT = ":platform-main:desktop"
         const val ASSEMBLE_TASK = "assembleBundle"
+        const val ASSEMBLE_RAW_TASK = "assembleBundleRaw"
         const val MANIFEST_TASK = "bundleManifest"
         const val AFFECTED_TASK = "affectedBundles"
         const val BUNDLE_VERSION_PROPERTY = "heartbeat.bundleVersion"

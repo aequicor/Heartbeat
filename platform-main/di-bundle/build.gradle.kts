@@ -139,7 +139,8 @@ kotlin {
         // Desktop bundles: discovered at runtime through ServiceLoader; the assemblers (:bundles:*) come with the desktop app.
         jvmMain.dependencies {
             implementation(projects.core.bundles.impl)
-            implementation(projects.core.bundles.api)
+            // `bundleHealth()` of the public API returns its types.
+            api(projects.core.bundles.api)
             implementation(projects.features.browser.api)
             implementation(projects.features.aiEngine.authenticator.api)
             implementation(projects.features.aiEngine.connections.api)
