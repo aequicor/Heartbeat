@@ -130,9 +130,10 @@ internal fun Project.registerVerifyTrainSdk(extension: TrainSdkExtension) {
             bundles.map { all ->
                 all.associate { bundle ->
                     val own = bundle.desktopDependencyPaths(::isDesktopMainConfiguration)
-                    val implDependencies = own.filter { it.endsWith(":impl") }
-                        .mapNotNull { root.findProject(it) }
-                        .flatMap { it.desktopDependencyPaths(::isDesktopMainConfiguration) }
+                    // The impls the bundle carries, and every impl they reach in turn: all of it ends up in its jar.
+                    val implDependencies = reachedImpls(own.filter { it.endsWith(":impl") }) { path ->
+                        root.findProject(path)?.desktopDependencyPaths(::isDesktopMainConfiguration).orEmpty()
+                    }
                     // Own impls are the bundle itself, not something it reaches.
                     bundle.path to (own + implDependencies).filterNot { it in own && it.endsWith(":impl") }.distinct().sorted()
                 }
@@ -142,6 +143,25 @@ internal fun Project.registerVerifyTrainSdk(extension: TrainSdkExtension) {
             root.provider { root.subprojects.associate { it.path to it.desktopDependencyPaths(::isApiConfiguration) } },
         )
     }
+}
+
+/**
+ * Dependencies of [impls] and of every `…:impl` they depend on in turn ([dependenciesOf] is `project path -> dependency
+ * paths`); the transitive closure, so that a dependency of an impl behind another impl is not missed.
+ */
+internal fun reachedImpls(impls: Collection<String>, dependenciesOf: (String) -> Collection<String>): List<String> {
+    val visited = LinkedHashSet<String>()
+    val queue = ArrayDeque(impls)
+    val reached = mutableListOf<String>()
+    while (queue.isNotEmpty()) {
+        val impl = queue.removeFirst()
+        if (!visited.add(impl)) continue
+        for (dependency in dependenciesOf(impl)) {
+            reached += dependency
+            if (dependency.endsWith(":impl")) queue.add(dependency)
+        }
+    }
+    return reached
 }
 
 private fun Project.desktopDependencyPaths(filter: (String) -> Boolean): List<String> = configurations

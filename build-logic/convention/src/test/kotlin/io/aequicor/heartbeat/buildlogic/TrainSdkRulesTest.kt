@@ -36,7 +36,6 @@ class TrainSdkRulesTest {
     @Test
     fun `published api stays`() {
         val api = assertNotNull(rule(rules("Api"), "Api"))
-        assertTrue("published\$" !in api || "published(" in api, api)
         assertTrue("published()" in api, api)
         assertTrue("getPublishedProperty()" in api, api)
     }
@@ -72,6 +71,8 @@ class TrainSdkRulesTest {
         val facade = assertNotNull(rule(rules("FixtureKt"), "FixtureKt"))
         assertTrue("topLevel(java.lang.String)" in facade && "getTopLevelProperty()" in facade, facade)
         assertFalse("hiddenTopLevel" in facade, facade)
+        // the hidden overload shares the name: the public one still keeps its `$default` entry point
+        assertTrue("overloaded\$default(java.lang.String,int,int,java.lang.Object)" in facade, facade)
     }
 
     @Test

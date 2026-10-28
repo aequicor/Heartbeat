@@ -52,4 +52,9 @@ fun topLevel(value: String): String = value
 
 internal fun hiddenTopLevel() = Unit
 
+// The same name, not mangled: one overload with defaults is public, the other is hidden.
+fun overloaded(text: String, times: Int = 1): String = text.repeat(times)
+
+internal fun overloaded(number: Int, times: Int = 1): Int = number * times
+
 val topLevelProperty: Int = 4

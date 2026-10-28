@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.buildlogic
 
 import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
@@ -27,11 +28,6 @@ import kotlin.metadata.jvm.syntheticMethodForAnnotations
 import kotlin.metadata.kind
 import kotlin.metadata.visibility
 
-private const val KIND_CLASS = 1
-private const val KIND_FILE_FACADE = 2
-private const val KIND_SYNTHETIC_CLASS = 3
-private const val KIND_MULTI_FILE_FACADE = 4
-private const val KIND_MULTI_FILE_PART = 5
 private const val DEFAULT_SUFFIX = "\$default"
 private const val DEFAULT_IMPLS = "DefaultImpls"
 
@@ -84,7 +80,11 @@ private fun keepRule(info: ClassFileInfo): KeepRule? {
             packageName = raw.packageName,
             extraInt = raw.extraInt,
         )
-        KotlinClassMetadata.readStrict(annotation)
+        try {
+            KotlinClassMetadata.readStrict(annotation)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalStateException("Cannot read the Kotlin metadata of ${info.name}", e)
+        }
     }
     val internals = Internals()
     val whole: Boolean
@@ -110,9 +110,16 @@ private fun keepRule(info: ClassFileInfo): KeepRule? {
     if (!whole && !isFacade) return null
 
     val hiddenNames = internals.hidden.map { it.substringBefore('(') }.toSet()
+    // Names that stay public: the `$default` of a hidden function is dropped only when no public overload shares its
+    // name (top-level and private functions are not mangled, so `foo` may be public and hidden at once).
+    val keptNames = info.methods
+        .filter { it.isReachable && !it.name.endsWith(DEFAULT_SUFFIX) && (it.name + it.descriptor) !in internals.hidden }
+        .map { it.name }
+        .toSet()
     val methods = info.methods.filter { method ->
+        val base = method.name.removeSuffix(DEFAULT_SUFFIX)
         method.isReachable && (method.name + method.descriptor) !in internals.hidden &&
-            !(method.name.endsWith(DEFAULT_SUFFIX) && method.name.removeSuffix(DEFAULT_SUFFIX) in hiddenNames)
+            !(method.name.endsWith(DEFAULT_SUFFIX) && base in hiddenNames && base !in keptNames)
     }.filter { it.name != "<init>" || internals.constructorsKept }
         .sortedWith(compareBy({ it.name }, { it.descriptor }))
         .map { "*** ${it.name}(${descriptorParameters(it.descriptor)});".replace("*** <init>", "<init>") }
@@ -223,13 +230,13 @@ abstract class GenerateTrainSdkRules : DefaultTask() {
 
 private fun classFiles(root: File): Sequence<ByteArray> = when {
     root.isDirectory -> root.walkTopDown().filter { it.isFile && it.extension == "class" }.map { it.readBytes() }
-    root.isFile -> sequence {
-        ZipFile(root).use { zip ->
-            for (entry in zip.entries().asSequence().filter { it.name.endsWith(".class") && !it.name.startsWith("META-INF/") }) {
-                yield(zip.getInputStream(entry).use { it.readBytes() })
-            }
-        }
-    }
+    // Read inside `use`: a lazy sequence would keep the jar open when the consumer fails halfway.
+    root.isFile -> ZipFile(root).use { zip ->
+        zip.entries().asSequence()
+            .filter { it.name.endsWith(".class") && !it.name.startsWith("META-INF/") }
+            .map { entry -> zip.getInputStream(entry).use { it.readBytes() } }
+            .toList()
+    }.asSequence()
     else -> emptySequence()
 }
 
@@ -241,9 +248,12 @@ internal fun Project.registerGenerateTrainSdkRules(extension: TrainSdkExtension)
         description = "Generates the ProGuard keep rules of the public API of the train SDK modules."
         classes.from(
             root.provider {
-                extension.sdk.get().sorted().mapNotNull { root.findProject(it) }.flatMap { module ->
+                extension.sdk.get().sorted().flatMap { path ->
+                    // A misspelled or jar-less SDK module would silently leave its API out of the keep rules.
+                    val module = root.findProject(path) ?: throw GradleException("The SDK module $path does not exist")
                     module.tasks.withType(Jar::class.java).matching { it.name == "jar" || it.name == "jvmJar" }
                         .map { it.outputs.files }
+                        .ifEmpty { throw GradleException("The SDK module $path has no jvm jar to read the API from") }
                 }
             },
         )

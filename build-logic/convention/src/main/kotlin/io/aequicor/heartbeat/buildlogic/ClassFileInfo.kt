@@ -44,8 +44,6 @@ internal class ClassFileInfo(
 
 internal const val ACC_PUBLIC = 0x0001
 internal const val ACC_PROTECTED = 0x0004
-internal const val ACC_STATIC = 0x0008
-internal const val ACC_SYNTHETIC = 0x1000
 internal const val PUBLISHED_API = "Lkotlin/PublishedApi;"
 private const val METADATA = "Lkotlin/Metadata;"
 private const val CLASS_MAGIC = 0xCAFEBABE.toInt()

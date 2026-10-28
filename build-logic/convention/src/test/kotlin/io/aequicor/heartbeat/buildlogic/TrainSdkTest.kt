@@ -97,6 +97,20 @@ class TrainSdkTest {
     }
 
     @Test
+    fun `dependencies behind another impl are reached too`() {
+        val graph = mapOf(
+            ":features:a:impl" to listOf(":features:b:impl", ":core:logging"),
+            ":features:b:impl" to listOf(":core:network:impl", ":features:a:impl"),
+            ":core:network:impl" to listOf(":core:secrets"),
+        )
+        val reached = reachedImpls(listOf(":features:a:impl")) { graph[it].orEmpty() }
+        assertEquals(
+            setOf(":features:b:impl", ":core:logging", ":core:network:impl", ":features:a:impl", ":core:secrets"),
+            reached.toSet(),
+        )
+    }
+
+    @Test
     fun `desktop main configurations exclude tests and other platforms`() {
         listOf("api", "implementation", "compileOnly", "commonMainApi", "jvmMainImplementation", "jvmMainCompileOnly")
             .forEach { assertTrue(isDesktopMainConfiguration(it), it) }

@@ -1,5 +1,5 @@
 # Rules of the bundle train that no SDK keep rule derives (see generateTrainSdkRules). They are read when the train is
-# shrunk (-Pheartbeat.trainShrink=shrink) and describe only Heartbeat's own code: third-party libraries belong to the
+# processed (-Pheartbeat.trainShrink=shrink or obfuscate) and describe only Heartbeat's own code: third-party libraries belong to the
 # platform and are never processed, so they need no rules.
 
 # --- Entry points ------------------------------------------------------------------------------------------------
@@ -83,23 +83,33 @@
 -keepattributes *Annotation*,InnerClasses,Signature,Exceptions,EnclosingMethod
 -keepnames @kotlinx.serialization.Serializable class io.aequicor.heartbeat.**
 -keepnames class io.aequicor.heartbeat.**$$serializer
--if @kotlinx.serialization.Serializable class io.aequicor.heartbeat.**
+-if @kotlinx.serialization.Serializable class **
 -keepclassmembers class <1> {
     static <1>$Companion Companion;
 }
--if @kotlinx.serialization.Serializable class io.aequicor.heartbeat.** {
+-if @kotlinx.serialization.Serializable class ** {
     static **$* *;
 }
 -keepclassmembers class <2>$<3> {
     kotlinx.serialization.KSerializer serializer(...);
 }
--if @kotlinx.serialization.Serializable class io.aequicor.heartbeat.** {
+-if @kotlinx.serialization.Serializable class ** {
     public static ** INSTANCE;
 }
 -keepclassmembers class <1> {
     public static <1> INSTANCE;
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# --- Native code (JNA) --------------------------------------------------------------------------------------------
+
+# Heartbeat's own JNA bindings (secrets, desktop dialogs, computer use, window and job APIs): JNA looks the native
+# function up by the name of the interface method, reads the fields of a Structure by the names in its
+# @FieldOrder and calls the single method of a Callback only from native code. Shrinking drops fields that Kotlin
+# never initializes and callbacks nothing calls from the JVM; obfuscation would rename the native symbols.
+-keep class io.aequicor.heartbeat.** implements com.sun.jna.Library { *; }
+-keep class io.aequicor.heartbeat.** extends com.sun.jna.Structure { *; }
+-keep class io.aequicor.heartbeat.** implements com.sun.jna.Callback { *; }
 
 # --- Enums and Room -----------------------------------------------------------------------------------------------
 
