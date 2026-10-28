@@ -22,6 +22,13 @@ inputs:
       How the jars are processed by ProGuard (-Pheartbeat.trainShrink): off, shrink or obfuscate. A processed train is
       started headless by verifyShrunkTrain before it is written; an obfuscated one carries the mapping of every jar it publishes.
     default: obfuscate
+  launcher-signing-key:
+    description: >-
+      PKCS#8 Ed25519 private key (Base64) that signs the launcher entry of the train
+      (HEARTBEAT_LAUNCHER_SIGNING_KEY). Empty: the entry is written unsigned and installed apps do not take that
+      launcher. A secret of the environment launcher-signing, which only master can use.
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -47,9 +54,27 @@ runs:
           echo "No previous train: every jar is published"
         fi
         ls train-previous
+    - name: Level of the launcher
+      shell: bash
+      # The level orders the signed launchers of the train: a slot with a lower one is refused. It is the number of
+      # commits that changed the launcher: it grows along master and stays while the launcher is untouched, so an
+      # unchanged launcher keeps its signed entry (the train then carries the jar of the earlier one).
+      run: |
+        if [ "$(git rev-parse --is-shallow-repository)" != false ]; then
+          echo "The launcher level counts commits: check out with fetch-depth: 0" >&2
+          exit 1
+        fi
+        level=$(git rev-list --count HEAD -- platform-main/launcher)
+        if [ "$level" -lt 1 ]; then
+          echo "No commit changed platform-main/launcher: the launcher level is $level" >&2
+          exit 1
+        fi
+        echo "LAUNCHER_API=$level" >> "$GITHUB_ENV"
+        echo "Launcher level: $level" >> "$GITHUB_STEP_SUMMARY"
     - name: Assemble the bundles
       shell: bash
       env:
+        HEARTBEAT_LAUNCHER_SIGNING_KEY: ${{ inputs.launcher-signing-key }}
         TRAIN: ${{ inputs.train }}
         SHRINK: ${{ inputs.shrink }}
       # The jar name carries the train id; the build cache makes unchanged bundles cache hits, and
@@ -57,6 +82,7 @@ runs:
       # With shrink != off assembleBundle runs ProGuard (foundation first), on the JBR 21 of the desktop runtime.
       run: |
         ./gradlew -Pheartbeat.bundleVersion="$TRAIN" -Pheartbeat.trainShrink="$SHRINK" \
+          -Pheartbeat.launcherApi="$LAUNCHER_API" \
           -Porg.gradle.java.installations.auto-detect=false \
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64 \
           assembleBundle bundleManifest --no-daemon --stacktrace --profile
@@ -64,12 +90,14 @@ runs:
       if: inputs.shrink != 'off'
       shell: bash
       env:
+        HEARTBEAT_LAUNCHER_SIGNING_KEY: ${{ inputs.launcher-signing-key }}
         TRAIN: ${{ inputs.train }}
         SHRINK: ${{ inputs.shrink }}
-      # Nothing is written before every bundle of the processed train is healthy in a headless run.
+      # Nothing is written before every bundle of the processed train is healthy in a headless run. The run depends on
+      # bundleManifest again: without the key and the level it would write the manifest unsigned over the signed one.
       run: |
         env -u LD_LIBRARY_PATH xvfb-run --auto-servernum ./gradlew -Pheartbeat.bundleVersion="$TRAIN" \
-          -Pheartbeat.trainShrink="$SHRINK" \
+          -Pheartbeat.trainShrink="$SHRINK" -Pheartbeat.launcherApi="$LAUNCHER_API" \
           -Porg.gradle.java.installations.auto-detect=false \
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64 \
           :platform-main:desktop:verifyShrunkTrain --no-daemon --stacktrace --profile
@@ -80,7 +108,17 @@ runs:
         OUT: ${{ inputs.out }}
         BASE_URL: ${{ inputs.base-url }}
         SHRINK: ${{ inputs.shrink }}
+        SIGNED: ${{ inputs.launcher-signing-key != '' }}
       run: |
+        # With a key the launcher entry has to be signed: a manifest rewritten without it would publish a launcher
+        # that no installed app takes, and nobody would notice before the first update.
+        if [ "$SIGNED" = true ] && ! python3 -c "
+        import json, sys
+        entries = [b for b in json.load(open('build/bundles/manifest.json'))['bundles'] if b.get('kind') == 'launcher']
+        sys.exit(0 if len(entries) == 1 and entries[0].get('signature') else 1)"; then
+          echo "The launcher entry of the manifest is not signed although a signing key was given" >&2
+          exit 1
+        fi
         rm -rf train-jars train-mappings "$OUT"
         mkdir train-jars
         cp bundles/*/build/bundle/*.jar platform-main/desktop/build/bundle/*.jar train-jars/

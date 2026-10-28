@@ -4,7 +4,9 @@ name: Prerelease train
 # with `train-manifest.json` and the jars that changed since the previous train (features/app-update reads it on the
 # opt-in beta channel, toggle app_update.beta). Linux only, no installers: affectedBundles picks the bundles the
 # push changes, their tests gate the train, the Gradle build cache keeps the rest cheap (target: 20 minutes).
-# A push that changes no bundle (docs, CI, scripts) publishes nothing. release.yml promotes the train of its commit.
+# A push that changes no bundle (docs, CI, scripts) publishes nothing; a change of the launcher (platform-main/launcher)
+# publishes a train too, the bundles unchanged. The train carries the launcher jar signed with the key of the environment
+# launcher-signing, which only master can use. release.yml promotes the train of its commit.
 run-name: "Prerelease train ${{ github.sha }}"
 on:
   push:
@@ -25,8 +27,11 @@ jobs:
     name: Build the train
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # The secret HEARTBEAT_LAUNCHER_SIGNING_KEY (Ed25519 key of the launcher) belongs to this environment, restricted to master.
+    environment: launcher-signing
     outputs:
       publish: ${{ steps.affected.outputs.publish }}
+      launcher: ${{ steps.affected.outputs.launcher }}
       train: ${{ steps.affected.outputs.train }}
       previous: ${{ steps.affected.outputs.previous }}
     steps:
@@ -79,19 +84,27 @@ jobs:
           fi
           ./gradlew -Pheartbeat.changedFile=changed.txt affectedBundles --no-daemon --stacktrace
           cat build/bundles/affected.txt
-          if [ -s build/bundles/affected.txt ]; then
+          launcher=$(cat build/bundles/launcher.txt)
+          echo "launcher=$launcher" >> "$GITHUB_OUTPUT"
+          if [ -s build/bundles/affected.txt ] || [ "$launcher" = true ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "No bundle is affected: nothing to publish" >> "$GITHUB_STEP_SUMMARY"
+            echo "No bundle and not the launcher is affected: nothing to publish" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Test the affected bundles
         if: steps.affected.outputs.publish == 'true'
+        env:
+          LAUNCHER: ${{ steps.affected.outputs.launcher }}
         run: |
           tasks=()
           while read -r bundle; do
             [ -n "$bundle" ] && tasks+=("$bundle:jvmTest")
           done < build/bundles/affected.txt
+          # The launcher is pure Java and has its own tests; they gate the train that carries its jar.
+          if [ "$LAUNCHER" = true ]; then
+            tasks+=(":platform-main:launcher:test")
+          fi
           env -u LD_LIBRARY_PATH xvfb-run --auto-servernum ./gradlew "${tasks[@]}" verifyBundleMembership \
             -Porg.gradle.java.installations.auto-detect=false \
             -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64 \
@@ -102,6 +115,7 @@ jobs:
           train: ${{ steps.affected.outputs.train }}
           base-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/train-${{ steps.affected.outputs.train }}/
           github-token: ${{ github.token }}
+          launcher-signing-key: ${{ secrets.HEARTBEAT_LAUNCHER_SIGNING_KEY }}
       - uses: actions/upload-artifact@v7
         if: steps.affected.outputs.publish == 'true'
         with:
