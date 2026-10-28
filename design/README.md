@@ -60,7 +60,8 @@ Extensions → найти **pen.dev** → Install. Файл `.pen` открыв�
 design/
   README.md                         этот файл
   system/
-    heartbeat.lib.pen               библиотека: переменные-токены и Hb*-компоненты
+    heartbeat.lib.pen               библиотека: переменные-токены, иконки, иллюстрации, Hb*-компоненты
+    design-system.pen               страница дизайн-системы: стили, иконки, иллюстрации, компоненты с описанием
     assets/                         иконки и иллюстрации библиотеки (если не из встроенных наборов pen.dev)
   features/
     <feature>/                      имя совпадает с features/<feature> в коде
@@ -74,7 +75,8 @@ design/
 
 | Файл | Что внутри |
 |---|---|
-| `system/heartbeat.lib.pen` | все токены `design-system/tokens` переменными, базовые `Hb*`-компоненты |
+| `system/heartbeat.lib.pen` | определения: токены `design-system/tokens` переменными, 113 иконок `HbIcons`, 8 иллюстраций `HbIllustration`, базовые `Hb*`-компоненты |
+| `system/design-system.pen` | страница дизайн-системы: цвета (светлая и тёмная тема), типографика, отступы и формы, иконки, иллюстрации, компоненты с назначением и Compose API |
 | `features/ai-studio/ai-studio.pen` | студия: пустой чат, беседа, идёт ход агента, тёмная тема, компактная ширина 420 |
 | `features/ai-engine/connections.pen` | визард подключения движка: движок, авторизация (и ошибка), модели, тёмная тема |
 
@@ -139,9 +141,22 @@ pen.dev не умеет прототипирование и анимацию, п
 
 ### 2.4. Библиотека `heartbeat.lib.pen`
 
-Библиотека содержит все токены (263 переменные: цвета и поверхности четырёх пресетов, размеры, типографика, формы,
-отступы, тени, анимации) и базовые компоненты: кнопки, иконка-кнопка, строка навигации, разделитель, поля, бейджи,
-переключатель, строки вызова инструмента, пилюли и кнопки композера, баннер ошибки, знак студии, светофор окна.
+Библиотека содержит все токены (265 переменных: цвета и поверхности четырёх пресетов, размеры, типографика, формы,
+отступы, тени, анимации, шрифты), реальные иконки и иллюстрации приложения и базовые компоненты: кнопки, иконка-кнопка,
+строка навигации, разделитель, поля, бейджи, переключатель, строки вызова инструмента, пилюли и кнопки композера,
+баннер ошибки, знак студии, светофор окна. Документирует её страница `design-system.pen`.
+
+- **Иконки** — компоненты `hb-icon-<name>` (`HbIcons / <Name>`): контуры из `HbIcons.kt` в сетке 20×20, узел `path`.
+  Экземпляр: `{"type": "ref", "ref": "hb:hb-icon-chevron-right", "width": 14, "height": 14,
+  "stroke": "$hb:colors.textSecondary", "strokeWidth": 0.98}` — толщина линии 1.4 × размер / 20; у залитых иконок
+  (`HomeFilled`, `More`, `MoreVertical`, `Stop`) вместо `stroke` — `fill`. Иконку внутри компонента заменяет полный
+  узел в `descendants`: `{"hb:hb-icon-button-icon": {"id": "…", "type": "ref", "ref": "hb:hb-icon-search", …}}`.
+  Встроенные наборы pen.dev (`icon`, lucide) не используются.
+- **Иллюстрации** — компоненты `hb-illustration-<kind>` 240×180: слои из `IllustrationArtwork.kt` в цветах темы.
+- **Шрифт.** Приложение рисует шрифтом хоста (SF Pro на macOS, Segoe UI на Windows), но pen.dev берёт шрифты только
+  из своего каталога: системные имена (`SF Pro`, `Menlo`) молча заменяются запасным шрифтом. Поэтому
+  `typography.family` = `Inter` (ближайший по метрикам), `typography.code.family` = `JetBrains Mono`; ширина строк
+  в макете может немного отличаться от приложения.
 Значения переменных сняты с Kotlin-пресетов (`HbColors.Light/Dark/DesktopLight/DesktopDark` и т.д.), включая
 производные цвета; при изменении токена переменная правится в том же PR. Компоненты добавляются по мере надобности.
 
@@ -286,7 +301,9 @@ pen.dev рекомендует править файл через свои ин�
   число без переменной допустимо, только если такого токена нет и в заметке предложен новый;
 - компоненты — `ref` с переопределениями и `descendants`, а не копии узлов; адресация через алиас — таблица 2.4;
 - текст — реальный, на русском, включая длинные варианты; не «Lorem ipsum»;
-- иконки — узлы `icon` из встроенных наборов, ближайшие к иконкам `design-system:resources`;
+- иконки — только `ref` на `hb:hb-icon-*` (реальные `HbIcons`, 2.4); нужной иконки нет — сначала она появляется
+  в `HbIcons` и в библиотеке;
+- шрифт — `"fontFamily": "$hb:typography.family"` у каждого текста;
 - после правки файл должен открыться в pen.dev. Не открылся — откатить свою правку и сделать её меньшими шагами,
   а не чинить вслепую;
 - конфликты в `.pen` не разрешаются в JSON (раздел 1).
@@ -314,7 +331,8 @@ pen.dev рекомендует править файл через свои ин�
       "layout": "vertical", "justifyContent": "center", "alignItems": "center", "gap": "$hb:spacing.l",
       "children": [
         { "id": "chat-empty-content-title", "type": "text", "content": "Начните новый чат",
-          "fill": "$hb:colors.textPrimary", "fontSize": "$hb:typography.title.size", "fontWeight": "600" },
+          "fill": "$hb:colors.textPrimary", "fontFamily": "$hb:typography.family",
+          "fontSize": "$hb:typography.title.size", "fontWeight": "600" },
         { "id": "chat-empty-content-action", "type": "ref", "ref": "hb:hb-button-primary",
           "descendants": { "hb:hb-button-primary-label": { "content": "Новый чат" } } }
       ]
@@ -340,7 +358,7 @@ pen.dev не генерирует Compose, поэтому перенос дел�
 | `width: fill_container` / `fit_content` | `Modifier.weight(1f)` или `fillMaxWidth()` / размер по содержимому |
 | `justifyContent`, `alignItems` | `Arrangement.*`, `Alignment.*` |
 | `text` | `HbText` со стилем `HbTheme.typography.*`, строка — в `strings.xml` |
-| `icon` | ближайшая иконка `design-system:resources` |
+| `ref` на `hb:hb-icon-<name>`, `hb:hb-illustration-<kind>` | `HbIcon(HbIcons.<Name>)`, `HbIllustration(HbIllustrationKind.<Kind>)` |
 | Кадры `<Screen> / <State>` | состояния FlowMVI-стора и `@Preview` на каждое |
 | Раскадровка `Transitions` | `NavOptions(transition = NavTransition.*)` в `navigate`; микро-анимации — `HbTheme.motion` |
 

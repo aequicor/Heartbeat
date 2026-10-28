@@ -31,7 +31,9 @@ argument-hint: "<feature> <что проектируем>"
   Android/iOS), `id` без `/`; тёмная тема — `ref` на кадр с `theme`; `width`/`height` без `$`-переменных (README 4.4).
 - Только `ref` на компоненты и `$`-переменные библиотеки. Чего нет — сначала компонент или предложение токена
   (`proposal.<name>` + заметка) в библиотеке. Адресация через алиас: `"ref": "hb:<id>"`, `"$hb:<переменная>"`,
-  `"theme": {"hb:mode": "dark"}` (README 2.4); образцы — `design/features/*`.
+  `"theme": {"hb:mode": "dark"}` (README 2.4); иконки — только `ref` на `hb:hb-icon-*`, шрифт —
+  `$hb:typography.family`; справочник стилей и компонентов — `design/system/design-system.pen`, образцы —
+  `design/features/*`.
 - Все видимые состояния отдельными кадрами: пустое, загрузка, ошибка, длинный русский текст, значимые hover/selected/
   disabled/фокус. Навигационный переход — раскадровка и заметка `trigger / transition`;
   микро-анимация — заметка `trigger / duration / easing / reduced` (README 2.3).
