@@ -1083,7 +1083,8 @@
                      "x": 0,
                      "y": 47,
                      "height": 46,
-                     "layout": "none"
+                     "layout": "none",
+                     "context": "Переход «Выбор движка» → wizard-auth-desktop\nКлик по строке движка. Шаг 2 из 3: список движков заменяется провайдерами и формой метода; в подвале — «Назад», «Проверить подключение», «Подключить»."
                     },
                     {
                      "id": "wizard-engine-desktop-step-divider-codex",
@@ -4870,7 +4871,8 @@
                    "x": 423.5,
                    "y": 0,
                    "width": 185.8,
-                   "layout": "none"
+                   "layout": "none",
+                   "context": "Переход ««Проверить» без ключа» → wizard-auth-error-desktop\n«Проверить подключение» без ключа. Под полем ключа появляется баннер «Введите API-ключ», форма сдвигается вниз; баннер исчезает при правке поля."
                   },
                   {
                    "id": "wizard-auth-desktop-step-connect",
@@ -4897,7 +4899,7 @@
                    "y": 0,
                    "width": 104.7,
                    "layout": "none",
-                   "context": "Подключить · HbButton Primary\nОдин Primary на регион. «Проверить подключение» — Secondary; ошибка покажет баннер."
+                   "context": "Подключить · HbButton Primary\nОдин Primary на регион. «Проверить подключение» — Secondary; ошибка покажет баннер.\n\nПереход ««Подключить»» → wizard-models-desktop\n«Подключить» после успешной проверки. Шаг 3 из 3: форма заменяется списком моделей с переключателями; подвал — «Готово»."
                   }
                  ],
                  "x": 0,
@@ -12865,16 +12867,16 @@
   {
    "id": "flow-arrow-cn-0-text",
    "type": "text",
-   "name": "Описание перехода · шаг 1",
+   "name": "Подпись перехода · шаг 1",
    "x": 4398,
-   "y": 184.0,
-   "width": 280,
+   "y": 300.0,
+   "width": 250,
    "textGrowth": "fixed-width",
-   "content": "Клик по строке движка. Шаг 2 из 3: список движков заменяется провайдерами и формой метода; в подвале — «Назад», «Проверить подключение», «Подключить».",
+   "content": "Выбор движка",
    "fill": "$hb:colors.textPrimary",
    "fontFamily": "$hb:typography.family",
-   "fontSize": 17,
-   "lineHeight": 1.4,
+   "fontSize": 13,
+   "lineHeight": 1.35,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -12917,16 +12919,16 @@
   {
    "id": "flow-arrow-cn-1-text",
    "type": "text",
-   "name": "Описание перехода · шаг 2",
+   "name": "Подпись перехода · шаг 2",
    "x": 6078,
-   "y": 808.0,
-   "width": 280,
+   "y": 898.0,
+   "width": 250,
    "textGrowth": "fixed-width",
-   "content": "«Подключить» после успешной проверки. Шаг 3 из 3: форма заменяется списком моделей с переключателями; подвал — «Готово».",
+   "content": "«Подключить»",
    "fill": "$hb:colors.textPrimary",
    "fontFamily": "$hb:typography.family",
-   "fontSize": 17,
-   "lineHeight": 1.4,
+   "fontSize": 13,
+   "lineHeight": 1.35,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -12969,16 +12971,16 @@
   {
    "id": "flow-arrow-cn-2-text",
    "type": "text",
-   "name": "Описание перехода · шаг 1",
+   "name": "Подпись перехода · шаг 1",
    "x": 4398,
-   "y": 1426.9,
-   "width": 280,
+   "y": 1542.9,
+   "width": 250,
    "textGrowth": "fixed-width",
-   "content": "«Проверить подключение» без ключа. Под полем ключа появляется баннер «Введите API-ключ», форма сдвигается вниз; баннер исчезает при правке поля.",
+   "content": "«Проверить» без ключа",
    "fill": "$hb:colors.textPrimary",
    "fontFamily": "$hb:typography.family",
-   "fontSize": 17,
-   "lineHeight": 1.4,
+   "fontSize": 13,
+   "lineHeight": 1.35,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
