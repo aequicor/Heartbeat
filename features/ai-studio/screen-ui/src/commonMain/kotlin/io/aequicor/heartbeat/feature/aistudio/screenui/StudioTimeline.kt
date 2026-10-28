@@ -56,6 +56,7 @@ internal data class TimelineLabels(
     val organismResult: String = "",
     val engineChanged: String = "",
     val transferTruncated: String = "",
+    val autopilot: String = "Autopilot",
 )
 
 /** Failed-run notices, one per [FailureUi]. */
@@ -485,7 +486,7 @@ internal fun MessageUi.toHb(labels: TimelineLabels, anchored: Map<String, HbChat
     when (this) {
         is MessageUi.Prompt -> HbChatMessage(
             id = id,
-            author = labels.you,
+            author = if (isAutopilot) labels.autopilot else labels.you,
             text = text,
             role = HbChatRole.User,
             appearance = labels.promptAppearance,

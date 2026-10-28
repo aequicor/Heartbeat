@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="auto_continue_author">Автопилот</string>
+    <string name="auto_continue_menu">Автопродолжение</string>
+    <string name="auto_continue_chip_off">Автопродолжение</string>
+    <string name="auto_continue_chip_suggest">Подсказки</string>
+    <string name="auto_continue_chip_autopilot">Автопилот %1$d/%2$d</string>
+    <string name="auto_continue_mode_off">Выключено</string>
+    <string name="auto_continue_mode_off_hint">После хода ничего не предлагается</string>
+    <string name="auto_continue_mode_suggest">Подсказки</string>
+    <string name="auto_continue_mode_suggest_hint">После каждого хода — варианты продолжения; выбираете вы или пишете сами</string>
+    <string name="auto_continue_mode_autopilot">Автопилот</string>
+    <string name="auto_continue_mode_autopilot_hint">Отвечает сам, пока задача не готова или не нужен человек</string>
+    <string name="auto_continue_thinking">Подбираю продолжение…</string>
+    <string name="auto_continue_sending">Отправляю реплику автопилота…</string>
+    <string name="auto_continue_paused">Автопилот ждёт вашего решения</string>
+    <string name="auto_continue_countdown">Отправка через %1$d с</string>
+    <string name="auto_continue_countdown_text">Автопилот отправит: %1$s</string>
+    <string name="auto_continue_send_now">Отправить сейчас</string>
+    <string name="auto_continue_edit">Править</string>
+    <string name="auto_continue_stop">Стоп</string>
+    <string name="auto_continue_refresh">Обновить варианты</string>
+    <string name="auto_continue_insert">Вставить в поле ввода: %1$s</string>
+    <string name="auto_continue_notice_reason">%1$s. %2$s</string>
+    <string name="auto_continue_notice_done">Похоже, задача выполнена</string>
+    <string name="auto_continue_notice_needs_user">Нужно ваше решение</string>
+    <string name="auto_continue_notice_limit">Автопилот остановлен: достигнут лимит реплик</string>
+    <string name="auto_continue_notice_looping">Автопилот остановлен: он повторяется</string>
+    <string name="auto_continue_notice_failed">Не удалось подобрать продолжение</string>
+    <string name="auto_continue_notice_unavailable">Модель продолжателя недоступна — проверьте настройки автопродолжения</string>
+    <string name="auto_continue_notice_delivery">Автопилот остановлен: реплика не отправлена</string>
+    <string name="auto_continue_notice_turn_failed">Автопилот остановлен: ход завершился ошибкой</string>
+    <string name="auto_continue_notice_user_stopped">Автопилот остановлен</string>
+    <string name="auto_continue_notice_took_over">Автопилот остановлен: вы взяли управление</string>
+    <string name="auto_continue_notice_restarted">Автопилот остановлен перезапуском</string>
+</resources>

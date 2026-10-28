@@ -840,6 +840,8 @@ class AiStudioModelTest {
             io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning.None,
         val fileLinks: StudioFileLinkOpener =
             StudioFileLinkOpener(io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFileLinks.None),
+        autoContinue: io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAutoContinuePort =
+            io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAutoContinuePort.None,
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts(attachments)
@@ -879,6 +881,7 @@ class AiStudioModelTest {
             configuration = configuration,
             planning = planning,
             files = fileLinks,
+            autoContinuePort = autoContinue,
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {

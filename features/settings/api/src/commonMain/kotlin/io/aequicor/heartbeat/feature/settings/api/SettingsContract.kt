@@ -47,6 +47,10 @@ public enum class SettingsSection {
     @SerialName("context")
     Context,
 
+    /** Auto-continue of chats: the mode of new chats, the continuer model, the autopilot and the suggestions. */
+    @SerialName("auto_continue")
+    AutoContinue,
+
     /** The machine-wide build queue (Desktop): automatic or user limit of parallel agent builds. */
     @SerialName("builds")
     Builds,
@@ -117,6 +121,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.ChromiumBrowser -> "chromium_browser"
         SettingsSection.AgentLearning -> "agent_learning"
         SettingsSection.Context -> "context"
+        SettingsSection.AutoContinue -> "auto_continue"
         SettingsSection.Builds -> "builds"
         SettingsSection.Harness -> "harness"
         SettingsSection.Interfaces -> "interfaces"

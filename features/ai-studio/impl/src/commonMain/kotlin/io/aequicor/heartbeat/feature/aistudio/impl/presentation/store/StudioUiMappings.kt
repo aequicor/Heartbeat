@@ -113,7 +113,8 @@ internal fun ApprovalUi.toDomain(): ApprovalMode = when (this) {
     ApprovalUi.AutoApprove -> ApprovalMode.AutoApprove
 }
 
-internal fun StudioMessage.toUi(): MessageUi = when (this) {
+/** The screen entry of the message; a prompt of one of [autopilotTurns] was sent by the autopilot. */
+internal fun StudioMessage.toUi(autopilotTurns: Set<String> = emptySet()): MessageUi = when (this) {
     is StudioMessage.Prompt -> MessageUi.Prompt(
         id,
         createdAt,
@@ -122,6 +123,7 @@ internal fun StudioMessage.toUi(): MessageUi = when (this) {
         attachments.filter { it.id.startsWith("attachment:") }.map {
             AttachmentUi(it.id.removePrefix("attachment:"), "", it.mediaType, 0)
         }.toImmutableList(),
+        isAutopilot = turn != null && turn in autopilotTurns,
     )
 
     is StudioMessage.Reply -> MessageUi.Reply(

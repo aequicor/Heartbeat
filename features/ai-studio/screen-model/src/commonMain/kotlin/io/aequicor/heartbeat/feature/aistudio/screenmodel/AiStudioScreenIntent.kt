@@ -348,6 +348,56 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.CancelWorktreeBuild")
     data class CancelWorktreeBuild(val sessionId: String, val operation: String) : Worktree
 
+    /** Auto-continue of a chat: its mode, the offered replies and the autopilot's countdown. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.AutoContinue")
+    sealed interface AutoContinue : ChatMode {
+        /** The chat. */
+        val sessionId: String
+    }
+
+    /** Switches the auto-continue [mode] of [sessionId]. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.SetAutoContinue")
+    data class SetAutoContinue(override val sessionId: String, val mode: AutoContinueModeUi) : AutoContinue
+
+    /** Asks the continuer again for [sessionId]. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.RefreshAutoContinue")
+    data class RefreshAutoContinue(override val sessionId: String) : AutoContinue
+
+    /**
+     * Sends offered reply [index] of [sessionId] from [paneId] ([isSend]) or puts it into the pane's draft. [text] is
+     * the reply the human saw: a pick is dropped when the offer changed meanwhile.
+     */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.PickAutoContinue")
+    data class PickAutoContinue(
+        override val sessionId: String,
+        val paneId: Int,
+        val index: Int,
+        val isSend: Boolean,
+        val text: String,
+    ) : AutoContinue {
+        override fun toString(): String =
+            "PickAutoContinue(sessionId=$sessionId, paneId=$paneId, index=$index, isSend=$isSend)"
+    }
+
+    /** Sends the counted-down autopilot reply of [sessionId] now. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.SendAutoContinueNow")
+    data class SendAutoContinueNow(override val sessionId: String) : AutoContinue
+
+    /** Moves the counted-down autopilot reply of [sessionId] into the composer. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.EditAutoContinue")
+    data class EditAutoContinue(override val sessionId: String) : AutoContinue
+
+    /** Stops the autopilot of [sessionId]. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.StopAutoContinue")
+    data class StopAutoContinue(override val sessionId: String) : AutoContinue
+
     /** A user clicked an action in the editable root transcript of this session. */
     @Serializable
     @SerialName("AiStudioScreenIntent.DiagramAction")

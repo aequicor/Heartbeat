@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateEnabled
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueEnabled
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
@@ -66,11 +67,12 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
                 ) { worktree, queue ->
                     worktree && queue
                 },
-            ) { subagents, config, builds ->
-                Triple(subagents, config, builds)
+                toggles.observe(AutoContinueEnabled),
+            ) { subagents, config, builds, autoContinue ->
+                MoreProfileSections(subagents, config, builds, autoContinue)
             },
-        ) { learning, harness, context, interfaces, (subagents, config, builds) ->
-            ProfileSections(learning, harness, context, interfaces, subagents, config, builds)
+        ) { learning, harness, context, interfaces, more ->
+            ProfileSections(learning, harness, context, interfaces, more)
         },
         combine(
             sessions.active,
@@ -90,14 +92,15 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isLearningEnabled = profile.isLearning,
             isHarnessEnabled = profile.isHarness,
             isContextEnabled = profile.isContext,
+            isAutoContinueEnabled = profile.more.isAutoContinue,
             isInterfacesEnabled = profile.isInterfaces,
-            isSubagentsEnabled = profile.isSubagents,
-            isProjectConfigEnabled = profile.isProjectConfig,
+            isSubagentsEnabled = profile.more.isSubagents,
+            isProjectConfigEnabled = profile.more.isProjectConfig,
             isLogsEnabled = app.isLogs,
             isUpdatesEnabled = app.isUpdates,
             isDesktop = isDesktop,
             // Builds run only on Desktop; mobile hosts have no build queue to configure.
-            isBuildsEnabled = profile.isBuilds && isDesktop,
+            isBuildsEnabled = profile.more.isBuilds && isDesktop,
         )
     }
         // No placeholder of ungated sections first: it made a requested section open only after a second fade, and
@@ -119,7 +122,13 @@ private data class ProfileSections(
     val isHarness: Boolean,
     val isContext: Boolean,
     val isInterfaces: Boolean,
+    val more: MoreProfileSections,
+)
+
+/** The rest of the profile section toggles, read by a nested `combine`. */
+private data class MoreProfileSections(
     val isSubagents: Boolean,
     val isProjectConfig: Boolean,
     val isBuilds: Boolean,
+    val isAutoContinue: Boolean,
 )

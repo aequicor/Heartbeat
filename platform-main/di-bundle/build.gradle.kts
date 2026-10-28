@@ -28,6 +28,8 @@ kotlin {
             api(projects.features.welcome.api)
             api(projects.features.questionnaire.api)
             implementation(projects.features.aiStudio.impl)
+            implementation(projects.features.autoContinue.impl)
+            implementation(projects.features.autoContinue.api)
             implementation(projects.features.aiStudio.api)
             api(projects.features.computerUse.api)
             implementation(projects.features.feedback.api)

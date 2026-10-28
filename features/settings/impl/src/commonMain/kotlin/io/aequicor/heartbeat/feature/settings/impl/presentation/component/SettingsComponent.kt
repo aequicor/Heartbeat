@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlRout
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityRoute
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdatesRoute
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
@@ -165,6 +166,7 @@ class SettingsComponent(
             ChromiumBridgeRoute::class,
             AgentLearningRoute::class,
             ContextOptimizationRoute::class,
+            AutoContinueRoute::class,
             WorktreeBuildsRoute::class,
             HarnessRoute::class,
             HarnessDetailRoute::class,
@@ -195,6 +197,7 @@ private val EMBEDDED_ROUTES: Map<SettingsSection, Route> = mapOf(
     SettingsSection.ChromiumBrowser to ChromiumBridgeRoute(isEmbedded = true),
     SettingsSection.AgentLearning to AgentLearningRoute(isEmbedded = true),
     SettingsSection.Context to ContextOptimizationRoute(isEmbedded = true),
+    SettingsSection.AutoContinue to AutoContinueRoute(isEmbedded = true),
     SettingsSection.Builds to WorktreeBuildsRoute(isEmbedded = true),
     SettingsSection.Harness to HarnessRoute(isEmbedded = true),
     SettingsSection.Interfaces to ServiceUiLibraryRoute(isEmbedded = true),

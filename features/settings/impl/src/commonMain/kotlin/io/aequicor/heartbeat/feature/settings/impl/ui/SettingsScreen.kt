@@ -47,6 +47,7 @@ import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsSe
 import io.aequicor.heartbeat.feature.settings.impl.resources.Res
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_back
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_agent_learning
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_auto_continue
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_builds
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_chromium_browser
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_computer_use
@@ -269,6 +270,7 @@ private val SECTION_TITLES = mapOf(
     SettingsSectionUi.ChromiumBrowser to Res.string.settings_section_chromium_browser,
     SettingsSectionUi.AgentLearning to Res.string.settings_section_agent_learning,
     SettingsSectionUi.Context to Res.string.settings_section_context,
+    SettingsSectionUi.AutoContinue to Res.string.settings_section_auto_continue,
     SettingsSectionUi.Builds to Res.string.settings_section_builds,
     SettingsSectionUi.Harness to Res.string.settings_section_harness,
     SettingsSectionUi.Interfaces to Res.string.settings_section_interfaces,
@@ -290,6 +292,7 @@ private val SECTION_ICONS: Map<SettingsSectionUi, ImageVector> = mapOf(
     SettingsSectionUi.ChromiumBrowser to HbIcons.Globe,
     SettingsSectionUi.AgentLearning to HbIcons.Sparkles,
     SettingsSectionUi.Context to HbIcons.Minimize,
+    SettingsSectionUi.AutoContinue to HbIcons.Play,
     SettingsSectionUi.Builds to HbIcons.Terminal,
     SettingsSectionUi.Harness to HbIcons.Code,
     SettingsSectionUi.Interfaces to HbIcons.Grid,

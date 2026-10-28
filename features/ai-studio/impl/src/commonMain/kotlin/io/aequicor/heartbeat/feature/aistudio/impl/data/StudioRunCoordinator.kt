@@ -53,10 +53,15 @@ internal interface StudioRunHost {
 internal class StudioRunCoordinator(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val clock: Clock,
+    // Auto-continue runs its replies through this coordinator: deferred to break the cycle.
+    private val lifecycle: Lazy<StudioTurnLifecycle> = lazyOf(NoStudioTurnLifecycle),
 ) {
     private val log = Log.tag("StudioRunCoordinator")
     private val lock = Mutex()
     private val busy = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Whether a request or mutation of chat [id] runs now. */
+    fun isBusy(id: String): Boolean = id in busy.value
 
     /** Reserves a non-turn mutation without starting an agent or waiting behind a running request. */
     suspend fun <T> mutate(id: String, body: suspend () -> T): T {
@@ -110,7 +115,7 @@ internal class StudioRunCoordinator(
                     try {
                         host.prepareRun(request.id)
                         beforeExecute()
-                        host.executeRun(reserved)
+                        lifecycle.value.observe(reserved) { host.executeRun(reserved) }
                     } finally {
                         // An owner/source may cancel preparation itself. Settle its receipt before leaving the job.
                         // Only the short journal barrier and reservation cleanup survive caller cancellation.
