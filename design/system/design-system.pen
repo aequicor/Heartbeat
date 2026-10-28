@@ -13701,13 +13701,16 @@
                "layout": "none"
               },
               {
-               "id": "dsw-studio-desktop-header-gap",
-               "type": "frame",
-               "width": 100,
-               "height": 1,
+               "id": "dsw-studio-desktop-brand",
+               "type": "text",
+               "content": "Heartbeat",
+               "fill": "$hb:colors.textSecondary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "$hb:typography.label.weight",
                "x": 100,
-               "y": 21.5,
-               "layout": "none"
+               "y": 13
               },
               {
                "id": "dsw-studio-desktop-new",
@@ -13766,7 +13769,7 @@
              "id": "dsw-studio-desktop-list",
              "type": "frame",
              "width": 264,
-             "height": 712,
+             "height": 720,
              "layout": "none",
              "children": [
               {
@@ -13956,14 +13959,14 @@
               {
                "id": "dsw-studio-desktop-recent",
                "type": "frame",
-               "name": "Недавние",
+               "name": "Без проекта",
                "width": 248,
                "height": 28,
                "children": [
                 {
                  "id": "dsw-studio-desktop-recent-label",
                  "type": "text",
-                 "content": "Недавние",
+                 "content": "Без проекта",
                  "fill": "$hb:colors.textSecondary",
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
@@ -14031,8 +14034,8 @@
                  "y": 5
                 }
                ],
-               "x": 8,
-               "y": 8,
+               "x": 12,
+               "y": 4,
                "layout": "none",
                "fill": "$hb:surfaces.selected"
               },
@@ -14056,8 +14059,8 @@
                  "y": 5
                 }
                ],
-               "x": 38,
-               "y": 8,
+               "x": 48,
+               "y": 4,
                "layout": "none"
               },
               {
@@ -14080,17 +14083,8 @@
                  "y": 5
                 }
                ],
-               "x": 68,
-               "y": 8,
-               "layout": "none"
-              },
-              {
-               "id": "dsw-studio-desktop-rail-gap",
-               "type": "frame",
-               "width": 98,
-               "height": 1,
-               "x": 98,
-               "y": 21.5,
+               "x": 84,
+               "y": 4,
                "layout": "none"
               },
               {
@@ -14113,38 +14107,14 @@
                  "y": 5
                 }
                ],
-               "x": 198,
-               "y": 8,
-               "layout": "none"
-              },
-              {
-               "id": "dsw-studio-desktop-rail-connections",
-               "type": "frame",
-               "name": "HbIconButton",
-               "width": 28,
-               "height": 28,
-               "cornerRadius": "$hb:dimensions.controlCornerRadius",
-               "children": [
-                {
-                 "id": "dsw-studio-desktop-rail-connections-glyph",
-                 "type": "ref",
-                 "ref": "hb:hb-icon-link",
-                 "width": 18,
-                 "height": 18,
-                 "stroke": "$hb:colors.textSecondary",
-                 "strokeWidth": 1.26,
-                 "x": 5,
-                 "y": 5
-                }
-               ],
-               "x": 228,
-               "y": 8,
+               "x": 120,
+               "y": 4,
                "layout": "none"
               }
              ],
              "x": 0,
-             "y": 756,
-             "height": 44,
+             "y": 764,
+             "height": 36,
              "layout": "none"
             }
            ],
@@ -14195,15 +14165,55 @@
              "height": 56,
              "children": [
               {
+               "id": "dsw-studio-tablet-mark",
+               "type": "frame",
+               "name": "HbStudioMark · dimensions.avatarSize",
+               "width": 28,
+               "height": 28,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "dsw-studio-tablet-mark-hb-studio-mark-disc",
+                 "type": "ellipse",
+                 "x": 0.5,
+                 "y": 0.5,
+                 "width": 27,
+                 "height": 27,
+                 "fill": "$hb:surfaces.avatar"
+                },
+                {
+                 "id": "dsw-studio-tablet-mark-hb-studio-mark-wave",
+                 "type": "path",
+                 "geometry": "M20,52 C37,55 32,29 43,29 C56,29 50,73 63,73 C74,73 68,48 81,49",
+                 "viewBox": [
+                  0,
+                  0,
+                  100,
+                  100
+                 ],
+                 "x": 0,
+                 "y": 0,
+                 "width": 28,
+                 "height": 28,
+                 "stroke": "$hb:surfaces.accent",
+                 "strokeWidth": 2,
+                 "strokeLinecap": "round",
+                 "strokeLinejoin": "round"
+                }
+               ],
+               "x": 16,
+               "y": 14
+              },
+              {
                "id": "dsw-studio-tablet-brand",
                "type": "text",
                "content": "Heartbeat",
-               "fill": "$hb:colors.textSecondary",
+               "fill": "$hb:colors.textPrimary",
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.label.size",
                "lineHeight": "$hb:typography.label.lineHeight",
                "fontWeight": "$hb:typography.label.weight",
-               "x": 16,
+               "x": 52,
                "y": 18
               },
               {
@@ -14226,7 +14236,7 @@
                  "y": 15
                 }
                ],
-               "x": 136,
+               "x": 128,
                "y": 4,
                "layout": "none"
               },
@@ -14263,7 +14273,7 @@
              "id": "dsw-studio-tablet-list",
              "type": "frame",
              "width": 240,
-             "height": 992,
+             "height": 1000,
              "layout": "none",
              "children": [
               {
@@ -14296,6 +14306,18 @@
                  "fontWeight": "$hb:typography.label.weight",
                  "x": 38,
                  "y": 14
+                },
+                {
+                 "id": "dsw-studio-tablet-search-hint",
+                 "type": "text",
+                 "content": "⌘K",
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "x": 198.3,
+                 "y": 15
                 }
                ],
                "x": 8,
@@ -14441,14 +14463,14 @@
               {
                "id": "dsw-studio-tablet-recent",
                "type": "frame",
-               "name": "Недавние",
+               "name": "Без проекта",
                "width": 224,
                "height": 48,
                "children": [
                 {
                  "id": "dsw-studio-tablet-recent-label",
                  "type": "text",
-                 "content": "Недавние",
+                 "content": "Без проекта",
                  "fill": "$hb:colors.textSecondary",
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
@@ -14516,8 +14538,8 @@
                  "y": 15
                 }
                ],
-               "x": 8,
-               "y": 8,
+               "x": 12,
+               "y": 4,
                "layout": "none",
                "fill": "$hb:surfaces.selected"
               },
@@ -14541,8 +14563,8 @@
                  "y": 15
                 }
                ],
-               "x": 58,
-               "y": 8,
+               "x": 68,
+               "y": 4,
                "layout": "none"
               },
               {
@@ -14565,17 +14587,8 @@
                  "y": 15
                 }
                ],
-               "x": 108,
-               "y": 8,
-               "layout": "none"
-              },
-              {
-               "id": "dsw-studio-tablet-rail-gap",
-               "type": "frame",
-               "width": 0,
-               "height": 1,
-               "x": 158,
-               "y": 31.5,
+               "x": 124,
+               "y": 4,
                "layout": "none"
               },
               {
@@ -14598,38 +14611,14 @@
                  "y": 15
                 }
                ],
-               "x": 160,
-               "y": 8,
-               "layout": "none"
-              },
-              {
-               "id": "dsw-studio-tablet-rail-connections",
-               "type": "frame",
-               "name": "HbIconButton",
-               "width": 48,
-               "height": 48,
-               "cornerRadius": "$hb:dimensions.controlCornerRadius",
-               "children": [
-                {
-                 "id": "dsw-studio-tablet-rail-connections-glyph",
-                 "type": "ref",
-                 "ref": "hb:hb-icon-link",
-                 "width": 18,
-                 "height": 18,
-                 "stroke": "$hb:colors.textSecondary",
-                 "strokeWidth": 1.26,
-                 "x": 15,
-                 "y": 15
-                }
-               ],
-               "x": 210,
-               "y": 8,
+               "x": 180,
+               "y": 4,
                "layout": "none"
               }
              ],
              "x": 0,
-             "y": 1048,
-             "height": 64,
+             "y": 1056,
+             "height": 56,
              "layout": "none"
             }
            ],
@@ -14668,7 +14657,7 @@
            "id": "dsw-studio-drawer",
            "type": "frame",
            "name": "Studio / Sidebar",
-           "width": 300,
+           "width": 320,
            "height": 844,
            "layout": "none",
            "fill": "$hb:surfaces.sidebar",
@@ -14676,19 +14665,59 @@
             {
              "id": "dsw-studio-drawer-header",
              "type": "frame",
-             "width": 300,
+             "width": 320,
              "height": 56,
              "children": [
+              {
+               "id": "dsw-studio-drawer-mark",
+               "type": "frame",
+               "name": "HbStudioMark · dimensions.avatarSize",
+               "width": 28,
+               "height": 28,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "dsw-studio-drawer-mark-hb-studio-mark-disc",
+                 "type": "ellipse",
+                 "x": 0.5,
+                 "y": 0.5,
+                 "width": 27,
+                 "height": 27,
+                 "fill": "$hb:surfaces.avatar"
+                },
+                {
+                 "id": "dsw-studio-drawer-mark-hb-studio-mark-wave",
+                 "type": "path",
+                 "geometry": "M20,52 C37,55 32,29 43,29 C56,29 50,73 63,73 C74,73 68,48 81,49",
+                 "viewBox": [
+                  0,
+                  0,
+                  100,
+                  100
+                 ],
+                 "x": 0,
+                 "y": 0,
+                 "width": 28,
+                 "height": 28,
+                 "stroke": "$hb:surfaces.accent",
+                 "strokeWidth": 2,
+                 "strokeLinecap": "round",
+                 "strokeLinejoin": "round"
+                }
+               ],
+               "x": 16,
+               "y": 14
+              },
               {
                "id": "dsw-studio-drawer-brand",
                "type": "text",
                "content": "Heartbeat",
-               "fill": "$hb:colors.textSecondary",
+               "fill": "$hb:colors.textPrimary",
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.label.size",
                "lineHeight": "$hb:typography.label.lineHeight",
                "fontWeight": "$hb:typography.label.weight",
-               "x": 16,
+               "x": 52,
                "y": 18
               },
               {
@@ -14711,7 +14740,7 @@
                  "y": 15
                 }
                ],
-               "x": 196,
+               "x": 208,
                "y": 4,
                "layout": "none"
               },
@@ -14735,7 +14764,7 @@
                  "y": 15
                 }
                ],
-               "x": 244,
+               "x": 264,
                "y": 4,
                "layout": "none"
               }
@@ -14747,15 +14776,15 @@
             {
              "id": "dsw-studio-drawer-list",
              "type": "frame",
-             "width": 300,
-             "height": 724,
+             "width": 320,
+             "height": 732,
              "layout": "none",
              "children": [
               {
                "id": "dsw-studio-drawer-search",
                "type": "frame",
                "name": "Поиск по сессиям",
-               "width": 284,
+               "width": 304,
                "height": 48,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
@@ -14781,6 +14810,18 @@
                  "fontWeight": "$hb:typography.label.weight",
                  "x": 38,
                  "y": 14
+                },
+                {
+                 "id": "dsw-studio-drawer-search-hint",
+                 "type": "text",
+                 "content": "⌘K",
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "x": 278.3,
+                 "y": 15
                 }
                ],
                "x": 8,
@@ -14791,7 +14832,7 @@
                "id": "dsw-studio-drawer-projects",
                "type": "frame",
                "name": "Проекты",
-               "width": 284,
+               "width": 304,
                "height": 48,
                "children": [
                 {
@@ -14815,7 +14856,7 @@
                "id": "dsw-studio-drawer-project",
                "type": "frame",
                "name": "Heartbeat",
-               "width": 284,
+               "width": 304,
                "height": 48,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
@@ -14851,7 +14892,7 @@
                "id": "dsw-studio-drawer-session-latency",
                "type": "frame",
                "name": "Задержка ответа после отправки",
-               "width": 284,
+               "width": 304,
                "height": 48,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "fill": "$hb:surfaces.selected",
@@ -14877,7 +14918,7 @@
                "id": "dsw-studio-drawer-session-review",
                "type": "frame",
                "name": "Ревью PR дизайна",
-               "width": 284,
+               "width": 304,
                "height": 48,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
@@ -14902,7 +14943,7 @@
                "id": "dsw-studio-drawer-session-tests",
                "type": "frame",
                "name": "Тесты визарда подключений",
-               "width": 284,
+               "width": 304,
                "height": 48,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
@@ -14926,14 +14967,14 @@
               {
                "id": "dsw-studio-drawer-recent",
                "type": "frame",
-               "name": "Недавние",
-               "width": 284,
+               "name": "Без проекта",
+               "width": 304,
                "height": 48,
                "children": [
                 {
                  "id": "dsw-studio-drawer-recent-label",
                  "type": "text",
-                 "content": "Недавние",
+                 "content": "Без проекта",
                  "fill": "$hb:colors.textSecondary",
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
@@ -14951,7 +14992,7 @@
                "id": "dsw-studio-drawer-recent-1",
                "type": "frame",
                "name": "Как устроен планировщик",
-               "width": 284,
+               "width": 304,
                "height": 48,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
@@ -14979,7 +15020,7 @@
             {
              "id": "dsw-studio-drawer-footer",
              "type": "frame",
-             "width": 300,
+             "width": 320,
              "children": [
               {
                "id": "dsw-studio-drawer-rail-sessions",
@@ -15001,8 +15042,8 @@
                  "y": 15
                 }
                ],
-               "x": 8,
-               "y": 8,
+               "x": 12,
+               "y": 4,
                "layout": "none",
                "fill": "$hb:surfaces.selected"
               },
@@ -15026,8 +15067,8 @@
                  "y": 15
                 }
                ],
-               "x": 58,
-               "y": 8,
+               "x": 68,
+               "y": 4,
                "layout": "none"
               },
               {
@@ -15050,17 +15091,8 @@
                  "y": 15
                 }
                ],
-               "x": 108,
-               "y": 8,
-               "layout": "none"
-              },
-              {
-               "id": "dsw-studio-drawer-rail-gap",
-               "type": "frame",
-               "width": 34,
-               "height": 1,
-               "x": 158,
-               "y": 31.5,
+               "x": 124,
+               "y": 4,
                "layout": "none"
               },
               {
@@ -15083,38 +15115,14 @@
                  "y": 15
                 }
                ],
-               "x": 194,
-               "y": 8,
-               "layout": "none"
-              },
-              {
-               "id": "dsw-studio-drawer-rail-connections",
-               "type": "frame",
-               "name": "HbIconButton",
-               "width": 48,
-               "height": 48,
-               "cornerRadius": "$hb:dimensions.controlCornerRadius",
-               "children": [
-                {
-                 "id": "dsw-studio-drawer-rail-connections-glyph",
-                 "type": "ref",
-                 "ref": "hb:hb-icon-link",
-                 "width": 18,
-                 "height": 18,
-                 "stroke": "$hb:colors.textSecondary",
-                 "strokeWidth": 1.26,
-                 "x": 15,
-                 "y": 15
-                }
-               ],
-               "x": 244,
-               "y": 8,
+               "x": 180,
+               "y": 4,
                "layout": "none"
               }
              ],
              "x": 0,
-             "y": 780,
-             "height": 64,
+             "y": 788,
+             "height": 56,
              "layout": "none"
             }
            ],
@@ -15128,7 +15136,7 @@
          ],
          "x": 600,
          "y": 0,
-         "width": 300,
+         "width": 320,
          "height": 868
         },
         {
@@ -15901,7 +15909,7 @@
            "y": 24
           }
          ],
-         "x": 948,
+         "x": 968,
          "y": 0,
          "width": 264,
          "height": 824
@@ -16626,7 +16634,7 @@
            "y": 24
           }
          ],
-         "x": 1260,
+         "x": 1280,
          "y": 0,
          "width": 240,
          "height": 1136
@@ -16634,14 +16642,14 @@
        ],
        "x": 48,
        "y": 174,
-       "width": 1500,
+       "width": 1520,
        "height": 1136,
        "layout": "none"
       }
      ],
      "x": 0,
      "y": 8559.1,
-     "width": 1596,
+     "width": 1616,
      "height": 1358
     }
    ],
