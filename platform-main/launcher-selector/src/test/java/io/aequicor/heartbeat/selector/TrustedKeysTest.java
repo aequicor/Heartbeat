@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.selector;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -59,8 +60,8 @@ class TrustedKeysTest {
     }
 
     @Test
-    void builtInKeysAreReadable() throws Exception {
-        // the committed file has no keys until the owner fills it; it must parse and trust nothing meanwhile
-        TrustedKeys.builtIn();
+    void builtInKeysAreTheReleasePair() throws Exception {
+        // the committed file holds the primary key (CI secret) and the offline backup key, and nothing else
+        assertEquals(2, TrustedKeys.builtIn().size());
     }
 }

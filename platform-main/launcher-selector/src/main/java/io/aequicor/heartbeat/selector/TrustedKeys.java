@@ -65,6 +65,10 @@ final class TrustedKeys {
         return keys.isEmpty();
     }
 
+    int size() {
+        return keys.size();
+    }
+
     /** Подпись {@code signatureBase64} под {@code message} сделана одним из доверенных ключей. */
     boolean verifies(byte[] message, String signatureBase64) {
         byte[] signature;
