@@ -9,10 +9,15 @@ import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionProgr
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionStage
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionedImage
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.WinHttpTransport
+import kotlinx.cinterop.CFunction
+import kotlinx.cinterop.CPointer
+import kotlinx.cinterop.IntVar
 import kotlinx.cinterop.UShortVar
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.allocArray
+import kotlinx.cinterop.invoke
 import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.plus
 import kotlinx.cinterop.pointed
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
@@ -20,6 +25,7 @@ import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toCPointer
 import kotlinx.cinterop.toKString
+import kotlinx.cinterop.value
 import kotlinx.cinterop.wcstr
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -58,6 +64,7 @@ import platform.windows.GetMessageW
 import platform.windows.GetModuleFileNameW
 import platform.windows.GetModuleHandleW
 import platform.windows.GetMonitorInfoW
+import platform.windows.GetProcAddress
 import platform.windows.GetStockObject
 import platform.windows.GetSystemMetrics
 import platform.windows.GetTickCount64
@@ -71,6 +78,7 @@ import platform.windows.HICON
 import platform.windows.HICON__
 import platform.windows.HMODULE
 import platform.windows.HTCAPTION
+import platform.windows.HTCLIENT
 import platform.windows.HWND
 import platform.windows.HWND__
 import platform.windows.IDC_ARROW
@@ -85,6 +93,7 @@ import platform.windows.LR_LOADFROMFILE
 import platform.windows.LineTo
 import platform.windows.LoadCursorW
 import platform.windows.LoadImageW
+import platform.windows.LoadLibraryW
 import platform.windows.MAX_PATH
 import platform.windows.MINMAXINFO
 import platform.windows.MONITORINFO
@@ -94,6 +103,7 @@ import platform.windows.MonitorFromWindow
 import platform.windows.MoveToEx
 import platform.windows.MoveWindow
 import platform.windows.NULL_BRUSH
+import platform.windows.NULL_PEN
 import platform.windows.OUT_DEFAULT_PRECIS
 import platform.windows.PAINTSTRUCT
 import platform.windows.POINT
@@ -137,6 +147,7 @@ import platform.windows.WM_CTLCOLORSTATIC
 import platform.windows.WM_DESTROY
 import platform.windows.WM_DRAWITEM
 import platform.windows.WM_GETMINMAXINFO
+import platform.windows.WM_NCCALCSIZE
 import platform.windows.WM_NCHITTEST
 import platform.windows.WM_PAINT
 import platform.windows.WM_SETFONT
@@ -145,15 +156,16 @@ import platform.windows.WM_TIMER
 import platform.windows.WNDCLASSEXW
 import platform.windows.WPARAM
 import platform.windows.WS_CHILD
-import platform.windows.WS_POPUP
+import platform.windows.WS_OVERLAPPEDWINDOW
 import platform.windows.WS_VISIBLE
 import platform.windows.WaitForSingleObject
 import kotlin.concurrent.Volatile
 
 /**
  * Нативное окно лончера (Win32) по макету `design/features/native-launcher/native-launcher.pen`:
- * edge-to-edge поверхность без системного title bar (WS_POPUP + тень), встроенная иконка приложения,
- * логотип, название, этап, прогресс-бар, байты, Отмена/Повторить.
+ * edge-to-edge как у основного приложения: стандартные стили окна (resize, Aero Snap, анимации,
+ * тень, taskbar), видимая рамка и title bar убраны через WM_NCCALCSIZE; встроенная иконка,
+ * кастомный caption с кнопками управления, логотип, название, этап, прогресс-бар, байты, Отмена/Повторить.
  * Окно создаётся до старта JVM; сворачивание не останавливает загрузку, закрытие отменяет запуск.
  * Тема — из токенов дизайн-системы ([LauncherTheme]), обновления прогресса — не чаще 100 мс.
  */
@@ -205,8 +217,10 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
                 0u,
                 WINDOW_CLASS.wcstr.getPointer(this),
                 "Heartbeat".wcstr.getPointer(this),
-                // Edge-to-edge: без системного title bar и рамки; тень даёт CS_DROPSHADOW класса.
-                WS_POPUP.toUInt(),
+                // Edge-to-edge как у основного приложения: стандартные стили (caption + thickframe) —
+                // Windows сам даёт resize, Aero Snap, анимации, тень и taskbar. Видимую рамку убирает
+                // WM_NCCALCSIZE (вся область окна становится клиентской), перетаскивание — WM_NCHITTEST.
+                WS_OVERLAPPEDWINDOW.toUInt(),
                 (GetSystemMetrics(SM_CXSCREEN) - WINDOW_WIDTH) / 2,
                 (GetSystemMetrics(SM_CYSCREEN) - WINDOW_HEIGHT) / 2,
                 WINDOW_WIDTH,
@@ -218,6 +232,7 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
             )
             checkNotNull(window) { "Cannot create launcher window" }
             hwnd = window
+            extendFrameIntoClientArea(window)
             createControls(window, icon)
             // Показ только после создания контролов: белого всплеска пустого окна нет.
             ShowWindow(window, SW_SHOW)
@@ -233,12 +248,29 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         childProcess?.let { CloseHandle(it) }
     }
 
+    /**
+     * DWM-тень у окна без рамки (WM_NCCALCSIZE = 0): при 1px-полях DWM рендерит тень,
+     * не показывая нативный фрейм. dwmapi нет в платформенном klib, поэтому вызов —
+     * через GetProcAddress; MARGINS — четыре int подряд, передаём как массив.
+     */
+    private fun extendFrameIntoClientArea(window: HWND) = memScoped {
+        val dwmapi = LoadLibraryW("dwmapi.dll".wcstr.getPointer(this)) ?: return@memScoped
+        val address = GetProcAddress(dwmapi, "DwmExtendFrameIntoClientArea") ?: return@memScoped
+        val extend = address.reinterpret<CFunction<(HWND?, CPointer<IntVar>?) -> Int>>()
+        val raw = platform.posix.calloc(MARGINS_INTS.toULong(), INT32_BYTES.toULong()) ?: return@memScoped
+        val margins = raw.reinterpret<IntVar>()
+        for (index in 0 until MARGINS_INTS) {
+            (margins + index.toLong())?.pointed?.value = FRAME_MARGIN_PX
+        }
+        extend(window, margins)
+        platform.posix.free(raw)
+    }
+
     private fun registerWindowClass(instance: HMODULE?, icon: HICON?) {
         memScoped {
             val className = WINDOW_CLASS.wcstr.getPointer(this)
             val wndClass = alloc<WNDCLASSEXW>()
             wndClass.cbSize = sizeOf<WNDCLASSEXW>().toUInt()
-            wndClass.style = CLASS_STYLE.toUInt()
             wndClass.lpfnWndProc = staticCFunction(::launcherWndProc)
             wndClass.hInstance = instance
             wndClass.lpszClassName = className
@@ -564,22 +596,30 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         DestroyWindow(hwnd)
     }
 
-    /** HTCAPTION над полосой caption (кроме кнопок): перетаскивание и snap как у рамочного окна. */
+    /**
+     * Hit-test поверх стандартного: системная caption-полоса (HTCAPTION) даёт перетаскивание и Aero Snap
+     * как у рамочного окна; над нашими кнопками возвращаем HTCLIENT, чтобы они получали клики;
+     * HTCLIENT в пределах полосы caption поднимаем до HTCAPTION (область заголовка для drag).
+     * Зоны ресайза (HTTOP/HTLEFT/…) остаются дефолтным результатом и не перекрываются.
+     */
     internal fun onNcHitTest(lParam: LPARAM): LRESULT? = memScoped {
         val window = hwnd ?: return@memScoped null
         val screenX = (lParam.toInt() and 0xFFFF).toShort().toInt()
         val screenY = (lParam.toInt() shr 16).toShort().toInt()
+        val base = DefWindowProcW(window, WM_NCHITTEST.toUInt(), 0uL, lParam)
+        if (base != HTCAPTION.toLong() && base != HTCLIENT.toLong()) return@memScoped null
         val point = alloc<POINT>()
         point.x = screenX
         point.y = screenY
         ScreenToClient(window, point.ptr)
-        if (point.y < 0 || point.y >= CAPTION_HEIGHT) return@memScoped null
         val overButton = listOfNotNull(minimizeButton, maximizeButton, closeButton).any { button ->
             val rect = alloc<RECT>()
             GetWindowRect(button, rect.ptr)
             screenX >= rect.left && screenX < rect.right && screenY >= rect.top && screenY < rect.bottom
         }
-        if (overButton) null else HTCAPTION.toLong()
+        if (overButton) return@memScoped HTCLIENT.toLong()
+        if (point.y < 0 || point.y >= CAPTION_HEIGHT) return@memScoped null
+        HTCAPTION.toLong()
     }
 
     /** Максимизация без перекрытия панели задач: разворачиваем на рабочую область монитора. */
@@ -625,10 +665,6 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         private const val PROGRESS_CLASS = "HeartbeatLauncherProgress"
         private const val WINDOW_WIDTH = 1280
         private const val WINDOW_HEIGHT = 800
-
-        // CS_DROPSHADOW: тень у borderless-окна без DWM-кастомизаций.
-        private const val CS_DROPSHADOW = 0x00020000
-        private const val CLASS_STYLE = CS_DROPSHADOW
         private const val ICON_FILE_VERSION = 1
 
         // Кастомный caption (полоса вместо системного title bar).
@@ -639,6 +675,9 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         private const val CAPTION_PADDING = 10
         private const val CAPTION_TITLE_WIDTH = 160
         internal const val CAPTION_GLYPH_HALF = 5
+        private const val FRAME_MARGIN_PX = 1
+        private const val MARGINS_INTS = 4
+        private const val INT32_BYTES = 4
         private const val HANDOFF_TIMER_ID = 42
         private const val HANDOFF_INTERVAL_MS = 250
         private const val PROGRESS_INTERVAL_MS = 100L
@@ -684,6 +723,8 @@ private fun launcherWndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: 
                 window.onCommand(lParam.toCPointer<HWND__>())
                 null
             }
+
+            WM_NCCALCSIZE -> 0L
 
             WM_NCHITTEST -> window.onNcHitTest(lParam)
 
@@ -735,9 +776,12 @@ private fun drawButton(window: LauncherWindow, lParam: LPARAM) {
     memScoped {
         val background = CreateSolidBrush(if (isPrimary) window.theme.primaryButton else window.theme.background)
         val previous = SelectObject(dc, background)
+        // Без NULL_PEN фигура обводится стоковым чёрным пером.
+        val nullPen = SelectObject(dc, GetStockObject(NULL_PEN))
         val corner = LauncherWindow.BUTTON_CORNER_RADIUS
         RoundRect(dc, rect.left, rect.top, rect.right, rect.bottom, corner, corner)
         SelectObject(dc, previous)
+        SelectObject(dc, nullPen)
         DeleteObject(background)
         SetBkMode(dc, TRANSPARENT)
         SetTextColor(dc, if (isPrimary) window.theme.primaryButtonText else window.theme.textPrimary)
@@ -758,6 +802,8 @@ private fun progressWndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: 
         val theme = LauncherTheme.current()
         val track = CreateSolidBrush(theme.progressTrack)
         val previous = SelectObject(dc, track)
+        // Без NULL_PEN контур фигуры — стоковым чёрным пером.
+        val nullPen = SelectObject(dc, GetStockObject(NULL_PEN))
         val corner = LauncherWindow.PROGRESS_CORNER_RADIUS
         RoundRect(dc, rect.left, rect.top, rect.right, rect.bottom, corner, corner)
         val percent = LauncherWindowRegistry.progressPercent.coerceIn(0, 100)
@@ -769,6 +815,7 @@ private fun progressWndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: 
             DeleteObject(fill)
         }
         SelectObject(dc, previous)
+        SelectObject(dc, nullPen)
         DeleteObject(track)
         EndPaint(hwnd, paint.ptr)
     }
@@ -779,11 +826,13 @@ private fun progressWndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: 
 private fun drawCaptionButton(window: LauncherWindow, item: DRAWITEMSTRUCT) = memScoped {
     val dc = item.hDC
     val rect = item.rcItem
-    // Фон кнопки — как у окна: owner-draw не стирает сам.
+    // Фон кнопки — как у окна: owner-draw не стирает сам, контур гасим NULL_PEN.
     val background = CreateSolidBrush(window.theme.background)
     val previous = SelectObject(dc, background)
+    val nullPen = SelectObject(dc, GetStockObject(NULL_PEN))
     Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom)
     SelectObject(dc, previous)
+    SelectObject(dc, nullPen)
     DeleteObject(background)
 
     val glyphColor = window.theme.textPrimary
@@ -794,8 +843,10 @@ private fun drawCaptionButton(window: LauncherWindow, item: DRAWITEMSTRUCT) = me
         window.minimizeButton -> {
             val brush = CreateSolidBrush(glyphColor)
             val old = SelectObject(dc, brush)
+            val oldPen = SelectObject(dc, GetStockObject(NULL_PEN))
             Rectangle(dc, cx - half, cy - 1, cx + half, cy + 1)
             SelectObject(dc, old)
+            SelectObject(dc, oldPen)
             DeleteObject(brush)
         }
 
