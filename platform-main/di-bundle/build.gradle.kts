@@ -70,6 +70,7 @@ kotlin {
         val engineImpls: KotlinDependencyHandler.() -> Unit = {
             implementation(projects.features.aiEngine.koog.impl)
             implementation(projects.features.aiEngine.claude.impl)
+            implementation(projects.features.aiEngine.kimi.impl)
             implementation(projects.features.aiEngine.facade.impl)
             implementation(projects.features.aiEngine.pi.impl)
             implementation(projects.features.aiEngine.acpInterface.impl)
