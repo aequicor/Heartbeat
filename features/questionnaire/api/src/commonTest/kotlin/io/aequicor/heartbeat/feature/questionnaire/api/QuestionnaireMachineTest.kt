@@ -36,17 +36,24 @@ class QuestionnaireMachineTest {
 
     @Test
     fun `ask from idle starts asking and appends or replaces later questions`() {
-        spec.assertTransition(QuestionnaireState.Idle, QuestionnaireIntent.Public.Ask(pick), asking)
+        val first = QuestionnaireIntent.Public.Ask(pick)
+        spec.assertTransition(
+            QuestionnaireState.Idle,
+            first,
+            asking.copy(generations = mapOf(pick.id to first.generation)),
+        )
+        val second = QuestionnaireIntent.Public.Ask(confirm)
         spec.assertTransition(
             asking,
-            QuestionnaireIntent.Public.Ask(confirm),
-            QuestionnaireState.Asking(listOf(pick, confirm)),
+            second,
+            QuestionnaireState.Asking(listOf(pick, confirm), generations = mapOf(confirm.id to second.generation)),
         )
         val renamed = pick.copy(title = "Pick again")
+        val replacement = QuestionnaireIntent.Public.Ask(renamed)
         spec.assertTransition(
             asking.copy(submitting = setOf(pick.id)),
-            QuestionnaireIntent.Public.Ask(renamed),
-            QuestionnaireState.Asking(listOf(renamed)),
+            replacement,
+            QuestionnaireState.Asking(listOf(renamed), generations = mapOf(pick.id to replacement.generation)),
         )
     }
 
