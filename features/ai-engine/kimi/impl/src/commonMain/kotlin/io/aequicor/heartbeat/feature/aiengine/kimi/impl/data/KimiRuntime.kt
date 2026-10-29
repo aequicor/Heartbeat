@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.kimi.impl.data
 
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
@@ -13,6 +14,9 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionRequ
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSessionUpdate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
@@ -22,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
@@ -30,6 +35,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
@@ -37,12 +45,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PlanStep
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PlanStepStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -52,6 +64,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -89,11 +102,19 @@ internal class KimiRuntime(
     internal val scope: CoroutineScope,
     private val initialization: AcpInitialization,
     private val directory: suspend (CreateSessionRequest) -> String,
+    private val toggles: FeatureToggles,
+    internal val tools: ProfileAgentTools = NoAgentTools,
+    internal val resources: ResourceResolver = ResourceResolver { null },
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
     AcpClientHandler {
-    override val features = KimiFeatures(CreatesSessions to this, AttachesSessions to this)
+    private val providerUsage = KimiProviderUsage { toggles.get(EngineUsageEnabled) }
+    override val features = KimiFeatures(
+        CreatesSessions to this,
+        AttachesSessions to this,
+        ReportsProviderUsage to providerUsage,
+    )
     private val sessions = MutableStateFlow<Map<String, KimiSession>>(emptyMap())
     private val mutex = Mutex()
     private val loading = Mutex()
@@ -103,10 +124,35 @@ internal class KimiRuntime(
     private var isShutdown = false
     override val isClosed: Boolean get() = isShutdown
 
+    init {
+        scope.launch {
+            toggles.observe(EngineUsageEnabled).collect { enabled -> if (!enabled) clearUsage() }
+        }
+    }
+
     override suspend fun create(request: CreateSessionRequest): ActiveSession {
         checkActive()
-        val native = connection.newSession(directory(request))
-        return session(native.sessionId, request.target, request.workspace).lease()
+        val cwd = directory(request)
+        val native = connection.newSession(cwd)
+        configure(native.sessionId, native.metadata, request.target)
+        return session(native.sessionId, request.target, request.workspace, native.metadata, cwd).lease()
+    }
+
+    suspend fun discoverCatalog(
+        binding: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId,
+    ): KimiModelCatalog {
+        val target = EngineTarget(identity.engine, binding, ModelId("catalog"))
+        val native = connection.newSession(directory(CreateSessionRequest(target)))
+        return kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
+    }
+
+    private suspend fun configure(sessionId: String, metadata: JsonObject, target: EngineTarget) {
+        if (metadata.hasConfigOption("model")) {
+            connection.setConfigOption(sessionId, "model", nativeKimiModel(target.model))
+        }
+        if (metadata.hasConfigOption("mode")) {
+            connection.setConfigOption(sessionId, "mode", "default")
+        }
     }
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
@@ -134,14 +180,18 @@ internal class KimiRuntime(
         if (!initialization.agentCapabilities["loadSession"].supportsLoad()) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
         }
-        connection.loadSession(nativeId, directory(CreateSessionRequest(request.target, request.workspace)))
-        session(nativeId, request.target, request.workspace).lease()
+        val cwd = directory(CreateSessionRequest(request.target, request.workspace))
+        val native = connection.loadSession(nativeId, cwd)
+        configure(nativeId, native.metadata, request.target)
+        session(nativeId, request.target, request.workspace, native.metadata, cwd).lease()
     }
 
     private suspend fun session(
         nativeId: String,
         target: EngineTarget,
         workspace: io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef?,
+        metadata: JsonObject,
+        workingDirectory: String,
     ): KimiSession = mutex.withLock {
         checkActive()
         sessions.value[nativeId] ?: run {
@@ -154,7 +204,14 @@ internal class KimiRuntime(
                 workspace,
             )
             log.i { "Kimi session registered" }
-            val created = KimiSession(ref, route, target, this)
+            val created = KimiSession(
+                ref,
+                route,
+                target,
+                this,
+                kimiNativeCatalog(metadata, initialization.agentCapabilities),
+                workingDirectory,
+            )
             sessions.value = sessions.value + (nativeId to created)
             created
         }
@@ -163,6 +220,20 @@ internal class KimiRuntime(
     @HighFrequency
     override suspend fun onSessionUpdate(update: AcpSessionUpdate) {
         mutex.withLock { sessions.value[update.sessionId] }?.update(update.update)
+    }
+
+    internal suspend fun receiveUsage(session: KimiSession, update: JsonObject) {
+        if (toggles.get(EngineUsageEnabled)) {
+            session.contextUsage.receive(update)
+            providerUsage.receive(update)
+        } else {
+            clearUsage()
+        }
+    }
+
+    private fun clearUsage() {
+        providerUsage.clear()
+        sessions.value.values.forEach { it.contextUsage.clear() }
     }
 
     override fun onPromptSubmitted(sessionId: String) {
@@ -198,12 +269,16 @@ internal class KimiRuntime(
     }
 
     companion object {
+        @Suppress("LongParameterList") // The factory stitches independent DI-provided profile dependencies.
         suspend fun open(
             identity: RuntimeIdentity,
             transport: io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport,
             clients: AcpClientFactory,
             scope: CoroutineScope,
             directory: suspend (CreateSessionRequest) -> String,
+            toggles: FeatureToggles,
+            tools: ProfileAgentTools = NoAgentTools,
+            resources: ResourceResolver = ResourceResolver { null },
         ): KimiRuntime {
             val runtime = MutableStateFlow<KimiRuntime?>(null)
             val connection = clients.connect(
@@ -225,7 +300,16 @@ internal class KimiRuntime(
             var isTransferred = false
             try {
                 val initialization = connection.initialize(AcpImplementation("heartbeat", "1", "Heartbeat"))
-                return KimiRuntime(identity, connection, scope, initialization, directory).also {
+                return KimiRuntime(
+                    identity,
+                    connection,
+                    scope,
+                    initialization,
+                    directory,
+                    toggles,
+                    tools,
+                    resources,
+                ).also {
                     runtime.value = it
                     isTransferred = true
                 }
@@ -247,8 +331,11 @@ internal class KimiSession(
     val route: ExecutionRoute,
     val target: EngineTarget,
     private val runtime: KimiRuntime,
+    private val catalog: KimiModelCatalog,
+    private val workingDirectory: String,
 ) : SessionHistory {
     val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
+    val contextUsage = KimiContextUsage()
     private val history = KimiHistory()
     private val leases = mutableSetOf<KimiLease>()
     private var messageId: ItemId? = null
@@ -256,6 +343,7 @@ internal class KimiSession(
     private val mutex = Mutex()
     private var position = 0L
     private var currentTurn: Turn? = null
+    private var currentRequest: PromptRequest? = null
     private val submission = MutableStateFlow<CompletableDeferred<Unit>?>(null)
     private var isCancelPending = false
     private var isInterrupting = false
@@ -288,17 +376,15 @@ internal class KimiSession(
         return turn.id
     }
 
-    private fun start(request: PromptRequest): Pair<Turn, CompletableDeferred<Unit>> {
+    private suspend fun start(request: PromptRequest): Pair<Turn, CompletableDeferred<Unit>> {
         validate(request)
-        val text = request.parts.map { part ->
-            when (part) {
-                is ContentPart.Text -> part.text
-                is ContentPart.Image, is ContentPart.Resource -> unsupportedContent(request)
-                is ContentPart.Reasoning -> unsupportedContent(request)
-            }
-        }.joinToString("\n")
+        val content = kimiPromptInputs(request, catalog.inputSupport, runtime.resources)
+        request.reasoningEffort?.let { effort ->
+            runtime.connection.setConfigOption(ref.nativeId, "thinking", effort)
+        }
         val turn = Turn(TurnId(newId("turn")), request.id, target, decisionMode = request.decisionMode)
         currentTurn = turn
+        currentRequest = request
         val submitted = CompletableDeferred<Unit>()
         submission.value = submitted
         isInterrupting = false
@@ -309,7 +395,7 @@ internal class KimiSession(
         addMessage(MessageRole.User, request.parts, turn.id)
         runtime.scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val result = runtime.connection.prompt(ref.nativeId, text)
+                val result = runtime.connection.prompt(ref.nativeId, content)
                 finish(turn.id, if (result.stopReason == "cancelled") TurnOutcome.Cancelled else TurnOutcome.Completed)
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
@@ -339,20 +425,11 @@ internal class KimiSession(
     }
 
     private fun validate(request: PromptRequest) {
-        val hasUnsupportedOptions = listOf(
-            request.compaction != null,
-            request.reasoningEffort != null,
-            request.trust != null,
-            request.reviewTarget != null,
-        ).any { it }
-        if (hasUnsupportedOptions) {
+        val effort = request.reasoningEffort
+        if (request.compaction != null || (effort != null && effort !in catalog.efforts)) {
             throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         }
     }
-
-    private fun unsupportedContent(request: PromptRequest): Nothing = throw EngineException(
-        EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id),
-    )
 
     suspend fun cancel(turn: TurnId, lease: KimiLease) {
         runtime.scope.async {
@@ -392,16 +469,45 @@ internal class KimiSession(
     }
 
     suspend fun permission(request: AcpPermissionRequest): AcpPermissionOutcome {
+        val (turn, prompt) = mutex.withLock {
+            val active = currentTurn?.takeIf { it.outcome == null } ?: return AcpPermissionOutcome.Cancelled
+            active to (currentRequest ?: return AcpPermissionOutcome.Cancelled)
+        }
+        val permissions = AgentToolPermissions { approval -> requestUserPermission(turn.id, approval) }
+        val context = AgentToolContext(
+            ref,
+            route.workspace,
+            turn.id,
+            prompt.id,
+            prompt.trust ?: TrustLevel.Ask,
+            permissions,
+            callId = request.toolCall["toolCallId"]?.jsonPrimitive?.contentOrNull?.let(::ToolCallId),
+            target = target,
+            decisionMode = prompt.decisionMode,
+            reviewTarget = prompt.reviewTarget,
+            userInstruction = prompt.userInstruction,
+        )
+        val verdict = runtime.tools.authorizeNative(context, kimiNativeCall(request.toolCall, workingDirectory))
+        val isActive = mutex.withLock { currentTurn?.id == turn.id && currentTurn?.outcome == null }
+        if (!isActive || verdict is NativeVerdict.Deny) return AcpPermissionOutcome.Cancelled
+        val option = request.options.firstOrNull { it.kind == "allow_once" }
+            ?: request.options.firstOrNull { it.kind.startsWith("allow") }
+            ?: return AcpPermissionOutcome.Cancelled
+        return AcpPermissionOutcome.Selected(option.optionId)
+    }
+
+    private suspend fun requestUserPermission(turn: TurnId, approval: AgentToolApproval): Boolean {
         val (id, answer) = mutex.withLock {
-            val turn = currentTurn?.takeIf { it.outcome == null } ?: return AcpPermissionOutcome.Cancelled
+            if (currentTurn?.id != turn || currentTurn?.outcome != null) return false
             val id = PermissionRequestId(newId("permission"))
             val normalized = PermissionRequest(
                 id,
-                turn.id,
-                request.toolCall["title"]?.jsonPrimitive?.contentOrNull ?: "Kimi CLI requests permission",
-                request.options.map {
-                    PermissionOption(PermissionOptionId(it.optionId), it.name, it.kind.startsWith("reject"))
-                },
+                turn,
+                approval.title,
+                listOf(
+                    PermissionOption(PermissionOptionId("allow"), "Allow", false),
+                    PermissionOption(PermissionOptionId("deny"), "Deny", true),
+                ),
             )
             val answer = CompletableDeferred<AcpPermissionOutcome>()
             pending[id] = PendingPermission(normalized, answer)
@@ -411,7 +517,7 @@ internal class KimiSession(
             id to answer
         }
         try {
-            return answer.await()
+            return answer.await() == AcpPermissionOutcome.Selected("allow")
         } finally {
             withContext(NonCancellable) {
                 mutex.withLock {
@@ -429,11 +535,7 @@ internal class KimiSession(
         when (kind) {
             "user_message_chunk", "agent_message_chunk", "agent_thought_chunk" -> {
                 val text = update["content"]?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull ?: return@withLock
-                val role = when (kind) {
-                    "agent_message_chunk" -> MessageRole.Assistant
-                    "user_message_chunk" -> MessageRole.User
-                    else -> MessageRole.System
-                }
+                val role = if (kind == "user_message_chunk") MessageRole.User else MessageRole.Assistant
                 val part = if (kind == "agent_thought_chunk") ContentPart.Reasoning(text) else ContentPart.Text(text)
                 appendMessage(role, part, turn)
             }
@@ -444,6 +546,8 @@ internal class KimiSession(
             }
 
             "plan" -> updatePlan(update)
+
+            "usage_update" -> runtime.receiveUsage(this, update)
         }
     }
 
@@ -611,6 +715,7 @@ internal class KimiLease(private val session: KimiSession) :
         RequestsPermissions to this,
         ReconcilesSession to this,
         SessionHistory to session,
+        SessionContextUsage to session.contextUsage,
     )
 
     override suspend fun send(request: PromptRequest) = session.send(request, this)
@@ -625,6 +730,10 @@ private fun newId(prefix: String): String = "$prefix-${Uuid.random().toHexString
 
 private fun kotlinx.serialization.json.JsonElement?.supportsLoad(): Boolean =
     (this as? JsonPrimitive)?.contentOrNull == "true"
+
+private fun JsonObject.hasConfigOption(id: String): Boolean = this["configOptions"]?.jsonArray.orEmpty().any {
+    (it as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull == id
+}
 
 private fun Throwable.engineFailure(): EngineFailure = when (this) {
     is EngineException -> failure

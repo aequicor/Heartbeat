@@ -10,6 +10,7 @@ kotlin {
         implementation(projects.features.aiEngine.acpInterface.api)
         implementation(projects.core.di.api)
         implementation(projects.core.common)
+        implementation(projects.core.featureToggles.api)
         implementation(projects.core.logging)
         implementation(libs.kotlinx.serialization.json)
     }
