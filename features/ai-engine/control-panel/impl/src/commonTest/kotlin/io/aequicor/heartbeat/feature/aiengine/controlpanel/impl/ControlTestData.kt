@@ -92,11 +92,12 @@ internal object ControlTestData {
         title: String = id.value,
         reasons: Set<DisabledReason> = emptySet(),
         version: String? = "1.0.0",
+        family: EngineFamily = EngineFamily.Vendor,
     ) = ManagedEngine(
         EngineDescriptor(
             id,
             title,
-            EngineFamily.Vendor,
+            family,
             setOf(EnginePlatform.DesktopMacOs),
             FeatureToggle.Flag("ai.${id.value}", id.value),
         ),

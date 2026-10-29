@@ -102,6 +102,16 @@ class EngineManagementPresentationTest {
     }
 
     @Test
+    fun `the built-in family marks the panel while a managed engine stays unmarked`() {
+        val builtIn = managedCodex().copy(
+            descriptor = managedCodex().descriptor.copy(family = EngineFamily.BuiltIn),
+        )
+
+        assertTrue(builtIn.toPanel(null, EnginePlatform.DesktopMacOs).isBuiltIn)
+        assertFalse(managedCodex().toPanel(null, EnginePlatform.DesktopMacOs).isBuiltIn)
+    }
+
+    @Test
     fun `sign-in codes disappear when the prompt ends and sensitive UI data is redacted`() {
         val awaiting = managedSnapshot(
             managedCodex(

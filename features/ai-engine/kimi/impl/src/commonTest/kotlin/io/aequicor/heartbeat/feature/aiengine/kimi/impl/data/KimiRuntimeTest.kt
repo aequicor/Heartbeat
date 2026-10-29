@@ -456,6 +456,23 @@ class KimiRuntimeTest {
         testScheduler.advanceUntilIdle()
     }
 
+    @Test
+    fun `session configuration failure maps to an engine failure`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = Json.parseToJsonElement("""{"configOptions":[{"id":"model","options":[]}]}""").jsonObject
+            configFailure = AcpException.Remote(-32602, "Invalid params")
+        }
+        val runtime = runtime(connection, this)
+        val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+        assertIs<EngineFailure.Transport>(failure.failure)
+        connection.configFailure = null
+        val session = runtime.create(CreateSessionRequest(target))
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        session.sender().send(prompt("next"))
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        testScheduler.advanceUntilIdle()
+    }
+
     private fun prompt(id: String) = PromptRequest(RequestId(id), listOf(ContentPart.Text("Hello")))
 
     private fun runtime(
@@ -487,6 +504,7 @@ private class FakeConnection : AcpConnection {
     var cancellationBarrier: CompletableDeferred<Unit>? = null
     var metadata = JsonObject(emptyMap())
     var content = listOf<JsonObject>()
+    var configFailure: Exception? = null
     val configuration = mutableMapOf<String, String>()
     lateinit var runtime: KimiRuntime
 
@@ -501,6 +519,7 @@ private class FakeConnection : AcpConnection {
         return prompt.await()
     }
     override suspend fun setConfigOption(sessionId: String, optionId: String, value: String) {
+        configFailure?.let { throw it }
         configuration[optionId] = value
     }
     override suspend fun cancel(sessionId: String) {

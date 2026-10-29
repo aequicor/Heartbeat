@@ -28,7 +28,7 @@ internal class KimiContextUsage : SessionContextUsage {
 
     @HighFrequency
     fun receive(update: JsonObject) {
-        val usage = kimiContextUsage(update, Clock.System.now())
+        val usage = kimiContextUsage(update, Clock.System.now()) ?: return
         log.v { "mutableState: ${mutableState.value.toLogString()} -> ${usage.toLogString()}" }
         mutableState.value = usage
     }

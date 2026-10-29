@@ -124,9 +124,13 @@ internal class KimiRuntime(
     private var isShutdown = false
     override val isClosed: Boolean get() = isShutdown
 
-    init {
-        scope.launch {
+    private val usageToggleObserver = scope.launch {
+        try {
             toggles.observe(EngineUsageEnabled).collect { enabled -> if (!enabled) clearUsage() }
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error) { "Kimi usage toggle observer failed" }
         }
     }
 
@@ -134,7 +138,7 @@ internal class KimiRuntime(
         checkActive()
         val cwd = directory(request)
         val native = connection.newSession(cwd)
-        configure(native.sessionId, native.metadata, request.target)
+        configureCatching(native.sessionId, native.metadata, request.target)
         return session(native.sessionId, request.target, request.workspace, native.metadata, cwd).lease()
     }
 
@@ -152,6 +156,19 @@ internal class KimiRuntime(
         }
         if (metadata.hasConfigOption("mode")) {
             connection.setConfigOption(sessionId, "mode", "default")
+        }
+    }
+
+    /** Maps native configuration failures to the facade contract; the native session has no partial-cleanup path. */
+    @Suppress("SwallowedException") // The original is logged above; EngineException carries only the domain failure.
+    private suspend fun configureCatching(sessionId: String, metadata: JsonObject, target: EngineTarget) {
+        try {
+            configure(sessionId, metadata, target)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error) { "Kimi session configuration failed" }
+            throw EngineException(error.engineFailure())
         }
     }
 
@@ -182,7 +199,7 @@ internal class KimiRuntime(
         }
         val cwd = directory(CreateSessionRequest(request.target, request.workspace))
         val native = connection.loadSession(nativeId, cwd)
-        configure(nativeId, native.metadata, request.target)
+        configureCatching(nativeId, native.metadata, request.target)
         session(nativeId, request.target, request.workspace, native.metadata, cwd).lease()
     }
 
@@ -223,12 +240,9 @@ internal class KimiRuntime(
     }
 
     internal suspend fun receiveUsage(session: KimiSession, update: JsonObject) {
-        if (toggles.get(EngineUsageEnabled)) {
-            session.contextUsage.receive(update)
-            providerUsage.receive(update)
-        } else {
-            clearUsage()
-        }
+        if (!toggles.get(EngineUsageEnabled)) return
+        session.contextUsage.receive(update)
+        providerUsage.receive(update)
     }
 
     private fun clearUsage() {
@@ -248,6 +262,7 @@ internal class KimiRuntime(
     override suspend fun close() {
         if (isShutdown) return
         isShutdown = true
+        usageToggleObserver.cancel()
         try {
             withContext(NonCancellable) { connection.close() }
         } finally {
@@ -379,9 +394,7 @@ internal class KimiSession(
     private suspend fun start(request: PromptRequest): Pair<Turn, CompletableDeferred<Unit>> {
         validate(request)
         val content = kimiPromptInputs(request, catalog.inputSupport, runtime.resources)
-        request.reasoningEffort?.let { effort ->
-            runtime.connection.setConfigOption(ref.nativeId, "thinking", effort)
-        }
+        applyEffort(request)
         val turn = Turn(TurnId(newId("turn")), request.id, target, decisionMode = request.decisionMode)
         currentTurn = turn
         currentRequest = request
@@ -413,6 +426,18 @@ internal class KimiSession(
             }
         }
         return turn to submitted
+    }
+
+    @Suppress("SwallowedException") // Mapped to the domain failure; the turn failure path logs the original.
+    private suspend fun applyEffort(request: PromptRequest) {
+        val effort = request.reasoningEffort ?: return
+        try {
+            runtime.connection.setConfigOption(ref.nativeId, "thinking", effort)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw EngineException(error.engineFailure())
+        }
     }
 
     private suspend fun failed(turn: TurnId, error: Exception, retire: Boolean = false) {

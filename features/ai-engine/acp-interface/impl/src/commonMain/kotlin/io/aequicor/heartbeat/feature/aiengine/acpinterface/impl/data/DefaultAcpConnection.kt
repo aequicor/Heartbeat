@@ -164,10 +164,11 @@ internal class DefaultAcpConnection(
 
     override suspend fun setConfigOption(sessionId: String, optionId: String, value: String) {
         owned {
-            admissions.withLock {
+            val response = admissions.withLock {
                 requireSession(sessionId)
                 lock.withLock { check(sessionId !in busySessions) { "Session is busy" } }
-                peer.request(
+                log.i { "ACP set config option" }
+                peer.submit(
                     "session/set_config_option",
                     fields(
                         sessionId(sessionId),
@@ -176,13 +177,17 @@ internal class DefaultAcpConnection(
                     ),
                 )
             }
+            response.await()
         }
     }
 
-    private fun promptParams(sessionId: String, content: List<JsonObject>): JsonObject = fields(
-        sessionId(sessionId),
-        "prompt" to JsonArray(content),
-    )
+    private fun promptParams(sessionId: String, content: List<JsonObject>): JsonObject {
+        require(content.isNotEmpty()) { "ACP prompt requires at least one content block" }
+        return fields(
+            sessionId(sessionId),
+            "prompt" to JsonArray(content),
+        )
+    }
 
     override suspend fun close() {
         log.i { "ACP close requested" }

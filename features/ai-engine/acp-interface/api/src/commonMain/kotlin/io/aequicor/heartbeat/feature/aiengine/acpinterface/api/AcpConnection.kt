@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.acpinterface.api
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Creates a protocol service, not an engine registration. Construction performs no IO.
@@ -47,14 +48,20 @@ public interface AcpConnection {
         listOf(
             JsonObject(
                 mapOf(
-                    "type" to kotlinx.serialization.json.JsonPrimitive("text"),
-                    "text" to kotlinx.serialization.json.JsonPrimitive(text),
+                    "type" to JsonPrimitive("text"),
+                    "text" to JsonPrimitive(text),
                 ),
             ),
         ),
     )
 
-    /** Changes an option advertised in the session's configOptions, between prompt turns. */
+    /**
+     * Changes an option advertised in the session's configOptions, between prompt turns.
+     *
+     * The default rejects the call with [UnsupportedOperationException]: only connections to agents that
+     * advertise the option support it. [value] is the wire string form of the option; ACP v1 boolean options,
+     * which require a boolean value, are not representable through this string-only contract.
+     */
     public suspend fun setConfigOption(sessionId: String, optionId: String, value: String): Unit =
         throw UnsupportedOperationException("ACP session configuration is unavailable")
 
