@@ -43,7 +43,7 @@ public object KimiBindings {
             EngineFamily.Vendor,
             setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows, EnginePlatform.DesktopLinux),
             KimiEngine.Enabled,
-            requirements = listOf(EngineRequirement("kimi-cli", "Kimi CLI CLI with ACP support", "0.9.0")),
+            requirements = listOf(EngineRequirement("kimi-cli", "Kimi CLI with ACP support", "0.9.0")),
             connectionMethods = listOf(
                 ConnectionMethod.CliLogin(
                     ConnectionMethodId("cli"),

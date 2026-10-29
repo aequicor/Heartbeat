@@ -25,6 +25,8 @@ class AcpConcurrencyTest {
             if (frame.string("method") == "session/prompt") {
                 started.complete(Unit)
                 release.await()
+            } else if (frame.string("method") == "session/cancel") {
+                assertEquals(listOf("session"), h.handler.submitted)
             }
         }
         val prompt = backgroundScope.async { h.client.prompt("session", "hello") }
@@ -32,6 +34,7 @@ class AcpConcurrencyTest {
         val cancel = backgroundScope.async { h.client.cancel("session") }
         testScheduler.runCurrent()
         assertFalse(cancel.isCompleted)
+        assertTrue(h.handler.submitted.isEmpty())
         assertTrue(h.transport.output.tryReceive().isFailure)
         release.complete(Unit)
         val request = h.outgoing("session/prompt")
@@ -42,6 +45,21 @@ class AcpConcurrencyTest {
         h.reply(request, """{"stopReason":"cancelled"}""")
         prompt.await()
         h.client.close()
+    }
+
+    @Test
+    fun `submission callback failure closes transport after sending prompt`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize()
+        h.session()
+        h.handler.submission = { error("sensitive callback details") }
+        val prompt = backgroundScope.async {
+            assertFailsWith<IllegalStateException> { h.client.prompt("session", "hello") }
+        }
+        h.outgoing("session/prompt")
+        prompt.await()
+        assertEquals(listOf("session"), h.handler.submitted)
+        assertTrue(h.transport.isClosed)
     }
 
     @Test

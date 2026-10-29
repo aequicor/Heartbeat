@@ -35,7 +35,10 @@ public interface AcpConnection {
     /** Replays updates through the handler before returning; requires the loadSession capability. */
     public suspend fun loadSession(sessionId: String, cwd: String): AcpSession
 
-    /** Sends text and waits for the agent's final stop reason; updates and permissions are handled meanwhile. */
+    /**
+     * Sends text and waits for the agent's final stop reason; updates and permissions are handled meanwhile.
+     * [AcpClientHandler.onPromptSubmitted] establishes local wire submission before this call returns a result.
+     */
     public suspend fun prompt(sessionId: String, text: String): AcpPromptResult
 
     /** Sends a notification and cancels pending permission decisions; completion still comes from prompt. */
@@ -47,6 +50,14 @@ public interface AcpConnection {
 
 /** Callbacks installed for the whole connection, including updates sent while loading a session. */
 public interface AcpClientHandler {
+    /**
+     * Observes successful submission of a session/prompt frame, before releasing the prompt/cancel admission
+     * barrier and before delivering its result to the caller. This confirms local submission, not remote acceptance.
+     * Must return immediately without blocking, calling this connection, or running user code. Only record or
+     * complete an adapter-owned signal; throwing closes the connection because submission is already irreversible.
+     */
+    public fun onPromptSubmitted(sessionId: String): Unit = Unit
+
     /**
      * Receives every update in wire order, including unknown variants, before the corresponding prompt result.
      * Must return promptly and must not await calls on this connection. Throwing closes the connection.

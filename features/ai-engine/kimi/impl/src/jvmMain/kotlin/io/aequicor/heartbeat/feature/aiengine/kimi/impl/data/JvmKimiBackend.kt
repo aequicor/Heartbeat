@@ -4,6 +4,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
@@ -34,7 +35,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @ContributesBinding(ProfileScope::class, binding = binding<KimiBackend>())
 @SingleIn(ProfileScope::class)
@@ -43,6 +45,7 @@ internal class JvmKimiBackend(
     private val transports: AcpStdioTransportFactory,
     private val clients: AcpClientFactory,
     private val workspaces: LocalWorkspaces,
+    private val dispatchers: DispatcherProvider,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: KimiConfiguration = KimiConfiguration(),
 ) : KimiBackend {
@@ -51,24 +54,19 @@ internal class JvmKimiBackend(
     private var runtime: KimiRuntime? = null
 
     override suspend fun checkRequirements(): EngineAvailability = try {
-        withTimeout(PROBE_TIMEOUT_MS) {
-            val process = ProcessBuilder(configuration.executable, "--version")
+        val exit = probeKimiProcess(dispatchers, PROBE_TIMEOUT_MS) {
+            ProcessBuilder(configuration.executable, "--version")
                 .directory(java.io.File(configuration.workingDirectory ?: System.getProperty("user.home")))
-                .redirectErrorStream(true)
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .start()
-            try {
-                process.outputStream.close()
-                val exit = runInterruptible { process.waitFor() }
-                if (exit == 0) EngineAvailability.Available else unavailable()
-            } finally {
-                process.descendants().forEach { it.destroyForcibly() }
-                process.destroyForcibly()
-            }
         }
+        if (exit == null) log.w { "Kimi CLI probe timed out" }
+        if (exit == 0) EngineAvailability.Available else unavailable()
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        log.w(error) { "Kimi Code CLI probe failed" }
+        log.w(error) { "Kimi CLI probe failed" }
         unavailable()
     }
 
@@ -120,9 +118,7 @@ internal class JvmKimiBackend(
                 ),
             )
         }
-        return mutex.withLock { runtime?.stored(ref) } ?: throw EngineException(
-            EngineFailure.Session(io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason.NotFound),
-        )
+        return KimiStoredSession(ref)
     }
 
     private suspend fun directory(request: CreateSessionRequest): String {
@@ -140,5 +136,25 @@ internal class JvmKimiBackend(
     private companion object {
         const val ORIGIN = "https://api.kimi.com"
         const val PROBE_TIMEOUT_MS = 10_000L
+    }
+}
+
+/** Runs a bounded install probe on IO and releases the process on success, timeout and caller cancellation. */
+internal suspend fun probeKimiProcess(
+    dispatchers: DispatcherProvider,
+    timeoutMillis: Long,
+    start: () -> Process,
+): Int? = withContext(dispatchers.io) {
+    withTimeoutOrNull(timeoutMillis) {
+        val process = start()
+        try {
+            process.outputStream.close()
+            runInterruptible { process.waitFor() }
+        } finally {
+            process.descendants().use { children -> children.forEach { it.destroyForcibly() } }
+            process.destroyForcibly()
+            process.inputStream.close()
+            process.errorStream.close()
+        }
     }
 }
