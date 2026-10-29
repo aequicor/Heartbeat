@@ -36,6 +36,30 @@ class KimiUsageTest {
     }
 
     @Test
+    fun `invalid update keeps the previously reported context and provider state`() {
+        val contextUsage = KimiContextUsage()
+        contextUsage.receive(
+            Json.parseToJsonElement("""{"sessionUpdate":"usage_update","used":10,"size":1000}""").jsonObject,
+        )
+        contextUsage.receive(
+            Json.parseToJsonElement("""{"sessionUpdate":"usage_update","used":-1,"size":0}""").jsonObject,
+        )
+        assertEquals(10L, contextUsage.state.value?.usedTokens)
+        assertEquals(1000L, contextUsage.state.value?.capacityTokens)
+
+        val providerUsage = KimiProviderUsage { true }
+        providerUsage.receive(
+            Json.parseToJsonElement(
+                """{"sessionUpdate":"usage_update","_meta":{"kimiCode":{"rateLimits":{"summary":{"window":"1w"}}}}}""",
+            ).jsonObject,
+        )
+        providerUsage.receive(
+            Json.parseToJsonElement("""{"sessionUpdate":"usage_update","_meta":{"kimiCode":{}}}""").jsonObject,
+        )
+        assertEquals(listOf("1w"), providerUsage.state.value.windows.map { it.id })
+    }
+
+    @Test
     fun `kimi metadata exposes quota windows and booster credits`() {
         val update = Json.parseToJsonElement(
             """{"sessionUpdate":"usage_update","used":10,"size":1000,"_meta":{"kimiCode":{

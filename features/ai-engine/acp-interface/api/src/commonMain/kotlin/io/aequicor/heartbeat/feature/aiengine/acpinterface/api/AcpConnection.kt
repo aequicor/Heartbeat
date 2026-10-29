@@ -58,6 +58,8 @@ public interface AcpConnection {
     /**
      * Changes an option advertised in the session's configOptions, between prompt turns.
      *
+     * The connection serializes this frame with prompt submissions, but a caller running prompts concurrently
+     * may observe it interleave with a turn start: the guarantee is wire order, not a completed round trip.
      * The default rejects the call with [UnsupportedOperationException]: only connections to agents that
      * advertise the option support it. [value] is the wire string form of the option; ACP v1 boolean options,
      * which require a boolean value, are not representable through this string-only contract.
