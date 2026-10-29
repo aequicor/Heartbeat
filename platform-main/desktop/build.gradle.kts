@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
 import io.aequicor.heartbeat.buildlogic.PrepareReleaseRuntimeJars
 import io.aequicor.heartbeat.buildlogic.TrainPlatformJars
 import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
+import io.aequicor.heartbeat.buildlogic.WriteBootstrapManifest
 import io.aequicor.heartbeat.buildlogic.WriteComponentMetadata
 import io.aequicor.heartbeat.buildlogic.WriteTrainSeed
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
@@ -576,6 +577,70 @@ afterEvaluate {
             compilerFiles.from(configurations.runtimeClasspath)
         })
         timeout.set(Duration.ofMinutes(5))
+    }
+    if (piOs != "darwin") {
+        // Этап 2 тонкого установщика: из проверенного полного release-образа вырезаются отдельные артефакты
+        // runtime/platform/seed и подписанный bootstrap-манифест. Сам образ остаётся для packaged-проверок и
+        // fallback. macOS-раскладка (.app/Contents) подключается вместе с платформой (Этап 5).
+        val bootstrapOs = when (piOs) {
+            "darwin" -> "macos"
+            else -> piOs
+        }
+        val bootstrapTarget = "$bootstrapOs-$piArch"
+        val bootstrapDir = layout.buildDirectory.dir("bootstrap")
+        val releaseImageDir = releaseImage.flatMap { image -> image.destinationDir.dir(image.packageName) }
+        val packageBootstrapRuntime = tasks.register<Zip>("packageBootstrapRuntime") {
+            group = "compose desktop"
+            description = "Packs the exact runtime of the verified release image as a bootstrap artifact."
+            dependsOn(releaseImage)
+            from(releaseImageDir) { include("runtime/**") }
+            destinationDirectory.set(bootstrapDir)
+            archiveFileName.set("heartbeat-runtime-$heartbeatApplicationVersion-$bootstrapTarget.zip")
+        }
+        val packageBootstrapPlatform = tasks.register<Zip>("packageBootstrapPlatform") {
+            group = "compose desktop"
+            description = "Packs the release image without runtime and seed as the bootstrap platform artifact."
+            dependsOn(releaseImage)
+            from(releaseImageDir) {
+                include("**")
+                exclude("runtime/**", "app/resources/seed/**")
+            }
+            destinationDirectory.set(bootstrapDir)
+            archiveFileName.set("heartbeat-platform-$heartbeatApplicationVersion-$bootstrapTarget.zip")
+        }
+        val packageBootstrapSeed = tasks.register<Zip>("packageBootstrapSeed") {
+            group = "compose desktop"
+            description = "Packs the seed train of the release image as the bootstrap seed artifact."
+            dependsOn(releaseImage)
+            from(releaseImageDir.map { it.dir("app/resources/seed") })
+            destinationDirectory.set(bootstrapDir)
+            archiveFileName.set("heartbeat-seed-$heartbeatApplicationVersion-$bootstrapTarget.zip")
+        }
+        val writeBootstrapManifest = tasks.register<WriteBootstrapManifest>("writeBootstrapManifest") {
+            group = "compose desktop"
+            description = "Writes the signed bootstrap manifest of the thin installer artifacts."
+            dependsOn(packageBootstrapRuntime, packageBootstrapPlatform, packageBootstrapSeed)
+            version.set(heartbeatApplicationVersion)
+            channel.set(heartbeatChannel.id)
+            os.set(bootstrapOs)
+            arch.set(piArch)
+            runtimeId.set("jbr${libs.versions.desktop.jdk.get()}-$bootstrapTarget")
+            trainId.set(providers.gradleProperty("heartbeat.trainId").orElse("seed-$heartbeatApplicationVersion"))
+            releaseBaseUrl.set(
+                "https://github.com/$heartbeatUpdateRepository/releases/download/v$heartbeatApplicationVersion",
+            )
+            signingKey.set(providers.gradleProperty("heartbeat.bootstrapSigningKey"))
+            runtimeFile.set(packageBootstrapRuntime.flatMap { it.archiveFile })
+            platformFile.set(packageBootstrapPlatform.flatMap { it.archiveFile })
+            seedFile.set(packageBootstrapSeed.flatMap { it.archiveFile })
+            manifestFile.set(bootstrapDir.map { it.file("bootstrap-$bootstrapTarget.json") })
+            signatureFile.set(bootstrapDir.map { it.file("bootstrap-$bootstrapTarget.json.sig") })
+        }
+        tasks.register("packageBootstrapArtifacts") {
+            group = "compose desktop"
+            description = "Builds runtime/platform/seed zips and the signed bootstrap manifest."
+            dependsOn(writeBootstrapManifest)
+        }
     }
     tasks.withType<AbstractJvmToolOperationTask>().configureEach {
         javaHome.set(desktopJavaHome)
