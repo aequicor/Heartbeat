@@ -120,7 +120,7 @@ internal class DefaultAcpConnection(
         }
     }
 
-    override suspend fun prompt(sessionId: String, text: String): AcpPromptResult = owned {
+    override suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult = owned {
         var isTurnOwned = false
         try {
             val response = admissions.withLock {
@@ -131,7 +131,7 @@ internal class DefaultAcpConnection(
                 }
                 permissions.begin(sessionId)
                 log.i { "ACP prompt" }
-                peer.submit("session/prompt", promptParams(sessionId, text)).also {
+                peer.submit("session/prompt", promptParams(sessionId, content)).also {
                     try {
                         handler.onPromptSubmitted(sessionId)
                     } catch (error: CancellationException) {
@@ -162,9 +162,26 @@ internal class DefaultAcpConnection(
         }
     }
 
-    private fun promptParams(sessionId: String, text: String): JsonObject = fields(
+    override suspend fun setConfigOption(sessionId: String, optionId: String, value: String) {
+        owned {
+            admissions.withLock {
+                requireSession(sessionId)
+                lock.withLock { check(sessionId !in busySessions) { "Session is busy" } }
+                peer.request(
+                    "session/set_config_option",
+                    fields(
+                        sessionId(sessionId),
+                        "configId" to JsonPrimitive(optionId),
+                        "value" to JsonPrimitive(value),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun promptParams(sessionId: String, content: List<JsonObject>): JsonObject = fields(
         sessionId(sessionId),
-        "prompt" to JsonArray(listOf(fields("type" to JsonPrimitive("text"), "text" to JsonPrimitive(text)))),
+        "prompt" to JsonArray(content),
     )
 
     override suspend fun close() {
