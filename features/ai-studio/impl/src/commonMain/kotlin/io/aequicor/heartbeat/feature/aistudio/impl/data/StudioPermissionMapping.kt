@@ -55,6 +55,7 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     optionId: String,
     answer: StudioPermissionAnswer?,
     expectedTurnId: String? = null,
+    expectedPermission: StudioPermission? = null,
     origin: StudioPermissionAnswerOrigin = StudioPermissionAnswerOrigin.ManualOrUnknown,
     beforeAnswer: suspend () -> Unit = { error("Human authority revocation is unavailable") },
 ) {
@@ -69,6 +70,9 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     requirePermissionTurn(pending, expectedTurnId)
     val request = pending.requests.firstOrNull { it.id.value == requestId }
         ?: rejectPermission("the request is no longer pending", requestId, optionId)
+    check(expectedPermission == null || request.toStudio(expectedPermission.sessionId) == expectedPermission) {
+        "Permission changed before delivery"
+    }
     val option = request.options.firstOrNull { it.id.value == optionId }
         ?: rejectPermission("the option is not offered", requestId, optionId)
     val decision = PermissionDecision(request.turn, request.id, option.id, answer?.toFacade())
@@ -135,6 +139,7 @@ internal suspend fun ActiveSession?.respondStudioPermission(
         optionId,
         answer,
         expectedTurnId = turn,
+        expectedPermission = permission,
         origin = origin,
         beforeAnswer = beforeAnswer,
     )

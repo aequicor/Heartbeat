@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
@@ -56,8 +57,10 @@ import kotlinx.coroutines.withContext
  * Profile-owned delivery of engine permissions and restored questions. It uses the shared runtime without any
  * studio window. A live decision waits for native acknowledgement; a restored answer starts a profile-owned
  * follow-up with that chat's settings. The captured queue admits it at the runtime submission boundary;
- * receipts recover failed accepted deliveries unless an explicit mutation revoked their ownership. Live ask-user
- * questions retain their own owner. Claims are captured before launching concurrent deliveries, so another session can
+ * receipts remain closed on unconfirmed outcomes until reconciliation or explicit invalidation. Live ask-user
+ * questions retain their own owner. The `studio/` and legacy `<source>/` id namespaces identify native requests
+ * without accumulating profile-lifetime tombstones: absent native requests can never become follow-ups, even after
+ * a restart. Claims are captured before launching concurrent deliveries, so another session can
  * answer a permission while a follow-up is still running. Started by [StudioQuestionStartup].
  */
 @SingleIn(ProfileScope::class)
@@ -75,8 +78,6 @@ internal class StudioQuestionBridge(
     private val live = mutableMapOf<QuestionnaireId, StudioPermission>()
     private val nativeGenerations = mutableMapOf<QuestionnaireId, String>()
 
-    // Profile-lifetime provenance: an expired live request must never become a restored follow-up.
-    private val nativeIds = mutableSetOf<QuestionnaireId>()
     private val deliveries = mutableMapOf<QuestionnaireId, Delivery>()
     private val followUps = mutableMapOf<String, Delivery>()
 
@@ -91,12 +92,11 @@ internal class StudioQuestionBridge(
     ) {
         private val admissionLock = Mutex()
         private var isAdmissionClosed = false
-        var isAdmissionAttempted = false
-            private set
         var isAdmitted = false
             private set
         var acceptance: QuestionnaireIntent.Public.AcceptDelivery? = null
         var isAccepted = false
+        var ownership: StudioRunOwnership? = null
 
         /**
          * The profile worker can outlive the bridge caller. Serialize its short queue claim with cleanup,
@@ -105,7 +105,6 @@ internal class StudioQuestionBridge(
         suspend fun admit(): Boolean = admissionLock.withLock {
             if (isAdmissionClosed) return@withLock false
             currentCoroutineContext().ensureActive()
-            isAdmissionAttempted = true
             // Record ownership before cancellation can interrupt the return from send. An ignored duplicate
             // or a lost reply is not proof of ownership and must never fail another collector's gate.
             withContext(NonCancellable) {
@@ -162,7 +161,6 @@ internal class StudioQuestionBridge(
             val changed = current.values.filter { live[it.questionnaireId()] != it }
             changed.forEach {
                 live[it.questionnaireId()] = it
-                nativeIds += it.questionnaireId()
             }
             resolved to changed
         }
@@ -202,7 +200,7 @@ internal class StudioQuestionBridge(
                 val generation = output.generation ?: return@collect
                 if (output.questionnaire.id.value.startsWith(LIVE_QUESTION_ID_PREFIX)) return@collect
                 val delivery = prepareDelivery(machine, output, generation) ?: return@collect
-                launch { deliver(delivery, output.answer) }
+                launch(start = CoroutineStart.UNDISPATCHED) { deliver(delivery, output.answer) }
             }
     }
 
@@ -222,7 +220,7 @@ internal class StudioQuestionBridge(
                     question,
                     generation,
                     live[question.id],
-                    question.id in nativeIds,
+                    question.isNativeIdentity(),
                     (output.context as? StudioQuestionContext)?.environment,
                     output.context as? NativeAutopilotAnswerContext,
                 ).also {
@@ -260,8 +258,14 @@ internal class StudioQuestionBridge(
             }
             when {
                 permission != null -> respondNatively(delivery, permission, answer)
-                delivery.isNative -> log.i { "Ignore answer to an expired native request" }
+
+                delivery.isNative -> {
+                    log.i { "Discard answer to an expired native request" }
+                    withdrawCurrent(delivery)
+                }
+
                 answer == Answer.Skipped -> withdrawCurrent(delivery)
+
                 else -> followUp(delivery, answer)
             }
             isSuccessful = true
@@ -280,10 +284,14 @@ internal class StudioQuestionBridge(
     private suspend fun finishDelivery(delivery: Delivery, isSuccessful: Boolean, hasFailed: Boolean) {
         try {
             delivery.closeAdmission()
-            if (hasFailed || (!isSuccessful && delivery.isAdmissionAttempted)) recover(delivery)
+            if (delivery.ownership?.isTransferred == true) return
+            // Before admission, cancellation must release submitting as well as ordinary failures.
+            // After admission an exception or a lost outcome cannot prove that native IO did not happen.
+            val isRestoredCancellation = !isSuccessful && !delivery.isNative
+            if (!delivery.isAdmitted && (hasFailed || isRestoredCancellation)) recover(delivery)
         } finally {
             withContext(NonCancellable) {
-                releaseDelivery(delivery)
+                if (delivery.ownership?.isTransferred != true) releaseDelivery(delivery)
             }
         }
     }
@@ -336,37 +344,58 @@ internal class StudioQuestionBridge(
         runtime.value.invalidateUserInstructions(question.source)
         currentCoroutineContext().ensureActive()
         if (!isCurrent(question, delivery.generation, delivery.machine)) return
-        val outcome = runtime.value.run(
-            question.source,
-            question.followUpText(answer),
-            settings.value.settings(question.source),
-            attachments = emptyList(),
-            environment = delivery.environment,
-            admission = StudioRunAdmission {
-                val isAdmitted = delivery.admit()
-                currentCoroutineContext().ensureActive()
-                isAdmitted
-            },
-        ) {
-            check(delivery.isAdmitted) { "Question delivery was not admitted" }
-            check(delivery.acceptance == null) { "Question delivery acceptance was already attempted" }
-            val acceptance = QuestionnaireIntent.Public.AcceptDelivery(question.id, delivery.generation)
-            // send may commit before it throws or observes cancellation: retain the receipt first.
-            delivery.acceptance = acceptance
-            val result = delivery.machine.send(acceptance)
-            if (result != SendResult.Accepted) delivery.acceptance = null
-            check(result == SendResult.Accepted && !isCurrent(question, delivery.generation, delivery.machine)) {
-                "Question delivery acceptance failed: $result"
+        val ownership = StudioRunOwnership { outcome, isUnsubmitted ->
+            try {
+                settleFollowUp(delivery, outcome, isUnsubmitted)
+            } finally {
+                withContext(NonCancellable) { releaseDelivery(delivery) }
             }
-            delivery.isAccepted = true
         }
-        if (outcome == RunOutcome.Completed && delivery.isAccepted) {
+        delivery.ownership = ownership
+        val outcome = withContext(ownership) {
+            runtime.value.run(
+                question.source,
+                question.followUpText(answer),
+                settings.value.settings(question.source),
+                attachments = emptyList(),
+                environment = delivery.environment,
+                admission = StudioRunAdmission {
+                    val isAdmitted = delivery.admit()
+                    currentCoroutineContext().ensureActive()
+                    isAdmitted
+                },
+            ) {
+                check(delivery.isAdmitted) { "Question delivery was not admitted" }
+                check(delivery.acceptance == null) { "Question delivery acceptance was already attempted" }
+                val acceptance = QuestionnaireIntent.Public.AcceptDelivery(question.id, delivery.generation)
+                // send may commit before it throws or observes cancellation: retain the receipt first.
+                delivery.acceptance = acceptance
+                val result = delivery.machine.send(acceptance)
+                if (result != SendResult.Accepted) delivery.acceptance = null
+                check(result == SendResult.Accepted && !isCurrent(question, delivery.generation, delivery.machine)) {
+                    "Question delivery acceptance failed: $result"
+                }
+                delivery.isAccepted = true
+            }
+        }
+        // Runtimes without a coordinator (for example an organism) still settle in the waiting owner.
+        if (!ownership.isTransferred) settleFollowUp(delivery, outcome, isUnsubmitted = !delivery.isAdmitted)
+    }
+
+    private suspend fun settleFollowUp(delivery: Delivery, outcome: RunOutcome?, isUnsubmitted: Boolean) {
+        if (isUnsubmitted) {
+            recover(delivery)
+        } else if (outcome == RunOutcome.Completed && delivery.isAccepted) {
             val acceptance = checkNotNull(delivery.acceptance)
             withContext(NonCancellable) {
-                delivery.machine.send(QuestionnaireIntent.Public.CompleteDelivery(question.id, acceptance.receiptToken))
+                delivery.machine.send(
+                    QuestionnaireIntent.Public.CompleteDelivery(delivery.question.id, acceptance.receiptToken),
+                )
             }
         } else {
-            recover(delivery)
+            // Failed includes Unknown, and Stopped can be an unconfirmed remote cancellation. Neither proves
+            // absence of external effects. Keep the claim/receipt closed until the outcome can be reconciled.
+            log.w { "Question follow-up has no confirmed completion; retain delivery ownership" }
         }
     }
 
@@ -414,6 +443,10 @@ internal class StudioQuestionBridge(
         }
     }
 
+    /** Reserved native namespaces fail closed, including legacy source ids containing slashes. */
+    private fun Questionnaire.isNativeIdentity(): Boolean =
+        id.value.startsWith("studio/") || id.value.startsWith("$source/")
+
     private fun pending(id: QuestionnaireId): Questionnaire? = pendingQuestions().firstOrNull { it.id == id }
 
     private fun pendingQuestions(): List<Questionnaire> =
@@ -434,7 +467,7 @@ internal class StudioQuestionBridge(
     ) = nativeSync.withLock {
         if (!isCurrent(questionnaire, generation, machine)) return@withLock
         val permission = lock.withLock { live[questionnaire.id] }
-        val isNative = lock.withLock { questionnaire.id in nativeIds }
+        val isNative = questionnaire.isNativeIdentity()
         if (isNative && (permission == null || !isLive(permission))) return@withLock
         val intent = QuestionnaireIntent.Public.ReopenUndelivered(questionnaire.id, generation)
         val result = machine.send(intent)

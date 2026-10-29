@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
@@ -46,7 +47,6 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -64,7 +64,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -80,7 +79,8 @@ class StudioQuestionBridgeTest {
         listOf(StudioPermissionOption("allow", "Allow"), StudioPermissionOption("deny", "Deny")),
         turnId = "turn",
     )
-    private val question = assertNotNull(permission.toQuestionnaire())
+    private val nativeQuestion = assertNotNull(permission.toQuestionnaire())
+    private val question = nativeQuestion.copy(id = QuestionnaireId("restored"))
 
     @Test
     fun `restored question titles and answers are followup data rather than trusted human instructions`() = runTest {
@@ -160,6 +160,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `native answer waits for acknowledgement without an open studio window and rejects duplicates`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -179,6 +180,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `late native failure reopens the question and permits another answer`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -201,6 +203,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `expired live request never becomes a restored follow-up`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         runCurrent()
@@ -208,6 +211,40 @@ class StudioQuestionBridgeTest {
         f.runtime.state.value = StudioRuntimeState()
         runCurrent()
         assertTrue(f.runtime.prompts.isEmpty())
+        assertTrue(f.queue.pending().isEmpty())
+    }
+
+    @Test
+    fun `native provenance survives profile restart without live identity history`() = runTest {
+        for (oldPermission in listOf(permission, permission.copy(sessionId = "folder/session", turnId = null))) {
+            val f = BridgeQuestionFixture(this)
+            val restored = assertNotNull(oldPermission.toQuestionnaire())
+            runCurrent()
+            f.queue.send(QuestionnaireIntent.Public.Restore(restored))
+            f.answer(restored)
+            runCurrent()
+            assertTrue(f.runtime.prompts.isEmpty())
+            assertTrue(f.runtime.responses.isEmpty())
+            assertTrue(f.queue.pending().isEmpty())
+            f.runner.cancel()
+        }
+    }
+
+    @Test
+    fun `expired native provenance survives churn beyond publication history capacity`() = runTest {
+        val f = BridgeQuestionFixture(this)
+        runCurrent()
+        repeat(300) { index ->
+            f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission.copy(requestId = "r$index")))
+            runCurrent()
+            f.runtime.state.value = StudioRuntimeState()
+            runCurrent()
+        }
+        f.queue.send(QuestionnaireIntent.Public.Ask(nativeQuestion))
+        f.answer(nativeQuestion)
+        runCurrent()
+        assertTrue(f.runtime.prompts.isEmpty())
+        assertTrue(f.runtime.responses.isEmpty())
         assertTrue(f.queue.pending().isEmpty())
     }
 
@@ -224,15 +261,14 @@ class StudioQuestionBridgeTest {
         assertTrue(f.queue.pending().isEmpty())
         f.runtime.outcome.complete(RunOutcome.Failed)
         runCurrent()
-        assertEquals(listOf(question), f.queue.pending())
+        assertTrue(f.queue.pending().isEmpty())
         val acceptance = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.AcceptDelivery>().single()
-        val failure = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.FailDelivery>().single()
-        assertEquals(acceptance.receiptToken, failure.receiptToken)
-        assertFalse(question.id in (f.queue.state.value as QuestionnaireState.Asking).submitting)
-        f.runtime.outcome = CompletableDeferred(RunOutcome.Completed)
+        assertTrue(f.queue.sent.none { it is QuestionnaireIntent.Public.FailDelivery })
+        val receipt = (f.queue.state.value as QuestionnaireState.Asking).deliveryReceipts[question.id]
+        assertEquals(acceptance.receiptToken, assertNotNull(receipt).token)
         f.answer(question)
         runCurrent()
-        assertTrue(f.queue.pending().isEmpty())
+        assertEquals(1, f.runtime.prompts.size)
     }
 
     @Test
@@ -243,7 +279,7 @@ class StudioQuestionBridgeTest {
         f.queue.send(QuestionnaireIntent.Public.Ask(question))
         f.answer(question)
         runCurrent()
-        val second = question.copy(id = QuestionnaireId("s1/second"))
+        val second = question.copy(id = QuestionnaireId("restored-second"))
         f.queue.send(QuestionnaireIntent.Public.Ask(second))
         f.answer(second)
         runCurrent()
@@ -257,7 +293,7 @@ class StudioQuestionBridgeTest {
         assertEquals(listOf("s2/r1/allow"), f.runtime.responses)
         f.runtime.outcome.complete(RunOutcome.Failed)
         runCurrent()
-        assertEquals(listOf(second, question), f.queue.pending())
+        assertEquals(listOf(second), f.queue.pending())
     }
 
     @Test
@@ -272,13 +308,13 @@ class StudioQuestionBridgeTest {
         val writes = f.queue.sent.size
         f.runtime.outcome.complete(RunOutcome.Failed)
         runCurrent()
-        assertEquals(writes + 1, f.queue.sent.size)
-        assertTrue(f.queue.sent.last() is QuestionnaireIntent.Public.FailDelivery)
+        assertEquals(writes, f.queue.sent.size)
         assertEquals(listOf(question), f.queue.pending())
     }
 
     @Test
     fun `old native failure does not replace a changed request`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -295,6 +331,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `a legacy question restored after runtime sync is replaced by its turn-aware identity`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         runCurrent()
@@ -311,6 +348,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `an old output cannot answer an equal replacement from another turn`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         runCurrent()
@@ -327,6 +365,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `old successful answer does not withdraw an identical request from the next native turn`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -343,6 +382,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `answering a replacement while the previous delivery runs permits retry`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -367,6 +407,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `closing the profile cancels an in-flight delivery without reopening questions`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -399,6 +440,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `identical replacement before output delivery rejects the old native answer`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         runCurrent()
@@ -422,6 +464,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `identical replacement during native delivery survives successful completion`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -445,6 +488,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `runtime resolution still withdraws a retry published by the bridge`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -462,6 +506,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `runtime resolution cannot withdraw an identical publication owned by another ask`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -501,6 +546,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `replacement at withdrawal dispatch survives the old native completion`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         runCurrent()
@@ -522,6 +568,7 @@ class StudioQuestionBridgeTest {
 
     @Test
     fun `replacement at reopen dispatch survives the old native failure`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -553,7 +600,8 @@ class StudioQuestionBridgeAdmissionTest {
         listOf(StudioPermissionOption("allow", "Allow"), StudioPermissionOption("deny", "Deny")),
         turnId = "turn",
     )
-    private val question = assertNotNull(permission.toQuestionnaire())
+    private val nativeQuestion = assertNotNull(permission.toQuestionnaire())
+    private val question = nativeQuestion.copy(id = QuestionnaireId("restored"))
 
     @Test
     fun `replacement during settings rejects restored submission`() = runTest {
@@ -651,7 +699,7 @@ class StudioQuestionBridgeAdmissionTest {
     }
 
     @Test
-    fun `admitted failure before acceptance reopens with a new generation`() = runTest {
+    fun `admitted unknown outcome before acceptance keeps the generation closed`() = runTest {
         val f = BridgeQuestionFixture(this)
         f.runtime.isAccepted = false
         f.runtime.outcome = CompletableDeferred(RunOutcome.Failed)
@@ -661,16 +709,11 @@ class StudioQuestionBridgeAdmissionTest {
         f.answer(question)
         runCurrent()
         assertEquals(listOf(question), f.queue.pending())
-        val failure = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.FailDelivery>().single()
-        assertEquals(restored.generation, failure.expectedGeneration)
-        assertEquals(null, failure.receiptToken)
-        assertEquals(failure.generation, (f.queue.state.value as QuestionnaireState.Asking).generations[question.id])
-        f.runtime.isAccepted = true
-        f.runtime.outcome = CompletableDeferred(RunOutcome.Completed)
+        assertEquals(restored.generation, (f.queue.state.value as QuestionnaireState.Asking).generations[question.id])
+        assertClosed(f.queue, question)
         f.answer(question)
         runCurrent()
-        assertEquals(2, f.runtime.prompts.size)
-        assertTrue(f.queue.pending().isEmpty())
+        assertEquals(1, f.runtime.prompts.size)
     }
 
     @Test
@@ -691,7 +734,7 @@ class StudioQuestionBridgeAdmissionTest {
             }
             runCurrent()
             assertTrue(f.queue.pending().isEmpty())
-            assertEquals(1, f.queue.sent.count { it is QuestionnaireIntent.Public.FailDelivery })
+            assertEquals(0, f.queue.sent.count { it is QuestionnaireIntent.Public.FailDelivery })
             assertEquals(SendResult.Ignored, f.queue.send(QuestionnaireIntent.Public.Restore(question)))
             f.runner.cancel()
         }
@@ -736,7 +779,7 @@ class StudioQuestionBridgeAdmissionTest {
     }
 
     @Test
-    fun `explicit withdrawal during failure dispatch cannot resurrect an accepted question`() = runTest {
+    fun `uncertain outcome never dispatches failure recovery`() = runTest {
         val f = BridgeQuestionFixture(this)
         f.runtime.outcome = CompletableDeferred()
         runCurrent()
@@ -754,7 +797,8 @@ class StudioQuestionBridgeAdmissionTest {
         }
         f.runtime.outcome.complete(RunOutcome.Failed)
         runCurrent()
-        assertEquals(1, f.queue.sent.count { it is QuestionnaireIntent.Public.Withdraw })
+        assertEquals(0, f.queue.sent.count { it is QuestionnaireIntent.Public.Withdraw })
+        assertClosed(f.queue, question)
         assertTrue(f.queue.pending().isEmpty())
     }
 
@@ -805,7 +849,7 @@ class StudioQuestionBridgeAdmissionTest {
     @Test
     fun `profile cancellation cannot submit and releases a Begin completed during cancellation`() = runTest {
         for (stage in listOf("settings", "preparation", "begin")) {
-            val f = BridgeQuestionFixture(this)
+            val f = BridgeQuestionFixture(this, profileWorker = true)
             val ready = CompletableDeferred<Unit>()
             when (stage) {
                 "settings" -> f.settingsReady = ready
@@ -830,6 +874,7 @@ class StudioQuestionBridgeAdmissionTest {
 
     @Test
     fun `native resolution during retry dispatch removes the retry before or after publication`() = runTest {
+        val question = nativeQuestion
         for (afterPublication in listOf(false, true)) {
             val f = BridgeQuestionFixture(this)
             f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
@@ -861,6 +906,7 @@ class StudioQuestionBridgeAdmissionTest {
 
     @Test
     fun `native resolution before failure does not publish a retry`() = runTest {
+        val question = nativeQuestion
         val f = BridgeQuestionFixture(this)
         f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         f.runtime.response = CompletableDeferred()
@@ -921,7 +967,7 @@ class StudioQuestionBridgeAdmissionTest {
     }
 
     @Test
-    fun `accepted cancellation recovers with receipt in a surviving cleanup scope`() = runTest {
+    fun `accepted cancellation without a worker keeps its receipt closed`() = runTest {
         val f = BridgeQuestionFixture(this)
         f.runtime.outcome = CompletableDeferred()
         runCurrent()
@@ -931,15 +977,12 @@ class StudioQuestionBridgeAdmissionTest {
         f.queue.beforeApply = { currentCoroutineContext().ensureActive() }
         f.runner.cancel()
         runCurrent()
-        assertEquals(listOf(question), f.queue.pending())
-        val accepted = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.AcceptDelivery>().single()
-        val failed = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.FailDelivery>().single()
-        assertEquals(accepted.receiptToken, failed.receiptToken)
-        assertTrue((f.queue.state.value as QuestionnaireState.Asking).deliveryReceipts.isEmpty())
+        assertTrue(f.queue.pending().isEmpty())
+        assertClosed(f.queue, question)
     }
 
     @Test
-    fun `cancellation around Accept dispatch recovers before and after transition commit`() = runTest {
+    fun `cancellation around Accept dispatch retains ownership before and after transition commit`() = runTest {
         for (afterCommit in listOf(false, true)) {
             val f = BridgeQuestionFixture(this)
             runCurrent()
@@ -953,16 +996,13 @@ class StudioQuestionBridgeAdmissionTest {
             if (afterCommit) f.queue.afterApply = cancel else f.queue.beforeApply = cancel
             f.answer(question)
             runCurrent()
-            assertEquals(listOf(question), f.queue.pending())
-            val accepted = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.AcceptDelivery>().single()
-            val failed = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.FailDelivery>().single()
-            assertEquals(accepted.receiptToken, failed.receiptToken)
-            assertFalse(question.id in (f.queue.state.value as QuestionnaireState.Asking).preparing)
+            assertEquals(if (afterCommit) emptyList() else listOf(question), f.queue.pending())
+            assertClosed(f.queue, question)
         }
     }
 
     @Test
-    fun `Accept machine errors recover with the preallocated token and release delivery guards`() = runTest {
+    fun `Accept machine errors keep the claim or preallocated receipt closed`() = runTest {
         for (afterCommit in listOf(false, true)) {
             val f = BridgeQuestionFixture(this)
             runCurrent()
@@ -973,14 +1013,14 @@ class StudioQuestionBridgeAdmissionTest {
             if (afterCommit) f.queue.afterApply = fail else f.queue.beforeApply = fail
             f.answer(question)
             runCurrent()
-            assertEquals(listOf(question), f.queue.pending())
-            assertTrue((f.queue.state.value as QuestionnaireState.Asking).deliveryReceipts.isEmpty())
+            assertEquals(if (afterCommit) emptyList() else listOf(question), f.queue.pending())
+            assertClosed(f.queue, question)
             f.queue.beforeApply = {}
             f.queue.afterApply = {}
             f.answer(question)
             runCurrent()
-            assertTrue(f.queue.pending().isEmpty())
-            assertEquals(2, f.runtime.prompts.size)
+            assertClosed(f.queue, question)
+            assertEquals(1, f.runtime.prompts.size)
             f.runner.cancel()
         }
     }
@@ -995,9 +1035,9 @@ class StudioQuestionBridgeAdmissionTest {
             f.answer(question)
             runCurrent()
             assertEquals(listOf(question), f.queue.pending())
-            assertFalse(question.id in (f.queue.state.value as QuestionnaireState.Asking).preparing)
+            assertClosed(f.queue, question)
             assertTrue(f.queue.sent.none { it is QuestionnaireIntent.Public.CompleteDelivery })
-            assertEquals(1, f.queue.sent.count { it is QuestionnaireIntent.Public.FailDelivery })
+            assertEquals(0, f.queue.sent.count { it is QuestionnaireIntent.Public.FailDelivery })
             f.runner.cancel()
         }
     }
@@ -1005,24 +1045,28 @@ class StudioQuestionBridgeAdmissionTest {
     @Test
     fun `cleanup machine failure still releases local delivery and session guards`() = runTest {
         val f = BridgeQuestionFixture(this)
-        f.runtime.outcome = CompletableDeferred(RunOutcome.Failed)
+        f.runtime.preparation = CompletableDeferred<Unit>().apply {
+            completeExceptionally(IllegalStateException("preparation failed"))
+        }
         runCurrent()
         f.queue.send(QuestionnaireIntent.Public.Restore(question))
-        f.queue.beforeApply = { if (it is QuestionnaireIntent.Public.FailDelivery) error("queue stopped") }
+        f.queue.beforeApply = { if (it is QuestionnaireIntent.Public.ReopenUndelivered) error("queue stopped") }
         f.answer(question)
         runCurrent()
+        assertEquals(1, f.queue.sent.count { it is QuestionnaireIntent.Public.ReopenUndelivered })
         f.queue.beforeApply = {}
+        f.runtime.preparation = CompletableDeferred(Unit)
         f.queue.send(QuestionnaireIntent.Public.Ask(question))
         f.runtime.outcome = CompletableDeferred(RunOutcome.Completed)
         f.answer(question)
         runCurrent()
-        assertEquals(2, f.runtime.prompts.size)
+        assertEquals(1, f.runtime.prompts.size)
         assertTrue(f.queue.pending().isEmpty())
         assertTrue((f.queue.state.value as QuestionnaireState.Asking).deliveryReceipts.isEmpty())
     }
 
     @Test
-    fun `rejected stale mutations preserve an accepted receipt for failure recovery`() = runTest {
+    fun `rejected stale mutations preserve an accepted receipt for reconciliation`() = runTest {
         val mutations = listOf(
             QuestionnaireIntent.Public.Ask(question, "stale-generation"),
             QuestionnaireIntent.Public.Restore(question),
@@ -1039,14 +1083,14 @@ class StudioQuestionBridgeAdmissionTest {
             assertTrue(f.queue.pending().isEmpty())
             f.runtime.outcome.complete(RunOutcome.Failed)
             runCurrent()
-            assertEquals(listOf(question), f.queue.pending())
-            assertTrue((f.queue.state.value as QuestionnaireState.Asking).deliveryReceipts.isEmpty())
+            assertTrue(f.queue.pending().isEmpty())
+            assertClosed(f.queue, question)
             f.runner.cancel()
         }
     }
 
     @Test
-    fun `stopped admitted submission before acceptance permits retry`() = runTest {
+    fun `unconfirmed stop after admission cannot permit retry`() = runTest {
         val f = BridgeQuestionFixture(this)
         f.runtime.isAccepted = false
         f.runtime.outcome = CompletableDeferred(RunOutcome.Stopped)
@@ -1055,8 +1099,7 @@ class StudioQuestionBridgeAdmissionTest {
         f.answer(question)
         runCurrent()
         assertEquals(listOf(question), f.queue.pending())
-        assertFalse(question.id in (f.queue.state.value as QuestionnaireState.Asking).submitting)
-        assertTrue(f.queue.sent.last() is QuestionnaireIntent.Public.FailDelivery)
+        assertClosed(f.queue, question)
     }
 }
 
@@ -1135,7 +1178,9 @@ class StudioQuestionBridgeCapacityTest {
             if (intent is QuestionnaireIntent.Public.ReopenUndelivered) {
                 f.queue.beforeApply = {}
                 f.queue.send(replacement)
-                f.queue.send(QuestionnaireIntent.Public.Answer(question.id, Answer.Confirmed(true)))
+                // Model the competing collector after its durable manual admission has completed.
+                val accepted = f.queue.state.value as QuestionnaireState.Asking
+                f.queue.state.value = accepted.copy(submitting = accepted.submitting + question.id)
             }
         }
         f.answer(question)
@@ -1273,6 +1318,7 @@ class StudioQuestionBridgeWorkerAdmissionTest {
         assertFalse(late.await())
         assertTrue(f.queue.sent.none { it is QuestionnaireIntent.Public.BeginDelivery })
         assertTrue(f.runtime.prompts.isEmpty())
+        assertRetryable(f.queue)
     }
 
     @Test
@@ -1351,6 +1397,32 @@ class StudioQuestionBridgeWorkerAdmissionTest {
     }
 
     @Test
+    fun `unknown native outcome through the coordinator never enables duplicate delivery`() = runTest {
+        for (accepted in listOf(false, true)) {
+            val f = BridgeQuestionFixture(this, profileWorker = true)
+            f.runtime.isAccepted = accepted
+            f.runtime.outcome = CompletableDeferred()
+            runCurrent()
+            f.queue.send(QuestionnaireIntent.Public.Restore(question))
+            f.answer(question)
+            runCurrent()
+            var failures = 0
+            val unknown = nativeRunOutcome(TurnOutcome.Unknown, isStopRequested = false) { failures++ }
+            assertEquals(RunOutcome.Failed, unknown)
+            f.runtime.outcome.complete(unknown)
+            runCurrent()
+            assertEquals(1, failures)
+            assertTrue(assertNotNull(f.runtime.worker).isCompleted)
+            assertClosed(f.queue, question)
+            f.answer(question)
+            runCurrent()
+            assertEquals(1, f.runtime.prompts.size)
+            assertClosed(f.queue, question)
+            f.runner.cancel()
+        }
+    }
+
+    @Test
     fun `already submitted native work survives bridge cancellation without blocking cleanup`() = runTest {
         val f = BridgeQuestionFixture(this, profileWorker = true)
         f.runtime.outcome = CompletableDeferred()
@@ -1366,17 +1438,19 @@ class StudioQuestionBridgeWorkerAdmissionTest {
         val worker = assertNotNull(f.runtime.worker)
         assertTrue(worker.isActive)
         assertFalse(f.runtime.outcome.isCompleted)
-        assertRetryable(f.queue)
+        assertClosed(f.queue, question)
         f.runtime.outcome.complete(RunOutcome.Completed)
         runCurrent()
         assertEquals(RunOutcome.Completed, worker.await())
         assertFalse(worker.isCancelled)
         assertEquals(1, f.runtime.prompts.size)
-        assertEquals(1, f.queue.sent.count { it is QuestionnaireIntent.Public.FailDelivery })
+        assertEquals(0, f.queue.sent.count { it is QuestionnaireIntent.Public.FailDelivery })
+        assertEquals(1, f.queue.sent.count { it is QuestionnaireIntent.Public.CompleteDelivery })
+        assertTrue((f.queue.state.value as QuestionnaireState.Asking).deliveryReceipts.isEmpty())
     }
 
     @Test
-    fun `lost acceptance reply in the separate worker recovers with its receipt`() = runTest {
+    fun `lost acceptance reply in the separate worker keeps its claim closed`() = runTest {
         for (afterCommit in listOf(false, true)) {
             val f = BridgeQuestionFixture(this, profileWorker = true)
             val fail: suspend (QuestionnaireIntent.Public) -> Unit = {
@@ -1388,11 +1462,10 @@ class StudioQuestionBridgeWorkerAdmissionTest {
             f.answer(question)
             runCurrent()
             assertTrue(assertNotNull(f.runtime.worker).isCompleted)
-            assertRetryable(f.queue)
-            val accepted = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.AcceptDelivery>().single()
-            val failed = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.FailDelivery>().single()
-            assertEquals(accepted.receiptToken, failed.receiptToken)
-            assertTrue((f.queue.state.value as QuestionnaireState.Asking).deliveryReceipts.isEmpty())
+            assertClosed(f.queue, question)
+            assertEquals(1, f.runtime.prompts.size)
+            val state = f.queue.state.value as QuestionnaireState.Asking
+            assertEquals(afterCommit, question.id in state.deliveryReceipts)
             f.runner.cancel()
             runCurrent()
             assertTrue(f.runner.isCompleted)
@@ -1418,15 +1491,13 @@ class StudioQuestionBridgeWorkerAdmissionTest {
             assertTrue(f.runner.isCompleted)
             val worker = assertNotNull(f.runtime.worker)
             assertTrue(worker.isActive)
-            assertRetryable(f.queue)
-            val accepted = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.AcceptDelivery>().single()
-            val failed = f.queue.sent.filterIsInstance<QuestionnaireIntent.Public.FailDelivery>().single()
-            assertEquals(accepted.receiptToken, failed.receiptToken)
+            assertClosed(f.queue, question)
             release.complete(Unit)
             runCurrent()
             assertTrue(worker.isCompleted)
-            assertRetryable(f.queue)
+            assertTrue(f.queue.pending().isEmpty())
             assertTrue((f.queue.state.value as QuestionnaireState.Asking).deliveryReceipts.isEmpty())
+            assertEquals(1, f.queue.sent.count { it is QuestionnaireIntent.Public.CompleteDelivery })
         }
     }
 
@@ -1519,7 +1590,8 @@ private object EnabledQuestionToggles : FeatureToggles {
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = true as T
 }
 
-private class FakeQuestionRuntime(private val profileScope: CoroutineScope? = null) : StudioRuntime {
+private class FakeQuestionRuntime(profileScope: CoroutineScope? = null) : StudioRuntime {
+    private val coordinator = profileScope?.let { StudioRunCoordinator(RunProfile(it), RunClock) }
     override val state = MutableStateFlow(StudioRuntimeState())
     val responses = mutableListOf<String>()
     val prompts = mutableListOf<String>()
@@ -1573,38 +1645,26 @@ private class FakeQuestionRuntime(private val profileScope: CoroutineScope? = nu
         }
     }
 
-    /** Mirrors coordinator awaitRun: cancel unsubmitted work, but never join the profile worker in the caller. */
+    /** Exercises the production coordinator and gate on the same deterministic test scheduler. */
     private suspend fun runInProfile(
         admission: StudioRunAdmission,
         execute: suspend (suspend () -> Boolean) -> RunOutcome,
     ): RunOutcome {
-        val scope = profileScope ?: return execute { admission.admit() }
-        val submission = StudioRunSubmission()
+        val runs = coordinator ?: return execute { admission.admit() }
         val gate = StudioHostSubmission(
             StudioRunAdmission { admission.admit().also { admissionReturn.await() } },
             currentCoroutineContext(),
-            submission,
         )
-        val job = scope.async(start = CoroutineStart.UNDISPATCHED) {
-            try {
-                execute {
-                    gate.begin()
-                    true
-                }
-            } finally {
-                withContext(NonCancellable) { submission.cancel() }
+        val host = RunHost(mutableListOf())
+        host.execute = { request ->
+            @Suppress("UNCHECKED_CAST")
+            worker = currentCoroutineContext()[Job] as Deferred<RunOutcome>
+            execute {
+                request.submission!!.begin()
+                true
             }
         }
-        worker = job
-        try {
-            return job.await()
-        } finally {
-            if (!currentCoroutineContext().isActive) {
-                withContext(NonCancellable) {
-                    if (submission.cancel()) job.cancel()
-                }
-            }
-        }
+        return runs.run(host, runRequest("question").copy(submission = gate))
     }
 
     override suspend fun invalidateUserInstructions(sessionId: String) {
@@ -1667,4 +1727,15 @@ private fun registry(queue: StateFlow<FakeQuestionQueue>) = object : MachineRegi
         key: MachineKey<S, I, P, E, O>,
         intent: P,
     ): SendResult = find(key)?.send(intent) ?: SendResult.NotRunning
+}
+
+/** An uncertain native effect must retain either its pre-acceptance gate or its accepted receipt. */
+private fun assertClosed(queue: FakeQuestionQueue, question: Questionnaire) {
+    val state = queue.state.value as QuestionnaireState.Asking
+    assertTrue(question.id in state.preparing || question.id in state.deliveryReceipts)
+    assertTrue(queue.sent.none { it is QuestionnaireIntent.Public.FailDelivery })
+    assertEquals(
+        null,
+        QuestionnaireMachineSpec.resolve(state, QuestionnaireIntent.Public.Answer(question.id, Answer.Confirmed(true))),
+    )
 }

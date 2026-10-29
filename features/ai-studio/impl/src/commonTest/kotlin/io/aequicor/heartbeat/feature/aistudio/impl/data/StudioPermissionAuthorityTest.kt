@@ -161,6 +161,19 @@ class StudioPermissionAuthorityTest {
     }
 
     @Test
+    fun `captured request changed before delivery cannot receive manual answer`() = runTest {
+        val fixture = PermissionAuthoritySession()
+        val captured = fixture.request.toStudio("studio")
+        fixture.replaceRequest()
+        assertFailsWith<IllegalStateException> {
+            fixture.respondStudioPermission(captured, "submit", StudioPermissionAnswer.Text("answer")) {
+                error("Changed request must be rejected before authority revocation")
+            }
+        }
+        assertTrue(fixture.decisions.isEmpty())
+    }
+
+    @Test
     fun `reused request changed during revoke cannot receive manual answer`() = runTest {
         val fixture = PermissionAuthoritySession()
         assertFailsWith<IllegalStateException> {
