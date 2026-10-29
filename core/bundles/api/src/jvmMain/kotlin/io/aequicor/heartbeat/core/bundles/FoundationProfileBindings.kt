@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQuestionnaireAdmission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
@@ -55,6 +56,9 @@ public interface FoundationProfileBindings {
 
     /** Studio screens that the Chromium side panel opens and drives (the studio stays in the foundation for now). */
     public val studioRemoteScreens: StudioRemoteScreens
+
+    /** Studio-owned durable revocation before the questionnaire bundle accepts a substantive manual answer. */
+    public val studioQuestionnaireAdmission: StudioQuestionnaireAdmission
 
     /** Credentials of the profile. */
     public val secrets: SecretStore

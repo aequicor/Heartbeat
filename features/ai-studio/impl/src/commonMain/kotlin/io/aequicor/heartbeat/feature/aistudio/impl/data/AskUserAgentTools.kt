@@ -172,7 +172,7 @@ internal class AskUserAgentTools(
         batch: LiveQuestionnaireBatch,
     ): LiveQuestionnaireWait = coroutineScope {
         // Subscribe directly before publishing: outputs are hot and have no replay.
-        val collector = launch(start = CoroutineStart.UNDISPATCHED) { awaitAnswers(context, machine, batch) }
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) { awaitAnswers(machine, batch) }
         val published = CompletableDeferred<Unit>()
         val automaticAnswers = launch {
             published.await()
@@ -225,14 +225,10 @@ internal class AskUserAgentTools(
     }
 
     /**
-     * Revokes human context for each substantive manual output before withdrawing its card, even while the
-     * rest of the batch remains unanswered. The machine's source barrier rejects Auto answers before this
-     * collector observes the manual output; repository admission still protects durable human context.
-     * NonCancellable completes an observed revocation during cooperative cancellation, but does not make
-     * output collection or revocation crash-durable. Cancellation before observation can leave context intact.
+     * Consumes only this caller's publication. Substantive manual outputs are emitted only after the queue's
+     * source admission has durably revoked human context, independently of this collector's lifetime.
      */
     private suspend fun awaitAnswers(
-        context: AgentToolContext,
         machine: MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput>,
         batch: LiveQuestionnaireBatch,
     ) {
@@ -248,10 +244,6 @@ internal class AskUserAgentTools(
             .takeWhile { output ->
                 if (output.context !== batch.autoContext) {
                     batch.manualAnswer.complete(Unit)
-                    if (output.answer != Answer.Skipped) {
-                        // Do not let cancellation withdraw an observed manual answer before its revocation finishes.
-                        withContext(NonCancellable) { chats.value.invalidateUserInstructions(context.session) }
-                    }
                 }
                 if (!withdraw(output.questionnaire.id, checkNotNull(output.generation))) return@takeWhile true
                 batch.withdrawn += output.questionnaire.id
@@ -338,8 +330,15 @@ internal class LiveQuestionnaireAutopilot(
                     },
                     admitAnswer = { answer ->
                         repository.value.admitQuestionnaireAnswer(chat, input.humanContext) {
-                            isCurrent(call, chat, target, provenance.manualAnswer) &&
-                                machine.send(answer) == SendResult.Accepted
+                            toggles.admitEnabled(setOf(AutoContinueEnabled, QuestionnaireEnabled)) {
+                                view.value.admit { state ->
+                                    currentCoroutineContext().ensureActive()
+                                    state.autopilotTarget(chat, call) == target &&
+                                        !provenance.manualAnswer.isCompleted &&
+                                        call.lifetime?.isActive != false &&
+                                        machine.send(answer) == SendResult.Accepted
+                                }
+                            }
                         }
                     },
                 )

@@ -102,5 +102,5 @@ class QuestionnaireDeliveryAdmissionTest {
     }
 
     private fun transition(state: QuestionnaireState, intent: QuestionnaireIntent): QuestionnaireState.Asking =
-        assertIs<QuestionnaireState.Asking>(assertNotNull(spec.resolve(state, intent)).to)
+        assertIs<QuestionnaireState.Asking>(assertNotNull(resolveAfterManualAdmission(state, intent)).to)
 }

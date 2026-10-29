@@ -161,7 +161,9 @@ internal fun QuestionnaireScreenState.reflectQueue(
     val drafts = questions.associateBy { it.id }
     val shown = asking.pending.filter { it.source == source }.map { questionnaire ->
         val draft = drafts[questionnaire.id.value]
-        questionnaire.toUi(isSubmitting = questionnaire.id in asking.submitting).let { ui ->
+        questionnaire.toUi(
+            isSubmitting = questionnaire.id in asking.submitting || questionnaire.id in asking.manualPreparations,
+        ).let { ui ->
             if (draft == null || draft.kind != ui.kind || draft.isFreeTextAllowed != ui.isFreeTextAllowed) {
                 ui
             } else {

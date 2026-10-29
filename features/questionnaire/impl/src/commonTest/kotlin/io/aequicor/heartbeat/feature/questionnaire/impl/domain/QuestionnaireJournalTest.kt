@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.LIVE_QUESTION_ID_PREFIX
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEffect
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineSpec
@@ -534,6 +535,17 @@ class QuestionnaireJournalTest {
                 SendResult.Ignored
             } else {
                 state.value = transition.to
+                // Model the source's successful durable revocation in this journal-only fake.
+                val manual = transition.effects
+                    .filterIsInstance<QuestionnaireEffect.PrepareManual>().singleOrNull()
+                if (manual != null) {
+                    state.value = requireNotNull(
+                        QuestionnaireMachineSpec.resolve(
+                            state.value,
+                            QuestionnaireIntent.Internal.ManualPrepared(manual),
+                        ),
+                    ).to
+                }
                 if (intent == QuestionnaireIntent.Public.FinishInitialRestore) afterSeal()
                 SendResult.Accepted
             }

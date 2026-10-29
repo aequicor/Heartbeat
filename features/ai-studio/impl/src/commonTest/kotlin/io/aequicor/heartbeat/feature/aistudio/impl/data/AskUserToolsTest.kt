@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineEffect
 import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
@@ -24,8 +25,10 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineSpec
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -46,7 +49,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -143,7 +145,7 @@ class AskUserToolsTest {
     }
 
     @Test
-    fun `cancellation waits for observed manual revocation before removing its card`() = runTest {
+    fun `cancellation before manual admission completes delivers no answer`() = runTest {
         val fixture = Fixture(this)
         fixture.chats.revocation = CompletableDeferred()
         val call = launch { fixture.execute(arguments) }
@@ -155,8 +157,7 @@ class AskUserToolsTest {
         assertTrue(fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().isEmpty())
         call.cancel()
         runCurrent()
-        assertFalse(call.isCompleted)
-        assertTrue(fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().isEmpty())
+        assertTrue(call.isCompleted)
         fixture.chats.revocation.complete(Unit)
         call.join()
         assertEquals(
@@ -193,9 +194,7 @@ class AskUserToolsTest {
     fun `failed hosted revocation never returns substantive answers to the model`() = runTest {
         val fixture = Fixture(this)
         fixture.chats.revocation = CompletableDeferred()
-        val call = async {
-            assertFailsWith<IllegalStateException> { fixture.execute(arguments) }
-        }
+        val call = launch { fixture.execute(arguments) }
         repeat(ASK_SUBSCRIPTION_ROUNDS) { runCurrent() }
         val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
         fixture.queue.emitAnswer(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Confirmed(false)))
@@ -203,7 +202,10 @@ class AskUserToolsTest {
         assertEquals(listOf(context.session), fixture.chats.invalidations)
         assertFalse(call.isCompleted)
         fixture.chats.revocation.completeExceptionally(IllegalStateException("Revocation failed"))
-        call.await()
+        runCurrent()
+        assertTrue(fixture.queue.admissionFailure is IllegalStateException)
+        assertFalse(call.isCompleted)
+        call.cancelAndJoin()
     }
 
     @Test
@@ -636,8 +638,8 @@ class AskUserToolsTest {
     }
 
     private inner class Fixture(scope: TestScope, enabled: Boolean = true) {
-        val queue = AskUserQueue()
         val chats = AskUserChats()
+        val queue = AskUserQueue(scope.backgroundScope) { chats.invalidateUserInstructions(context.session) }
         val tools = AskUserAgentTools(askUserRegistry(queue), lazyOf(chats), AskUserToggles(enabled))
         private val results = mutableListOf<AgentToolResult>()
 
@@ -680,7 +682,8 @@ private class AskUserToggles(private val enabled: Boolean) : FeatureToggles {
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = enabled as T
 }
 
-private class AskUserQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput> {
+private class AskUserQueue(private val scope: CoroutineScope, private val prepareManual: suspend () -> Unit) :
+    MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput> {
     override val name = "questionnaire"
     override val state = MutableStateFlow<QuestionnaireState>(QuestionnaireState.Idle)
     override val outputs = MutableSharedFlow<QuestionnaireOutput>()
@@ -689,9 +692,24 @@ private class AskUserQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.
     var onSend: suspend (QuestionnaireIntent.Public) -> Unit = {}
     var result: (QuestionnaireIntent.Public) -> SendResult = { SendResult.Accepted }
 
+    var admissionFailure: Exception? = null
+
     suspend fun emitAnswer(output: QuestionnaireOutput.Answered) {
         val queue = state.value as QuestionnaireState.Asking
-        outputs.emit(output.copy(generation = queue.generations[output.questionnaire.id]))
+        val admitted = output.copy(generation = queue.generations[output.questionnaire.id])
+        // The real machine persists manual revocation before emitting output. These consumer tests inject
+        // outputs after that source gate; the API and effect tests cover reservation and completion guards.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                if (output.answer != Answer.Skipped) prepareManual()
+                outputs.emit(admitted)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.tag("QuestionnaireTest").w(e) { "Manual admission failed in fake queue" }
+                admissionFailure = e
+            }
+        }
     }
 
     override suspend fun send(intent: QuestionnaireIntent.Public): SendResult {

@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.questionnaire.api
 
 import io.aequicor.heartbeat.core.statemachine.assertIgnored
-import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -201,7 +200,7 @@ class QuestionnaireGenerationTest {
         )
 
     private fun assertAccepted(state: QuestionnaireState.Asking, intent: QuestionnaireIntent.Public.Answer) {
-        spec.assertTransition(
+        assertAfterManualAdmission(
             state,
             intent,
             state.copy(

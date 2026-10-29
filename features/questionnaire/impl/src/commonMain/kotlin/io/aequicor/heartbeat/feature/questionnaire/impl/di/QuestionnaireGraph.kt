@@ -26,7 +26,6 @@ import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
-import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContext
@@ -38,6 +37,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreen
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreens
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
+import io.aequicor.heartbeat.feature.questionnaire.impl.data.QuestionnaireAdmissionEffects
 import io.aequicor.heartbeat.feature.questionnaire.impl.di.scope.QuestionnaireScope
 import io.aequicor.heartbeat.feature.questionnaire.impl.domain.QuestionnaireJournal
 import io.aequicor.heartbeat.feature.questionnaire.impl.domain.QuestionnaireStorage
@@ -70,7 +70,7 @@ interface QuestionnaireGraph {
 
 /**
  * The question queue belongs to the profile, so questions outlive the screens that show them.
- * It has no effects: sources deliver answers themselves. [QuestionnaireJournal] keeps open questions across restarts.
+ * Manual admission revokes source context before output. [QuestionnaireJournal] keeps open questions across restarts.
  */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
@@ -79,9 +79,10 @@ object QuestionnaireBindings {
     @SingleIn(ProfileScope::class)
     internal fun machine(
         launcher: MachineLauncher,
+        effects: QuestionnaireAdmissionEffects,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
     ): Machine<QuestionnaireState, QuestionnaireIntent, QuestionnaireOutput> =
-        launcher.launch(QuestionnaireMachineSpec, scope, EffectHandler.None)
+        launcher.launch(QuestionnaireMachineSpec, scope, effects)
 }
 
 /**

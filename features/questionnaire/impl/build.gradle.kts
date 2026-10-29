@@ -8,6 +8,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.questionnaire.api)
+            implementation(projects.features.aiStudio.api)
             implementation(projects.features.questionnaire.screenUi)
             implementation(projects.core.common)
             implementation(projects.core.datastore.api)

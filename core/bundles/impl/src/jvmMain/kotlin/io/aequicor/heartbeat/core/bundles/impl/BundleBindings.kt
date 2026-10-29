@@ -61,6 +61,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQuestionnaireAdmission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
@@ -121,6 +122,7 @@ internal class DefaultFoundationProfileBindings(
     @ForScope(ProfileScope::class) private val scope: Provider<ScopeHandle>,
     @ForScope(ProfileScope::class) private val stores: Provider<DataStores>,
     private val studio: Provider<StudioRemoteScreens>,
+    private val questionnaireAdmission: Provider<StudioQuestionnaireAdmission>,
     private val facade: Provider<EngineFacade>,
     private val search: Provider<SearchEngine>,
     private val secretStore: Provider<SecretStore>,
@@ -158,6 +160,7 @@ internal class DefaultFoundationProfileBindings(
     override val profileScope: ScopeHandle get() = scope()
     override val dataStores: DataStores get() = stores()
     override val studioRemoteScreens: StudioRemoteScreens get() = studio()
+    override val studioQuestionnaireAdmission: StudioQuestionnaireAdmission get() = questionnaireAdmission()
     override val secrets: SecretStore get() = secretStore()
     override val modelProfiles: ModelProfilesView get() = models()
     override val engineFacade: EngineFacade get() = facade()

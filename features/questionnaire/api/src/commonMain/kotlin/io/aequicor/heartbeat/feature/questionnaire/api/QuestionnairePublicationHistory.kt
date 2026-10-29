@@ -12,24 +12,30 @@ import kotlinx.serialization.Serializable
  * Until [isInitialRestoreFinished], [touched] remembers every durable id touched during loading, including evicted
  * withdrawals. Live callers never enter this set because the journal cannot restore them. A successful initial
  * restore atomically seals the machine against every later Restore and clears the exclusions. Thereafter metadata
- * is O(LIMIT + live queue); before successful reconciliation exact exclusions can grow with durable-id churn.
+ * is O(LIMIT + live queue); before successful reconciliation exclusions are bounded by [TOUCHED_LIMIT]. On overflow,
+ * [isInitialRestoreUnsafe] prevents every Restore and the restore seal, preserving durable storage until the next
+ * profile instance can reconcile it. No eviction can silently authorize restoration of an untracked withdrawal.
  */
 @Serializable
 public data class QuestionnairePublicationHistory(
     val latest: Map<QuestionnaireId, String?> = emptyMap(),
     val touched: Set<QuestionnaireId> = latest.keys.filterNot { it.value.startsWith(LIVE_QUESTION_ID_PREFIX) }.toSet(),
     val isInitialRestoreFinished: Boolean = false,
+    val isInitialRestoreUnsafe: Boolean = false,
 ) {
     internal fun record(id: QuestionnaireId, generation: String?): QuestionnairePublicationHistory {
         val updated = (latest - id) + (id to generation)
         val isOverflow = updated.size > LIMIT
+        val isNewTouch = !isInitialRestoreFinished && !id.value.startsWith(LIVE_QUESTION_ID_PREFIX) && id !in touched
+        val isTouchOverflow = isNewTouch && touched.size >= TOUCHED_LIMIT
         return copy(
             latest = if (isOverflow) updated.entries.drop(updated.size - LIMIT).associate { it.toPair() } else updated,
-            touched = if (isInitialRestoreFinished || id.value.startsWith(LIVE_QUESTION_ID_PREFIX) || id in touched) {
+            touched = if (!isNewTouch || isTouchOverflow || isInitialRestoreUnsafe) {
                 touched
             } else {
                 touched + id
             },
+            isInitialRestoreUnsafe = isInitialRestoreUnsafe || isTouchOverflow,
         )
     }
 
@@ -40,5 +46,8 @@ public data class QuestionnairePublicationHistory(
     public companion object {
         /** Bound on historical generations; active generations and delivery gates are bounded by the live queue. */
         public const val LIMIT: Int = 4096
+
+        /** Maximum exclusions before an unavailable journal is conservatively quarantined. */
+        public const val TOUCHED_LIMIT: Int = 16_384
     }
 }

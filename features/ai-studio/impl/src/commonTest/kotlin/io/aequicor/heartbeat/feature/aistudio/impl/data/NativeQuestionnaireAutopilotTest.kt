@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.toQuestionnaire
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueEnabled
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEffect
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
@@ -117,7 +118,7 @@ class NativeQuestionnaireAutopilotTest {
 
 private class NativeFixture(scope: TestScope) {
     val runtime = NativeRuntime()
-    val queue = NativeQueue()
+    val queue = NativeQueue(runtime::invalidateUserInstructions)
     private val registry = NativeRegistry(queue)
     private val toggles = NativeToggles()
     var modelSettingsRequests = 0
@@ -152,6 +153,10 @@ private class NativeToggles : FeatureToggles {
 private class NativeRuntime : StudioRuntime {
     override val state = MutableStateFlow(StudioRuntimeState())
     val responses = mutableListOf<Pair<StudioPermission, StudioPermissionAnswer?>>()
+    val revoked = mutableSetOf<String>()
+    override suspend fun invalidateUserInstructions(sessionId: String) {
+        revoked += sessionId
+    }
     var modelCalls = 0
         private set
     override suspend fun defaults(): RunSettings = DefaultRunSettings
@@ -162,6 +167,7 @@ private class NativeRuntime : StudioRuntime {
     override suspend fun cancel(sessionId: String) = Unit
     override suspend fun respond(permission: StudioPermission, optionId: String, answer: StudioPermissionAnswer?) {
         assertEquals("submit", optionId)
+        assertTrue(permission.sessionId in revoked)
         responses += permission to answer
         state.value = state.value.copy(permissions = state.value.permissions - permission)
     }
@@ -173,7 +179,8 @@ private class NativeRuntime : StudioRuntime {
     ) = error("The exact native permission must be captured")
 }
 
-private class NativeQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput> {
+private class NativeQueue(private val revoke: suspend (String) -> Unit) :
+    MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput> {
     override val name = "questionnaire"
     override val state = MutableStateFlow<QuestionnaireState>(QuestionnaireState.Idle)
     override val outputs = MutableSharedFlow<QuestionnaireOutput>(extraBufferCapacity = 32)
@@ -184,6 +191,19 @@ private class NativeQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.P
         val resolution = QuestionnaireMachineSpec.resolve(state.value, intent) ?: return SendResult.Ignored
         state.value = resolution.to
         resolution.outputs.forEach { check(outputs.tryEmit(it)) }
+        resolution.effects.forEach { effect ->
+            when (effect) {
+                is QuestionnaireEffect.PrepareManual -> {
+                    revoke(effect.questionnaire.source)
+                    val prepared = QuestionnaireMachineSpec.resolve(
+                        state.value,
+                        QuestionnaireIntent.Internal.ManualPrepared(effect),
+                    ) ?: error("Manual admission was superseded")
+                    state.value = prepared.to
+                    prepared.outputs.forEach { check(outputs.tryEmit(it)) }
+                }
+            }
+        }
         return SendResult.Accepted
     }
 }

@@ -41,6 +41,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerOrigin
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEffect
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
@@ -50,6 +51,8 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -60,6 +63,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.TestScope
@@ -80,7 +84,7 @@ import kotlin.time.Instant
 class LiveQuestionnaireAutopilotTest {
     @Test
     fun `live answer uses configured model and preserves human authority revocation`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         fixture.revocation = CompletableDeferred()
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
@@ -101,7 +105,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `sequential automatic questionnaires reuse originals after tool authority is revoked`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val original = fixture.repository.humanContext
         repeat(2) { index ->
             val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
@@ -119,7 +123,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `manual answer invalidates context and prevents the next automatic questionnaire`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val first = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         fixture.manual()
@@ -138,7 +142,7 @@ class LiveQuestionnaireAutopilotTest {
     @Test
     fun `auto plus manual skip preserves context and auto plus manual text revokes it`() = runTest {
         for (manual in listOf(Answer.Skipped, Answer.Text("human"))) {
-            val fixture = LiveFixture()
+            val fixture = LiveFixture(backgroundScope)
             val original = fixture.repository.humanContext
             val call = async {
                 fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(optional = true, count = 2))
@@ -160,7 +164,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `tool authority revocation during generation does not invalidate unchanged human context`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         fixture.repository.invalidate(automatic = true)
@@ -172,7 +176,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `late automatic revocation cannot restore context invalidated by a concurrent manual answer`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         fixture.revocation = CompletableDeferred()
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
@@ -192,7 +196,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `unsupported automatic revocation safely delegates to ordinary revocation`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val revoked = mutableListOf<SessionRef>()
         val resolver = object : StudioChatResolver {
             override suspend fun sessionIdOf(ref: SessionRef): String? = null
@@ -206,7 +210,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `chat target is the fallback and missing target leaves question to human`() = runTest {
-        val fixture = LiveFixture(configured = false)
+        val fixture = LiveFixture(backgroundScope, configured = false)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         assertEquals(fixture.context.target, fixture.prompts.calls.single().target)
@@ -223,7 +227,7 @@ class LiveQuestionnaireAutopilotTest {
     @Test
     fun `off and suggest do not generate but enabling autopilot starts the live call`() = runTest {
         for (mode in listOf(AutoContinueMode.Off, AutoContinueMode.Suggest)) {
-            val fixture = LiveFixture(mode = mode)
+            val fixture = LiveFixture(backgroundScope, mode = mode)
             val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
             runCurrent()
             assertTrue(fixture.prompts.calls.isEmpty())
@@ -236,7 +240,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `manual answer cancels model and is returned without automatic provenance`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         fixture.manual()
@@ -248,7 +252,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `manual answer to one question cancels the whole batch attempt`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2)) }
         runCurrent()
         fixture.manual(index = 1)
@@ -263,7 +267,7 @@ class LiveQuestionnaireAutopilotTest {
     @Test
     fun `queue rejects automatic answer when another manual answer wins before collection`() = runTest {
         for (alreadyAnswered in 0..1) {
-            val fixture = LiveFixture()
+            val fixture = LiveFixture(backgroundScope)
             val call = async {
                 fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2 + alreadyAnswered))
             }
@@ -301,7 +305,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `accepted automatic answers stay excluded when autopilot restarts for the remaining batch`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 3)) }
         runCurrent()
         fixture.prompts.answers.send(generatedAnswer)
@@ -325,7 +329,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `mode and target changes cancel obsolete generation`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         fixture.mode(AutoContinueMode.Suggest)
@@ -335,7 +339,7 @@ class LiveQuestionnaireAutopilotTest {
         fixture.mode(AutoContinueMode.Autopilot)
         runCurrent()
         val ready = fixture.view.state.value as AutoContinueState.Ready
-        fixture.view.state.value = ready.copy(settings = ready.settings.copy(continuerTarget = fixture.context.target))
+        fixture.view.change { ready.copy(settings = ready.settings.copy(continuerTarget = fixture.context.target)) }
         runCurrent()
         assertEquals(2, fixture.prompts.cancelled)
         assertEquals(fixture.context.target, fixture.prompts.calls.last().target)
@@ -344,7 +348,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `feature disabling cancels the model and keeps the card answerable`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         fixture.toggles.enabled.value = false
@@ -357,7 +361,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `disabling questionnaires cancels the model without answering`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         fixture.toggles.questionsEnabled.value = false
@@ -369,7 +373,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `call cancellation and native lifetime cancellation stop model work`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val lifetime = Job()
         val call = async {
             fixture.tools.execute(fixture.context.copy(lifetime = lifetime), "questionnaire_ask", liveArguments())
@@ -390,7 +394,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `optional deadline cancels pending generation and returns explicit timeout`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(optional = true)) }
         runCurrent()
         advanceTimeBy(120_000)
@@ -410,7 +414,7 @@ class LiveQuestionnaireAutopilotTest {
             IsolatedAnswer.Unavailable(IsolatedPromptFailure.Incomplete),
         )
         for (result in results) {
-            val fixture = LiveFixture()
+            val fixture = LiveFixture(backgroundScope)
             val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
             runCurrent()
             fixture.prompts.answers.send(result)
@@ -424,7 +428,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `same key concurrent calls own separate questions and model jobs`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val first = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         val second = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
@@ -439,7 +443,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `superseded identical question rejects the old generation atomically`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         fixture.queue.send(QuestionnaireIntent.Public.Ask(fixture.queue.pending.single()))
@@ -456,7 +460,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `native permission cards are never read or answered by live autopilot`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val native = Questionnaire(
             QuestionnaireId("native-permission"),
             "chat",
@@ -475,7 +479,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `complete originals supply human context without trusting transcript prompts or marks`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         val text = fixture.prompts.calls.single().text
@@ -492,7 +496,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `incomplete human context never calls model and leaves questions to human`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         fixture.repository.changeContext(StudioQuestionnaireHumanContext.Incomplete)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
@@ -508,7 +512,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `unsupported atomic admission never dispatches even with complete human context`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         fixture.repository.supportsAdmission = false
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
@@ -527,7 +531,7 @@ class LiveQuestionnaireAutopilotTest {
             listOf(StudioQuestionnaireHumanContext.Message(RequestId("new"), "Changed human restriction")),
         )
         for (snapshot in listOf(StudioQuestionnaireHumanContext.Incomplete, changed)) {
-            val fixture = LiveFixture()
+            val fixture = LiveFixture(backgroundScope)
             val reached = CompletableDeferred<Unit>()
             val proceed = CompletableDeferred<Unit>()
             fixture.repository.beforeAdmission = {
@@ -553,7 +557,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `context mutation waits until admitted machine send completes`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val reached = CompletableDeferred<Unit>()
         val proceed = CompletableDeferred<Unit>()
         fixture.queue.beforeAutomaticAnswer = {
@@ -581,7 +585,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `completed manual batch invalidates another batch waiting for admission`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val first = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         val second = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
@@ -608,7 +612,7 @@ class LiveQuestionnaireAutopilotTest {
 
     @Test
     fun `lifetime ended while admission waits cannot dispatch the generated answer`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val lifetime = Job()
         val callContext = fixture.context.copy(lifetime = lifetime)
         val reached = CompletableDeferred<Unit>()
@@ -634,7 +638,7 @@ class LiveQuestionnaireAutopilotTest {
             listOf(StudioQuestionnaireHumanContext.Message(RequestId("new"), "Changed human restriction")),
         )
         for (snapshot in listOf(StudioQuestionnaireHumanContext.Incomplete, changed)) {
-            val fixture = LiveFixture()
+            val fixture = LiveFixture(backgroundScope)
             val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2)) }
             runCurrent()
             assertEquals(1, fixture.prompts.calls.size)
@@ -659,7 +663,7 @@ class LiveQuestionnaireAutopilotTest {
 class LiveQuestionnaireAutopilotManualAnswerTest {
     @Test
     fun `unfinished manual batch invalidates another batch waiting for admission`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val first = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         val second = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2)) }
@@ -690,14 +694,14 @@ class LiveQuestionnaireAutopilotManualAnswerTest {
 
     @Test
     fun `manual revocation keeps its card and cancels generation before the batch completes`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         fixture.revocation = CompletableDeferred()
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2)) }
         runCurrent()
         fixture.manual()
         runCurrent()
         assertEquals(1, fixture.invalidations)
-        assertEquals(1, fixture.prompts.cancelled)
+        assertEquals(0, fixture.prompts.cancelled)
         assertEquals(2, fixture.queue.pending.size)
         assertFalse(call.isCompleted)
         fixture.revocation.complete(Unit)
@@ -713,7 +717,7 @@ class LiveQuestionnaireAutopilotManualAnswerTest {
 
     @Test
     fun `machine rejects another batch after manual acceptance before output collection`() = runTest {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val first = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         val second = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2)) }
@@ -726,7 +730,7 @@ class LiveQuestionnaireAutopilotManualAnswerTest {
                 fixture.queue.send(QuestionnaireIntent.Public.Answer(manual.id, Answer.Text("new restriction"))),
             )
             // The synchronous machine transition has committed. Its buffered output has not been collected.
-            assertEquals(0, fixture.invalidations)
+            assertEquals(1, fixture.invalidations)
             assertEquals(original, fixture.repository.humanContext)
         }
         fixture.prompts.answers.send(generatedAnswer)
@@ -756,7 +760,7 @@ class LiveQuestionnaireAutopilotManualAnswerTest {
     }
 
     private suspend fun TestScope.checkManualFence(sameSource: Boolean, manualAnswer: Answer, replaceManual: Boolean) {
-        val fixture = LiveFixture()
+        val fixture = LiveFixture(backgroundScope)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         val manual = fixture.queue.pending.single().copy(
@@ -774,7 +778,7 @@ class LiveQuestionnaireAutopilotManualAnswerTest {
             if (replaceManual) {
                 fixture.queue.send(QuestionnaireIntent.Public.Ask(manual.copy(title = "Replacement")))
             }
-            assertEquals(0, fixture.invalidations)
+            assertEquals(if (sameSource && manualAnswer != Answer.Skipped) 1 else 0, fixture.invalidations)
             assertEquals(original, fixture.repository.humanContext)
         }
         fixture.prompts.answers.send(generatedAnswer)
@@ -803,7 +807,117 @@ class LiveQuestionnaireAutopilotManualAnswerTest {
     }
 }
 
-private class LiveFixture(mode: AutoContinueMode = AutoContinueMode.Autopilot, configured: Boolean = true) {
+/** Safety regressions for PR604 F14/F15; these require admission at the queue commit boundary. */
+class LiveQuestionnaireAdmissionRegressionTest {
+    @Test
+    fun `accepted manual answer stays revoked after collector cancellation and restart`() = runTest {
+        val fixture = LiveFixture(backgroundScope)
+        val store = ChecklistTestStore(ChatSpec)
+        store.set(
+            ChatsKey,
+            listOf(
+                StudioChatRecord(
+                    "chat",
+                    "Chat",
+                    Instant.DISTANT_PAST,
+                    ref = fixture.context.session,
+                    humanAuthority = StudioHumanAuthority().append(RequestId("human"), "Never delete files"),
+                ),
+            ),
+        )
+        fixture.beforeInvalidation = { invalidateStudioUserInstructions(store, "chat") }
+        val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
+        runCurrent()
+        // send resolves the actual queue transition synchronously. The output collector cannot run until yield.
+        assertEquals(
+            SendResult.Accepted,
+            fixture.queue.send(
+                QuestionnaireIntent.Public.Answer(fixture.queue.pending.single().id, Answer.Text("new restriction")),
+            ),
+        )
+        // A crash loses queue state and outputs. Restart sees only this serialized durable checkpoint.
+        val crashCheckpoint = store.values.value.toMap()
+        call.cancel()
+        runCurrent()
+        call.join()
+        val restarted = ChecklistTestStore(ChatSpec).apply { values.value = crashCheckpoint }
+        assertEquals(1, fixture.invalidations)
+        assertEquals(StudioQuestionnaireHumanContext.Incomplete, readStudioQuestionnaireHumanContext(restarted, "chat"))
+    }
+
+    @Test
+    fun `mode target and flags revoked before atomic admission reject automatic answer`() = runTest {
+        val changes: List<suspend (LiveFixture) -> Unit> = listOf(
+            { it.mode(AutoContinueMode.Off) },
+            { fixture ->
+                fixture.view.change { state ->
+                    val ready = state as AutoContinueState.Ready
+                    ready.copy(settings = ready.settings.copy(continuerTarget = null))
+                }
+            },
+            { it.toggles.change(it.toggles.enabled, false) },
+            { it.toggles.change(it.toggles.questionsEnabled, false) },
+        )
+        for (change in changes) {
+            val fixture = LiveFixture(backgroundScope)
+            val reached = CompletableDeferred<Unit>()
+            fixture.repository.beforeAdmission = {
+                reached.complete(Unit)
+                change(fixture)
+            }
+            val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
+            runCurrent()
+            fixture.prompts.answers.send(generatedAnswer)
+            runCurrent()
+            assertTrue(reached.isCompleted)
+            assertTrue(fixture.queue.autoAnswers.isEmpty())
+            call.cancelAndJoin()
+        }
+    }
+
+    @Test
+    fun `mode target and flag writers wait for an admitted answer to finish dispatch`() = runTest {
+        val changes: List<suspend (LiveFixture) -> Unit> = listOf(
+            { it.mode(AutoContinueMode.Off) },
+            { fixture ->
+                fixture.view.change { state ->
+                    val ready = state as AutoContinueState.Ready
+                    ready.copy(settings = ready.settings.copy(continuerTarget = null))
+                }
+            },
+            { it.toggles.change(it.toggles.enabled, false) },
+            { it.toggles.change(it.toggles.questionsEnabled, false) },
+        )
+        for (change in changes) {
+            val fixture = LiveFixture(backgroundScope)
+            val reached = CompletableDeferred<Unit>()
+            val proceed = CompletableDeferred<Unit>()
+            fixture.queue.beforeAutomaticAnswer = {
+                reached.complete(Unit)
+                proceed.await()
+            }
+            val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
+            runCurrent()
+            fixture.prompts.answers.send(generatedAnswer)
+            runCurrent()
+            assertTrue(reached.isCompleted)
+            val writer = async { change(fixture) }
+            runCurrent()
+            assertFalse(writer.isCompleted)
+            proceed.complete(Unit)
+            writer.await()
+            runCurrent()
+            assertEquals(listOf(SendResult.Accepted), fixture.queue.autoAnswerResults)
+            assertFalse(call.await().isError)
+        }
+    }
+}
+
+private class LiveFixture(
+    scope: CoroutineScope,
+    mode: AutoContinueMode = AutoContinueMode.Autopilot,
+    configured: Boolean = true,
+) {
     val configuredTarget = EngineTarget(EngineId("test"), EngineBindingId("configured"), ModelId("continuer"))
     val context = AgentToolContext(
         SessionRef(EngineId("test"), SessionSourceId("local"), "native"),
@@ -817,13 +931,16 @@ private class LiveFixture(mode: AutoContinueMode = AutoContinueMode.Autopilot, c
             chats = mapOf("chat" to ChatAuto(mode)),
         ),
     )
-    val queue = LiveQueue()
+    val queue = LiveQueue(scope) { source ->
+        if (source == "chat") invalidate(automatic = false)
+    }
     val toggles = LiveToggles()
     val prompts = LivePrompts()
     val repository = LiveRepository()
     var invalidations = 0
     var automaticInvalidations = 0
     var revocation = CompletableDeferred(Unit)
+    var beforeInvalidation: suspend () -> Unit = {}
     private val chats = object : StudioChatResolver {
         override suspend fun sessionIdOf(ref: SessionRef) = "chat"
         override suspend fun invalidateUserInstructions(ref: SessionRef) = invalidate(automatic = false)
@@ -835,6 +952,7 @@ private class LiveFixture(mode: AutoContinueMode = AutoContinueMode.Autopilot, c
         invalidations++
         if (automatic) automaticInvalidations++
         revocation.await()
+        beforeInvalidation()
         repository.invalidate(automatic)
     }
     val tools = AskUserAgentTools(
@@ -849,9 +967,9 @@ private class LiveFixture(mode: AutoContinueMode = AutoContinueMode.Autopilot, c
         ),
     )
 
-    fun mode(mode: AutoContinueMode) {
-        val ready = view.state.value as AutoContinueState.Ready
-        view.state.value = ready.copy(chats = mapOf("chat" to ChatAuto(mode)))
+    suspend fun mode(mode: AutoContinueMode) = view.change { state ->
+        val ready = state as AutoContinueState.Ready
+        ready.copy(chats = mapOf("chat" to ChatAuto(mode)))
     }
 
     suspend fun manual(index: Int = 0) {
@@ -861,6 +979,15 @@ private class LiveFixture(mode: AutoContinueMode = AutoContinueMode.Autopilot, c
 
 private class LiveView(initial: AutoContinueState) : AutoContinueView {
     override val state = MutableStateFlow(initial)
+    private val admissionLock = Mutex()
+    var beforeAdmission: suspend () -> Unit = {}
+    override suspend fun admit(action: suspend (AutoContinueState) -> Boolean): Boolean {
+        beforeAdmission()
+        return admissionLock.withLock { action(state.value) }
+    }
+    suspend fun change(action: (AutoContinueState) -> AutoContinueState) = admissionLock.withLock {
+        state.value = action(state.value)
+    }
 }
 
 private class LivePrompts : IsolatedPrompts {
@@ -893,10 +1020,18 @@ private class LiveToggles : FeatureToggles {
         ) as Flow<T>
 
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = observe(toggle).first()
+    private val admissionLock = Mutex()
+    var beforeAdmission: suspend () -> Unit = {}
+    override suspend fun admitEnabled(flags: Set<FeatureToggle.Flag>, action: suspend () -> Boolean): Boolean {
+        beforeAdmission()
+        return admissionLock.withLock { flags.all { get(it) } && action() }
+    }
+    suspend fun change(flag: MutableStateFlow<Boolean>, value: Boolean) = admissionLock.withLock { flag.value = value }
 }
 
 /** Runs the actual pure queue contract, including generation and answer validation, with hot outputs. */
-private class LiveQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput> {
+private class LiveQueue(private val scope: CoroutineScope, private val prepareManual: suspend (String) -> Unit) :
+    MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput> {
     override val name = "questionnaire"
     override val state = MutableStateFlow<QuestionnaireState>(QuestionnaireState.Idle)
     override val outputs = MutableSharedFlow<QuestionnaireOutput>(extraBufferCapacity = 32)
@@ -925,6 +1060,21 @@ private class LiveQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.Pub
         if (resolution != null) {
             state.value = resolution.to
             resolution.outputs.forEach { check(outputs.tryEmit(it)) }
+            resolution.effects.forEach { effect ->
+                when (effect) {
+                    is QuestionnaireEffect.PrepareManual -> scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                        prepareManual(effect.questionnaire.source)
+                        val completed = QuestionnaireMachineSpec.resolve(
+                            state.value,
+                            QuestionnaireIntent.Internal.ManualPrepared(effect),
+                        )
+                        if (completed != null) {
+                            state.value = completed.to
+                            completed.outputs.forEach { check(outputs.tryEmit(it)) }
+                        }
+                    }
+                }
+            }
         }
         return result
     }

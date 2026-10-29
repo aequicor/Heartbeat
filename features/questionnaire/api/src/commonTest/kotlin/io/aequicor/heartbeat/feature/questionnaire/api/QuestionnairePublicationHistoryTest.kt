@@ -251,9 +251,29 @@ class QuestionnairePublicationHistoryTest {
         assertTrue(retired.publications.touched.isEmpty())
     }
 
+    @Test
+    fun `touch overflow bounds memory and prevents unsafe restoration and snapshot sealing`() {
+        val full = QuestionnairePublicationHistory(
+            touched = (0 until QuestionnairePublicationHistory.TOUCHED_LIMIT).mapTo(mutableSetOf()) {
+                QuestionnaireId("touched-$it")
+            },
+        )
+        val before = QuestionnaireState.Asking(emptyList(), publications = full)
+        val overflow = transition(before, QuestionnaireIntent.Public.Withdraw(question.id))
+        assertEquals(QuestionnairePublicationHistory.TOUCHED_LIMIT, overflow.publications.touched.size)
+        assertTrue(overflow.publications.isInitialRestoreUnsafe)
+        spec.assertIgnored(overflow, QuestionnaireIntent.Public.Restore(question))
+        spec.assertIgnored(overflow, QuestionnaireIntent.Public.Restore(question.copy(id = QuestionnaireId("unknown"))))
+        spec.assertIgnored(overflow, QuestionnaireIntent.Public.FinishInitialRestore)
+        val next = transition(overflow, QuestionnaireIntent.Public.Withdraw(QuestionnaireId("another")))
+        assertEquals(overflow.publications.touched, next.publications.touched)
+        // Explicit live sources keep working; no stale durable records are accepted.
+        assertEquals(listOf(question), ask(next).pending)
+    }
+
     private fun ask(state: QuestionnaireState): QuestionnaireState.Asking =
         transition(state, QuestionnaireIntent.Public.Ask(question))
 
     private fun transition(state: QuestionnaireState, intent: QuestionnaireIntent): QuestionnaireState.Asking =
-        assertIs<QuestionnaireState.Asking>(assertNotNull(spec.resolve(state, intent)).to)
+        assertIs<QuestionnaireState.Asking>(assertNotNull(resolveAfterManualAdmission(state, intent)).to)
 }

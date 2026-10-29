@@ -65,7 +65,7 @@ class QuestionnaireAutoBarrierTest {
         val asked = ask()
         val context = object : QuestionnaireAnswerContext { }
         val result = assertNotNull(
-            spec.resolve(
+            resolveAfterManualAdmission(
                 asked,
                 QuestionnaireIntent.Public.Answer(
                     question.id,
@@ -221,5 +221,5 @@ class QuestionnaireAutoBarrierTest {
     )
 
     private fun transition(state: QuestionnaireState, intent: QuestionnaireIntent): QuestionnaireState.Asking =
-        assertIs<QuestionnaireState.Asking>(assertNotNull(spec.resolve(state, intent)).to)
+        assertIs<QuestionnaireState.Asking>(assertNotNull(resolveAfterManualAdmission(state, intent)).to)
 }

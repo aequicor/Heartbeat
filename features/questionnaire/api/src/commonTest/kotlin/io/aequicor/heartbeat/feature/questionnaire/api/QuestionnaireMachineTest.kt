@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.questionnaire.api
 
 import io.aequicor.heartbeat.core.statemachine.assertIgnored
-import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -26,7 +25,7 @@ class QuestionnaireMachineTest {
     @Test
     fun `accepted answers relay trusted context without storing it in queue state`() {
         val context = object : QuestionnaireAnswerContext { }
-        spec.assertTransition(
+        assertAfterManualAdmission(
             asking,
             QuestionnaireIntent.Public.Answer(pick.id, Answer.Selected(listOf("a")), context),
             asking.copy(submitting = setOf(pick.id), autoBarrier = QuestionnaireAutoBarrier(setOf(pick.source))),
@@ -37,7 +36,7 @@ class QuestionnaireMachineTest {
     @Test
     fun `ask from idle starts asking and appends or replaces later questions`() {
         val first = QuestionnaireIntent.Public.Ask(pick)
-        spec.assertTransition(
+        assertAfterManualAdmission(
             QuestionnaireState.Idle,
             first,
             asking.copy(
@@ -46,7 +45,7 @@ class QuestionnaireMachineTest {
             ),
         )
         val second = QuestionnaireIntent.Public.Ask(confirm)
-        spec.assertTransition(
+        assertAfterManualAdmission(
             asking,
             second,
             QuestionnaireState.Asking(
@@ -57,7 +56,7 @@ class QuestionnaireMachineTest {
         )
         val renamed = pick.copy(title = "Pick again")
         val replacement = QuestionnaireIntent.Public.Ask(renamed)
-        spec.assertTransition(
+        assertAfterManualAdmission(
             asking.copy(submitting = setOf(pick.id)),
             replacement,
             QuestionnaireState.Asking(
@@ -75,7 +74,7 @@ class QuestionnaireMachineTest {
             submitting = setOf(pick.id),
             autoBarrier = QuestionnaireAutoBarrier(setOf(pick.source)),
         )
-        spec.assertTransition(
+        assertAfterManualAdmission(
             asking,
             QuestionnaireIntent.Public.Answer(pick.id, answer),
             submitting,
@@ -92,7 +91,7 @@ class QuestionnaireMachineTest {
         spec.assertIgnored(QuestionnaireState.Idle, QuestionnaireIntent.Public.Answer(pick.id, Answer.Skipped))
         val strict = QuestionnaireState.Asking(listOf(confirm))
         spec.assertIgnored(strict, QuestionnaireIntent.Public.Answer(confirm.id, Answer.Skipped))
-        spec.assertTransition(
+        assertAfterManualAdmission(
             asking,
             QuestionnaireIntent.Public.Answer(pick.id, Answer.Skipped),
             asking.copy(submitting = setOf(pick.id)),
@@ -103,7 +102,7 @@ class QuestionnaireMachineTest {
     @Test
     fun `withdraw removes the question and the last one returns to idle`() {
         val both = QuestionnaireState.Asking(listOf(pick, confirm), setOf(pick.id))
-        spec.assertTransition(
+        assertAfterManualAdmission(
             both,
             QuestionnaireIntent.Public.Withdraw(pick.id),
             QuestionnaireState.Asking(
@@ -112,7 +111,7 @@ class QuestionnaireMachineTest {
             ),
             outputs = listOf(QuestionnaireOutput.Withdrawn(pick.id)),
         )
-        spec.assertTransition(
+        assertAfterManualAdmission(
             asking,
             QuestionnaireIntent.Public.Withdraw(pick.id),
             QuestionnaireState.Asking(
@@ -132,7 +131,7 @@ class QuestionnaireMachineTest {
         val open = pick.copy(isFreeTextAllowed = true)
         val openState = QuestionnaireState.Asking(listOf(open))
         for (answer in listOf(alternative, comment)) {
-            spec.assertTransition(
+            assertAfterManualAdmission(
                 openState,
                 QuestionnaireIntent.Public.Answer(open.id, answer),
                 openState.copy(submitting = setOf(open.id), autoBarrier = QuestionnaireAutoBarrier(setOf(open.source))),

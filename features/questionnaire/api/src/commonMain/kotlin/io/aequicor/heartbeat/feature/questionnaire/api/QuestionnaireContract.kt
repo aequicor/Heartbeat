@@ -42,6 +42,9 @@ public sealed interface QuestionnaireState : MachineState {
      * [publications] survives the last withdrawal; [preparing] holds successful delivery gates, bounded by pending.
      * [deliveryReceipts] owns accepted deliveries until recovery, invalidation, or token acknowledgement.
      * [autoBarrier] retains manual-source exclusions for the entire lifetime of this machine.
+     * [manualPreparations] reserves manual admission attempts while durable revocation runs. They remain outside
+     * [submitting] so journal snapshots retain the question until revocation completes. No Answered output exists
+     * before that completion; lost output or a later crash cannot restore the old human context.
      * All metadata belongs to this machine instance and is discarded with its profile scope.
      */
     @Serializable
@@ -53,6 +56,7 @@ public sealed interface QuestionnaireState : MachineState {
         val preparing: Set<QuestionnaireId> = emptySet(),
         val deliveryReceipts: Map<QuestionnaireId, QuestionnaireDeliveryReceipt> = emptyMap(),
         val autoBarrier: QuestionnaireAutoBarrier = QuestionnaireAutoBarrier(),
+        val manualPreparations: Map<QuestionnaireId, String> = emptyMap(),
     ) : QuestionnaireState
 }
 
@@ -163,14 +167,17 @@ public sealed interface QuestionnaireIntent : MachineIntent {
         }
 
         /**
-         * The user answers [id]; accepted once, while the question is pending and the answer fits it.
+         * The user answers [id] once while the question is pending and the answer fits it. A substantive Manual
+         * answer first reserves an admission attempt: SendResult.Accepted does not yet mean final acceptance or
+         * delivery. PrepareManual must durably revoke the source's context before ManualPrepared emits Answered.
+         * Failure releases the reservation for a manual retry; no collector is needed for the durable barrier.
          * [expectedGeneration] additionally requires the exact ask observed by an automated answerer to remain
          * current at dispatch. Null preserves manual callers that answer the current question without this guard.
          * [expectedPendingGenerations] additionally requires every listed id to remain pending, not submitting,
          * and at its captured generation. Batch answerers exclude only their own already accepted answers;
          * a concurrent manual answer to any remaining batch question then rejects this answer atomically.
          * [origin] is native host-only provenance, never supplied by model/screen JSON. Auto requires a non-null
-         * generation and an unblocked source. An accepted Manual non-Skipped answer atomically blocks that source
+         * generation and an unblocked source. A reserved Manual non-Skipped answer atomically blocks that source
          * across all batches for this machine's lifetime. Opaque [context] is still relayed without interpretation.
          * This supplements, and never replaces or unlocks, the owner's durable context lock.
          */
@@ -181,7 +188,11 @@ public sealed interface QuestionnaireIntent : MachineIntent {
             val expectedGeneration: String? = null,
             val expectedPendingGenerations: Map<QuestionnaireId, String>? = null,
             val origin: QuestionnaireAnswerOrigin = QuestionnaireAnswerOrigin.Manual,
-        ) : Public
+        ) : Public {
+            /** Unique admission attempt; allocated outside pure transition evaluation. */
+            @OptIn(ExperimentalUuidApi::class)
+            public val admissionToken: String = Uuid.random().toString()
+        }
 
         /**
          * The source no longer needs [id]. [expectedGeneration] atomically limits withdrawal to that publication;
@@ -191,12 +202,25 @@ public sealed interface QuestionnaireIntent : MachineIntent {
         public data class Withdraw(val id: QuestionnaireId, val expectedGeneration: String? = null) : Public
     }
 
-    /** The queue has no internal intents. */
-    public sealed interface Internal : QuestionnaireIntent
+    /** Results of durable manual-answer admission. */
+    public sealed interface Internal : QuestionnaireIntent {
+        /** Emitted only after the source has durably revoked its prior human context. */
+        public data class ManualPrepared(val preparation: QuestionnaireEffect.PrepareManual) : Internal
+
+        /** Failed admission permits a manual retry but keeps automatic answers blocked. */
+        public data class ManualPreparationFailed(val id: QuestionnaireId, val token: String) : Internal
+    }
 }
 
-/** The queue performs no IO. */
-public sealed interface QuestionnaireEffect : MachineEffect
+/** Durable preparation must finish before an answer becomes submitting or produces output. */
+public sealed interface QuestionnaireEffect : MachineEffect {
+    /** Captured publication and attempt; stale completion cannot accept a replacement or a retry. */
+    public data class PrepareManual(
+        val questionnaire: Questionnaire,
+        val generation: String?,
+        val answer: QuestionnaireIntent.Public.Answer,
+    ) : QuestionnaireEffect
+}
 
 /** Events for sources. */
 public sealed interface QuestionnaireOutput : MachineOutput {
@@ -234,9 +258,12 @@ public object QuestionnaireMachineKey : MachineKey<
  * | Idle | Ask / Restore | unconditional Ask or Restore | Asking with fresh publication |
  * | Idle | Withdraw | unconditional | empty Asking with touched id |
  * | Asking | Ask | unconditional or matching current / retained absent generation | replace and reopen |
- * | Asking | Restore | initial restore open and durable id untouched | append |
- * | Idle / Asking | FinishInitialRestore | initial restore open | sealed Asking with empty touched |
- * | Asking | Answer | pending, valid, generation/batch/origin match | submitting, manual barrier / Answered |
+ * | Asking | Restore | initial restore safe and open and durable id untouched | append |
+ * | Idle / Asking | FinishInitialRestore | initial restore safe and open | sealed Asking with empty touched |
+ * | Asking | manual substantive Answer | pending, valid, generation/batch match | reserve, block Auto / PrepareManual |
+ * | Asking | ManualPrepared | same publication and attempt | submitting / Answered |
+ * | Asking | ManualPreparationFailed | same attempt | release reservation, retain Auto barrier |
+ * | Asking | Auto or skipped Answer | pending, valid, generation/batch/origin match | submitting / Answered |
  * | Asking | BeginDelivery | current, submitting, not preparing, reserved receipt capacity | preparing |
  * | Asking | ReopenUndelivered | current, submitting, not preparing | reopen fresh |
  * | Asking | AcceptDelivery | current, preparing, receipt capacity | remove, retain receipt / Withdrawn |
@@ -246,7 +273,9 @@ public object QuestionnaireMachineKey : MachineKey<
  *
  * Transitions are pure. Nonces are allocated by intent constructors, never by resolution. The pristine Idle
  * singleton is never re-entered: even an empty queue keeps bounded generations and the initial-restore seal.
- * Exact durable touched ids are needed only until the first successful journal reconciliation.
+ * Exact durable touched ids are needed only until the first successful journal reconciliation. If their bounded
+ * history overflows before reconciliation, restoration and sealing stay disabled for this machine instance;
+ * the journal must preserve the durable snapshot rather than overwrite it from an incomplete queue.
  * Unguarded withdrawal of an absent id records a touch, preventing a journal load racing that withdrawal from
  * resurrecting it. A missing or evicted record cannot authorize a conditional absent Ask.
  *
@@ -309,7 +338,7 @@ public val QuestionnaireMachineSpec:
                 stay { state.asked(intent.questionnaire, intent.generation) }
             }
             on<QuestionnaireIntent.Public.FinishInitialRestore>(guard = {
-                !state.publications.isInitialRestoreFinished
+                !state.publications.isInitialRestoreFinished && !state.publications.isInitialRestoreUnsafe
             }) {
                 stay { state.copy(publications = state.publications.finishInitialRestore()) }
             }
@@ -319,24 +348,48 @@ public val QuestionnaireMachineSpec:
                 stay { state.asked(intent.questionnaire, intent.generation) }
             }
             on<QuestionnaireIntent.Public.Answer>(guard = {
-                intent.id !in state.submitting &&
-                    (intent.expectedGeneration == null || state.generations[intent.id] == intent.expectedGeneration) &&
-                    state.matchesPendingGenerations(intent.expectedPendingGenerations) &&
-                    state.allowsOrigin(intent) &&
-                    state.pending.any { it.id == intent.id && it.accepts(intent.answer) }
+                state.canAnswer(intent) && intent.isSubstantiveManual
             }) {
                 stay {
                     state.copy(
-                        submitting = state.submitting + intent.id,
-                        autoBarrier = if (
-                            intent.origin == QuestionnaireAnswerOrigin.Manual && intent.answer != Answer.Skipped
-                        ) {
-                            state.autoBarrier.block(state.pending.first { it.id == intent.id }.source)
-                        } else {
-                            state.autoBarrier
-                        },
+                        manualPreparations = state.manualPreparations + (intent.id to intent.admissionToken),
+                        autoBarrier = state.autoBarrier.block(state.pending.first { it.id == intent.id }.source),
                     )
                 }
+                effect {
+                    QuestionnaireEffect.PrepareManual(
+                        state.pending.first { it.id == intent.id },
+                        state.generations[intent.id],
+                        intent,
+                    )
+                }
+            }
+            on<QuestionnaireIntent.Internal.ManualPrepared>(guard = {
+                state.matchesPreparation(intent.preparation)
+            }) {
+                stay {
+                    val id = intent.preparation.answer.id
+                    state.copy(submitting = state.submitting + id, manualPreparations = state.manualPreparations - id)
+                }
+                output {
+                    val prepared = intent.preparation
+                    QuestionnaireOutput.Answered(
+                        prepared.questionnaire,
+                        prepared.answer.answer,
+                        prepared.answer.context,
+                        prepared.generation,
+                    )
+                }
+            }
+            on<QuestionnaireIntent.Internal.ManualPreparationFailed>(guard = {
+                state.manualPreparations[intent.id] == intent.token
+            }) {
+                stay { state.copy(manualPreparations = state.manualPreparations - intent.id) }
+            }
+            on<QuestionnaireIntent.Public.Answer>(guard = {
+                state.canAnswer(intent) && !intent.isSubstantiveManual
+            }) {
+                stay { state.copy(submitting = state.submitting + intent.id) }
                 output {
                     QuestionnaireOutput.Answered(
                         state.pending.first { it.id == intent.id },
@@ -414,14 +467,35 @@ public val QuestionnaireMachineSpec:
                 stay { state.withdrawn(intent.id) }
             }
         }
+        onEffectFailure { effect, _ ->
+            when (effect) {
+                is QuestionnaireEffect.PrepareManual -> QuestionnaireIntent.Internal.ManualPreparationFailed(
+                    effect.answer.id,
+                    effect.answer.admissionToken,
+                )
+            }
+        }
     }
+
+private val QuestionnaireIntent.Public.Answer.isSubstantiveManual: Boolean
+    get() = origin == QuestionnaireAnswerOrigin.Manual && answer != Answer.Skipped
+
+private fun QuestionnaireState.Asking.canAnswer(intent: QuestionnaireIntent.Public.Answer): Boolean =
+    intent.id !in submitting && intent.id !in manualPreparations &&
+        (intent.expectedGeneration == null || generations[intent.id] == intent.expectedGeneration) &&
+        matchesPendingGenerations(intent.expectedPendingGenerations) && allowsOrigin(intent) &&
+        pending.any { it.id == intent.id && it.accepts(intent.answer) }
+
+private fun QuestionnaireState.Asking.matchesPreparation(prepared: QuestionnaireEffect.PrepareManual): Boolean =
+    manualPreparations[prepared.answer.id] == prepared.answer.admissionToken &&
+        generations[prepared.answer.id] == prepared.generation && prepared.questionnaire in pending
 
 private fun QuestionnaireState.Asking.matchesGeneration(id: QuestionnaireId, generation: String?): Boolean =
     generation != null && pending.any { it.id == id } && generations[id] == generation
 
 private fun QuestionnaireState.Asking.matchesPendingGenerations(expected: Map<QuestionnaireId, String>?): Boolean =
     expected == null || expected.all { (id, generation) ->
-        id !in submitting && generations[id] == generation && pending.any { it.id == id }
+        id !in submitting && id !in manualPreparations && generations[id] == generation && pending.any { it.id == id }
     }
 
 private fun QuestionnaireState.Asking.asked(
@@ -441,6 +515,7 @@ private fun QuestionnaireState.Asking.asked(
         publications = publications.record(questionnaire.id, generation),
         preparing = preparing - questionnaire.id,
         deliveryReceipts = deliveryReceipts - questionnaire.id,
+        manualPreparations = manualPreparations - questionnaire.id,
     )
 }
 
@@ -451,6 +526,7 @@ private fun QuestionnaireState.Asking.withdrawn(id: QuestionnaireId): Questionna
     publications = publications.record(id, generations[id] ?: publications.latest[id]),
     preparing = preparing - id,
     deliveryReceipts = deliveryReceipts - id,
+    manualPreparations = manualPreparations - id,
 )
 
 private fun QuestionnaireState.Asking.canAsk(intent: QuestionnaireIntent.Public.Ask): Boolean =
@@ -461,7 +537,8 @@ private fun QuestionnaireState.Asking.canAsk(intent: QuestionnaireIntent.Public.
         )
 
 private fun QuestionnaireState.Asking.canRestore(intent: QuestionnaireIntent.Public.Restore): Boolean =
-    !publications.isInitialRestoreFinished && !intent.questionnaire.id.value.startsWith(LIVE_QUESTION_ID_PREFIX) &&
+    !publications.isInitialRestoreFinished && !publications.isInitialRestoreUnsafe &&
+        !intent.questionnaire.id.value.startsWith(LIVE_QUESTION_ID_PREFIX) &&
         intent.questionnaire.id !in publications.touched && pending.none { it.id == intent.questionnaire.id }
 
 private fun QuestionnaireState.Asking.allowsOrigin(intent: QuestionnaireIntent.Public.Answer): Boolean =
