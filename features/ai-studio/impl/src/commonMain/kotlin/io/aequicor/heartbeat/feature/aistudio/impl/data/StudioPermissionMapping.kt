@@ -58,6 +58,10 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     origin: StudioPermissionAnswerOrigin = StudioPermissionAnswerOrigin.ManualOrUnknown,
     beforeAnswer: suspend () -> Unit = { error("Human authority revocation is unavailable") },
 ) {
+    // Native input protocols erase answer provenance and may interpret even structured text as an approval.
+    check(origin !is StudioPermissionAnswerOrigin.NativeAutomatic) {
+        "Native automatic answers require protocol provenance support"
+    }
     Log.tag("EngineStudio").i { "Delivering native permission" }
     val active = this ?: rejectPermission("no open native session", requestId, optionId)
     val pending = active.state.value as? ActiveSessionState.AwaitingUserAction
@@ -69,33 +73,13 @@ internal suspend fun ActiveSession?.respondStudioPermission(
         ?: rejectPermission("the option is not offered", requestId, optionId)
     val decision = PermissionDecision(request.turn, request.id, option.id, answer?.toFacade())
     currentCoroutineContext().ensureActive()
-    val automatic = origin as? StudioPermissionAnswerOrigin.NativeAutomatic
-    automatic?.requireCurrent(request, expectedTurnId, option.isSkip, answer)
-    currentCoroutineContext().ensureActive()
     requirePendingPermission(active, request)
     if (!option.isSkip && (answer != null || request.input != null)) beforeAnswer()
-    currentCoroutineContext().ensureActive()
-    // Our own revocation intentionally changes the authority snapshot. It must never be restored or rechecked
-    // as fresh human permission; only the captured native request and operational eligibility survive it.
-    check(automatic == null || automatic.isCurrent()) { "Native auto-answer changed during authority revocation" }
     currentCoroutineContext().ensureActive()
     requirePendingPermission(active, request)
     deliverStudioPermission(active.state, decision) {
         active.features.requireFeature(RequestsPermissions).respond(decision)
     }
-}
-
-/** Validates host provenance against the exact pending questionnaire before any authority mutation. */
-private suspend fun StudioPermissionAnswerOrigin.NativeAutomatic.requireCurrent(
-    request: PermissionRequest,
-    expectedTurnId: String?,
-    isSkip: Boolean,
-    answer: StudioPermissionAnswer?,
-) {
-    check(
-        expectedTurnId != null && request.input != null && !isSkip && answer != null &&
-            request.toStudio(permission.sessionId) == permission && isCurrent() && isAuthorityCurrent(),
-    ) { "Native auto-answer is no longer current" }
 }
 
 /** Rechecks the full captured request around suspending validation and revocation, including reused identities. */
@@ -146,9 +130,6 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     beforeAnswer: suspend () -> Unit = { error("Human authority revocation is unavailable") },
 ) {
     val turn = requireNotNull(permission.turnId) { "Native permission has no turn identity" }
-    require(origin !is StudioPermissionAnswerOrigin.NativeAutomatic || origin.permission == permission) {
-        "Automatic provenance belongs to another permission"
-    }
     respondStudioPermission(
         permission.requestId,
         optionId,
