@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpCommand
@@ -24,6 +25,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -32,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiConfiguration
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import io.aequicor.heartbeat.feature.aiengine.kimi.impl.domain.KimiBackend
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -46,6 +50,9 @@ internal class JvmKimiBackend(
     private val clients: AcpClientFactory,
     private val workspaces: LocalWorkspaces,
     private val dispatchers: DispatcherProvider,
+    private val toggles: FeatureToggles,
+    private val tools: ProfileAgentTools,
+    private val resources: ResourceResolver,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: KimiConfiguration = KimiConfiguration(),
 ) : KimiBackend {
@@ -89,17 +96,21 @@ internal class JvmKimiBackend(
         if (!accepts(source, context)) {
             throw EngineException(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
         }
-        val target = io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget(
-            context.engine,
-            context.binding,
-            io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId("kimi-for-coding"),
-        )
-        return listOf(ModelInfo(target, "Kimi for Coding", contextLimitTokens = 1_000_000))
+        val discovery = openRuntime(RuntimeIdentity(context.engine, source.info.id, source.info.revision))
+        try {
+            return discovery.discoverCatalog(context.binding).modelInfo(context.engine, context.binding)
+        } finally {
+            withContext(NonCancellable) { discovery.close() }
+        }
     }
 
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
         runtime?.takeUnless { it.isClosed || it.identity != identity }?.let { return@withLock it }
         runtime?.close()
+        openRuntime(identity).also { runtime = it }
+    }
+
+    private suspend fun openRuntime(identity: RuntimeIdentity): KimiRuntime {
         val transport = transports.open(
             AcpCommand(
                 configuration.executable,
@@ -107,7 +118,16 @@ internal class JvmKimiBackend(
                 configuration.workingDirectory,
             ),
         )
-        KimiRuntime.open(identity, transport, clients, profile.coroutineScope, ::directory).also { runtime = it }
+        return KimiRuntime.open(
+            identity,
+            transport,
+            clients,
+            profile.coroutineScope,
+            ::directory,
+            toggles,
+            tools,
+            resources,
+        )
     }
 
     override suspend fun session(ref: SessionRef): EngineSession {

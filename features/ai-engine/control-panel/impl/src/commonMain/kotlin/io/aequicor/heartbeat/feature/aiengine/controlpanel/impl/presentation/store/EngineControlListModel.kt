@@ -107,7 +107,7 @@ internal fun listState(state: EngineControlState): EngineControlListState {
                     io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport.None -> false
                 },
                 isBuiltIn =
-                    engine.spec.install == io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport.BuiltIn,
+                    engine.descriptor.family == io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily.BuiltIn,
             )
         }.toImmutableList(),
         isLoading = false,

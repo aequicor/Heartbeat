@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.kimi.impl.data
 
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientHandler
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpConnection
@@ -16,6 +18,10 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
@@ -27,9 +33,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -42,12 +51,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -233,7 +245,9 @@ class KimiRuntimeTest {
                 transport,
                 clients,
                 this@runTest,
-            ) { "/workspace" }
+                directory = { "/workspace" },
+                toggles = TestToggles(),
+            )
         }
         testScheduler.runCurrent()
         opening.cancel()
@@ -261,8 +275,7 @@ class KimiRuntimeTest {
         val requests = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value).requests
         assertEquals(2, requests.size)
         assertEquals(2, requests.map { it.id }.distinct().size)
-        val firstRequest = requests.single { it.title == "First permission" }
-        val secondRequest = requests.single { it.title == "Second permission" }
+        val (firstRequest, secondRequest) = requests
         session.permissions().respond(
             PermissionDecision(TurnId("stale-turn"), firstRequest.id, PermissionOptionId("allow")),
         )
@@ -406,15 +419,77 @@ class KimiRuntimeTest {
         testScheduler.advanceUntilIdle()
     }
 
+    @Test
+    fun `thought chunks stay reasoning parts of assistant message`() = runTest {
+        val connection = FakeConnection()
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        session.sender().send(prompt("reasoning"))
+        connection.update("""{"sessionUpdate":"agent_thought_chunk","content":{"text":"Think"}}""")
+        connection.update("""{"sessionUpdate":"agent_message_chunk","content":{"text":"Answer"}}""")
+        val message = session.history().page().items.filterIsInstance<SessionItem.Message>().last()
+        assertEquals(MessageRole.Assistant, message.role)
+        assertEquals(ContentPart.Reasoning("Think"), message.parts[0])
+        assertEquals(ContentPart.Text("Answer"), message.parts[1])
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        testScheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `selected model effort and safe native mode are applied through ACP`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[
+                    {"id":"model","options":[]},
+                    {"id":"thinking","category":"thought_level","options":[{"value":"low"},{"value":"max"}]},
+                    {"id":"mode","options":[]}
+                ]}""",
+            ).jsonObject
+        }
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        session.sender().send(prompt("effort").copy(reasoningEffort = "max"))
+        assertEquals("kimi-code/kimi-for-coding", connection.configuration["model"])
+        assertEquals("default", connection.configuration["mode"])
+        assertEquals("max", connection.configuration["thinking"])
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        testScheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `session configuration failure maps to an engine failure`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = Json.parseToJsonElement("""{"configOptions":[{"id":"model","options":[]}]}""").jsonObject
+            configFailure = AcpException.Remote(-32602, "Invalid params")
+        }
+        val runtime = runtime(connection, this)
+        val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+        assertIs<EngineFailure.Transport>(failure.failure)
+        connection.configFailure = null
+        val session = runtime.create(CreateSessionRequest(target))
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        session.sender().send(prompt("next"))
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        testScheduler.advanceUntilIdle()
+    }
+
     private fun prompt(id: String) = PromptRequest(RequestId(id), listOf(ContentPart.Text("Hello")))
 
-    private fun runtime(connection: FakeConnection, scope: CoroutineScope): KimiRuntime {
+    private fun runtime(
+        connection: FakeConnection,
+        scope: CoroutineScope,
+        capabilities: JsonObject = JsonObject(emptyMap()),
+        tools: ProfileAgentTools = TestAgentTools,
+    ): KimiRuntime {
         val runtime = KimiRuntime(
             RuntimeIdentity(KimiEngine.Id, KimiEngine.AuthSource, AuthRevision.Known("one")),
             connection,
             scope,
-            AcpInitialization(1),
-        ) { "/workspace" }
+            AcpInitialization(1, capabilities),
+            directory = { "/workspace" },
+            toggles = TestToggles(),
+            tools = tools,
+        )
         connection.runtime = runtime
         return runtime
     }
@@ -427,16 +502,25 @@ private class FakeConnection : AcpConnection {
     var cancelled: String? = null
     var submissionBarrier: CompletableDeferred<Unit>? = null
     var cancellationBarrier: CompletableDeferred<Unit>? = null
+    var metadata = JsonObject(emptyMap())
+    var content = listOf<JsonObject>()
+    var configFailure: Exception? = null
+    val configuration = mutableMapOf<String, String>()
     lateinit var runtime: KimiRuntime
 
     override suspend fun initialize(client: AcpImplementation) = initialization?.await() ?: AcpInitialization(1)
     override suspend fun authenticate(methodId: String) = Unit
-    override suspend fun newSession(cwd: String) = AcpSession("native", JsonObject(emptyMap()))
-    override suspend fun loadSession(sessionId: String, cwd: String) = AcpSession(sessionId, JsonObject(emptyMap()))
-    override suspend fun prompt(sessionId: String, text: String): AcpPromptResult {
+    override suspend fun newSession(cwd: String) = AcpSession("native", metadata)
+    override suspend fun loadSession(sessionId: String, cwd: String) = AcpSession(sessionId, metadata)
+    override suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult {
+        this.content = content
         submissionBarrier?.await()
         runtime.onPromptSubmitted(sessionId)
         return prompt.await()
+    }
+    override suspend fun setConfigOption(sessionId: String, optionId: String, value: String) {
+        configFailure?.let { throw it }
+        configuration[optionId] = value
     }
     override suspend fun cancel(sessionId: String) {
         cancellationBarrier?.await()
@@ -463,3 +547,29 @@ private fun ActiveSession.permissions() = (features.resolve(RequestsPermissions)
 private fun ActiveSession.history() = (features.resolve(SessionHistory) as FeatureAccess.Available).feature
 
 private fun ActiveSession.current() = state.value as ActiveSessionState.Ready
+
+private class TestToggles : FeatureToggles {
+    override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(value(toggle))
+
+    override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = value(toggle)
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : Any> value(toggle: FeatureToggle<T>): T = when (toggle) {
+        is FeatureToggle.Flag -> true as T
+        is FeatureToggle.Choice -> toggle.default
+    }
+}
+
+private object TestAgentTools : ProfileAgentTools {
+    override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = emptyList()
+    override suspend fun instructions(workspace: WorkspaceRef?): String = ""
+    override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
+        AgentToolResult("Unsupported", isError = true)
+
+    override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
+        if (context.permissions.request(AgentToolApproval(call.name, "Kimi CLI requests permission"))) {
+            NativeVerdict.Allow
+        } else {
+            NativeVerdict.Deny("Denied")
+        }
+}

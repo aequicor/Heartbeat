@@ -91,7 +91,7 @@ internal fun EngineManagementSection(
     HbSettingsSection(
         stringResource(Res.string.engine_section),
         modifier.testTag("engine-panel"),
-        description = if (panel.installation.support == InstallSupportUi.BuiltIn) {
+        description = if (panel.isBuiltIn) {
             stringResource(Res.string.control_engine_builtin)
         } else {
             panel.title

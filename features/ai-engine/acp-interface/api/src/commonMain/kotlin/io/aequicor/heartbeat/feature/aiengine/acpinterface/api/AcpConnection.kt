@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.acpinterface.api
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Creates a protocol service, not an engine registration. Construction performs no IO.
@@ -36,10 +37,35 @@ public interface AcpConnection {
     public suspend fun loadSession(sessionId: String, cwd: String): AcpSession
 
     /**
-     * Sends text and waits for the agent's final stop reason; updates and permissions are handled meanwhile.
+     * Sends content blocks and waits for the agent's final stop reason; updates and permissions are handled meanwhile.
      * [AcpClientHandler.onPromptSubmitted] establishes local wire submission before this call returns a result.
      */
-    public suspend fun prompt(sessionId: String, text: String): AcpPromptResult
+    public suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult
+
+    /** Sends one text block through the multimodal prompt contract. */
+    public suspend fun prompt(sessionId: String, text: String): AcpPromptResult = prompt(
+        sessionId,
+        listOf(
+            JsonObject(
+                mapOf(
+                    "type" to JsonPrimitive("text"),
+                    "text" to JsonPrimitive(text),
+                ),
+            ),
+        ),
+    )
+
+    /**
+     * Changes an option advertised in the session's configOptions, between prompt turns.
+     *
+     * The connection serializes this frame with prompt submissions, but a caller running prompts concurrently
+     * may observe it interleave with a turn start: the guarantee is wire order, not a completed round trip.
+     * The default rejects the call with [UnsupportedOperationException]: only connections to agents that
+     * advertise the option support it. [value] is the wire string form of the option; ACP v1 boolean options,
+     * which require a boolean value, are not representable through this string-only contract.
+     */
+    public suspend fun setConfigOption(sessionId: String, optionId: String, value: String): Unit =
+        throw UnsupportedOperationException("ACP session configuration is unavailable")
 
     /** Sends a notification and cancels pending permission decisions; completion still comes from prompt. */
     public suspend fun cancel(sessionId: String)

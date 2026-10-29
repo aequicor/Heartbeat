@@ -32,7 +32,6 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelModel
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FailureUi
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.InstallSupportUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.fileOf
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.filePage
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
@@ -97,7 +96,7 @@ internal fun EngineControlPanelContent(
         return
     }
     val back = { onIntent(EngineControlPanelIntent.Back) }
-    val engineTitle = if (state.panel?.installation?.support == InstallSupportUi.BuiltIn) {
+    val engineTitle = if (state.panel?.isBuiltIn == true) {
         stringResource(Res.string.control_engine_builtin)
     } else {
         state.title.ifEmpty { state.engine }
