@@ -5,7 +5,6 @@ package io.aequicor.heartbeat.platform.nativelauncher.provisioning
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
-import kotlinx.cinterop.value
 import kotlinx.cinterop.wcstr
 import okio.Path
 import platform.windows.CloseHandle
@@ -40,9 +39,7 @@ internal actual object ProvisioningPlatform {
     }
 }
 
-private class WinLockHandle(
-    private val handle: platform.windows.HANDLE,
-) : ProvisionLockHandle {
+private class WinLockHandle(private val handle: platform.windows.HANDLE) : ProvisionLockHandle {
     override fun release() {
         CloseHandle(handle)
     }

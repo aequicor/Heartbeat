@@ -6,13 +6,19 @@ import io.ktor.client.engine.winhttp.WinHttp
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
-import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readAvailable
 
-/** HTTP-транспорт provisioning на Ktor WinHttp: HTTPS, Range для resume, потоковая запись артефактов. */
+/**
+ * HTTP-транспорт provisioning на Ktor WinHttp: HTTPS, Range для resume, потоковая запись артефактов.
+ *
+ * `HttpClient` здесь сознательно не из `core:network`: лончер — автономный bootstrap-процесс без платформенных
+ * модулей (core-сборки нет под Kotlin/Native desktop-таргетами), а его HTTP — только скачивание подписанных
+ * bootstrap-артефактов; этапы и сбои логируются через `launcherLog`.
+ */
+@Suppress("LoggingInfrastructureBypass")
 class WinHttpTransport : HttpTransport {
     private val client = HttpClient(WinHttp) {
         expectSuccess = false

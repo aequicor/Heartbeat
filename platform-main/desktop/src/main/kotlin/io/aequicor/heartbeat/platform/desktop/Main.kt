@@ -202,7 +202,9 @@ private fun launchDesktopApplication(
             computerUse.isActive,
             instance,
             quitRequests.quit,
+            startHidden = DesktopHandoff.directory() != null,
         )
+        HandoffEffect(visibility, graph.dispatchers.io)
         val plantUml = remember(graph) { (graph as PlantUmlAccessors).plantUml }
         val diagrams = remember(plantUml) { PlantUmlDiagramRenderer(plantUml, graph.dispatchers.default) }
         val areDiagramsAvailable by plantUml.availability.collectAsState(false)

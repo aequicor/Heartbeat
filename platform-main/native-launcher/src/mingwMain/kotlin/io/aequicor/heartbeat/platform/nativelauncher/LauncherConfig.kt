@@ -40,6 +40,10 @@ data class LauncherConfig(
 
         private fun env(name: String): String? = getenv(name)?.toKString()?.takeIf { it.isNotBlank() }
 
+        private const val BITS_PER_BASE64_DIGIT = 6
+        private const val BITS_PER_BYTE = 8
+        private const val BYTE_MASK = 0xff
+
         private fun decodeBase64(value: String): ByteArray {
             val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
             val clean = value.filterNot { it.isWhitespace() || it == '=' }
@@ -49,11 +53,11 @@ data class LauncherConfig(
             for (c in clean) {
                 val digit = alphabet.indexOf(c)
                 require(digit >= 0) { "Invalid base64 in bootstrap public key" }
-                accumulator = (accumulator shl 6) or digit
-                bits += 6
-                if (bits >= 8) {
-                    bits -= 8
-                    out += ((accumulator ushr bits) and 0xff).toByte()
+                accumulator = (accumulator shl BITS_PER_BASE64_DIGIT) or digit
+                bits += BITS_PER_BASE64_DIGIT
+                if (bits >= BITS_PER_BYTE) {
+                    bits -= BITS_PER_BYTE
+                    out += ((accumulator ushr bits) and BYTE_MASK).toByte()
                 }
             }
             return out.toByteArray()

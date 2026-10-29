@@ -1,14 +1,12 @@
 package io.aequicor.heartbeat.platform.nativelauncher.provisioning
 
-import io.aequicor.heartbeat.platform.nativelauncher.LauncherLog
-
-
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapArtifactInfo
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapManifest
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapManifestVerifier
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapSignature
-import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.sha256Hex
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.isAllowedArtifactUrl
+import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.sha256Hex
+import io.aequicor.heartbeat.platform.nativelauncher.launcherLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import okio.FileSystem
@@ -228,7 +226,7 @@ class BootstrapProvisioner(
             fs.delete(file)
             corrupted(info.url)
         }
-        LauncherLog.i(TAG) { "Artifact verified: $file ($downloaded bytes)" }
+        launcherLog.i(TAG) { "Artifact verified: $file ($downloaded bytes)" }
         return file
     }
 
@@ -242,7 +240,7 @@ class BootstrapProvisioner(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            LauncherLog.w(TAG, error) { "Cannot remove cancelled staging: $staging" }
+            launcherLog.w(TAG, error) { "Cannot remove cancelled staging: $staging" }
         }
     }
 

@@ -4,15 +4,22 @@ package io.aequicor.heartbeat.platform.nativelauncher
 
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ImageStore
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionedImage
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.wcstr
-import platform.windows.*
+import platform.windows.CloseHandle
+import platform.windows.CreateProcessW
+import platform.windows.GetExitCodeProcess
+import platform.windows.HANDLE
+import platform.windows.INFINITE
+import platform.windows.PROCESS_INFORMATION
+import platform.windows.STARTUPINFOW
+import platform.windows.WaitForSingleObject
 import kotlin.system.exitProcess
 
 /**

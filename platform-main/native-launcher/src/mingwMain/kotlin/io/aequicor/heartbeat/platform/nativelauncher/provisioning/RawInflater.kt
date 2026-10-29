@@ -5,12 +5,11 @@ package io.aequicor.heartbeat.platform.nativelauncher.provisioning
 import kotlinx.cinterop.Pinned
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
-import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.nativeHeap
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.usePinned
-import platform.zlib.Z_NULL
 import platform.zlib.Z_OK
 import platform.zlib.Z_STREAM_END
 import platform.zlib.inflate

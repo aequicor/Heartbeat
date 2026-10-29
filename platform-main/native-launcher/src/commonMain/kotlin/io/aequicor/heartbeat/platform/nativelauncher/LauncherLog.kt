@@ -8,3 +8,9 @@ internal expect object LauncherLog {
     fun i(tag: String, message: () -> String)
     fun w(tag: String, error: Throwable, message: () -> String)
 }
+
+/**
+ * Псевдоним с именем в паттерне логгеров правил detekt (`launcherLog.w(error)`):
+ * регулярка набора `heartbeat` узнаёт получателей вида `chatLog`/`httpLogger`, но не заглавный `LauncherLog`.
+ */
+internal val launcherLog: LauncherLog get() = LauncherLog

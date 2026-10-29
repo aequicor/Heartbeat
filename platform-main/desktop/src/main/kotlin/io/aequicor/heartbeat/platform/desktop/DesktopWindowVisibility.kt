@@ -25,9 +25,10 @@ internal fun rememberDesktopWindowVisibility(
     isComputerUseActive: Boolean,
     instance: DesktopInstance?,
     onQuit: () -> Unit,
+    startHidden: Boolean = false,
 ): DesktopWindowVisibility {
     val currentQuit by rememberUpdatedState(onQuit)
-    val visibility = remember(windowState) { DesktopWindowVisibility(windowState) { currentQuit() } }
+    val visibility = remember(windowState) { DesktopWindowVisibility(windowState, startHidden) { currentQuit() } }
     DisposableEffect(visibility, image, instance) {
         visibility.installTray { open, quit -> installDesktopTray(image, open, quit) }
         val reopen = installDesktopReopenHandler(visibility::openWindow)
@@ -68,12 +69,15 @@ internal fun RestoreDesktopWindowFocus(window: Window, visibility: DesktopWindow
  * Keeps the window and its root alive in the tray. A close gesture may hide the window only after the native
  * tray is installed; otherwise it follows the full quit flow so the app never becomes unreachable.
  */
-internal class DesktopWindowVisibility(private val windowState: WindowState, private val onQuit: () -> Unit) :
-    AutoCloseable {
+internal class DesktopWindowVisibility(
+    private val windowState: WindowState,
+    startHidden: Boolean = false,
+    private val onQuit: () -> Unit,
+) : AutoCloseable {
     private val log = Log.tag("DesktopWindowVisibility")
     private var tray: AutoCloseable? = null
 
-    var isVisible: Boolean by mutableStateOf(true)
+    var isVisible: Boolean by mutableStateOf(!startHidden)
         private set
 
     /** Changes even when the window is already visible, so another Open gesture can bring it to the front. */

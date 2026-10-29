@@ -1,8 +1,6 @@
 package io.aequicor.heartbeat.platform.nativelauncher.provisioning
 
-import io.aequicor.heartbeat.platform.nativelauncher.LauncherLog
-
-
+import io.aequicor.heartbeat.platform.nativelauncher.launcherLog
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okio.FileSystem
@@ -46,7 +44,12 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
             val record = json.decodeFromString<ImageMarker>(fs.read(marker) { readUtf8() })
             if (record.id != id) return null
             ProvisionedImage(record.id, dir, record.runtimeId, record.trainId)
-        }.onFailure { LauncherLog.w(TAG, it) { "Cannot read provisioned image marker: $marker" } }.getOrNull()
+        }.onFailure { error ->
+            launcherLog.w(
+                TAG,
+                error,
+            ) { "Cannot read provisioned image marker: $marker" }
+        }.getOrNull()
     }
 
     fun markerFile(imageDir: Path): Path = imageDir.resolve("bootstrap-image.json")
@@ -89,7 +92,7 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
         fs.list(images).forEach { dir ->
             if (dir.name !in keep) {
                 runCatching { fs.deleteRecursively(dir) }
-                    .onFailure { LauncherLog.w(TAG, it) { "Cannot prune old image: $dir" } }
+                    .onFailure { error -> launcherLog.w(TAG, error) { "Cannot prune old image: $dir" } }
             }
         }
     }
@@ -97,7 +100,7 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
     private fun readPointer(file: Path): String? {
         if (!fs.exists(file)) return null
         return runCatching { fs.read(file) { readUtf8().trim() } }
-            .onFailure { LauncherLog.w(TAG, it) { "Cannot read image pointer: $file" } }
+            .onFailure { error -> launcherLog.w(TAG, error) { "Cannot read image pointer: $file" } }
             .getOrNull()?.takeIf { it.isNotBlank() }
     }
 }
