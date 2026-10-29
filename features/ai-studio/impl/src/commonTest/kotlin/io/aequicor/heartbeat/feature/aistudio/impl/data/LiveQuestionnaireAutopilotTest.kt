@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.ChatAuto
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerOrigin
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
@@ -59,6 +60,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -90,8 +94,9 @@ class LiveQuestionnaireAutopilotTest {
         assertEquals(listOf("q"), result.getValue("autopilotAnswered").jsonArray.map { it.jsonPrimitive.content })
         val answer = result.getValue("answers").jsonObject.getValue("q").jsonObject
         assertEquals("automatic", answer["text"]?.jsonPrimitive?.content)
-        assertEquals(QuestionnaireState.Idle, fixture.queue.state.value)
+        fixture.queue.assertEmpty()
         assertNotNull(fixture.queue.autoAnswers.single().expectedGeneration)
+        assertEquals(QuestionnaireAnswerOrigin.Auto, fixture.queue.autoAnswers.single().origin)
     }
 
     @Test
@@ -288,7 +293,7 @@ class LiveQuestionnaireAutopilotTest {
             val result = Json.parseToJsonElement(call.await().text).jsonObject
             val automatic = result["autopilotAnswered"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()
             assertEquals(if (alreadyAnswered == 1) listOf("q") else emptyList(), automatic)
-            assertEquals(1, fixture.invalidations)
+            assertEquals(2, fixture.invalidations)
             assertEquals(0, fixture.automaticInvalidations)
             assertEquals(StudioQuestionnaireHumanContext.Incomplete, fixture.repository.humanContext)
         }
@@ -315,7 +320,7 @@ class LiveQuestionnaireAutopilotTest {
             result.getValue("autopilotAnswered").jsonArray.map { it.jsonPrimitive.content }.toSet(),
         )
         assertEquals(listOf(3, 2, 1), fixture.queue.autoAnswers.map { it.expectedPendingGenerations?.size })
-        assertEquals(QuestionnaireState.Idle, fixture.queue.state.value)
+        fixture.queue.assertEmpty()
     }
 
     @Test
@@ -374,13 +379,13 @@ class LiveQuestionnaireAutopilotTest {
         runCurrent()
         assertEquals(1, fixture.prompts.cancelled)
         call.cancelAndJoin()
-        assertEquals(QuestionnaireState.Idle, fixture.queue.state.value)
+        fixture.queue.assertEmpty()
         assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
         val second = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         second.cancelAndJoin()
         assertEquals(2, fixture.prompts.cancelled)
-        assertEquals(QuestionnaireState.Idle, fixture.queue.state.value)
+        fixture.queue.assertEmpty()
     }
 
     @Test
@@ -429,7 +434,7 @@ class LiveQuestionnaireAutopilotTest {
         assertEquals(1, fixture.prompts.cancelled)
         fixture.prompts.answers.send(generatedAnswer)
         assertFalse(second.await().isError)
-        assertEquals(QuestionnaireState.Idle, fixture.queue.state.value)
+        fixture.queue.assertEmpty()
     }
 
     @Test
@@ -443,7 +448,10 @@ class LiveQuestionnaireAutopilotTest {
         assertFalse(call.isCompleted)
         assertTrue((fixture.queue.state.value as QuestionnaireState.Asking).submitting.isEmpty())
         fixture.manual()
-        assertFalse(call.await().isError)
+        runCurrent()
+        assertFalse(call.isCompleted)
+        call.cancelAndJoin()
+        assertEquals(1, fixture.queue.pending.size)
     }
 
     @Test
@@ -485,7 +493,7 @@ class LiveQuestionnaireAutopilotTest {
     @Test
     fun `incomplete human context never calls model and leaves questions to human`() = runTest {
         val fixture = LiveFixture()
-        fixture.repository.humanContext = StudioQuestionnaireHumanContext.Incomplete
+        fixture.repository.changeContext(StudioQuestionnaireHumanContext.Incomplete)
         val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
         runCurrent()
         assertTrue(fixture.prompts.calls.isEmpty())
@@ -499,6 +507,128 @@ class LiveQuestionnaireAutopilotTest {
     }
 
     @Test
+    fun `unsupported atomic admission never dispatches even with complete human context`() = runTest {
+        val fixture = LiveFixture()
+        fixture.repository.supportsAdmission = false
+        val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
+        runCurrent()
+        fixture.prompts.answers.send(generatedAnswer)
+        runCurrent()
+        assertEquals(1, fixture.prompts.calls.size)
+        assertTrue(fixture.queue.autoAnswers.isEmpty())
+        assertFalse(call.isCompleted)
+        fixture.manual()
+        assertFalse(call.await().isError)
+    }
+
+    @Test
+    fun `context change after final read but before atomic admission rejects stale answer`() = runTest {
+        val changed = StudioQuestionnaireHumanContext.Complete(
+            listOf(StudioQuestionnaireHumanContext.Message(RequestId("new"), "Changed human restriction")),
+        )
+        for (snapshot in listOf(StudioQuestionnaireHumanContext.Incomplete, changed)) {
+            val fixture = LiveFixture()
+            val reached = CompletableDeferred<Unit>()
+            val proceed = CompletableDeferred<Unit>()
+            fixture.repository.beforeAdmission = {
+                reached.complete(Unit)
+                proceed.await()
+            }
+            val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2)) }
+            runCurrent()
+            fixture.prompts.answers.send(generatedAnswer)
+            runCurrent()
+            assertTrue(reached.isCompleted)
+            fixture.repository.changeContext(snapshot)
+            proceed.complete(Unit)
+            runCurrent()
+            assertTrue(fixture.queue.autoAnswers.isEmpty())
+            assertEquals(1, fixture.prompts.calls.size)
+            assertEquals(2, fixture.queue.pending.size)
+            assertFalse(call.isCompleted)
+            call.cancelAndJoin()
+            fixture.queue.assertEmpty()
+        }
+    }
+
+    @Test
+    fun `context mutation waits until admitted machine send completes`() = runTest {
+        val fixture = LiveFixture()
+        val reached = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        fixture.queue.beforeAutomaticAnswer = {
+            reached.complete(Unit)
+            proceed.await()
+        }
+        val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
+        runCurrent()
+        // A model awaiting its result does not hold the context mutex.
+        val original = fixture.repository.questionnaireHumanContext("chat")
+        fixture.prompts.answers.send(generatedAnswer)
+        runCurrent()
+        assertTrue(reached.isCompleted)
+        val mutation = async { fixture.repository.invalidate() }
+        runCurrent()
+        assertFalse(mutation.isCompleted)
+        assertEquals(original, fixture.repository.humanContext)
+        proceed.complete(Unit)
+        assertFalse(call.await().isError)
+        mutation.await()
+        assertEquals(StudioQuestionnaireHumanContext.Incomplete, fixture.repository.humanContext)
+        assertEquals(1, fixture.queue.autoAnswers.size)
+        assertEquals(1, fixture.automaticInvalidations)
+    }
+
+    @Test
+    fun `completed manual batch invalidates another batch waiting for admission`() = runTest {
+        val fixture = LiveFixture()
+        val first = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
+        runCurrent()
+        val second = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
+        runCurrent()
+        val reached = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        fixture.repository.beforeAdmission = {
+            reached.complete(Unit)
+            proceed.await()
+        }
+        fixture.prompts.answers.send(generatedAnswer)
+        runCurrent()
+        assertTrue(reached.isCompleted)
+        fixture.manual(index = 1)
+        assertFalse(second.await().isError)
+        assertEquals(StudioQuestionnaireHumanContext.Incomplete, fixture.repository.humanContext)
+        proceed.complete(Unit)
+        runCurrent()
+        assertTrue(fixture.queue.autoAnswers.isEmpty())
+        assertFalse(first.isCompleted)
+        fixture.manual()
+        assertFalse(first.await().isError)
+    }
+
+    @Test
+    fun `lifetime ended while admission waits cannot dispatch the generated answer`() = runTest {
+        val fixture = LiveFixture()
+        val lifetime = Job()
+        val callContext = fixture.context.copy(lifetime = lifetime)
+        val reached = CompletableDeferred<Unit>()
+        fixture.repository.beforeAdmission = {
+            reached.complete(Unit)
+            // Close the lifetime immediately before the admission callback, without running its monitor.
+            lifetime.cancel()
+        }
+        val call = async { fixture.tools.execute(callContext, "questionnaire_ask", liveArguments()) }
+        runCurrent()
+        fixture.prompts.answers.send(generatedAnswer)
+        runCurrent()
+        assertTrue(reached.isCompleted)
+        assertTrue(fixture.queue.autoAnswers.isEmpty())
+        assertFalse(call.isCompleted)
+        call.cancelAndJoin()
+        fixture.queue.assertEmpty()
+    }
+
+    @Test
     fun `revoked or changed human context during generation discards answer for whole batch`() = runTest {
         val changed = StudioQuestionnaireHumanContext.Complete(
             listOf(StudioQuestionnaireHumanContext.Message(RequestId("new"), "Changed human restriction")),
@@ -508,7 +638,7 @@ class LiveQuestionnaireAutopilotTest {
             val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2)) }
             runCurrent()
             assertEquals(1, fixture.prompts.calls.size)
-            fixture.repository.humanContext = snapshot
+            fixture.repository.changeContext(snapshot)
             fixture.prompts.answers.send(generatedAnswer)
             runCurrent()
             assertTrue(fixture.queue.autoAnswers.isEmpty())
@@ -521,8 +651,155 @@ class LiveQuestionnaireAutopilotTest {
             fixture.manual()
             val result = Json.parseToJsonElement(call.await().text).jsonObject
             assertFalse("autopilotAnswered" in result)
-            assertEquals(1, fixture.invalidations)
+            assertEquals(2, fixture.invalidations)
         }
+    }
+}
+
+class LiveQuestionnaireAutopilotManualAnswerTest {
+    @Test
+    fun `unfinished manual batch invalidates another batch waiting for admission`() = runTest {
+        val fixture = LiveFixture()
+        val first = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
+        runCurrent()
+        val second = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2)) }
+        runCurrent()
+        val reached = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        fixture.repository.beforeAdmission = {
+            reached.complete(Unit)
+            proceed.await()
+        }
+        fixture.prompts.answers.send(generatedAnswer)
+        runCurrent()
+        assertTrue(reached.isCompleted)
+        fixture.manual(index = 1)
+        runCurrent()
+        assertFalse(second.isCompleted)
+        assertEquals(StudioQuestionnaireHumanContext.Incomplete, fixture.repository.humanContext)
+        assertEquals(2, fixture.queue.pending.size)
+        proceed.complete(Unit)
+        runCurrent()
+        assertTrue(fixture.queue.autoAnswers.isEmpty())
+        assertFalse(first.isCompleted)
+        first.cancelAndJoin()
+        fixture.manual()
+        assertFalse(second.await().isError)
+        assertEquals(2, fixture.invalidations)
+    }
+
+    @Test
+    fun `manual revocation keeps its card and cancels generation before the batch completes`() = runTest {
+        val fixture = LiveFixture()
+        fixture.revocation = CompletableDeferred()
+        val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2)) }
+        runCurrent()
+        fixture.manual()
+        runCurrent()
+        assertEquals(1, fixture.invalidations)
+        assertEquals(1, fixture.prompts.cancelled)
+        assertEquals(2, fixture.queue.pending.size)
+        assertFalse(call.isCompleted)
+        fixture.revocation.complete(Unit)
+        runCurrent()
+        assertEquals(StudioQuestionnaireHumanContext.Incomplete, fixture.repository.humanContext)
+        assertEquals(1, fixture.queue.pending.size)
+        assertFalse(call.isCompleted)
+        fixture.manual()
+        assertFalse(call.await().isError)
+        assertEquals(2, fixture.invalidations)
+        assertEquals(0, fixture.automaticInvalidations)
+    }
+
+    @Test
+    fun `machine rejects another batch after manual acceptance before output collection`() = runTest {
+        val fixture = LiveFixture()
+        val first = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
+        runCurrent()
+        val second = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments(count = 2)) }
+        runCurrent()
+        val manual = fixture.queue.pending[1]
+        val original = fixture.repository.humanContext
+        fixture.queue.beforeAutomaticAnswer = {
+            assertEquals(
+                SendResult.Accepted,
+                fixture.queue.send(QuestionnaireIntent.Public.Answer(manual.id, Answer.Text("new restriction"))),
+            )
+            // The synchronous machine transition has committed. Its buffered output has not been collected.
+            assertEquals(0, fixture.invalidations)
+            assertEquals(original, fixture.repository.humanContext)
+        }
+        fixture.prompts.answers.send(generatedAnswer)
+        runCurrent()
+        assertEquals(listOf(SendResult.Ignored), fixture.queue.autoAnswerResults)
+        assertFalse(first.isCompleted)
+        assertFalse(second.isCompleted)
+        assertEquals(StudioQuestionnaireHumanContext.Incomplete, fixture.repository.humanContext)
+        fixture.manual()
+        val result = Json.parseToJsonElement(first.await().text).jsonObject
+        assertFalse("autopilotAnswered" in result)
+        fixture.manual()
+        assertFalse(second.await().isError)
+        fixture.queue.assertEmpty()
+        assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
+    }
+
+    @Test
+    fun `manual fence follows source and survives replacement while skip keeps auto admission`() = runTest {
+        for (sameSource in listOf(true, false)) {
+            for (manualAnswer in listOf(Answer.Text("new restriction"), Answer.Skipped)) {
+                for (replaceManual in listOf(false, true)) {
+                    checkManualFence(sameSource, manualAnswer, replaceManual)
+                }
+            }
+        }
+    }
+
+    private suspend fun TestScope.checkManualFence(sameSource: Boolean, manualAnswer: Answer, replaceManual: Boolean) {
+        val fixture = LiveFixture()
+        val call = async { fixture.tools.execute(fixture.context, "questionnaire_ask", liveArguments()) }
+        runCurrent()
+        val manual = fixture.queue.pending.single().copy(
+            id = QuestionnaireId("other-batch"),
+            source = if (sameSource) "chat" else "other-chat",
+            isSkippable = true,
+        )
+        fixture.queue.send(QuestionnaireIntent.Public.Ask(manual))
+        val original = fixture.repository.humanContext
+        fixture.queue.beforeAutomaticAnswer = {
+            assertEquals(
+                SendResult.Accepted,
+                fixture.queue.send(QuestionnaireIntent.Public.Answer(manual.id, manualAnswer)),
+            )
+            if (replaceManual) {
+                fixture.queue.send(QuestionnaireIntent.Public.Ask(manual.copy(title = "Replacement")))
+            }
+            assertEquals(0, fixture.invalidations)
+            assertEquals(original, fixture.repository.humanContext)
+        }
+        fixture.prompts.answers.send(generatedAnswer)
+        runCurrent()
+        val blocked = sameSource && manualAnswer != Answer.Skipped
+        assertEquals(
+            listOf(if (blocked) SendResult.Ignored else SendResult.Accepted),
+            fixture.queue.autoAnswerResults,
+        )
+        if (blocked) {
+            assertFalse(call.isCompleted)
+            call.cancelAndJoin()
+        } else {
+            val result = Json.parseToJsonElement(call.await().text).jsonObject
+            assertEquals(
+                listOf("q"),
+                result.getValue("autopilotAnswered").jsonArray.map { it.jsonPrimitive.content },
+            )
+        }
+        assertEquals(listOf(manual.id), fixture.queue.pending.map { it.id })
+        assertEquals(
+            if (replaceManual) "Replacement" else manual.title,
+            fixture.queue.pending.single().title,
+        )
+        assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
     }
 }
 
@@ -624,17 +901,32 @@ private class LiveQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.Pub
     override val state = MutableStateFlow<QuestionnaireState>(QuestionnaireState.Idle)
     override val outputs = MutableSharedFlow<QuestionnaireOutput>(extraBufferCapacity = 32)
     val autoAnswers = mutableListOf<QuestionnaireIntent.Public.Answer>()
+    val autoAnswerResults = mutableListOf<SendResult>()
     var beforeAutomaticAnswer: (suspend (QuestionnaireIntent.Public.Answer) -> Unit)? = null
     val pending: List<Questionnaire> get() = (state.value as? QuestionnaireState.Asking)?.pending.orEmpty()
+    fun assertEmpty() {
+        val asking = state.value as? QuestionnaireState.Asking ?: return
+        assertTrue(asking.pending.isEmpty())
+        assertTrue(asking.submitting.isEmpty())
+        assertTrue(asking.generations.isEmpty())
+        assertTrue(asking.preparing.isEmpty())
+    }
+
     override suspend fun send(intent: QuestionnaireIntent.Public): SendResult {
-        if (intent is QuestionnaireIntent.Public.Answer && intent.context is LiveAutopilotAnswerContext) {
-            autoAnswers += intent
-            beforeAutomaticAnswer?.invoke(intent)
+        val automatic = intent is QuestionnaireIntent.Public.Answer && intent.context is LiveAutopilotAnswerContext
+        if (automatic) {
+            val answer = intent as QuestionnaireIntent.Public.Answer
+            autoAnswers += answer
+            beforeAutomaticAnswer?.invoke(answer)
         }
-        val resolution = QuestionnaireMachineSpec.resolve(state.value, intent) ?: return SendResult.Ignored
-        state.value = resolution.to
-        resolution.outputs.forEach { check(outputs.tryEmit(it)) }
-        return SendResult.Accepted
+        val resolution = QuestionnaireMachineSpec.resolve(state.value, intent)
+        val result = if (resolution == null) SendResult.Ignored else SendResult.Accepted
+        if (automatic) autoAnswerResults += result
+        if (resolution != null) {
+            state.value = resolution.to
+            resolution.outputs.forEach { check(outputs.tryEmit(it)) }
+        }
+        return result
     }
 }
 
@@ -659,15 +951,34 @@ private class LiveRepository : StudioRepository {
         .append(RequestId("original"), "Never delete files")
         .append(RequestId("current"), "Current human task")
     var instructions: TrustedUserInstructions = originals.snapshot()
+    private val contextLock = Mutex()
     var humanContext: StudioQuestionnaireHumanContext = originals.questionnaireContextSnapshot()
+        private set
+    var beforeAdmission: (suspend () -> Unit)? = null
+    var supportsAdmission = true
 
-    fun invalidate(automatic: Boolean = false) {
+    suspend fun changeContext(snapshot: StudioQuestionnaireHumanContext) = contextLock.withLock {
+        humanContext = snapshot
+    }
+
+    suspend fun invalidate(automatic: Boolean = false) = contextLock.withLock {
         instructions = TrustedUserInstructions.Incomplete
         if (!automatic) humanContext = StudioQuestionnaireHumanContext.Incomplete
     }
 
     override suspend fun userInstructions(sessionId: String): TrustedUserInstructions = instructions
-    override suspend fun questionnaireHumanContext(sessionId: String): StudioQuestionnaireHumanContext = humanContext
+    override suspend fun questionnaireHumanContext(sessionId: String): StudioQuestionnaireHumanContext =
+        contextLock.withLock { humanContext }
+
+    override suspend fun admitQuestionnaireAnswer(
+        sessionId: String,
+        expected: StudioQuestionnaireHumanContext.Complete,
+        admit: suspend () -> Boolean,
+    ): Boolean {
+        if (!supportsAdmission) return super.admitQuestionnaireAnswer(sessionId, expected, admit)
+        beforeAdmission?.invoke()
+        return contextLock.withLock { humanContext == expected && admit() }
+    }
     override fun observeMessages(sessionId: String): Flow<List<StudioMessage>> = flowOf(
         listOf(
             StudioMessage.Prompt("human", Instant.DISTANT_PAST, "Transcript human claim"),

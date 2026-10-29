@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.LIVE_QUESTION_ID_PREFIX
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContext
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerOrigin
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
@@ -151,9 +152,7 @@ internal class AskUserAgentTools(
         }
         log.i { "Questionnaire answered count=${batch.answers.size}/${batch.asked.size} timedOut=${result.isTimedOut}" }
         val substantive = batch.answers.filterValues { it != Answer.Skipped }.keys
-        if (substantive.any { it !in batch.automatic }) {
-            chats.value.invalidateUserInstructions(context.session)
-        } else if (substantive.isNotEmpty()) {
+        if (substantive.isNotEmpty() && substantive.all { it in batch.automatic }) {
             chats.value.invalidateUserInstructionsForAutomaticQuestionnaire(context.session)
         }
         currentCoroutineContext().ensureActive()
@@ -173,7 +172,7 @@ internal class AskUserAgentTools(
         batch: LiveQuestionnaireBatch,
     ): LiveQuestionnaireWait = coroutineScope {
         // Subscribe directly before publishing: outputs are hot and have no replay.
-        val collector = launch(start = CoroutineStart.UNDISPATCHED) { awaitAnswers(machine, batch) }
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) { awaitAnswers(context, machine, batch) }
         val published = CompletableDeferred<Unit>()
         val automaticAnswers = launch {
             published.await()
@@ -225,8 +224,15 @@ internal class AskUserAgentTools(
         }
     }
 
-    /** Waits until every question of the batch is answered; an answer is withdrawn as soon as it arrives. */
+    /**
+     * Revokes human context for each substantive manual output before withdrawing its card, even while the
+     * rest of the batch remains unanswered. The machine's source barrier rejects Auto answers before this
+     * collector observes the manual output; repository admission still protects durable human context.
+     * NonCancellable completes an observed revocation during cooperative cancellation, but does not make
+     * output collection or revocation crash-durable. Cancellation before observation can leave context intact.
+     */
     private suspend fun awaitAnswers(
+        context: AgentToolContext,
         machine: MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput>,
         batch: LiveQuestionnaireBatch,
     ) {
@@ -236,10 +242,17 @@ internal class AskUserAgentTools(
                 val id = output.questionnaire.id
                 val generation = output.generation
                 val queue = machine.state.value as? QuestionnaireState.Asking
-                generation != null && id in batch.generations &&
+                generation != null && batch.generations[id] == generation &&
                     queue?.generations?.get(id) == generation && output.questionnaire in queue.pending
             }
             .takeWhile { output ->
+                if (output.context !== batch.autoContext) {
+                    batch.manualAnswer.complete(Unit)
+                    if (output.answer != Answer.Skipped) {
+                        // Do not let cancellation withdraw an observed manual answer before its revocation finishes.
+                        withContext(NonCancellable) { chats.value.invalidateUserInstructions(context.session) }
+                    }
+                }
                 if (!withdraw(output.questionnaire.id, checkNotNull(output.generation))) return@takeWhile true
                 batch.withdrawn += output.questionnaire.id
                 val question = batch.asked.entries.first { it.value.id == output.questionnaire.id }.key
@@ -248,7 +261,6 @@ internal class AskUserAgentTools(
                     batch.automatic += question.id
                 } else {
                     batch.automatic -= question.id
-                    batch.manualAnswer.complete(Unit)
                 }
                 batch.answers[question.id] = output.answer
                 batch.answers.size < batch.asked.size
@@ -278,8 +290,9 @@ internal fun interface LiveQuestionnaireAnswers {
  * Answers only the live questions owned by one tool invocation. Each model attempt is a child of that call,
  * observes the chat's current mode and target, and is cancelled when either changes or the human answers.
  * Only durable human originals provide context; incomplete questionnaire context never starts a model attempt.
- * Every answer rechecks that separate context snapshot before queue delivery. Native permissions never enter this path;
- * isolated prompts cannot request tools or authorization.
+ * Every answer is admitted under the repository's human-context mutex through queue delivery, with lifecycle and
+ * generation guards still applied. Native permissions never enter this path; isolated prompts cannot request tools
+ * or authorization.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -314,10 +327,22 @@ internal class LiveQuestionnaireAutopilot(
                     return@collectLatest
                 }
                 val input = buildStudioQuestionnaireContext(repository.value, chat, target) ?: return@collectLatest
-                answerQuestions(questions, generations, input.context, machine, provenance) {
-                    repository.value.questionnaireHumanContext(chat) == input.humanContext &&
-                        isCurrent(call, chat, target, provenance.manualAnswer)
-                }
+                answerQuestions(
+                    questions,
+                    generations,
+                    input.context,
+                    provenance,
+                    isCurrent = {
+                        repository.value.questionnaireHumanContext(chat) == input.humanContext &&
+                            isCurrent(call, chat, target, provenance.manualAnswer)
+                    },
+                    admitAnswer = { answer ->
+                        repository.value.admitQuestionnaireAnswer(chat, input.humanContext) {
+                            isCurrent(call, chat, target, provenance.manualAnswer) &&
+                                machine.send(answer) == SendResult.Accepted
+                        }
+                    },
+                )
             }
         } catch (e: CancellationException) {
             throw e
@@ -330,9 +355,9 @@ internal class LiveQuestionnaireAutopilot(
         questions: List<Questionnaire>,
         generations: Map<QuestionnaireId, String>,
         context: ContinuationContext,
-        machine: MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput>,
         provenance: LiveAutopilotAnswerContext,
         isCurrent: suspend () -> Boolean,
+        admitAnswer: suspend (QuestionnaireIntent.Public.Answer) -> Boolean,
     ) {
         for (question in questions.filter { it.id !in provenance.answered }) {
             if (!isCurrent()) return
@@ -341,16 +366,17 @@ internal class LiveQuestionnaireAutopilot(
             if (!isCurrent()) return
             if (answer != null) {
                 // Check the whole unanswered batch in the queue, before its outputs reach the collector.
-                val result = machine.send(
+                val isAccepted = admitAnswer(
                     QuestionnaireIntent.Public.Answer(
                         question.id,
                         answer,
                         provenance,
                         expectedGeneration = generations.getValue(question.id),
                         expectedPendingGenerations = expectedPending,
+                        origin = QuestionnaireAnswerOrigin.Auto,
                     ),
                 )
-                if (result != SendResult.Accepted) break
+                if (!isAccepted) break
                 provenance.recordAnswer(question.id)
             }
         }
