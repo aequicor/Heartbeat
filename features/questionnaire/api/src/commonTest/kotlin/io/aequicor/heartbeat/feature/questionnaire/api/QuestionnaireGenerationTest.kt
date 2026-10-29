@@ -35,7 +35,7 @@ class QuestionnaireGenerationTest {
         val original = ask(QuestionnaireState.Idle)
         val staleAnswer = guardedAnswer(original)
         val withdrawal = assertNotNull(spec.resolve(original, QuestionnaireIntent.Public.Withdraw(question.id)))
-        assertEquals(QuestionnaireState.Idle, withdrawal.to)
+        assertEquals(emptyList(), assertIs<QuestionnaireState.Asking>(withdrawal.to).pending)
         assertEquals(listOf(QuestionnaireOutput.Withdrawn(question.id)), withdrawal.outputs)
         val reopened = ask(withdrawal.to)
 
@@ -55,7 +55,7 @@ class QuestionnaireGenerationTest {
             assertNotNull(spec.resolve(replaced, QuestionnaireIntent.Public.Withdraw(other.id))).to,
         )
 
-        assertEquals(original, remaining)
+        assertEquals(original.copy(publications = remaining.publications), remaining)
         assertAccepted(remaining, guardedAnswer(original))
         val reasked = ask(remaining, other)
         spec.assertIgnored(
@@ -135,7 +135,17 @@ class QuestionnaireGenerationTest {
     fun `batch guard can exclude an already accepted automatic answer`() {
         val other = question.copy(id = QuestionnaireId("other"))
         val both = ask(ask(QuestionnaireState.Idle), other)
-        val first = assertNotNull(spec.resolve(both, QuestionnaireIntent.Public.Answer(other.id, answer)))
+        val first = assertNotNull(
+            spec.resolve(
+                both,
+                QuestionnaireIntent.Public.Answer(
+                    other.id,
+                    answer,
+                    expectedGeneration = both.generations.getValue(other.id),
+                    origin = QuestionnaireAnswerOrigin.Auto,
+                ),
+            ),
+        )
         val remaining = guardedAnswer(both).copy(expectedPendingGenerations = both.generations - other.id)
         val accepted = assertNotNull(spec.resolve(first.to, remaining))
         assertEquals(setOf(question.id, other.id), assertIs<QuestionnaireState.Asking>(accepted.to).submitting)
@@ -163,11 +173,12 @@ class QuestionnaireGenerationTest {
     }
 
     @Test
-    fun `only accepted delivery may reopen an absent question without replacing another publication`() {
+    fun `legacy conditional ask may reopen an explicitly withdrawn publication with retained history`() {
         val original = ask(QuestionnaireState.Idle)
         val reopen = QuestionnaireIntent.Public.Ask(question, original.generations.getValue(question.id))
         val other = question.copy(id = QuestionnaireId("other"))
-        for (absent in listOf(QuestionnaireState.Idle, ask(QuestionnaireState.Idle, other))) {
+        val withdrawn = assertNotNull(spec.resolve(original, QuestionnaireIntent.Public.Withdraw(question.id))).to
+        for (absent in listOf(withdrawn, ask(withdrawn, other))) {
             spec.assertIgnored(absent, reopen)
             val restored = assertIs<QuestionnaireState.Asking>(
                 assertNotNull(spec.resolve(absent, reopen.copy(isAbsentAllowed = true))).to,
@@ -186,13 +197,21 @@ class QuestionnaireGenerationTest {
             question.id,
             answer,
             expectedGeneration = state.generations.getValue(question.id),
+            origin = QuestionnaireAnswerOrigin.Auto,
         )
 
     private fun assertAccepted(state: QuestionnaireState.Asking, intent: QuestionnaireIntent.Public.Answer) {
         spec.assertTransition(
             state,
             intent,
-            state.copy(submitting = setOf(question.id)),
+            state.copy(
+                submitting = setOf(question.id),
+                autoBarrier = if (intent.origin == QuestionnaireAnswerOrigin.Manual) {
+                    QuestionnaireAutoBarrier(setOf(question.source))
+                } else {
+                    state.autoBarrier
+                },
+            ),
             outputs = listOf(
                 QuestionnaireOutput.Answered(question, intent.answer, intent.context, state.generations[question.id]),
             ),
