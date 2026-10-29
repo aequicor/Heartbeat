@@ -387,6 +387,25 @@ class KimiRuntimeTest {
         assertEquals(LifecycleFailureReason.ProfileClosed, assertIs<EngineFailure.Lifecycle>(rejected.failure).reason)
     }
 
+    @Test
+    fun `null tool input update preserves previously reported arguments`() = runTest {
+        val connection = FakeConnection()
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        session.sender().send(prompt("tool"))
+        connection.update(
+            """{"sessionUpdate":"tool_call","toolCallId":"call","title":"Read","rawInput":{"path":"a"}}""",
+        )
+        connection.update(
+            """{"sessionUpdate":"tool_call_update","toolCallId":"call","rawInput":null,"status":"completed"}""",
+        )
+        val tool = session.history().page().items.filterIsInstance<SessionItem.ToolCall>().single()
+        assertEquals("{\"path\":\"a\"}", tool.arguments)
+        assertEquals(ToolCallStatus.Succeeded, tool.status)
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        testScheduler.advanceUntilIdle()
+    }
+
     private fun prompt(id: String) = PromptRequest(RequestId(id), listOf(ContentPart.Text("Hello")))
 
     private fun runtime(connection: FakeConnection, scope: CoroutineScope): KimiRuntime {

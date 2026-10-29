@@ -71,6 +71,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -468,7 +469,7 @@ internal class KimiSession(
             update["title"]?.jsonPrimitive?.contentOrNull ?: update["kind"]?.jsonPrimitive?.contentOrNull
                 ?: previous?.name
                 ?: "tool",
-            update["rawInput"]?.toString() ?: previous?.arguments ?: "{}",
+            update["rawInput"]?.takeUnless { it == JsonNull }?.toString() ?: previous?.arguments ?: "{}",
             status,
         )
         upsert(item)
