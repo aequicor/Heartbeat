@@ -2,7 +2,7 @@ package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -261,7 +261,7 @@ private fun FrameWindowScope.HeartbeatWindowContent(
     }
     // Approval requests nobody can see expire by this; an agent driving the computer keeps the user attending.
     val isAttended = LocalWindowInfo.current.isWindowFocused || computerUse.isActive
-    LaunchedEffect(focus, isAttended) { focus.update(isAttended) }
+    SideEffect { focus.update(isAttended) }
     HbDesktopPopupRendering(window)
     HbInWindowDialogHost(window, modifier, onActiveChange = onModalChange) {
         DesktopWindowContent(state, content = content)
