@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPermissionAnswerOrigin
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioQuestionContext
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.decision
@@ -79,6 +80,7 @@ internal class StudioQuestionBridge(
         val permission: StudioPermission?,
         val isNative: Boolean,
         val environment: StudioChatEnvironment?,
+        val autopilot: NativeAutopilotAnswerContext?,
     ) {
         var isAccepted = false
             private set
@@ -174,6 +176,7 @@ internal class StudioQuestionBridge(
                                 live[question.id],
                                 question.id in nativeIds,
                                 (output.context as? StudioQuestionContext)?.environment,
+                                output.context as? NativeAutopilotAnswerContext,
                             ).also {
                                 deliveries[question.id] = it
                             }
@@ -193,6 +196,20 @@ internal class StudioQuestionBridge(
         val question = delivery.question
         try {
             val permission = delivery.permission
+            val autopilot = delivery.autopilot
+            if (autopilot != null) {
+                // Structured contents are not authority. Generated answers never become restored follow-ups,
+                // and cannot approve plain permissions even if a request id was reused.
+                check(
+                    permission?.input != null && permission == autopilot.permission &&
+                        autopilot.isCurrent() && autopilot.isAuthorityCurrent(),
+                ) {
+                    "Native auto-answer is no longer current"
+                }
+                // Runtime delivery repeats these checks around its revocation barrier. Passing provenance
+                // preserves questionnaire context there without restoring any action authority.
+                currentCoroutineContext().ensureActive()
+            }
             when {
                 permission != null -> respondNatively(delivery, permission, answer)
                 delivery.isNative -> log.i { "Ignore answer to an expired native request" }
@@ -223,7 +240,17 @@ internal class StudioQuestionBridge(
         }
         val decision = checkNotNull(permission.decision(answer)) { "Answer does not fit the native request" }
         log.i { "Deliver native permission answer" }
-        runtime.value.respond(permission, decision.optionId, decision.answer)
+        val autopilot = delivery.autopilot
+        if (autopilot == null) {
+            runtime.value.respond(permission, decision.optionId, decision.answer)
+        } else {
+            val origin = StudioPermissionAnswerOrigin.NativeAutomatic(
+                permission,
+                autopilot.isAuthorityCurrent,
+                autopilot.isCurrent,
+            )
+            runtime.value.respond(permission, decision.optionId, decision.answer, origin)
+        }
         // sync may already have replaced an identical-looking request with one from a later native turn.
         val currentAfterDelivery = runtime.value.state.value.permissions.firstOrNull {
             it.questionnaireId() == question.id
@@ -267,7 +294,12 @@ internal class StudioQuestionBridge(
     private suspend fun reopenCurrent(delivery: Delivery) {
         val question = delivery.question
         val replacement = pending(question.id)
-        if (replacement != null && (replacement != question || delivery.isAccepted)) return
+        val isReplacedGeneration = delivery.autopilot?.let { autopilot ->
+            val queue = machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking
+            queue?.generations?.get(question.id) != autopilot.generation
+        } == true
+        val isReplacedQuestion = replacement != null && (replacement != question || delivery.isAccepted)
+        if (isReplacedGeneration || isReplacedQuestion) return
         if (delivery.isNative) {
             val permission = runtime.value.state.value.permissions.firstOrNull { it.questionnaireId() == question.id }
             if (permission != delivery.permission) return
@@ -311,12 +343,16 @@ internal class StudioQuestionBridge(
 @Inject
 internal class StudioQuestionStartup(
     private val bridge: Lazy<StudioQuestionBridge>,
+    private val autopilot: Lazy<NativeQuestionnaireAutopilot>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : ProfileStartup {
     override fun start() {
         profile.coroutineScope.launch {
             try {
-                bridge.value.run()
+                coroutineScope {
+                    launch { bridge.value.run() }
+                    launch { autopilot.value.run() }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
