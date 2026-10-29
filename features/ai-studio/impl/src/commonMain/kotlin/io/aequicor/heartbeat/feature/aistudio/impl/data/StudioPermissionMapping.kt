@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionInput
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionOption
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPermissionAnswerOrigin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -54,6 +55,7 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     optionId: String,
     answer: StudioPermissionAnswer?,
     expectedTurnId: String? = null,
+    origin: StudioPermissionAnswerOrigin = StudioPermissionAnswerOrigin.ManualOrUnknown,
     beforeAnswer: suspend () -> Unit = { error("Human authority revocation is unavailable") },
 ) {
     Log.tag("EngineStudio").i { "Delivering native permission" }
@@ -66,10 +68,41 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     val option = request.options.firstOrNull { it.id.value == optionId }
         ?: rejectPermission("the option is not offered", requestId, optionId)
     val decision = PermissionDecision(request.turn, request.id, option.id, answer?.toFacade())
+    currentCoroutineContext().ensureActive()
+    val automatic = origin as? StudioPermissionAnswerOrigin.NativeAutomatic
+    automatic?.requireCurrent(request, expectedTurnId, option.isSkip, answer)
+    currentCoroutineContext().ensureActive()
+    requirePendingPermission(active, request)
     if (!option.isSkip && (answer != null || request.input != null)) beforeAnswer()
     currentCoroutineContext().ensureActive()
+    // Our own revocation intentionally changes the authority snapshot. It must never be restored or rechecked
+    // as fresh human permission; only the captured native request and operational eligibility survive it.
+    check(automatic == null || automatic.isCurrent()) { "Native auto-answer changed during authority revocation" }
+    currentCoroutineContext().ensureActive()
+    requirePendingPermission(active, request)
     deliverStudioPermission(active.state, decision) {
         active.features.requireFeature(RequestsPermissions).respond(decision)
+    }
+}
+
+/** Validates host provenance against the exact pending questionnaire before any authority mutation. */
+private suspend fun StudioPermissionAnswerOrigin.NativeAutomatic.requireCurrent(
+    request: PermissionRequest,
+    expectedTurnId: String?,
+    isSkip: Boolean,
+    answer: StudioPermissionAnswer?,
+) {
+    check(
+        expectedTurnId != null && request.input != null && !isSkip && answer != null &&
+            request.toStudio(permission.sessionId) == permission && isCurrent() && isAuthorityCurrent(),
+    ) { "Native auto-answer is no longer current" }
+}
+
+/** Rechecks the full captured request around suspending validation and revocation, including reused identities. */
+private fun requirePendingPermission(active: ActiveSession, request: PermissionRequest) {
+    val pending = active.state.value as? ActiveSessionState.AwaitingUserAction
+    check(pending?.turn?.id == request.turn && pending.requests.any { it == request }) {
+        "Permission changed during authority revocation"
     }
 }
 
@@ -109,10 +142,21 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     permission: StudioPermission,
     optionId: String,
     answer: StudioPermissionAnswer?,
+    origin: StudioPermissionAnswerOrigin = StudioPermissionAnswerOrigin.ManualOrUnknown,
     beforeAnswer: suspend () -> Unit = { error("Human authority revocation is unavailable") },
 ) {
     val turn = requireNotNull(permission.turnId) { "Native permission has no turn identity" }
-    respondStudioPermission(permission.requestId, optionId, answer, expectedTurnId = turn, beforeAnswer = beforeAnswer)
+    require(origin !is StudioPermissionAnswerOrigin.NativeAutomatic || origin.permission == permission) {
+        "Automatic provenance belongs to another permission"
+    }
+    respondStudioPermission(
+        permission.requestId,
+        optionId,
+        answer,
+        expectedTurnId = turn,
+        origin = origin,
+        beforeAnswer = beforeAnswer,
+    )
 }
 
 /** Projects one native handle without losing another session's pending actions or stop state. */

@@ -64,7 +64,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPermissionAnswerOrigin
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioQuestionnaireHumanContext
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
@@ -182,6 +184,7 @@ internal data class StudioChatRecord(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioHelperChatWriter>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioHelperAccess>())
 @Inject
+@Suppress("LargeClass") // The authority read shares this coordinator's record mutex; its projection lives in a helper.
 internal class EngineStudioRepository(
     private val facade: EngineFacade,
     private val selections: ModelSelections,
@@ -356,6 +359,16 @@ internal class EngineStudioRepository(
                 StudioTranscriptProjection(store, transcripts, configurations, checklists).observe(sessionId, state),
             )
         }
+    }
+
+    override suspend fun userInstructions(sessionId: String): TrustedUserInstructions = lock.withLock {
+        log.v { "Read durable human authority snapshot" }
+        readStudioUserInstructions(store, sessionId)
+    }
+
+    override suspend fun questionnaireHumanContext(sessionId: String): StudioQuestionnaireHumanContext = lock.withLock {
+        log.v { "Read durable questionnaire context" }
+        readStudioQuestionnaireHumanContext(store, sessionId)
     }
 
     override fun observeModels(): Flow<List<StudioModel>> {
@@ -762,6 +775,16 @@ internal class EngineStudioRepository(
         questionAuthority.respond(permission, optionId, answer)
     }
 
+    override suspend fun respond(
+        permission: StudioPermission,
+        optionId: String,
+        answer: StudioPermissionAnswer?,
+        origin: StudioPermissionAnswerOrigin,
+    ) {
+        log.i { "Respond to captured permission with host provenance" }
+        questionAuthority.respond(permission, optionId, answer, origin)
+    }
+
     override suspend fun invalidateUserInstructions(sessionId: String) {
         log.v { "Invalidate authority of a restored questionnaire conversation" }
         questionAuthority.invalidate(sessionId)
@@ -771,6 +794,12 @@ internal class EngineStudioRepository(
         log.v { "Invalidate authority of a native questionnaire session" }
         val id = checkNotNull(sessionIdOf(ref)) { "Native session is not owned by a studio conversation" }
         questionAuthority.invalidate(id, ref)
+    }
+
+    override suspend fun invalidateUserInstructionsForAutomaticQuestionnaire(ref: SessionRef) {
+        log.v { "Invalidate authority for an automatic questionnaire answer" }
+        val id = checkNotNull(sessionIdOf(ref)) { "Native session is not owned by a studio conversation" }
+        questionAuthority.invalidateForAutomaticAnswer(id, ref)
     }
 
     /** Fails the answer so the machine shows the request again instead of hiding it forever. */
