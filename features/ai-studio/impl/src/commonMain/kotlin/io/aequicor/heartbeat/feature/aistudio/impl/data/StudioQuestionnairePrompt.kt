@@ -34,7 +34,7 @@ internal object StudioQuestionnairePrompt {
 
     private val json = Json { encodeDefaults = true }
 
-    /** Null means the complete question cannot fit safely; choice ids and constraints are never truncated. */
+    /** Null means the complete question or all human instructions cannot fit safely; neither is truncated. */
     fun build(questionnaire: Questionnaire, context: ContinuationContext): IsolatedPrompt? {
         val choices = when (val question = questionnaire.question) {
             is Question.SingleChoice -> question.choices.size
@@ -44,7 +44,7 @@ internal object StudioQuestionnairePrompt {
         if (choices > MAX_CHOICES) return null
         val question = fence(json.encodeToString(Questionnaire.serializer(), questionnaire))
         if (question.length > MAX_QUESTION_CHARS) return null
-        val dialog = renderDialog(context)
+        val dialog = renderDialog(context) ?: return null
         val planText = context.planNote.orEmpty()
         val clippedPlan = clip(planText, 2048)
         val planData = buildJsonObject {
@@ -114,15 +114,17 @@ internal object StudioQuestionnairePrompt {
         return value.takeIf { it.isNotBlank() && it.length <= MAX_TEXT_CHARS }?.let(Answer::Text)
     }
 
-    /** First human task and newest entries win; omissions and clipping are explicit, JSON stays complete. */
-    private fun renderDialog(context: ContinuationContext): String {
-        val firstHuman = context.dialog.indexOfFirst { it.author == DialogAuthor.Human }
-        val indices = (listOf(firstHuman) + context.dialog.indices.reversed().take(32)).filter { it >= 0 }.distinct()
+    /** All human instructions must fit in full before auxiliary entries; JSON escaping counts against the budget. */
+    private fun renderDialog(context: ContinuationContext): String? {
+        val humanIndices = context.dialog.indices.filter { context.dialog[it].author == DialogAuthor.Human }
+        val auxiliaryIndices = context.dialog.indices.reversed()
+            .filter { context.dialog[it].author != DialogAuthor.Human }.take(32)
         val entries = mutableMapOf<Int, JsonObject>()
         var remaining = 24 * 1024
-        for (index in indices) {
+        for (index in humanIndices + auxiliaryIndices) {
             val entry = context.dialog[index]
-            val clipped = clip(entry.text, 1024)
+            val isHuman = entry.author == DialogAuthor.Human
+            val clipped = if (isHuman) entry.text else clip(entry.text, 1024)
             val encoded = buildJsonObject {
                 put("author", entry.author.name.lowercase())
                 put("text", clipped)
@@ -132,6 +134,8 @@ internal object StudioQuestionnairePrompt {
             if (size <= remaining) {
                 entries[index] = encoded
                 remaining -= size
+            } else if (isHuman) {
+                return null
             }
         }
         val dialog = buildJsonObject {

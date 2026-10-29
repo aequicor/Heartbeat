@@ -69,6 +69,7 @@ internal class StudioQuestionBridge(
     private val lock = Mutex()
 
     private val live = mutableMapOf<QuestionnaireId, StudioPermission>()
+    private val nativeGenerations = mutableMapOf<QuestionnaireId, String>()
 
     // Profile-lifetime provenance: an expired live request must never become a restored follow-up.
     private val nativeIds = mutableSetOf<QuestionnaireId>()
@@ -77,6 +78,7 @@ internal class StudioQuestionBridge(
 
     private class Delivery(
         val question: Questionnaire,
+        val generation: String,
         val permission: StudioPermission?,
         val isNative: Boolean,
         val environment: StudioChatEnvironment?,
@@ -126,7 +128,7 @@ internal class StudioQuestionBridge(
         val current = permissions.associateBy { it.questionnaireId() }
         // Machine intents are sent outside the lock: their outputs are consumed by [deliverAnswers].
         val (resolved, changed) = lock.withLock {
-            val resolved = live.keys - current.keys
+            val resolved = (live.keys - current.keys).associateWith { nativeGenerations.remove(it) }
             live.keys.retainAll(current.keys)
             val changed = current.values.filter { live[it.questionnaireId()] != it }
             changed.forEach {
@@ -135,18 +137,20 @@ internal class StudioQuestionBridge(
             }
             resolved to changed
         }
-        resolved.forEach { id ->
+        resolved.forEach { (id, generation) ->
             log.i { "Engine resolved a question" }
-            pending(id)?.let { withdrawCurrent(it) }
+            if (generation != null && pending(id)?.let { isCurrent(it, generation) } == true) {
+                withdraw(id, generation)
+            }
         }
         // Turn aliases may change across handles/restarts. Replace late journal copies, but never re-Ask the
         // current identity: that would clear its submitting flag while the answer is still in flight.
         current.values.forEach { permission ->
             val expected = permission.toQuestionnaire()
             if (permission.turnId != null && expected != null) {
-                pendingQuestions().filter {
+                withdrawMatching {
                     it.id != expected.id && permission.ownsQuestionnaireId(it.id) && it == expected.copy(id = it.id)
-                }.forEach { withdrawCurrent(it) }
+                }
             }
         }
         changed.forEach { permission ->
@@ -165,36 +169,43 @@ internal class StudioQuestionBridge(
             .flatMapLatest { it?.outputs ?: emptyFlow() }
             .filterIsInstance<QuestionnaireOutput.Answered>()
             .collect { output ->
-                val question = output.questionnaire
-                if (!question.id.value.startsWith(LIVE_QUESTION_ID_PREFIX)) {
-                    val delivery = lock.withLock {
-                        if (question.id in deliveries || pending(question.id) != question) {
-                            null
-                        } else {
-                            Delivery(
-                                question,
-                                live[question.id],
-                                question.id in nativeIds,
-                                (output.context as? StudioQuestionContext)?.environment,
-                                output.context as? NativeAutopilotAnswerContext,
-                            ).also {
-                                deliveries[question.id] = it
-                            }
-                        }
-                    }
-                    if (delivery != null) {
-                        launch { deliver(delivery, output.answer) }
-                    } else if (pending(question.id) == question) {
-                        // Answer already set submitting in the queue. A busy/replaced delivery must permit retry.
-                        guarded("reopen busy answer") { reopen(question) }
-                    }
+                val generation = output.generation ?: return@collect
+                if (output.questionnaire.id.value.startsWith(LIVE_QUESTION_ID_PREFIX)) return@collect
+                val delivery = prepareDelivery(output, generation) ?: return@collect
+                launch { deliver(delivery, output.answer) }
+            }
+    }
+
+    private suspend fun prepareDelivery(output: QuestionnaireOutput.Answered, generation: String): Delivery? {
+        val question = output.questionnaire
+        val delivery = lock.withLock {
+            if (deliveries[question.id]?.generation == generation) return null
+            if (question.id in deliveries || !isCurrent(question, generation)) {
+                null
+            } else {
+                Delivery(
+                    question,
+                    generation,
+                    live[question.id],
+                    question.id in nativeIds,
+                    (output.context as? StudioQuestionContext)?.environment,
+                    output.context as? NativeAutopilotAnswerContext,
+                ).also {
+                    deliveries[question.id] = it
                 }
             }
+        }
+        if (delivery == null && isCurrent(question, generation)) {
+            // Answer already set submitting in the queue. A busy replacement must permit retry.
+            guarded("reopen busy answer") { reopen(question, generation) }
+        }
+        return delivery
     }
 
     private suspend fun deliver(delivery: Delivery, answer: Answer) {
         val question = delivery.question
         try {
+            if (!isCurrent(question, delivery.generation)) return
             val permission = delivery.permission
             val autopilot = delivery.autopilot
             if (autopilot != null) {
@@ -213,7 +224,7 @@ internal class StudioQuestionBridge(
             when {
                 permission != null -> respondNatively(delivery, permission, answer)
                 delivery.isNative -> log.i { "Ignore answer to an expired native request" }
-                answer == Answer.Skipped -> withdrawCurrent(question)
+                answer == Answer.Skipped -> withdrawCurrent(delivery)
                 else -> followUp(delivery, answer)
             }
         } catch (e: CancellationException) {
@@ -255,7 +266,7 @@ internal class StudioQuestionBridge(
         val currentAfterDelivery = runtime.value.state.value.permissions.firstOrNull {
             it.questionnaireId() == question.id
         }
-        if (currentAfterDelivery == null || currentAfterDelivery == permission) withdrawCurrent(question)
+        if (currentAfterDelivery == null || currentAfterDelivery == permission) withdrawCurrent(delivery)
     }
 
     private suspend fun followUp(delivery: Delivery, answer: Answer) {
@@ -272,6 +283,7 @@ internal class StudioQuestionBridge(
         log.i { "Deliver restored answer as a profile-owned follow-up" }
         runtime.value.invalidateUserInstructions(question.source)
         currentCoroutineContext().ensureActive()
+        if (!isCurrent(question, delivery.generation)) return
         val outcome = runtime.value.run(
             question.source,
             question.followUpText(answer),
@@ -279,32 +291,36 @@ internal class StudioQuestionBridge(
             attachments = emptyList(),
             environment = delivery.environment,
         ) {
-            withdrawCurrent(question)
-            delivery.accept()
+            if (withdrawCurrent(delivery)) delivery.accept()
         }
         if (outcome == RunOutcome.Failed) reopenCurrent(delivery)
     }
 
-    /** A stale completion must not withdraw a replacement with the same id. */
-    private suspend fun withdrawCurrent(question: Questionnaire) {
-        if (pending(question.id) == question) withdraw(question.id)
+    /** A stale completion must not withdraw a replacement with the same id, even if its contents match. */
+    private suspend fun withdrawCurrent(delivery: Delivery): Boolean =
+        withdraw(delivery.question.id, delivery.generation)
+
+    private suspend fun withdrawMatching(predicate: (Questionnaire) -> Boolean) {
+        val queue = machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking ?: return
+        queue.pending.filter(predicate).forEach { question ->
+            queue.generations[question.id]?.let { withdraw(question.id, it) }
+        }
+    }
+
+    private fun isCurrent(question: Questionnaire, generation: String): Boolean {
+        val queue = machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking ?: return false
+        return queue.generations[question.id] == generation && question in queue.pending
     }
 
     /** Reopen only this delivery; never overwrite a replacement or resurrect an engine-resolved permission. */
     private suspend fun reopenCurrent(delivery: Delivery) {
         val question = delivery.question
-        val replacement = pending(question.id)
-        val isReplacedGeneration = delivery.autopilot?.let { autopilot ->
-            val queue = machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking
-            queue?.generations?.get(question.id) != autopilot.generation
-        } == true
-        val isReplacedQuestion = replacement != null && (replacement != question || delivery.isAccepted)
-        if (isReplacedGeneration || isReplacedQuestion) return
+        if (pending(question.id) != null && !isCurrent(question, delivery.generation)) return
         if (delivery.isNative) {
             val permission = runtime.value.state.value.permissions.firstOrNull { it.questionnaireId() == question.id }
             if (permission != delivery.permission) return
         }
-        reopen(question)
+        reopen(question, delivery.generation, isAbsentAllowed = delivery.isAccepted)
     }
 
     private fun pending(id: QuestionnaireId): Questionnaire? = pendingQuestions().firstOrNull { it.id == id }
@@ -313,18 +329,33 @@ internal class StudioQuestionBridge(
         (machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking)?.pending.orEmpty()
 
     private suspend fun ask(questionnaire: Questionnaire) {
-        val result = machines.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Ask(questionnaire))
+        val intent = QuestionnaireIntent.Public.Ask(questionnaire)
+        lock.withLock { nativeGenerations[questionnaire.id] = intent.generation }
+        val result = machines.send(QuestionnaireMachineKey, intent)
         if (result != SendResult.Accepted) log.w { "Question was not asked: $result" }
     }
 
-    private suspend fun reopen(questionnaire: Questionnaire) {
-        val result = machines.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Ask(questionnaire))
+    private suspend fun reopen(questionnaire: Questionnaire, generation: String, isAbsentAllowed: Boolean = false) {
+        val intent = QuestionnaireIntent.Public.Ask(questionnaire, generation, isAbsentAllowed)
+        val permission = lock.withLock { live[questionnaire.id] }
+        val result = machines.send(QuestionnaireMachineKey, intent)
+        if (result == SendResult.Accepted) {
+            lock.withLock {
+                if (
+                    permission != null && live[questionnaire.id] == permission &&
+                    isCurrent(questionnaire, intent.generation)
+                ) {
+                    nativeGenerations[questionnaire.id] = intent.generation
+                }
+            }
+        }
         log.i { "Reopen undelivered question result=$result" }
     }
 
-    private suspend fun withdraw(id: QuestionnaireId) {
-        val result = machines.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Withdraw(id))
+    private suspend fun withdraw(id: QuestionnaireId, generation: String): Boolean {
+        val result = machines.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Withdraw(id, generation))
         log.i { "Withdraw question result=$result" }
+        return result == SendResult.Accepted
     }
 
     private suspend fun guarded(action: String, block: suspend () -> Unit) {

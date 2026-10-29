@@ -143,6 +143,39 @@ class QuestionnaireGenerationTest {
         assertAccepted(assertIs<QuestionnaireState.Asking>(withdrawn.to), remaining)
     }
 
+    @Test
+    fun `conditional withdrawal and reopening cannot mutate an identical replacement`() {
+        val original = ask(QuestionnaireState.Idle)
+        val generation = original.generations.getValue(question.id)
+        val withdraw = QuestionnaireIntent.Public.Withdraw(question.id, generation)
+        val reopen = QuestionnaireIntent.Public.Ask(question, generation)
+        for (state in listOf(original, ask(original, question.copy(id = QuestionnaireId("other"))))) {
+            val replacement = ask(state)
+            spec.assertIgnored(replacement, withdraw)
+            spec.assertIgnored(replacement, reopen)
+            spec.assertIgnored(replacement, reopen.copy(isAbsentAllowed = true))
+            assertNotNull(spec.resolve(state, withdraw))
+            val reopened = assertIs<QuestionnaireState.Asking>(assertNotNull(spec.resolve(state, reopen)).to)
+            assertNotEquals(generation, reopened.generations[question.id])
+            // Explicit manual withdrawal retains its original unguarded semantics.
+            assertNotNull(spec.resolve(replacement, QuestionnaireIntent.Public.Withdraw(question.id)))
+        }
+    }
+
+    @Test
+    fun `only accepted delivery may reopen an absent question without replacing another publication`() {
+        val original = ask(QuestionnaireState.Idle)
+        val reopen = QuestionnaireIntent.Public.Ask(question, original.generations.getValue(question.id))
+        val other = question.copy(id = QuestionnaireId("other"))
+        for (absent in listOf(QuestionnaireState.Idle, ask(QuestionnaireState.Idle, other))) {
+            spec.assertIgnored(absent, reopen)
+            val restored = assertIs<QuestionnaireState.Asking>(
+                assertNotNull(spec.resolve(absent, reopen.copy(isAbsentAllowed = true))).to,
+            )
+            assertEquals(question, restored.pending.first { it.id == question.id })
+        }
+    }
+
     private fun ask(from: QuestionnaireState, next: Questionnaire = question): QuestionnaireState.Asking =
         assertIs<QuestionnaireState.Asking>(
             assertNotNull(spec.resolve(from, QuestionnaireIntent.Public.Ask(next))).to,
@@ -160,7 +193,9 @@ class QuestionnaireGenerationTest {
             state,
             intent,
             state.copy(submitting = setOf(question.id)),
-            outputs = listOf(QuestionnaireOutput.Answered(question, intent.answer, intent.context)),
+            outputs = listOf(
+                QuestionnaireOutput.Answered(question, intent.answer, intent.context, state.generations[question.id]),
+            ),
         )
     }
 }

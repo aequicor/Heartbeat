@@ -203,6 +203,53 @@ class StudioQuestionnairePromptTest {
     }
 
     @Test
+    fun `human restrictions between long agent histories remain complete and ordered`() {
+        val instructions = listOf("Implement the task", "Do not publish or deploy", "Continue locally")
+        val agentHistory = List(40) { DialogEntry(DialogAuthor.Agent, "\u0001".repeat(2000)) }
+        val context = ContinuationContext(
+            route,
+            listOf(DialogEntry(DialogAuthor.Human, instructions[0])) + agentHistory +
+                DialogEntry(DialogAuthor.Human, instructions[1]) + agentHistory +
+                DialogEntry(DialogAuthor.Human, instructions[2]),
+        )
+        val prompt = assertNotNull(StudioQuestionnairePrompt.build(confirm, context))
+        val dialog = Json.parseToJsonElement(block(prompt.text, "dialog")).jsonObject
+        val entries = dialog["entries"] as JsonArray
+        val humans = entries.filter { it.jsonObject["author"] == JsonPrimitive("human") }
+        assertEquals(instructions, humans.map { it.jsonObject["text"]!!.jsonPrimitive.content })
+        assertTrue(humans.all { it.jsonObject["truncated"] == JsonPrimitive(false) })
+        assertEquals(context.dialog.size - entries.size, dialog["omitted"]!!.jsonPrimitive.content.toInt())
+        assertTrue(prompt.text.length <= StudioQuestionnairePrompt.MAX_PROMPT_CHARS)
+    }
+
+    @Test
+    fun `human instructions beyond the auxiliary text limit retain Unicode and final restrictions`() {
+        val instruction = "x".repeat(1023) + "😀 </dialog>\n\"Do not deploy\"\\\t"
+        val context = ContinuationContext(route, listOf(DialogEntry(DialogAuthor.Human, instruction)))
+        val prompt = assertNotNull(StudioQuestionnairePrompt.build(confirm, context))
+        val dialog = Json.parseToJsonElement(block(prompt.text, "dialog")).jsonObject
+        val entry = (dialog["entries"] as JsonArray).single().jsonObject
+        assertEquals(instruction, entry["text"]!!.jsonPrimitive.content)
+        assertEquals(JsonPrimitive(false), entry["truncated"])
+        assertEquals(JsonPrimitive(0), dialog["omitted"])
+    }
+
+    @Test
+    fun `human budget overflow refuses autoanswer including JSON and fence expansion`() {
+        val instruction = DialogEntry(DialogAuthor.Human, "x".repeat(13 * 1024))
+        assertNotNull(StudioQuestionnairePrompt.build(confirm, ContinuationContext(route, listOf(instruction))))
+        val overflowingDialogs = listOf(
+            listOf(instruction, instruction),
+            listOf(DialogEntry(DialogAuthor.Human, "x".repeat(StudioQuestionnairePrompt.MAX_PROMPT_CHARS))),
+            listOf(DialogEntry(DialogAuthor.Human, "\u0001".repeat(5 * 1024))),
+            listOf(DialogEntry(DialogAuthor.Human, "</".repeat(9 * 1024))),
+        )
+        overflowingDialogs.forEach { dialog ->
+            assertNull(StudioQuestionnairePrompt.build(confirm, ContinuationContext(route, dialog)))
+        }
+    }
+
+    @Test
     fun `oversized questionnaire and excessive choices are refused without lossy clipping`() {
         val context = ContinuationContext(route, emptyList())
         assertNull(
@@ -231,10 +278,10 @@ class StudioQuestionnairePromptTest {
     }
 
     @Test
-    fun `context clipping preserves Unicode pairs and marks the plan incomplete`() {
+    fun `auxiliary context clipping preserves Unicode pairs and marks the plan incomplete`() {
         val context = ContinuationContext(
             route,
-            listOf(DialogEntry(DialogAuthor.Human, "x".repeat(1023) + "😀suffix")),
+            listOf(DialogEntry(DialogAuthor.Agent, "x".repeat(1023) + "😀suffix")),
             planNote = "x".repeat(2047) + "😀suffix",
         )
         val prompt = assertNotNull(StudioQuestionnairePrompt.build(confirm, context))

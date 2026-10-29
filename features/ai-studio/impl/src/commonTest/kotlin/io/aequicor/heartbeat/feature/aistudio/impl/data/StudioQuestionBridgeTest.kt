@@ -39,6 +39,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContex
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineSpec
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import kotlinx.coroutines.CompletableDeferred
@@ -173,9 +174,10 @@ class StudioQuestionBridgeTest {
         runCurrent()
         f.runtime.loseNativeConnection()
         runCurrent()
+        val generation = (f.queue.state.value as QuestionnaireState.Asking).generations.getValue(question.id)
         f.runtime.response.completeExceptionally(IllegalStateException("native delivery failed"))
         runCurrent()
-        assertEquals(QuestionnaireIntent.Public.Ask(question), f.queue.sent.last())
+        assertEquals(QuestionnaireIntent.Public.Ask(question, generation), f.queue.sent.last())
         f.runtime.response = CompletableDeferred(Unit)
         f.answer(question, Answer.Confirmed(false))
         runCurrent()
@@ -377,6 +379,153 @@ class StudioQuestionBridgeTest {
         assertTrue(f.runtime.responses.isEmpty())
     }
 
+    @Test
+    fun `identical replacement before output delivery rejects the old native answer`() = runTest {
+        val f = Fixture(this)
+        f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        runCurrent()
+        val generation = (f.queue.state.value as QuestionnaireState.Asking).generations.getValue(question.id)
+        val replacement = QuestionnaireIntent.Public.Ask(question)
+        f.queue.send(replacement)
+        f.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(true), generation = generation))
+        runCurrent()
+        assertTrue(f.runtime.responses.isEmpty())
+        assertEquals(
+            replacement.generation,
+            (f.queue.state.value as QuestionnaireState.Asking).generations[question.id],
+        )
+        assertFalse(question.id in (f.queue.state.value as QuestionnaireState.Asking).submitting)
+        // A fresh manual answer still delivers the replacement.
+        f.answer(question)
+        runCurrent()
+        assertEquals(1, f.runtime.responses.size)
+        assertTrue(f.queue.pending().isEmpty())
+    }
+
+    @Test
+    fun `identical replacement during native delivery survives successful completion`() = runTest {
+        val f = Fixture(this)
+        f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        f.runtime.response = CompletableDeferred()
+        runCurrent()
+        f.answer(question)
+        runCurrent()
+        val replacement = QuestionnaireIntent.Public.Ask(question)
+        f.queue.send(replacement)
+        f.runtime.response.complete(Unit)
+        runCurrent()
+        assertEquals(listOf(question), f.queue.pending())
+        assertEquals(
+            replacement.generation,
+            (f.queue.state.value as QuestionnaireState.Asking).generations[question.id],
+        )
+        f.answer(question)
+        runCurrent()
+        assertEquals(2, f.runtime.responses.size)
+        assertTrue(f.queue.pending().isEmpty())
+    }
+
+    @Test
+    fun `runtime resolution still withdraws a retry published by the bridge`() = runTest {
+        val f = Fixture(this)
+        f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        f.runtime.response = CompletableDeferred()
+        runCurrent()
+        f.answer(question)
+        runCurrent()
+        f.runtime.response.completeExceptionally(IllegalStateException("retry required"))
+        runCurrent()
+        assertEquals(listOf(question), f.queue.pending())
+        assertFalse(question.id in (f.queue.state.value as QuestionnaireState.Asking).submitting)
+        f.runtime.state.value = StudioRuntimeState()
+        runCurrent()
+        assertTrue(f.queue.pending().isEmpty())
+    }
+
+    @Test
+    fun `runtime resolution cannot withdraw an identical publication owned by another ask`() = runTest {
+        val f = Fixture(this)
+        f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        f.runtime.response = CompletableDeferred()
+        runCurrent()
+        f.answer(question)
+        runCurrent()
+        val replacement = QuestionnaireIntent.Public.Ask(question)
+        f.queue.send(replacement)
+        f.runtime.state.value = StudioRuntimeState()
+        f.runtime.response.complete(Unit)
+        runCurrent()
+        assertEquals(listOf(question), f.queue.pending())
+        assertEquals(
+            replacement.generation,
+            (f.queue.state.value as QuestionnaireState.Asking).generations[question.id],
+        )
+    }
+
+    @Test
+    fun `restored replacement during revocation does not send a stale follow-up`() = runTest {
+        val f = Fixture(this)
+        f.runtime.revocation = CompletableDeferred()
+        runCurrent()
+        f.queue.send(QuestionnaireIntent.Public.Ask(question))
+        f.answer(question)
+        runCurrent()
+        val replacement = QuestionnaireIntent.Public.Ask(question)
+        f.queue.send(replacement)
+        f.runtime.revocation.complete(Unit)
+        runCurrent()
+        assertTrue(f.runtime.prompts.isEmpty())
+        assertEquals(
+            replacement.generation,
+            (f.queue.state.value as QuestionnaireState.Asking).generations[question.id],
+        )
+    }
+
+    @Test
+    fun `replacement at withdrawal dispatch survives the old native completion`() = runTest {
+        val f = Fixture(this)
+        f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        runCurrent()
+        val replacement = QuestionnaireIntent.Public.Ask(question)
+        f.queue.beforeApply = { intent ->
+            if (intent is QuestionnaireIntent.Public.Withdraw) {
+                f.queue.beforeApply = {}
+                f.queue.send(replacement)
+            }
+        }
+        f.answer(question)
+        runCurrent()
+        assertEquals(listOf(question), f.queue.pending())
+        assertEquals(
+            replacement.generation,
+            (f.queue.state.value as QuestionnaireState.Asking).generations[question.id],
+        )
+    }
+
+    @Test
+    fun `replacement at reopen dispatch survives the old native failure`() = runTest {
+        val f = Fixture(this)
+        f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        f.runtime.response = CompletableDeferred()
+        runCurrent()
+        f.answer(question)
+        runCurrent()
+        val replacement = QuestionnaireIntent.Public.Ask(question)
+        f.queue.beforeApply = { intent ->
+            if (intent is QuestionnaireIntent.Public.Ask) {
+                f.queue.beforeApply = {}
+                f.queue.send(replacement)
+            }
+        }
+        f.runtime.response.completeExceptionally(IllegalStateException("delivery failed"))
+        runCurrent()
+        assertEquals(listOf(question), f.queue.pending())
+        assertEquals(
+            replacement.generation,
+            (f.queue.state.value as QuestionnaireState.Asking).generations[question.id],
+        )
+    }
+
     private class Fixture(scope: TestScope) {
         val runtime = FakeQuestionRuntime()
         val queue = FakeQuestionQueue()
@@ -403,7 +552,9 @@ class StudioQuestionBridgeTest {
             val current = queue.state.value as? QuestionnaireState.Asking
             if (current != null) queue.state.value = current.copy(submitting = current.submitting + question.id)
             val owned = queue.pending().firstOrNull { it.id == question.id } ?: question
-            queue.outputs.emit(QuestionnaireOutput.Answered(owned, answer, context))
+            queue.outputs.emit(
+                QuestionnaireOutput.Answered(owned, answer, context, current?.generations?.get(owned.id)),
+            )
         }
     }
 }
@@ -477,18 +628,13 @@ private class FakeQuestionQueue : MachineRef<QuestionnaireState, QuestionnaireIn
     override val state = MutableStateFlow<QuestionnaireState>(QuestionnaireState.Idle)
     override val outputs = MutableSharedFlow<QuestionnaireOutput>()
     val sent = mutableListOf<QuestionnaireIntent>()
+    var beforeApply: suspend (QuestionnaireIntent.Public) -> Unit = {}
     fun pending() = (state.value as? QuestionnaireState.Asking)?.pending.orEmpty()
     override suspend fun send(intent: QuestionnaireIntent.Public): SendResult {
         sent += intent
-        val next = when (intent) {
-            is QuestionnaireIntent.Public.Ask -> pending().filterNot { it.id == intent.questionnaire.id } +
-                intent.questionnaire
-
-            is QuestionnaireIntent.Public.Withdraw -> pending().filterNot { it.id == intent.id }
-
-            is QuestionnaireIntent.Public.Answer -> error("test emits answers directly")
-        }
-        state.value = if (next.isEmpty()) QuestionnaireState.Idle else QuestionnaireState.Asking(next)
+        beforeApply(intent)
+        val transition = QuestionnaireMachineSpec.resolve(state.value, intent) ?: return SendResult.Ignored
+        state.value = transition.to
         return SendResult.Accepted
     }
 }

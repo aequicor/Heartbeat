@@ -55,11 +55,18 @@ public sealed interface QuestionnaireIntent : MachineIntent {
          * Adds [questionnaire]; asking an existing id again replaces it and reopens it for answers.
          * Construct a new intent for each ask, including identical replacements and retries after withdrawal.
          * Its nonce is allocated before dispatch so transitions remain pure and returning to Idle cannot reset it.
+         * [expectedGeneration] makes replacement conditional on the current publication. [isAbsentAllowed] also
+         * permits restoring a withdrawn delivery, but never overwrites another pending generation.
          */
-        public data class Ask(val questionnaire: Questionnaire) : Public {
+        public data class Ask(
+            val questionnaire: Questionnaire,
+            val expectedGeneration: String? = null,
+            val isAbsentAllowed: Boolean = false,
+        ) : Public {
             // Preserve question-based intent equality; copy constructs a new ask with its own nonce.
+            /** Identity of this publication, available to its owner before dispatch. */
             @OptIn(ExperimentalUuidApi::class)
-            internal val generation: String = Uuid.random().toString()
+            public val generation: String = Uuid.random().toString()
         }
 
         /**
@@ -78,8 +85,11 @@ public sealed interface QuestionnaireIntent : MachineIntent {
             val expectedPendingGenerations: Map<QuestionnaireId, String>? = null,
         ) : Public
 
-        /** The source no longer needs [id] (answer delivered, turn ended or cancelled). */
-        public data class Withdraw(val id: QuestionnaireId) : Public
+        /**
+         * The source no longer needs [id]. [expectedGeneration] atomically limits withdrawal to that publication;
+         * null preserves explicit manual withdrawal of the current question.
+         */
+        public data class Withdraw(val id: QuestionnaireId, val expectedGeneration: String? = null) : Public
     }
 
     /** The queue has no internal intents. */
@@ -91,11 +101,15 @@ public sealed interface QuestionnaireEffect : MachineEffect
 
 /** Events for sources. */
 public sealed interface QuestionnaireOutput : MachineOutput {
-    /** The user answered [questionnaire]; its source delivers the answer and then withdraws the question. */
+    /**
+     * The user answered [questionnaire] at [generation]. Owners must check this identity before delivery and use
+     * conditional withdrawal/reopening afterwards. Null is possible only for legacy manually constructed states.
+     */
     public data class Answered(
         val questionnaire: Questionnaire,
         val answer: Answer,
         val context: QuestionnaireAnswerContext? = null,
+        val generation: String? = null,
     ) : QuestionnaireOutput
 
     /** [id] left the queue. */
@@ -134,7 +148,9 @@ public val QuestionnaireMachineSpec:
     MachineSpec<QuestionnaireState, QuestionnaireIntent, QuestionnaireEffect, QuestionnaireOutput> =
     machineSpec(QuestionnaireMachineKey, QuestionnaireState.Idle) {
         state<QuestionnaireState.Idle> {
-            on<QuestionnaireIntent.Public.Ask> {
+            on<QuestionnaireIntent.Public.Ask>(guard = {
+                intent.expectedGeneration == null || intent.isAbsentAllowed
+            }) {
                 goto<QuestionnaireState.Asking> {
                     QuestionnaireState.Asking(
                         pending = listOf(intent.questionnaire),
@@ -144,7 +160,11 @@ public val QuestionnaireMachineSpec:
             }
         }
         state<QuestionnaireState.Asking> {
-            on<QuestionnaireIntent.Public.Ask> {
+            on<QuestionnaireIntent.Public.Ask>(guard = {
+                intent.expectedGeneration == null ||
+                    state.matchesGeneration(intent.questionnaire.id, intent.expectedGeneration) ||
+                    (intent.isAbsentAllowed && state.pending.none { it.id == intent.questionnaire.id })
+            }) {
                 stay { state.asked(intent) }
             }
             on<QuestionnaireIntent.Public.Answer>(guard = {
@@ -159,11 +179,13 @@ public val QuestionnaireMachineSpec:
                         state.pending.first { it.id == intent.id },
                         intent.answer,
                         intent.context,
+                        state.generations[intent.id],
                     )
                 }
             }
             on<QuestionnaireIntent.Public.Withdraw>(guard = {
-                state.pending.any { it.id == intent.id } && state.pending.size > 1
+                (intent.expectedGeneration == null || state.generations[intent.id] == intent.expectedGeneration) &&
+                    state.pending.any { it.id == intent.id } && state.pending.size > 1
             }) {
                 stay {
                     state.copy(
@@ -175,13 +197,17 @@ public val QuestionnaireMachineSpec:
                 output { QuestionnaireOutput.Withdrawn(intent.id) }
             }
             on<QuestionnaireIntent.Public.Withdraw>(guard = {
-                state.pending.singleOrNull()?.id == intent.id
+                (intent.expectedGeneration == null || state.generations[intent.id] == intent.expectedGeneration) &&
+                    state.pending.singleOrNull()?.id == intent.id
             }) {
                 goto<QuestionnaireState.Idle> { QuestionnaireState.Idle }
                 output { QuestionnaireOutput.Withdrawn(intent.id) }
             }
         }
     }
+
+private fun QuestionnaireState.Asking.matchesGeneration(id: QuestionnaireId, generation: String?): Boolean =
+    generation != null && pending.any { it.id == id } && generations[id] == generation
 
 private fun QuestionnaireState.Asking.matchesPendingGenerations(expected: Map<QuestionnaireId, String>?): Boolean =
     expected == null || expected.all { (id, generation) ->

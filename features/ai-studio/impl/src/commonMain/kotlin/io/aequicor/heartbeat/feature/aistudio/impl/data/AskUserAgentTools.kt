@@ -45,7 +45,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -141,7 +140,9 @@ internal class AskUserAgentTools(
             // A cancelled call (the turn ended) leaves no unanswered question behind.
             withContext(NonCancellable) {
                 batch.asked.values.forEach { questionnaire ->
-                    if (questionnaire.id !in batch.withdrawn) withdraw(questionnaire.id)
+                    if (questionnaire.id !in batch.withdrawn) {
+                        batch.generations[questionnaire.id]?.let { withdraw(questionnaire.id, it) }
+                    }
                 }
             }
         }
@@ -172,7 +173,7 @@ internal class AskUserAgentTools(
         batch: LiveQuestionnaireBatch,
     ): LiveQuestionnaireWait = coroutineScope {
         // Subscribe directly before publishing: outputs are hot and have no replay.
-        val collector = launch(start = CoroutineStart.UNDISPATCHED) { awaitAnswers(machine.outputs, batch) }
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) { awaitAnswers(machine, batch) }
         val published = CompletableDeferred<Unit>()
         val automaticAnswers = launch {
             published.await()
@@ -198,7 +199,9 @@ internal class AskUserAgentTools(
         }
         try {
             batch.asked.values.forEach { questionnaire ->
-                val result = registry.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Ask(questionnaire))
+                val ask = QuestionnaireIntent.Public.Ask(questionnaire)
+                batch.generations[questionnaire.id] = ask.generation
+                val result = registry.send(QuestionnaireMachineKey, ask)
                 if (result != SendResult.Accepted) return@coroutineScope LiveQuestionnaireWait(isAccepted = false)
             }
             published.complete(Unit)
@@ -223,11 +226,22 @@ internal class AskUserAgentTools(
     }
 
     /** Waits until every question of the batch is answered; an answer is withdrawn as soon as it arrives. */
-    private suspend fun awaitAnswers(outputs: Flow<QuestionnaireOutput>, batch: LiveQuestionnaireBatch) {
-        outputs
+    private suspend fun awaitAnswers(
+        machine: MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput>,
+        batch: LiveQuestionnaireBatch,
+    ) {
+        machine.outputs
             .filterIsInstance<QuestionnaireOutput.Answered>()
-            .filter { output -> batch.asked.values.any { it.id == output.questionnaire.id } }
+            .filter { output ->
+                val id = output.questionnaire.id
+                val generation = output.generation
+                val queue = machine.state.value as? QuestionnaireState.Asking
+                generation != null && id in batch.generations &&
+                    queue?.generations?.get(id) == generation && output.questionnaire in queue.pending
+            }
             .takeWhile { output ->
+                if (!withdraw(output.questionnaire.id, checkNotNull(output.generation))) return@takeWhile true
+                batch.withdrawn += output.questionnaire.id
                 val question = batch.asked.entries.first { it.value.id == output.questionnaire.id }.key
                 if (output.context === batch.autoContext) {
                     batch.autoContext.recordAnswer(output.questionnaire.id)
@@ -237,14 +251,13 @@ internal class AskUserAgentTools(
                     batch.manualAnswer.complete(Unit)
                 }
                 batch.answers[question.id] = output.answer
-                if (withdraw(output.questionnaire.id)) batch.withdrawn += output.questionnaire.id
                 batch.answers.size < batch.asked.size
             }
             .collect()
     }
 
-    private suspend fun withdraw(id: QuestionnaireId): Boolean {
-        val result = registry.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Withdraw(id))
+    private suspend fun withdraw(id: QuestionnaireId, generation: String): Boolean {
+        val result = registry.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Withdraw(id, generation))
         if (result != SendResult.Accepted) log.w { "Question was not withdrawn: $result" }
         return result == SendResult.Accepted
     }
@@ -402,6 +415,7 @@ private class LiveQuestionnaireBatch(questions: List<PreparedQuestion>, sessionI
     val asked = questions.associateWith { it.questionnaire(sessionId, owner) }
     val answers = HashMap<String, Answer>()
     val withdrawn = mutableSetOf<QuestionnaireId>()
+    val generations = mutableMapOf<QuestionnaireId, String>()
     val automatic = mutableSetOf<String>()
     val autoContext = LiveAutopilotAnswerContext()
     val manualAnswer: CompletableDeferred<Unit> get() = autoContext.manualAnswer
