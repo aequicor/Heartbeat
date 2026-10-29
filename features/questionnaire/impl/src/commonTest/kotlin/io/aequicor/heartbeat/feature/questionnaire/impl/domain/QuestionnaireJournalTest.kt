@@ -18,6 +18,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -350,19 +351,61 @@ class QuestionnaireJournalTest {
         val storage = MemoryStorage(listOf(saved)).apply { failures = 1 }
         val machine = RecordingMachine()
         machine.send(QuestionnaireIntent.Public.Withdraw(saved.id))
-        val failed = backgroundScope.launch { QuestionnaireJournal(storage).run(machine) }
+        val journal = backgroundScope.launch { QuestionnaireJournal(storage).run(machine) }
         runCurrent()
-        assertTrue(failed.isCompleted)
+        assertTrue(journal.isActive)
         val current = assertIs<QuestionnaireState.Asking>(machine.state.value)
         assertFalse(current.publications.isInitialRestoreFinished)
         assertEquals(setOf(saved.id), current.publications.touched)
         assertFalse(machine.sent.contains(QuestionnaireIntent.Public.FinishInitialRestore))
         assertEquals(0, storage.saves)
         assertEquals(listOf(saved), storage.pending)
-        backgroundScope.launch { QuestionnaireJournal(storage).run(machine) }
+        val fresh = saved.copy(id = QuestionnaireId("fresh"))
+        machine.send(QuestionnaireIntent.Public.Ask(fresh))
+        advanceTimeBy(999)
         runCurrent()
-        assertTrue(assertIs<QuestionnaireState.Asking>(machine.state.value).publications.isInitialRestoreFinished)
+        assertEquals(0, storage.saves)
+        advanceTimeBy(1)
+        runCurrent()
+        val restored = assertIs<QuestionnaireState.Asking>(machine.state.value)
+        assertTrue(restored.publications.isInitialRestoreFinished)
+        assertTrue(restored.publications.touched.isEmpty())
+        assertEquals(listOf(fresh), storage.pending)
+        machine.send(QuestionnaireIntent.Public.Withdraw(fresh.id))
+        runCurrent()
         assertEquals(emptyList(), storage.pending)
+    }
+
+    @Test
+    fun `load retry backs off with a cap and cancellation stops further reads`() = runTest {
+        val attempts = mutableListOf<Long>()
+        val storage = MemoryStorage(listOf(saved)).apply {
+            failures = Int.MAX_VALUE
+            beforeLoad = { attempts += testScheduler.currentTime }
+        }
+        val machine = RecordingMachine()
+        val journal = backgroundScope.launch { QuestionnaireJournal(storage).run(machine) }
+        runCurrent()
+        for (wait in listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L, 30_000L)) {
+            val previousAttempts = attempts.size
+            advanceTimeBy(wait - 1)
+            runCurrent()
+            assertEquals(previousAttempts, attempts.size)
+            advanceTimeBy(1)
+            runCurrent()
+            assertEquals(previousAttempts + 1, attempts.size)
+        }
+        assertEquals(listOf(0L, 1_000L, 3_000L, 7_000L, 15_000L, 31_000L, 61_000L, 91_000L), attempts)
+        assertTrue(machine.sent.isEmpty())
+        assertEquals(0, storage.saves)
+        assertEquals(listOf(saved), storage.pending)
+        journal.cancel()
+        runCurrent()
+        advanceTimeBy(60_000)
+        runCurrent()
+        assertTrue(journal.isCancelled)
+        assertEquals(8, attempts.size)
+        assertEquals(0, storage.saves)
     }
 
     @Test
@@ -487,6 +530,32 @@ class QuestionnaireJournalTest {
         assertFalse(saved.id in current.publications.latest)
         assertTrue(current.pending.isEmpty())
         assertEquals(emptyList(), storage.pending)
+    }
+
+    @Test
+    fun `touch overflow during unavailable journal preserves the complete durable snapshot`() = runTest {
+        val release = CompletableDeferred<Unit>()
+        val storage = MemoryStorage(listOf(saved)).apply { beforeLoad = { release.await() } }
+        val machine = RecordingMachine()
+        backgroundScope.launch { QuestionnaireJournal(storage).run(machine) }
+        runCurrent()
+        machine.state.value = QuestionnaireState.Asking(
+            pending = emptyList(),
+            publications = QuestionnairePublicationHistory(
+                touched = (0 until QuestionnairePublicationHistory.TOUCHED_LIMIT).mapTo(mutableSetOf()) {
+                    QuestionnaireId("touched-$it")
+                },
+            ),
+        )
+        machine.send(QuestionnaireIntent.Public.Withdraw(saved.id))
+        release.complete(Unit)
+        runCurrent()
+        val current = assertIs<QuestionnaireState.Asking>(machine.state.value)
+        assertTrue(current.publications.isInitialRestoreUnsafe)
+        assertFalse(current.publications.isInitialRestoreFinished)
+        assertTrue(current.pending.isEmpty())
+        assertEquals(listOf(saved), storage.pending)
+        assertEquals(0, storage.saves)
     }
 
     private class MemoryStorage(var pending: List<Questionnaire>) : QuestionnaireStorage {

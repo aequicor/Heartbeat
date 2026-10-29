@@ -45,6 +45,9 @@ import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.component.Q
 import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.remote.RemoteQuestionnaireScreen
 import io.aequicor.heartbeat.feature.questionnaire.impl.ui.QuestionnaireUiComponent
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -98,24 +101,34 @@ internal class QuestionnaireStartup(
     private val toggles: FeatureToggles,
     private val dispatchers: DispatcherProvider,
 ) : ProfileStartup {
-    private val log = Log.tag("QuestionnaireStartup")
-
     override fun start() {
         val queue = machine.value
         // Storage IO and saving run off the main thread; the machine accepts intents from any thread.
         // Storage is touched only once the questionnaire is enabled: a disabled one re-asks nothing.
         scope.coroutineScope.launch(dispatchers.io) {
             toggles.observe(QuestionnaireEnabled).first { it }
-            val journal = try {
-                QuestionnaireJournal(storage.value)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.e(e) { "Questionnaire storage is unavailable; open questions are not kept" }
-                return@launch
-            }
-            journal.run(queue)
+            awaitQuestionnaireJournal(storage).run(queue)
         }
+    }
+}
+
+private const val MAX_STORAGE_INITIALIZATION_RETRY_MILLIS = 30_000L
+
+/** Retries transient storage initialization failures before starting the single journal writer. */
+internal suspend fun awaitQuestionnaireJournal(storage: Lazy<QuestionnaireStorage>): QuestionnaireJournal {
+    val log = Log.tag("QuestionnaireStartup")
+    var retryMillis = 1_000L
+    while (true) {
+        currentCoroutineContext().ensureActive()
+        try {
+            return QuestionnaireJournal(storage.value)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "Questionnaire storage is unavailable; retry initialization" }
+        }
+        delay(retryMillis)
+        retryMillis = (retryMillis * 2).coerceAtMost(MAX_STORAGE_INITIALIZATION_RETRY_MILLIS)
     }
 }
 
