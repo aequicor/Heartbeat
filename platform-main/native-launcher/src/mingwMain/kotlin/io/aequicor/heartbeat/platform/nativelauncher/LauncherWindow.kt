@@ -32,6 +32,7 @@ import platform.windows.BeginPaint
 import platform.windows.CLIP_DEFAULT_PRECIS
 import platform.windows.CloseHandle
 import platform.windows.CreateFontW
+import platform.windows.CreatePen
 import platform.windows.CreateSolidBrush
 import platform.windows.CreateWindowExW
 import platform.windows.DEFAULT_CHARSET
@@ -56,8 +57,11 @@ import platform.windows.GetFileAttributesW
 import platform.windows.GetMessageW
 import platform.windows.GetModuleFileNameW
 import platform.windows.GetModuleHandleW
+import platform.windows.GetMonitorInfoW
+import platform.windows.GetStockObject
 import platform.windows.GetSystemMetrics
 import platform.windows.GetTickCount64
+import platform.windows.GetWindowRect
 import platform.windows.HANDLE
 import platform.windows.HBRUSH
 import platform.windows.HDC
@@ -66,33 +70,52 @@ import platform.windows.HFONT
 import platform.windows.HICON
 import platform.windows.HICON__
 import platform.windows.HMODULE
+import platform.windows.HTCAPTION
 import platform.windows.HWND
 import platform.windows.HWND__
+import platform.windows.IDC_ARROW
 import platform.windows.IMAGE_ICON
 import platform.windows.INVALID_FILE_ATTRIBUTES
 import platform.windows.InvalidateRect
+import platform.windows.IsZoomed
 import platform.windows.KillTimer
 import platform.windows.LPARAM
 import platform.windows.LRESULT
 import platform.windows.LR_LOADFROMFILE
+import platform.windows.LineTo
+import platform.windows.LoadCursorW
 import platform.windows.LoadImageW
 import platform.windows.MAX_PATH
+import platform.windows.MINMAXINFO
+import platform.windows.MONITORINFO
+import platform.windows.MONITOR_DEFAULTTONEAREST
 import platform.windows.MSG
+import platform.windows.MonitorFromWindow
+import platform.windows.MoveToEx
 import platform.windows.MoveWindow
+import platform.windows.NULL_BRUSH
 import platform.windows.OUT_DEFAULT_PRECIS
 import platform.windows.PAINTSTRUCT
+import platform.windows.POINT
+import platform.windows.PS_SOLID
 import platform.windows.PostMessageW
 import platform.windows.PostQuitMessage
 import platform.windows.RECT
+import platform.windows.Rectangle
 import platform.windows.RegisterClassExW
 import platform.windows.RoundRect
 import platform.windows.SM_CXSCREEN
 import platform.windows.SM_CYSCREEN
 import platform.windows.SS_CENTER
 import platform.windows.SS_ICON
+import platform.windows.SS_LEFT
 import platform.windows.STM_SETICON
 import platform.windows.SW_HIDE
+import platform.windows.SW_MAXIMIZE
+import platform.windows.SW_MINIMIZE
+import platform.windows.SW_RESTORE
 import platform.windows.SW_SHOW
+import platform.windows.ScreenToClient
 import platform.windows.SelectObject
 import platform.windows.SendMessageW
 import platform.windows.SetBkMode
@@ -113,6 +136,8 @@ import platform.windows.WM_COMMAND
 import platform.windows.WM_CTLCOLORSTATIC
 import platform.windows.WM_DESTROY
 import platform.windows.WM_DRAWITEM
+import platform.windows.WM_GETMINMAXINFO
+import platform.windows.WM_NCHITTEST
 import platform.windows.WM_PAINT
 import platform.windows.WM_SETFONT
 import platform.windows.WM_SIZE
@@ -133,14 +158,19 @@ import kotlin.concurrent.Volatile
  * Тема — из токенов дизайн-системы ([LauncherTheme]), обновления прогресса — не чаще 100 мс.
  */
 class LauncherWindow(private val config: LauncherConfig, private val store: ImageStore) {
-    private var hwnd: HWND? = null
+    private var cancelButton: HWND? = null
+    internal var retryButton: HWND? = null
+    private var captionIcon: HWND? = null
+    private var captionText: HWND? = null
+    internal var minimizeButton: HWND? = null
+    internal var maximizeButton: HWND? = null
+    internal var closeButton: HWND? = null
+    internal var hwnd: HWND? = null
     private var stageText: HWND? = null
     private var bytesText: HWND? = null
     private var titleText: HWND? = null
     private var iconStatic: HWND? = null
     private var progressBar: HWND? = null
-    private var cancelButton: HWND? = null
-    internal var retryButton: HWND? = null
     private var provisioningJob: Job? = null
     private var titleFont: HFONT? = null
     private var bodyFont: HFONT? = null
@@ -213,6 +243,8 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
             wndClass.hInstance = instance
             wndClass.lpszClassName = className
             wndClass.hbrBackground = backgroundBrush
+            // Без hCursor Windows не сбрасывает курсор над окном: остаются «песочные часы» запуска.
+            wndClass.hCursor = LoadCursorW(null, IDC_ARROW)
             wndClass.hIcon = icon
             wndClass.hIconSm = icon
             RegisterClassExW(wndClass.ptr)
@@ -244,8 +276,20 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         cancelButton = control("BUTTON", "Отмена", window, BS_OWNERDRAW)
         retryButton = control("BUTTON", "Повторить", window, BS_OWNERDRAW)
         retryButton?.let { ShowWindow(it, SW_HIDE) }
+        // Кастомный caption: свои кнопки управления окном вместо системного title bar.
+        captionIcon = control("STATIC", "", window, SS_ICON or SS_LEFT)
+        captionText = control("STATIC", "Heartbeat", window, SS_LEFT)
+        minimizeButton = control("BUTTON", "", window, BS_OWNERDRAW)
+        maximizeButton = control("BUTTON", "", window, BS_OWNERDRAW)
+        closeButton = control("BUTTON", "", window, BS_OWNERDRAW)
+        loadIcon(CAPTION_ICON_SIZE)?.let { small ->
+            SendMessageW(captionIcon, STM_SETICON.toUInt(), small.rawValue.toLong().toULong(), 0L)
+        }
         listOf(titleText to titleFont, stageText to bodyFont, bytesText to captionFont).forEach { (text, font) ->
             if (font != null) SendMessageW(text, WM_SETFONT.toUInt(), font.rawValue.toLong().toULong(), 1L)
+        }
+        captionFont?.let { font ->
+            SendMessageW(captionText, WM_SETFONT.toUInt(), font.rawValue.toLong().toULong(), 1L)
         }
         layout(window)
     }
@@ -344,6 +388,31 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
                 centerY + BUTTONS_TOP_OFFSET,
                 CANCEL_BUTTON_WIDTH,
                 BUTTON_HEIGHT,
+            )
+            // Кастомный caption: иконка + заголовок слева, кнопки управления справа.
+            val clientWidth = rect.right - rect.left
+            move(
+                captionIcon,
+                CAPTION_PADDING,
+                (CAPTION_HEIGHT - CAPTION_ICON_SIZE) / 2,
+                CAPTION_ICON_SIZE,
+                CAPTION_ICON_SIZE,
+            )
+            move(
+                captionText,
+                CAPTION_PADDING + CAPTION_ICON_SIZE + CAPTION_PADDING,
+                0,
+                CAPTION_TITLE_WIDTH,
+                CAPTION_HEIGHT,
+            )
+            move(closeButton, clientWidth - CAPTION_BUTTON_WIDTH, 0, CAPTION_BUTTON_WIDTH, CAPTION_HEIGHT)
+            move(maximizeButton, clientWidth - CAPTION_BUTTON_WIDTH * 2, 0, CAPTION_BUTTON_WIDTH, CAPTION_HEIGHT)
+            move(
+                minimizeButton,
+                clientWidth - CAPTION_BUTTON_WIDTH * CAPTION_BUTTON_COUNT,
+                0,
+                CAPTION_BUTTON_WIDTH,
+                CAPTION_HEIGHT,
             )
         }
     }
@@ -495,10 +564,53 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         DestroyWindow(hwnd)
     }
 
+    /** HTCAPTION над полосой caption (кроме кнопок): перетаскивание и snap как у рамочного окна. */
+    internal fun onNcHitTest(lParam: LPARAM): LRESULT? = memScoped {
+        val window = hwnd ?: return@memScoped null
+        val screenX = (lParam.toInt() and 0xFFFF).toShort().toInt()
+        val screenY = (lParam.toInt() shr 16).toShort().toInt()
+        val point = alloc<POINT>()
+        point.x = screenX
+        point.y = screenY
+        ScreenToClient(window, point.ptr)
+        if (point.y < 0 || point.y >= CAPTION_HEIGHT) return@memScoped null
+        val overButton = listOfNotNull(minimizeButton, maximizeButton, closeButton).any { button ->
+            val rect = alloc<RECT>()
+            GetWindowRect(button, rect.ptr)
+            screenX >= rect.left && screenX < rect.right && screenY >= rect.top && screenY < rect.bottom
+        }
+        if (overButton) null else HTCAPTION.toLong()
+    }
+
+    /** Максимизация без перекрытия панели задач: разворачиваем на рабочую область монитора. */
+    internal fun onGetMinMaxInfo(lParam: LPARAM) {
+        val info = lParam.toCPointer<MINMAXINFO>()?.pointed ?: return
+        val window = hwnd ?: return
+        memScoped {
+            val monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST.toUInt())
+            val monitorInfo = alloc<MONITORINFO>()
+            monitorInfo.cbSize = sizeOf<MONITORINFO>().toUInt()
+            if (GetMonitorInfoW(monitor, monitorInfo.ptr) != 0) {
+                info.ptMaxSize.x = monitorInfo.rcWork.right - monitorInfo.rcWork.left
+                info.ptMaxSize.y = monitorInfo.rcWork.bottom - monitorInfo.rcWork.top
+                info.ptMaxPosition.x = monitorInfo.rcWork.left
+                info.ptMaxPosition.y = monitorInfo.rcWork.top
+            }
+        }
+    }
+
+    internal fun toggleMaximize() {
+        val window = hwnd ?: return
+        ShowWindow(window, if (IsZoomed(window) != 0) SW_RESTORE else SW_MAXIMIZE)
+    }
+
     fun onCommand(control: HWND?) {
         when (control) {
             cancelButton -> cancel()
             retryButton -> startProvisioning()
+            minimizeButton -> hwnd?.let { ShowWindow(it, SW_MINIMIZE) }
+            maximizeButton -> toggleMaximize()
+            closeButton -> hwnd?.let { PostMessageW(it, WM_CLOSE.toUInt(), 0uL, 0L) }
         }
     }
 
@@ -518,6 +630,15 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         private const val CS_DROPSHADOW = 0x00020000
         private const val CLASS_STYLE = CS_DROPSHADOW
         private const val ICON_FILE_VERSION = 1
+
+        // Кастомный caption (полоса вместо системного title bar).
+        private const val CAPTION_HEIGHT = 32
+        private const val CAPTION_BUTTON_WIDTH = 46
+        private const val CAPTION_BUTTON_COUNT = 3
+        private const val CAPTION_ICON_SIZE = 16
+        private const val CAPTION_PADDING = 10
+        private const val CAPTION_TITLE_WIDTH = 160
+        internal const val CAPTION_GLYPH_HALF = 5
         private const val HANDOFF_TIMER_ID = 42
         private const val HANDOFF_INTERVAL_MS = 250
         private const val PROGRESS_INTERVAL_MS = 100L
@@ -552,30 +673,62 @@ private fun setText(control: HWND?, text: String) {
 }
 
 private fun launcherWndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM): LRESULT {
-    val window = LauncherWindowRegistry.instance ?: return DefWindowProcW(hwnd, message, wParam, lParam)
-    when (message.toInt()) {
-        WM_SIZE -> window.layout(hwnd!!)
+    val handled = LauncherWindowRegistry.instance?.let { window ->
+        when (message.toInt()) {
+            WM_SIZE -> {
+                window.layout(hwnd!!)
+                null
+            }
 
-        WM_COMMAND -> window.onCommand(lParam.toCPointer<HWND__>())
+            WM_COMMAND -> {
+                window.onCommand(lParam.toCPointer<HWND__>())
+                null
+            }
 
-        WM_TIMER -> window.onHandoffTick()
+            WM_NCHITTEST -> window.onNcHitTest(lParam)
 
-        WM_CLOSE -> window.cancel()
+            WM_GETMINMAXINFO -> {
+                window.onGetMinMaxInfo(lParam)
+                null
+            }
 
-        WM_DESTROY -> PostQuitMessage(0)
+            WM_TIMER -> {
+                window.onHandoffTick()
+                null
+            }
 
-        WM_CTLCOLORSTATIC -> {
-            val brush = window.onCtlColorStatic(wParam.toLong().toCPointer<HDC__>())
-            if (brush != null) return brush.rawValue.toLong()
+            WM_CLOSE -> {
+                window.cancel()
+                null
+            }
+
+            WM_DESTROY -> {
+                PostQuitMessage(0)
+                null
+            }
+
+            WM_CTLCOLORSTATIC ->
+                window.onCtlColorStatic(wParam.toLong().toCPointer<HDC__>())?.rawValue?.toLong()
+
+            WM_DRAWITEM -> {
+                drawButton(window, lParam)
+                null
+            }
+
+            else -> null
         }
-
-        WM_DRAWITEM -> drawButton(window, lParam)
     }
-    return DefWindowProcW(hwnd, message, wParam, lParam)
+    return handled ?: DefWindowProcW(hwnd, message, wParam, lParam)
 }
 
 private fun drawButton(window: LauncherWindow, lParam: LPARAM) {
     val item = lParam.toCPointer<DRAWITEMSTRUCT>()?.pointed ?: return
+    if (item.hwndItem == window.minimizeButton || item.hwndItem == window.maximizeButton ||
+        item.hwndItem == window.closeButton
+    ) {
+        drawCaptionButton(window, item)
+        return
+    }
     val dc = item.hDC
     val rect = item.rcItem
     val isPrimary = item.hwndItem == window.retryButton
@@ -621,6 +774,61 @@ private fun progressWndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: 
     }
     return 0
 }
+
+/** Кнопки кастомного caption: плоский фон окна + глифы, нарисованные фигурами GDI (без зависимости от шрифтов). */
+private fun drawCaptionButton(window: LauncherWindow, item: DRAWITEMSTRUCT) = memScoped {
+    val dc = item.hDC
+    val rect = item.rcItem
+    // Фон кнопки — как у окна: owner-draw не стирает сам.
+    val background = CreateSolidBrush(window.theme.background)
+    val previous = SelectObject(dc, background)
+    Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom)
+    SelectObject(dc, previous)
+    DeleteObject(background)
+
+    val glyphColor = window.theme.textPrimary
+    val cx = (rect.left + rect.right) / 2
+    val cy = (rect.top + rect.bottom) / 2
+    val half = LauncherWindow.CAPTION_GLYPH_HALF
+    when (item.hwndItem) {
+        window.minimizeButton -> {
+            val brush = CreateSolidBrush(glyphColor)
+            val old = SelectObject(dc, brush)
+            Rectangle(dc, cx - half, cy - 1, cx + half, cy + 1)
+            SelectObject(dc, old)
+            DeleteObject(brush)
+        }
+
+        window.maximizeButton -> {
+            val pen = CreatePen(PS_SOLID.toInt(), CAPTION_PEN_WIDTH, glyphColor)
+            val oldPen = SelectObject(dc, pen)
+            val oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH.toInt()))
+            if (window.hwnd?.let { IsZoomed(it) } != 0) {
+                // Глиф восстановления: два перекрывающихся прямоугольника.
+                Rectangle(dc, cx - half + 2, cy - half, cx + half, cy + half - 2)
+                Rectangle(dc, cx - half, cy - half + 2, cx + half - 2, cy + half)
+            } else {
+                Rectangle(dc, cx - half, cy - half, cx + half, cy + half)
+            }
+            SelectObject(dc, oldPen)
+            SelectObject(dc, oldBrush)
+            DeleteObject(pen)
+        }
+
+        window.closeButton -> {
+            val pen = CreatePen(PS_SOLID.toInt(), CAPTION_PEN_WIDTH, glyphColor)
+            val old = SelectObject(dc, pen)
+            MoveToEx(dc, cx - half, cy - half, null)
+            LineTo(dc, cx + half, cy + half)
+            MoveToEx(dc, cx - half, cy + half, null)
+            LineTo(dc, cx + half, cy - half)
+            SelectObject(dc, old)
+            DeleteObject(pen)
+        }
+    }
+}
+
+private const val CAPTION_PEN_WIDTH = 1
 
 /** Единственное окно процесса лончера и его прогресс; WndProc — статические функции C. */
 object LauncherWindowRegistry {
