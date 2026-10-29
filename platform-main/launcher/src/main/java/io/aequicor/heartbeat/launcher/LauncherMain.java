@@ -37,6 +37,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * закрытия окон). Остальные выходы ({@code exit(≠0)}, SIGTERM, исключение) до окна стабильности засчитываются крахом
  * свежего поезда. Исключение из {@code main} до окна стабильности запрашивает откат поезда
  * ({@link Launcher#reportBundleFailure()}).
+ *
+ * <p>Этапы запуска пишут метки протокола {@link LaunchTimeline} (этапы {@code launcher.*}): измерение времени до
+ * окна, см. {@code launch-timeline-*.jsonl} в логах данных приложения.
  */
 public final class LauncherMain {
     static final String ROOT = "heartbeat.launcher.root";
@@ -76,6 +79,7 @@ public final class LauncherMain {
      */
     public static void start(String[] args, Runnable applicationStarted,
                              java.util.function.Predicate<java.util.Map<String, String>> slotStager) throws Exception {
+        LaunchTimeline.mark("launcher.start");
         String rootValue = System.getProperty(ROOT);
         Path root;
         Path dataDir;
@@ -103,6 +107,7 @@ public final class LauncherMain {
         try {
             if (owner && seed != null) {
                 ensureFirstLaunch(new FirstLaunch(launcher, Path.of(seed)));
+                LaunchTimeline.mark("launcher.first-launch-done");
             }
             prepared = owner ? launcher.prepare() : launcher.prepareReadOnly();
         } catch (LauncherState.UnsupportedFormatException newer) {
@@ -117,6 +122,7 @@ public final class LauncherMain {
             throw failed;
         }
         final boolean ownsState = owner && !degraded;
+        LaunchTimeline.mark("launcher.train-prepared");
         final Launcher.Prepared active = prepared;
         ClassLoader loader;
         try {
@@ -340,7 +346,10 @@ public final class LauncherMain {
     static void invokeMain(ClassLoader loader, String className, String[] args, Runnable applicationStarted)
         throws Exception {
         Method main = Class.forName(className, true, loader).getMethod("main", String[].class);
+        LaunchTimeline.mark("launcher.app-class-loaded");
         applicationStarted.run();
+        LaunchTimeline.mark("launcher.app-main-entered");
         main.invoke(null, (Object) args);
+        LaunchTimeline.mark("launcher.app-main-returned");
     }
 }
