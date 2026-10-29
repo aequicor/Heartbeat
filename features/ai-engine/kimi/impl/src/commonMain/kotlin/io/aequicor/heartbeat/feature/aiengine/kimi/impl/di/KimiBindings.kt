@@ -30,7 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import io.aequicor.heartbeat.feature.aiengine.kimi.impl.domain.KimiBackend
 
-/** Lazy registration: graph construction never probes or starts Kimi Code. */
+/** Lazy registration: graph construction never probes or starts Kimi CLI. */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 public object KimiBindings {
@@ -39,11 +39,11 @@ public object KimiBindings {
     internal fun registration(backend: Lazy<KimiBackend>): EngineRegistration = EngineRegistration(
         descriptor = EngineDescriptor(
             KimiEngine.Id,
-            "Kimi Code",
+            "Kimi CLI",
             EngineFamily.Vendor,
             setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows, EnginePlatform.DesktopLinux),
             KimiEngine.Enabled,
-            requirements = listOf(EngineRequirement("kimi-cli", "Kimi Code CLI with ACP support", "0.9.0")),
+            requirements = listOf(EngineRequirement("kimi-cli", "Kimi CLI CLI with ACP support", "0.9.0")),
             connectionMethods = listOf(
                 ConnectionMethod.CliLogin(
                     ConnectionMethodId("cli"),
@@ -81,7 +81,7 @@ public object KimiDefaults {
 }
 
 private class KimiSessionSource(private val backend: Lazy<KimiBackend>) : EngineSessionSource {
-    override val source = SessionSource(KimiEngine.SessionSource, KimiEngine.Id, "Kimi Code")
+    override val source = SessionSource(KimiEngine.SessionSource, KimiEngine.Id, "Kimi CLI")
     override val discovery = null
     override suspend fun get(ref: SessionRef) = backend.value.session(ref)
 }

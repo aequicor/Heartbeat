@@ -18,7 +18,7 @@ public object KimiEngine {
     public val SessionSource: SessionSourceId = SessionSourceId("kimi.local")
     public val Enabled: FeatureToggle.Flag = FeatureToggle.Flag(
         "ai.kimi",
-        "Движок Kimi Code Desktop",
+        "Движок Kimi CLI",
         default = true,
     )
 }

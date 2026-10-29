@@ -73,6 +73,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.concurrent.Volatile
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -300,7 +301,7 @@ internal class KimiSession(
         val normalized = PermissionRequest(
             id,
             turn.id,
-            request.toolCall["title"]?.jsonPrimitive?.contentOrNull ?: "Kimi Code requests permission",
+            request.toolCall["title"]?.jsonPrimitive?.contentOrNull ?: "Kimi CLI requests permission",
             request.options.map {
                 PermissionOption(PermissionOptionId(it.optionId), it.name, it.kind.startsWith("reject"))
             },
