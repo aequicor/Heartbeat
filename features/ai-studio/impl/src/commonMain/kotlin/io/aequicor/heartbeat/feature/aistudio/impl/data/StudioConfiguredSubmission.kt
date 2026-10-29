@@ -160,8 +160,7 @@ internal class StudioConfiguredSubmission(
                 val trust = helper.begin { policy().also { latest = it }.trust }
                 checkNotNull(latest).copy(trust = trust)
             } else {
-                request.submission?.begin()
-                policy()
+                policy().also { request.submission?.begin() }
             }
             val native: suspend () -> TurnId = {
                 val authority = access.captureUserInstructions(request.id, request.request, request.userInstruction)

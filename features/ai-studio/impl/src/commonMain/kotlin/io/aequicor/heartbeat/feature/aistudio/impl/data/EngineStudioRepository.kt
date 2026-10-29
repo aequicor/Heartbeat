@@ -68,6 +68,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioQuestionnaireHumanContext
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRunAdmission
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
@@ -84,6 +85,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -371,6 +373,15 @@ internal class EngineStudioRepository(
         readStudioQuestionnaireHumanContext(store, sessionId)
     }
 
+    override suspend fun admitQuestionnaireAnswer(
+        sessionId: String,
+        expected: StudioQuestionnaireHumanContext.Complete,
+        admit: suspend () -> Boolean,
+    ): Boolean = lock.withLock {
+        log.v { "Conditionally admit questionnaire answer" }
+        readStudioQuestionnaireHumanContext(store, sessionId) == expected && admit()
+    }
+
     override fun observeModels(): Flow<List<StudioModel>> {
         log.d { "Observe enabled models and their cached capabilities" }
         return offeredModels
@@ -473,10 +484,47 @@ internal class EngineStudioRepository(
         environment: StudioChatEnvironment?,
         userInstruction: String?,
         onAccepted: suspend () -> Unit,
+    ): RunOutcome = runPrepared(
+        sessionId, prompt, settings, attachments, submissionId, environment, userInstruction, null, onAccepted,
+    ).also { log.i { "Studio attachment submission completed" } }
+
+    override suspend fun run(
+        sessionId: String,
+        prompt: String,
+        settings: RunSettings,
+        attachments: List<ResourceRef>,
+        submissionId: String,
+        environment: StudioChatEnvironment?,
+        userInstruction: String?,
+        admission: StudioRunAdmission,
+        onAccepted: suspend () -> Unit,
+    ): RunOutcome = runPrepared(
+        sessionId, prompt, settings, attachments, submissionId, environment, userInstruction,
+        StudioHostSubmission(admission, currentCoroutineContext()), onAccepted,
+    ).also { log.i { "Studio host submission completed" } }
+
+    private suspend fun runPrepared(
+        sessionId: String,
+        prompt: String,
+        settings: RunSettings,
+        attachments: List<ResourceRef>,
+        submissionId: String,
+        environment: StudioChatEnvironment?,
+        userInstruction: String?,
+        submission: StudioSubmissionGate?,
+        onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
         requireBrowserHostSupport(record(sessionId), environment)
-        val organism = organisms.submit(record(sessionId), prompt, settings, attachments, submissionId, onAccepted)
+        val organism = organisms.submit(
+            record(sessionId),
+            prompt,
+            settings,
+            attachments,
+            submissionId,
+            submission,
+            onAccepted,
+        )
         return organism ?: runs.run(
             this,
             studioTurnRequest(
@@ -491,6 +539,7 @@ internal class EngineStudioRepository(
                 environment = environment,
                 isUserPrompt = true,
                 userInstruction = userInstruction,
+                submission = submission,
             ),
         )
     }

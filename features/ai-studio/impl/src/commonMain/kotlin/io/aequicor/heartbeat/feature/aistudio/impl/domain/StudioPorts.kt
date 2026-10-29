@@ -55,10 +55,28 @@ interface StudioRepository {
     /**
      * Human originals used only to generate questionnaire answers, independently of tool authority revocation.
      * Automatic answers may preserve this snapshot; manual substantive answers invalidate it. Unsupported backends
-     * return [StudioQuestionnaireHumanContext.Incomplete]. Recheck the snapshot before delivering generated answers.
+     * return [StudioQuestionnaireHumanContext.Incomplete]. Deliver generated answers only through
+     * [admitQuestionnaireAnswer]; a separate read followed by delivery cannot exclude concurrent changes.
      */
     suspend fun questionnaireHumanContext(sessionId: String): StudioQuestionnaireHumanContext =
         StudioQuestionnaireHumanContext.Incomplete
+
+    /**
+     * Atomically admits a generated questionnaire answer only while the saved human context equals [expected].
+     * Implementations compare the durable snapshot and invoke [admit] under the same mutex as every human-context
+     * mutation, holding it until admission returns. A mismatch or unsupported backend returns false without invoking
+     * [admit]. The result is true only when [admit] returns true; cancellation and failures propagate.
+     *
+     * [admit] may recheck lifecycle and dispatch the prepared answer to the questionnaire machine, whose generation
+     * guards still apply. It must not generate model output, revoke authority, reenter this repository or wait for
+     * answer collection: those operations belong outside the mutex. This guards saved context, not manual answers
+     * in other batches whose invalidation has not yet reached storage.
+     */
+    suspend fun admitQuestionnaireAnswer(
+        sessionId: String,
+        expected: StudioQuestionnaireHumanContext.Complete,
+        admit: suspend () -> Boolean,
+    ): Boolean = false
 
     /** The project new sessions belong to by default. */
     suspend fun defaultProjectId(): String?

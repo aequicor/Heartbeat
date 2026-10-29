@@ -88,6 +88,25 @@ interface StudioRuntime :
         return run(sessionId, prompt, settings)
     }
 
+    /**
+     * Prepares a host-generated delivery and asks [admission] immediately before submission. Cancellation of this
+     * caller before admission revokes preparation; admitted native work retains profile ownership. Older runtimes
+     * deliberately refuse this overload instead of silently ignoring the gate or accepting before preparation.
+     */
+    // Preserve existing overloads and their named arguments while gated runtimes opt in explicitly.
+    @Suppress("LongParameterList")
+    suspend fun run(
+        sessionId: String,
+        prompt: String,
+        settings: RunSettings,
+        attachments: List<ResourceRef>,
+        submissionId: String = "",
+        environment: StudioChatEnvironment? = null,
+        userInstruction: String? = null,
+        admission: StudioRunAdmission,
+        onAccepted: suspend () -> Unit,
+    ): RunOutcome = error("Host run admission is unavailable")
+
     /** Revokes durable and live human authority before a generated questionnaire follow-up is submitted. */
     suspend fun invalidateUserInstructions(sessionId: String) {
         error("Human authority revocation is unavailable")

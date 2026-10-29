@@ -275,10 +275,12 @@ internal fun studioTurnRequest(
     environment: StudioChatEnvironment? = null,
     isUserPrompt: Boolean = false,
     userInstruction: String? = null,
+    submission: StudioSubmissionGate? = null,
 ): StudioTurnRequest = StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
     .copy(
         submissionId = submissionId,
         environment = environment,
         isUserPrompt = isUserPrompt,
         userInstruction = userInstruction,
+        submission = submission,
     )

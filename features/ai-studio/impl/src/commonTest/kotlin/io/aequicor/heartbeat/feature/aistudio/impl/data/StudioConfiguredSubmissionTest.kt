@@ -37,6 +37,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRunAdmission
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
@@ -52,10 +53,13 @@ import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -74,6 +78,35 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioConfiguredSubmissionTest {
+    @Test
+    fun `host admission waits for prompt preparation and a late refusal prevents native send`() = runTest {
+        val fixture = SubmissionFixture(this)
+        val prepared = CompletableDeferred<Unit>()
+        fixture.beforeContext = { prepared.await() }
+        var admissions = 0
+        var allowed = true
+        val gate = StudioHostSubmission(
+            StudioRunAdmission {
+                admissions++
+                allowed
+            },
+            currentCoroutineContext(),
+        )
+        val pending = async {
+            assertFailsWith<CancellationException> { fixture.submit("host", gate = gate) }
+        }
+        runCurrent()
+        assertFalse(pending.isCompleted)
+        assertEquals(0, admissions)
+        assertTrue(fixture.session.requests.isEmpty())
+        allowed = false
+        prepared.complete(Unit)
+        pending.await()
+        assertEquals(1, admissions)
+        assertTrue(fixture.session.requests.isEmpty())
+        assertTrue(gate.isCancelled)
+    }
+
     @Test
     fun `browser mention follows the current input host and preserves the visible prompt`() = runTest {
         val fixture = SubmissionFixture(this)
@@ -480,6 +513,7 @@ private class SubmissionFixture(
     val access = configuration.access
     var engineContext: String? = null
     var preparedPrompt: String? = null
+    var beforeContext: suspend () -> Unit = {}
     var authorityStore: ChecklistTestStore? = null
     var skills: List<ComposerSkillContent> = emptyList()
     val linkedTexts = mutableListOf<String>()
@@ -494,6 +528,7 @@ private class SubmissionFixture(
         } ?: TrustedUserInstructions.Incomplete
 
         override suspend fun engineSwitchContext(id: String, incoming: String): String? {
+            beforeContext()
             preparedPrompt = incoming
             return engineContext.takeIf { access.records.getValue(id).pendingEngineContext != null }
         }
@@ -549,6 +584,7 @@ private class SubmissionFixture(
         isUserPrompt: Boolean = true,
         userInstruction: String? = null,
         environment: StudioChatEnvironment? = null,
+        gate: StudioSubmissionGate? = null,
     ): TurnId = submission.submit(
         submissionAccess,
         session,
@@ -563,6 +599,7 @@ private class SubmissionFixture(
             isUserPrompt = isUserPrompt,
             userInstruction = userInstruction,
             environment = environment,
+            submission = gate,
         ),
         { listOf(StudioModel(target.studioModelId(), "Model", isTrustSupported = isTrustSupported)) },
         { access.states },

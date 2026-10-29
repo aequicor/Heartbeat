@@ -71,6 +71,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRunAdmission
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.organism
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
@@ -91,9 +92,13 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismIsolation
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -131,6 +136,67 @@ class StudioOrganismsTest {
         projectId = "/work/project",
         organismId = "chat-1",
     )
+
+    @Test
+    fun `host refusal prevents both organism conception and follow-up`() = runTest {
+        for (existing in listOf(false, true)) {
+            val living = if (existing) {
+                OrganicAiState.Living(mapOf(OrganismId(chat.id) to organism(chat.id)))
+            } else {
+                OrganicAiState.Living()
+            }
+            val machine = OrganicMachine(living)
+            val organisms = StudioOrganisms(Registry(machine), selections, toggles, claims)
+            var admissions = 0
+            var accepted = false
+            val gate = StudioHostSubmission(
+                StudioRunAdmission {
+                    admissions++
+                    false
+                },
+                currentCoroutineContext(),
+            )
+            assertFailsWith<CancellationException> {
+                organisms.submit(chat, "Continue", settings, emptyList(), "", gate) { accepted = true }
+            }
+            assertEquals(1, admissions)
+            assertTrue(machine.sent.isEmpty())
+            assertFalse(accepted)
+        }
+    }
+
+    @Test
+    fun `organism preparation suspends before host admission and cancellation prevents conception`() = runTest {
+        val prepared = CompletableDeferred<Unit>()
+        val delayedSelections = object : ModelSelections by selections {
+            override fun observe(): Flow<ModelSelection> = flow {
+                prepared.await()
+                emit(ModelSelection().withDefault(target))
+            }
+        }
+        val machine = OrganicMachine(OrganicAiState.Living())
+        val organisms = StudioOrganisms(Registry(machine), delayedSelections, toggles, claims)
+        var admissions = 0
+        val caller = async {
+            val gate = StudioHostSubmission(
+                StudioRunAdmission {
+                    admissions++
+                    true
+                },
+                currentCoroutineContext(),
+            )
+            organisms.submit(chat, "Build", settings, emptyList(), "", gate) { error("Not accepted") }
+        }
+        runCurrent()
+        assertFalse(caller.isCompleted)
+        assertEquals(0, admissions)
+        assertTrue(machine.sent.isEmpty())
+        caller.cancelAndJoin()
+        prepared.complete(Unit)
+        runCurrent()
+        assertEquals(0, admissions)
+        assertTrue(machine.sent.isEmpty())
+    }
 
     @Test
     fun `the first prompt of an organism chat conceives its organism`() = runTest {
