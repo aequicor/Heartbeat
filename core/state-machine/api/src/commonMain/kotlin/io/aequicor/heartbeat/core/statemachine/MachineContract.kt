@@ -50,6 +50,13 @@ public interface MachineRef<out S : MachineState, in P : MachineIntent, out O : 
     /** One-shot outputs. Hot, without replay: collect before they are emitted. */
     public val outputs: Flow<O>
 
+    /**
+     * Runs [action] against a state protected from concurrent transitions through its completion.
+     * Returns false without invoking it when stopped or when atomic admission is unsupported.
+     * The action must not send to this machine or recursively acquire this admission lock.
+     */
+    public suspend fun admit(action: suspend (S) -> Boolean): Boolean = false
+
     /** Delivers [intent]; returns once it is processed (transition done, effects launched). */
     public suspend fun send(intent: P): SendResult
 }

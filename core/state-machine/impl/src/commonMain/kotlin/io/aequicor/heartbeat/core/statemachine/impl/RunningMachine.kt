@@ -121,6 +121,12 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
         log.i { "stopped in ${mutableState.value.label()}, scope ${scope.name} closed" }
     }
 
+    override suspend fun admit(action: suspend (S) -> Boolean): Boolean = mutex.withLock {
+        currentCoroutineContext().ensureActive()
+        if (!isRunning || !effectsJob.isActive) return@withLock false
+        action(mutableState.value)
+    }
+
     override suspend fun send(intent: I): SendResult = dispatch(intent, source = "own feature")
 
     /** Delivers [intent]; [source] explains in the log who sent it. */

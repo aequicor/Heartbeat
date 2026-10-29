@@ -20,6 +20,13 @@ public interface FeatureToggles {
     /** Current value of [toggle] and its changes (distinct). */
     public fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T>
 
+    /**
+     * Runs [action] only while every [flags] value is enabled, holding off override writers until it returns.
+     * Unsupported implementations and reported storage read failures deny admission, even for enabled defaults.
+     * The action must not change overrides or recursively acquire admission. Exceptions from the action propagate.
+     */
+    public suspend fun admitEnabled(flags: Set<FeatureToggle.Flag>, action: suspend () -> Boolean): Boolean = false
+
     /** Current value of [toggle]. */
     public suspend fun <T : Any> get(toggle: FeatureToggle<T>): T
 }

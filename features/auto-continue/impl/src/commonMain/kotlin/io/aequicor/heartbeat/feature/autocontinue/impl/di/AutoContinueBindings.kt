@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueEnabled
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueHost
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMachineSpec
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueState
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueView
 import io.aequicor.heartbeat.feature.autocontinue.impl.domain.AutoContinueEffects
 import io.aequicor.heartbeat.feature.autocontinue.impl.domain.AutoContinueMachine
@@ -59,6 +60,8 @@ object AutoContinueBindings {
     @SingleIn(ProfileScope::class)
     internal fun view(machine: AutoContinueMachine): AutoContinueView = object : AutoContinueView {
         override val state = machine.state
+
+        override suspend fun admit(action: suspend (AutoContinueState) -> Boolean): Boolean = machine.admit(action)
     }
 }
 

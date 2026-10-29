@@ -422,6 +422,12 @@ public object AutoContinueMachineKey :
 public interface AutoContinueView {
     /** Current machine state. */
     public val state: StateFlow<AutoContinueState>
+
+    /**
+     * Holds mode and target stable through [action], serialized with all machine transitions.
+     * Unsupported views deny admission. The action must not send to the auto-continue machine.
+     */
+    public suspend fun admit(action: suspend (AutoContinueState) -> Boolean): Boolean = false
 }
 
 /**
