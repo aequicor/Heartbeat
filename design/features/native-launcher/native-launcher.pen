@@ -1,0 +1,2780 @@
+{
+ "version": "2.21",
+ "imports": {
+  "hb": "../../system/heartbeat.lib.pen"
+ },
+ "children": [
+  {
+   "id": "section-screens",
+   "type": "frame",
+   "name": "Экраны",
+   "layout": "none",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   },
+   "x": 0,
+   "y": 0,
+   "width": 4360,
+   "height": 1900,
+   "children": [
+    {
+     "id": "g-launcher-first-run",
+     "type": "frame",
+     "name": "Launcher / First run — первый запуск",
+     "layout": "none",
+     "x": 0,
+     "y": 0,
+     "width": 1280,
+     "height": 1870,
+     "children": [
+      {
+       "id": "g-launcher-first-run-title",
+       "type": "text",
+       "name": "Название группы",
+       "content": "Launcher / First run — первый запуск",
+       "x": 0,
+       "y": 0,
+       "fill": "$hb:colors.textPrimary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.title.size",
+       "lineHeight": "$hb:typography.title.lineHeight",
+       "fontWeight": "600"
+      },
+      {
+       "id": "g-launcher-first-run-light",
+       "type": "frame",
+       "name": "Светлая тема",
+       "layout": "none",
+       "x": 0,
+       "y": 32,
+       "width": 1280,
+       "height": 832,
+       "children": [
+        {
+         "id": "g-launcher-first-run-light-caption",
+         "type": "text",
+         "name": "Подпись",
+         "content": "Desktop · светлая",
+         "x": 0,
+         "y": 0,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.caption.size",
+         "lineHeight": "$hb:typography.caption.lineHeight",
+         "fontWeight": "$hb:typography.caption.weight"
+        },
+        {
+         "id": "launcher-first-run-light",
+         "type": "frame",
+         "name": "Launcher / First run / Desktop",
+         "reusable": true,
+         "width": 1280,
+         "height": 800,
+         "layout": "none",
+         "theme": {
+          "hb:mode": "light",
+          "hb:host": "desktop"
+         },
+         "fill": "$hb:surfaces.backdrop",
+         "clip": true,
+         "stroke": "$hb:surfaces.outline",
+         "strokeWidth": 2,
+         "strokeAlignment": "outer",
+         "context": "Только Desktop: нативное окно лончера до старта JVM. Окно открывается сразу при запуске исполняемого файла, в размере основного окна приложения (dimensions.windowWidth × windowHeight). Сворачивание не останавливает загрузку; готовность не разворачивает окно и не крадёт фокус. Закрытие до готовности отменяет запуск. HiDPI и resize — платформенные, native.",
+         "children": [
+          {
+           "id": "launcher-first-run-light-titlebar",
+           "type": "frame",
+           "name": "Title bar · системный, нативный (высота задаётся ОС)",
+           "x": 0,
+           "y": 0,
+           "width": 1280,
+           "height": 32,
+           "layout": "none",
+           "fill": "$hb:surfaces.header",
+           "children": [
+            {
+             "id": "launcher-first-run-light-titlebar-title",
+             "type": "text",
+             "name": "Заголовок окна",
+             "content": "Heartbeat",
+             "x": 606,
+             "y": 8,
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-first-run-light-logo",
+           "type": "ref",
+           "ref": "hb:hb-icon-sparkles",
+           "name": "HbIcons / Sparkles",
+           "x": 616,
+           "y": 236,
+           "width": 48,
+           "height": 48,
+           "stroke": "$hb:colors.brand",
+           "strokeWidth": 3.36
+          },
+          {
+           "id": "launcher-first-run-light-name",
+           "type": "text",
+           "name": "Имя приложения",
+           "content": "Heartbeat",
+           "x": 576,
+           "y": 304,
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.title.size",
+           "lineHeight": "$hb:typography.title.lineHeight",
+           "fontWeight": "600"
+          },
+          {
+           "id": "launcher-first-run-light-stage",
+           "type": "text",
+           "name": "Этап",
+           "content": "Загрузка платформы…",
+           "x": 560,
+           "y": 348,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.body.size",
+           "lineHeight": "$hb:typography.body.lineHeight",
+           "fontWeight": "$hb:typography.body.weight"
+          },
+          {
+           "id": "launcher-first-run-light-progress",
+           "type": "frame",
+           "name": "Progress · track",
+           "x": 480,
+           "y": 392,
+           "width": 320,
+           "height": 6,
+           "layout": "none",
+           "cornerRadius": 3,
+           "fill": "$hb:colors.outlineSubtle",
+           "children": [
+            {
+             "id": "launcher-first-run-light-progress-fill",
+             "type": "frame",
+             "name": "Progress · fill",
+             "x": 0,
+             "y": 0,
+             "width": 184,
+             "height": 6,
+             "layout": "none",
+             "cornerRadius": 3,
+             "fill": "$hb:colors.primary"
+            }
+           ]
+          },
+          {
+           "id": "launcher-first-run-light-bytes",
+           "type": "text",
+           "name": "Прогресс в байтах",
+           "content": "145 МБ из 512 МБ · 28 %",
+           "x": 533,
+           "y": 410,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          },
+          {
+           "id": "launcher-first-run-light-cancel",
+           "type": "frame",
+           "name": "HbButton / Ghost / Regular",
+           "x": 600,
+           "y": 456,
+           "width": 80,
+           "height": 32,
+           "layout": "none",
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "launcher-first-run-light-cancel-label",
+             "type": "text",
+             "name": "launcher-first-run-light-cancel-label",
+             "content": "Отмена",
+             "x": 12,
+             "y": 7,
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-first-run-light-badge-1",
+           "type": "frame",
+           "name": "Бейдж 1",
+           "x": 812,
+           "y": 385,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-first-run-light-badge-1-label",
+             "type": "text",
+             "name": "Бейдж 1 · номер",
+             "content": "1",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          },
+          {
+           "id": "launcher-first-run-light-badge-2",
+           "type": "frame",
+           "name": "Бейдж 2",
+           "x": 1240,
+           "y": 6,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-first-run-light-badge-2-label",
+             "type": "text",
+             "name": "Бейдж 2 · номер",
+             "content": "2",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          },
+          {
+           "id": "launcher-first-run-light-badge-3",
+           "type": "frame",
+           "name": "Бейдж 3",
+           "x": 16,
+           "y": 6,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-first-run-light-badge-3-label",
+             "type": "text",
+             "name": "Бейдж 3 · номер",
+             "content": "3",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          }
+         ],
+         "y": 32
+        }
+       ]
+      },
+      {
+       "id": "g-launcher-first-run-dark",
+       "type": "frame",
+       "name": "Тёмная тема",
+       "layout": "none",
+       "x": 0,
+       "y": 928,
+       "width": 1280,
+       "height": 832,
+       "children": [
+        {
+         "id": "g-launcher-first-run-dark-caption",
+         "type": "text",
+         "name": "Подпись",
+         "content": "Desktop · тёмная",
+         "x": 0,
+         "y": 0,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.caption.size",
+         "lineHeight": "$hb:typography.caption.lineHeight",
+         "fontWeight": "$hb:typography.caption.weight"
+        },
+        {
+         "id": "launcher-first-run-dark",
+         "type": "frame",
+         "name": "Launcher / First run / Desktop",
+         "reusable": true,
+         "width": 1280,
+         "height": 800,
+         "layout": "none",
+         "theme": {
+          "hb:mode": "dark",
+          "hb:host": "desktop"
+         },
+         "fill": "$hb:surfaces.backdrop",
+         "clip": true,
+         "stroke": "$hb:surfaces.outline",
+         "strokeWidth": 2,
+         "strokeAlignment": "outer",
+         "context": "Только Desktop: нативное окно лончера до старта JVM. Окно открывается сразу при запуске исполняемого файла, в размере основного окна приложения (dimensions.windowWidth × windowHeight). Сворачивание не останавливает загрузку; готовность не разворачивает окно и не крадёт фокус. Закрытие до готовности отменяет запуск. HiDPI и resize — платформенные, native.",
+         "children": [
+          {
+           "id": "launcher-first-run-dark-titlebar",
+           "type": "frame",
+           "name": "Title bar · системный, нативный (высота задаётся ОС)",
+           "x": 0,
+           "y": 0,
+           "width": 1280,
+           "height": 32,
+           "layout": "none",
+           "fill": "$hb:surfaces.header",
+           "children": [
+            {
+             "id": "launcher-first-run-dark-titlebar-title",
+             "type": "text",
+             "name": "Заголовок окна",
+             "content": "Heartbeat",
+             "x": 606,
+             "y": 8,
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-first-run-dark-logo",
+           "type": "ref",
+           "ref": "hb:hb-icon-sparkles",
+           "name": "HbIcons / Sparkles",
+           "x": 616,
+           "y": 236,
+           "width": 48,
+           "height": 48,
+           "stroke": "$hb:colors.brand",
+           "strokeWidth": 3.36
+          },
+          {
+           "id": "launcher-first-run-dark-name",
+           "type": "text",
+           "name": "Имя приложения",
+           "content": "Heartbeat",
+           "x": 576,
+           "y": 304,
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.title.size",
+           "lineHeight": "$hb:typography.title.lineHeight",
+           "fontWeight": "600"
+          },
+          {
+           "id": "launcher-first-run-dark-stage",
+           "type": "text",
+           "name": "Этап",
+           "content": "Загрузка платформы…",
+           "x": 560,
+           "y": 348,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.body.size",
+           "lineHeight": "$hb:typography.body.lineHeight",
+           "fontWeight": "$hb:typography.body.weight"
+          },
+          {
+           "id": "launcher-first-run-dark-progress",
+           "type": "frame",
+           "name": "Progress · track",
+           "x": 480,
+           "y": 392,
+           "width": 320,
+           "height": 6,
+           "layout": "none",
+           "cornerRadius": 3,
+           "fill": "$hb:colors.outlineSubtle",
+           "children": [
+            {
+             "id": "launcher-first-run-dark-progress-fill",
+             "type": "frame",
+             "name": "Progress · fill",
+             "x": 0,
+             "y": 0,
+             "width": 184,
+             "height": 6,
+             "layout": "none",
+             "cornerRadius": 3,
+             "fill": "$hb:colors.primary"
+            }
+           ]
+          },
+          {
+           "id": "launcher-first-run-dark-bytes",
+           "type": "text",
+           "name": "Прогресс в байтах",
+           "content": "145 МБ из 512 МБ · 28 %",
+           "x": 533,
+           "y": 410,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          },
+          {
+           "id": "launcher-first-run-dark-cancel",
+           "type": "frame",
+           "name": "HbButton / Ghost / Regular",
+           "x": 600,
+           "y": 456,
+           "width": 80,
+           "height": 32,
+           "layout": "none",
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "launcher-first-run-dark-cancel-label",
+             "type": "text",
+             "name": "launcher-first-run-dark-cancel-label",
+             "content": "Отмена",
+             "x": 12,
+             "y": 7,
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-first-run-dark-badge-1",
+           "type": "frame",
+           "name": "Бейдж 1",
+           "x": 812,
+           "y": 385,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-first-run-dark-badge-1-label",
+             "type": "text",
+             "name": "Бейдж 1 · номер",
+             "content": "1",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          },
+          {
+           "id": "launcher-first-run-dark-badge-2",
+           "type": "frame",
+           "name": "Бейдж 2",
+           "x": 1240,
+           "y": 6,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-first-run-dark-badge-2-label",
+             "type": "text",
+             "name": "Бейдж 2 · номер",
+             "content": "2",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          },
+          {
+           "id": "launcher-first-run-dark-badge-3",
+           "type": "frame",
+           "name": "Бейдж 3",
+           "x": 16,
+           "y": 6,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-first-run-dark-badge-3-label",
+             "type": "text",
+             "name": "Бейдж 3 · номер",
+             "content": "3",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          }
+         ],
+         "y": 32
+        }
+       ]
+      },
+      {
+       "id": "g-launcher-first-run-note-1",
+       "type": "text",
+       "name": "Заметка 1",
+       "content": "1 · Свернутое окно не останавливает загрузку; готовность не разворачивает окно и не крадёт фокус.",
+       "x": 0,
+       "y": 1810,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight",
+       "width": 1280,
+       "textGrowth": "fixed-width"
+      },
+      {
+       "id": "g-launcher-first-run-note-2",
+       "type": "text",
+       "name": "Заметка 2",
+       "content": "2 · Закрытие до готовности отменяет запуск: загрузки останавливаются, частичные файлы сохраняются для resume, неполный image не активируется, скрытых процессов не остаётся.",
+       "x": 0,
+       "y": 1832,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight",
+       "width": 1280,
+       "textGrowth": "fixed-width"
+      },
+      {
+       "id": "g-launcher-first-run-note-3",
+       "type": "text",
+       "name": "Заметка 3",
+       "content": "3 · Системный title bar ОС (macOS: светофор слева, Windows/Linux: заголовок и кнопки справа). Окно нативное: HiDPI, resize.",
+       "x": 0,
+       "y": 1854,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight",
+       "width": 1280,
+       "textGrowth": "fixed-width"
+      }
+     ]
+    },
+    {
+     "id": "g-launcher-error",
+     "type": "frame",
+     "name": "Launcher / Network error — ошибка сети",
+     "layout": "none",
+     "x": 1480,
+     "y": 0,
+     "width": 1280,
+     "height": 1870,
+     "children": [
+      {
+       "id": "g-launcher-error-title",
+       "type": "text",
+       "name": "Название группы",
+       "content": "Launcher / Network error — ошибка сети",
+       "x": 0,
+       "y": 0,
+       "fill": "$hb:colors.textPrimary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.title.size",
+       "lineHeight": "$hb:typography.title.lineHeight",
+       "fontWeight": "600"
+      },
+      {
+       "id": "g-launcher-error-light",
+       "type": "frame",
+       "name": "Светлая тема",
+       "layout": "none",
+       "x": 0,
+       "y": 32,
+       "width": 1280,
+       "height": 832,
+       "children": [
+        {
+         "id": "g-launcher-error-light-caption",
+         "type": "text",
+         "name": "Подпись",
+         "content": "Desktop · светлая",
+         "x": 0,
+         "y": 0,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.caption.size",
+         "lineHeight": "$hb:typography.caption.lineHeight",
+         "fontWeight": "$hb:typography.caption.weight"
+        },
+        {
+         "id": "launcher-error-light",
+         "type": "frame",
+         "name": "Launcher / Network error / Desktop",
+         "reusable": true,
+         "width": 1280,
+         "height": 800,
+         "layout": "none",
+         "theme": {
+          "hb:mode": "light",
+          "hb:host": "desktop"
+         },
+         "fill": "$hb:surfaces.backdrop",
+         "clip": true,
+         "stroke": "$hb:surfaces.outline",
+         "strokeWidth": 2,
+         "strokeAlignment": "outer",
+         "context": "Ошибка первого запуска: нет сети, нет свободного места, повреждён файл или подпись. Повтор продолжает загрузку с сохранённого места (HTTP Range); отмена закрывает окно.",
+         "children": [
+          {
+           "id": "launcher-error-light-titlebar",
+           "type": "frame",
+           "name": "Title bar · системный, нативный (высота задаётся ОС)",
+           "x": 0,
+           "y": 0,
+           "width": 1280,
+           "height": 32,
+           "layout": "none",
+           "fill": "$hb:surfaces.header",
+           "children": [
+            {
+             "id": "launcher-error-light-titlebar-title",
+             "type": "text",
+             "name": "Заголовок окна",
+             "content": "Heartbeat",
+             "x": 606,
+             "y": 8,
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-error-light-illustration",
+           "type": "ref",
+           "ref": "hb:hb-illustration-offline",
+           "name": "HbIllustration / Offline",
+           "x": 520,
+           "y": 176,
+           "width": 240,
+           "height": 180
+          },
+          {
+           "id": "launcher-error-light-title",
+           "type": "text",
+           "name": "Заголовок ошибки",
+           "content": "Нет соединения",
+           "x": 572,
+           "y": 396,
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.title.size",
+           "lineHeight": "$hb:typography.title.lineHeight",
+           "fontWeight": "600"
+          },
+          {
+           "id": "launcher-error-light-body",
+           "type": "text",
+           "name": "Пояснение",
+           "content": "Не удалось скачать файлы. Проверьте подключение к интернету — загрузка продолжится с сохранённого места.",
+           "x": 430,
+           "y": 440,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.body.size",
+           "lineHeight": "$hb:typography.body.lineHeight",
+           "fontWeight": "$hb:typography.body.weight",
+           "width": 420,
+           "textGrowth": "fixed-width"
+          },
+          {
+           "id": "launcher-error-light-retry",
+           "type": "frame",
+           "name": "HbButton / Primary / Regular",
+           "x": 546,
+           "y": 516,
+           "width": 116,
+           "height": 32,
+           "layout": "none",
+           "fill": "$hb:colors.primary",
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "launcher-error-light-retry-label",
+             "type": "text",
+             "name": "launcher-error-light-retry-label",
+             "content": "Повторить",
+             "x": 12,
+             "y": 7,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-error-light-cancel",
+           "type": "frame",
+           "name": "HbButton / Ghost / Regular",
+           "x": 674,
+           "y": 516,
+           "width": 80,
+           "height": 32,
+           "layout": "none",
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "launcher-error-light-cancel-label",
+             "type": "text",
+             "name": "launcher-error-light-cancel-label",
+             "content": "Отмена",
+             "x": 12,
+             "y": 7,
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-error-light-badge-1",
+           "type": "frame",
+           "name": "Бейдж 1",
+           "x": 776,
+           "y": 236,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-error-light-badge-1-label",
+             "type": "text",
+             "name": "Бейдж 1 · номер",
+             "content": "1",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          },
+          {
+           "id": "launcher-error-light-badge-2",
+           "type": "frame",
+           "name": "Бейдж 2",
+           "x": 670,
+           "y": 522,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-error-light-badge-2-label",
+             "type": "text",
+             "name": "Бейдж 2 · номер",
+             "content": "2",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          }
+         ],
+         "y": 32
+        }
+       ]
+      },
+      {
+       "id": "g-launcher-error-dark",
+       "type": "frame",
+       "name": "Тёмная тема",
+       "layout": "none",
+       "x": 0,
+       "y": 928,
+       "width": 1280,
+       "height": 832,
+       "children": [
+        {
+         "id": "g-launcher-error-dark-caption",
+         "type": "text",
+         "name": "Подпись",
+         "content": "Desktop · тёмная",
+         "x": 0,
+         "y": 0,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.caption.size",
+         "lineHeight": "$hb:typography.caption.lineHeight",
+         "fontWeight": "$hb:typography.caption.weight"
+        },
+        {
+         "id": "launcher-error-dark",
+         "type": "frame",
+         "name": "Launcher / Network error / Desktop",
+         "reusable": true,
+         "width": 1280,
+         "height": 800,
+         "layout": "none",
+         "theme": {
+          "hb:mode": "dark",
+          "hb:host": "desktop"
+         },
+         "fill": "$hb:surfaces.backdrop",
+         "clip": true,
+         "stroke": "$hb:surfaces.outline",
+         "strokeWidth": 2,
+         "strokeAlignment": "outer",
+         "context": "Ошибка первого запуска: нет сети, нет свободного места, повреждён файл или подпись. Повтор продолжает загрузку с сохранённого места (HTTP Range); отмена закрывает окно.",
+         "children": [
+          {
+           "id": "launcher-error-dark-titlebar",
+           "type": "frame",
+           "name": "Title bar · системный, нативный (высота задаётся ОС)",
+           "x": 0,
+           "y": 0,
+           "width": 1280,
+           "height": 32,
+           "layout": "none",
+           "fill": "$hb:surfaces.header",
+           "children": [
+            {
+             "id": "launcher-error-dark-titlebar-title",
+             "type": "text",
+             "name": "Заголовок окна",
+             "content": "Heartbeat",
+             "x": 606,
+             "y": 8,
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-error-dark-illustration",
+           "type": "ref",
+           "ref": "hb:hb-illustration-offline",
+           "name": "HbIllustration / Offline",
+           "x": 520,
+           "y": 176,
+           "width": 240,
+           "height": 180
+          },
+          {
+           "id": "launcher-error-dark-title",
+           "type": "text",
+           "name": "Заголовок ошибки",
+           "content": "Нет соединения",
+           "x": 572,
+           "y": 396,
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.title.size",
+           "lineHeight": "$hb:typography.title.lineHeight",
+           "fontWeight": "600"
+          },
+          {
+           "id": "launcher-error-dark-body",
+           "type": "text",
+           "name": "Пояснение",
+           "content": "Не удалось скачать файлы. Проверьте подключение к интернету — загрузка продолжится с сохранённого места.",
+           "x": 430,
+           "y": 440,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.body.size",
+           "lineHeight": "$hb:typography.body.lineHeight",
+           "fontWeight": "$hb:typography.body.weight",
+           "width": 420,
+           "textGrowth": "fixed-width"
+          },
+          {
+           "id": "launcher-error-dark-retry",
+           "type": "frame",
+           "name": "HbButton / Primary / Regular",
+           "x": 546,
+           "y": 516,
+           "width": 116,
+           "height": 32,
+           "layout": "none",
+           "fill": "$hb:colors.primary",
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "launcher-error-dark-retry-label",
+             "type": "text",
+             "name": "launcher-error-dark-retry-label",
+             "content": "Повторить",
+             "x": 12,
+             "y": 7,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-error-dark-cancel",
+           "type": "frame",
+           "name": "HbButton / Ghost / Regular",
+           "x": 674,
+           "y": 516,
+           "width": 80,
+           "height": 32,
+           "layout": "none",
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "launcher-error-dark-cancel-label",
+             "type": "text",
+             "name": "launcher-error-dark-cancel-label",
+             "content": "Отмена",
+             "x": 12,
+             "y": 7,
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-error-dark-badge-1",
+           "type": "frame",
+           "name": "Бейдж 1",
+           "x": 776,
+           "y": 236,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-error-dark-badge-1-label",
+             "type": "text",
+             "name": "Бейдж 1 · номер",
+             "content": "1",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          },
+          {
+           "id": "launcher-error-dark-badge-2",
+           "type": "frame",
+           "name": "Бейдж 2",
+           "x": 670,
+           "y": 522,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-error-dark-badge-2-label",
+             "type": "text",
+             "name": "Бейдж 2 · номер",
+             "content": "2",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          }
+         ],
+         "y": 32
+        }
+       ]
+      },
+      {
+       "id": "g-launcher-error-note-1",
+       "type": "text",
+       "name": "Заметка 1",
+       "content": "1 · Сюда же приходят другие ошибки provisioning: нет свободного места, повреждён файл (SHA-256), недоверенная подпись manifest.",
+       "x": 0,
+       "y": 1810,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight",
+       "width": 1280,
+       "textGrowth": "fixed-width"
+      },
+      {
+       "id": "g-launcher-error-note-2",
+       "type": "text",
+       "name": "Заметка 2",
+       "content": "2 · Повтор продолжает докачку с места остановки (HTTP Range); сценарий возвращает на экран прогресса первого запуска.",
+       "x": 0,
+       "y": 1832,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight",
+       "width": 1280,
+       "textGrowth": "fixed-width"
+      }
+     ]
+    },
+    {
+     "id": "g-launcher-launching",
+     "type": "frame",
+     "name": "Launcher / Launching — запуск приложения",
+     "layout": "none",
+     "x": 2960,
+     "y": 0,
+     "width": 1280,
+     "height": 1870,
+     "children": [
+      {
+       "id": "g-launcher-launching-title",
+       "type": "text",
+       "name": "Название группы",
+       "content": "Launcher / Launching — запуск приложения",
+       "x": 0,
+       "y": 0,
+       "fill": "$hb:colors.textPrimary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.title.size",
+       "lineHeight": "$hb:typography.title.lineHeight",
+       "fontWeight": "600"
+      },
+      {
+       "id": "g-launcher-launching-light",
+       "type": "frame",
+       "name": "Светлая тема",
+       "layout": "none",
+       "x": 0,
+       "y": 32,
+       "width": 1280,
+       "height": 832,
+       "children": [
+        {
+         "id": "g-launcher-launching-light-caption",
+         "type": "text",
+         "name": "Подпись",
+         "content": "Desktop · светлая",
+         "x": 0,
+         "y": 0,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.caption.size",
+         "lineHeight": "$hb:typography.caption.lineHeight",
+         "fontWeight": "$hb:typography.caption.weight"
+        },
+        {
+         "id": "launcher-launching-light",
+         "type": "frame",
+         "name": "Launcher / Launching / Desktop",
+         "reusable": true,
+         "width": 1280,
+         "height": 800,
+         "layout": "none",
+         "theme": {
+          "hb:mode": "light",
+          "hb:host": "desktop"
+         },
+         "fill": "$hb:surfaces.backdrop",
+         "clip": true,
+         "stroke": "$hb:surfaces.outline",
+         "strokeWidth": 2,
+         "strokeAlignment": "outer",
+         "context": "Проверенный image активирован, JVM стартует из локального кэша. Это момент handoff: предпочтительно то же окно с embedded Compose, fallback — визуально непрерывный кроссфейд двух процессов (спайк Этапа 4). Отмена до takeover завершает JVM и отменяет запуск.",
+         "children": [
+          {
+           "id": "launcher-launching-light-titlebar",
+           "type": "frame",
+           "name": "Title bar · системный, нативный (высота задаётся ОС)",
+           "x": 0,
+           "y": 0,
+           "width": 1280,
+           "height": 32,
+           "layout": "none",
+           "fill": "$hb:surfaces.header",
+           "children": [
+            {
+             "id": "launcher-launching-light-titlebar-title",
+             "type": "text",
+             "name": "Заголовок окна",
+             "content": "Heartbeat",
+             "x": 606,
+             "y": 8,
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-launching-light-logo",
+           "type": "ref",
+           "ref": "hb:hb-icon-sparkles",
+           "name": "HbIcons / Sparkles",
+           "x": 616,
+           "y": 236,
+           "width": 48,
+           "height": 48,
+           "stroke": "$hb:colors.brand",
+           "strokeWidth": 3.36
+          },
+          {
+           "id": "launcher-launching-light-name",
+           "type": "text",
+           "name": "Имя приложения",
+           "content": "Heartbeat",
+           "x": 576,
+           "y": 304,
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.title.size",
+           "lineHeight": "$hb:typography.title.lineHeight",
+           "fontWeight": "600"
+          },
+          {
+           "id": "launcher-launching-light-stage",
+           "type": "text",
+           "name": "Этап",
+           "content": "Запуск Heartbeat…",
+           "x": 576,
+           "y": 348,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.body.size",
+           "lineHeight": "$hb:typography.body.lineHeight",
+           "fontWeight": "$hb:typography.body.weight"
+          },
+          {
+           "id": "launcher-launching-light-progress",
+           "type": "frame",
+           "name": "Progress · track",
+           "x": 480,
+           "y": 392,
+           "width": 320,
+           "height": 6,
+           "layout": "none",
+           "cornerRadius": 3,
+           "fill": "$hb:colors.outlineSubtle",
+           "children": [
+            {
+             "id": "launcher-launching-light-progress-fill",
+             "type": "frame",
+             "name": "Progress · fill",
+             "x": 0,
+             "y": 0,
+             "width": 320,
+             "height": 6,
+             "layout": "none",
+             "cornerRadius": 3,
+             "fill": "$hb:colors.primary"
+            }
+           ]
+          },
+          {
+           "id": "launcher-launching-light-caption",
+           "type": "text",
+           "name": "Пояснение",
+           "content": "Среда готова, запускаем приложение…",
+           "x": 543,
+           "y": 410,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          },
+          {
+           "id": "launcher-launching-light-cancel",
+           "type": "frame",
+           "name": "HbButton / Ghost / Regular",
+           "x": 600,
+           "y": 456,
+           "width": 80,
+           "height": 32,
+           "layout": "none",
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "launcher-launching-light-cancel-label",
+             "type": "text",
+             "name": "launcher-launching-light-cancel-label",
+             "content": "Отмена",
+             "x": 12,
+             "y": 7,
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-launching-light-badge-1",
+           "type": "frame",
+           "name": "Бейдж 1",
+           "x": 812,
+           "y": 385,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-launching-light-badge-1-label",
+             "type": "text",
+             "name": "Бейдж 1 · номер",
+             "content": "1",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          }
+         ],
+         "y": 32
+        }
+       ]
+      },
+      {
+       "id": "g-launcher-launching-dark",
+       "type": "frame",
+       "name": "Тёмная тема",
+       "layout": "none",
+       "x": 0,
+       "y": 928,
+       "width": 1280,
+       "height": 832,
+       "children": [
+        {
+         "id": "g-launcher-launching-dark-caption",
+         "type": "text",
+         "name": "Подпись",
+         "content": "Desktop · тёмная",
+         "x": 0,
+         "y": 0,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.caption.size",
+         "lineHeight": "$hb:typography.caption.lineHeight",
+         "fontWeight": "$hb:typography.caption.weight"
+        },
+        {
+         "id": "launcher-launching-dark",
+         "type": "frame",
+         "name": "Launcher / Launching / Desktop",
+         "reusable": true,
+         "width": 1280,
+         "height": 800,
+         "layout": "none",
+         "theme": {
+          "hb:mode": "dark",
+          "hb:host": "desktop"
+         },
+         "fill": "$hb:surfaces.backdrop",
+         "clip": true,
+         "stroke": "$hb:surfaces.outline",
+         "strokeWidth": 2,
+         "strokeAlignment": "outer",
+         "context": "Проверенный image активирован, JVM стартует из локального кэша. Это момент handoff: предпочтительно то же окно с embedded Compose, fallback — визуально непрерывный кроссфейд двух процессов (спайк Этапа 4). Отмена до takeover завершает JVM и отменяет запуск.",
+         "children": [
+          {
+           "id": "launcher-launching-dark-titlebar",
+           "type": "frame",
+           "name": "Title bar · системный, нативный (высота задаётся ОС)",
+           "x": 0,
+           "y": 0,
+           "width": 1280,
+           "height": 32,
+           "layout": "none",
+           "fill": "$hb:surfaces.header",
+           "children": [
+            {
+             "id": "launcher-launching-dark-titlebar-title",
+             "type": "text",
+             "name": "Заголовок окна",
+             "content": "Heartbeat",
+             "x": 606,
+             "y": 8,
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-launching-dark-logo",
+           "type": "ref",
+           "ref": "hb:hb-icon-sparkles",
+           "name": "HbIcons / Sparkles",
+           "x": 616,
+           "y": 236,
+           "width": 48,
+           "height": 48,
+           "stroke": "$hb:colors.brand",
+           "strokeWidth": 3.36
+          },
+          {
+           "id": "launcher-launching-dark-name",
+           "type": "text",
+           "name": "Имя приложения",
+           "content": "Heartbeat",
+           "x": 576,
+           "y": 304,
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.title.size",
+           "lineHeight": "$hb:typography.title.lineHeight",
+           "fontWeight": "600"
+          },
+          {
+           "id": "launcher-launching-dark-stage",
+           "type": "text",
+           "name": "Этап",
+           "content": "Запуск Heartbeat…",
+           "x": 576,
+           "y": 348,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.body.size",
+           "lineHeight": "$hb:typography.body.lineHeight",
+           "fontWeight": "$hb:typography.body.weight"
+          },
+          {
+           "id": "launcher-launching-dark-progress",
+           "type": "frame",
+           "name": "Progress · track",
+           "x": 480,
+           "y": 392,
+           "width": 320,
+           "height": 6,
+           "layout": "none",
+           "cornerRadius": 3,
+           "fill": "$hb:colors.outlineSubtle",
+           "children": [
+            {
+             "id": "launcher-launching-dark-progress-fill",
+             "type": "frame",
+             "name": "Progress · fill",
+             "x": 0,
+             "y": 0,
+             "width": 320,
+             "height": 6,
+             "layout": "none",
+             "cornerRadius": 3,
+             "fill": "$hb:colors.primary"
+            }
+           ]
+          },
+          {
+           "id": "launcher-launching-dark-caption",
+           "type": "text",
+           "name": "Пояснение",
+           "content": "Среда готова, запускаем приложение…",
+           "x": 543,
+           "y": 410,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          },
+          {
+           "id": "launcher-launching-dark-cancel",
+           "type": "frame",
+           "name": "HbButton / Ghost / Regular",
+           "x": 600,
+           "y": 456,
+           "width": 80,
+           "height": 32,
+           "layout": "none",
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "launcher-launching-dark-cancel-label",
+             "type": "text",
+             "name": "launcher-launching-dark-cancel-label",
+             "content": "Отмена",
+             "x": 12,
+             "y": 7,
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500"
+            }
+           ]
+          },
+          {
+           "id": "launcher-launching-dark-badge-1",
+           "type": "frame",
+           "name": "Бейдж 1",
+           "x": 812,
+           "y": 385,
+           "width": 20,
+           "height": 20,
+           "layout": "none",
+           "cornerRadius": 10,
+           "fill": "$hb:annotation.accent",
+           "children": [
+            {
+             "id": "launcher-launching-dark-badge-1-label",
+             "type": "text",
+             "name": "Бейдж 1 · номер",
+             "content": "1",
+             "x": 6,
+             "y": 2,
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": 12,
+             "lineHeight": 1.2,
+             "fontWeight": "600"
+            }
+           ]
+          }
+         ],
+         "y": 32
+        }
+       ]
+      },
+      {
+       "id": "g-launcher-launching-note-1",
+       "type": "text",
+       "name": "Заметка 1",
+       "content": "1 · Handoff: предпочтительно то же окно, содержимое меняется на embedded Compose (тот же handle); fallback — кроссфейд двух процессов без мигания, скачков геометрии и второй иконки (спайк Этапа 4).",
+       "x": 0,
+       "y": 1810,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight",
+       "width": 1280,
+       "textGrowth": "fixed-width"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "section-flows",
+   "type": "frame",
+   "name": "Пользовательские пути",
+   "layout": "none",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   },
+   "x": 0,
+   "y": 2040,
+   "width": 6080,
+   "height": 1250,
+   "children": [
+    {
+     "id": "section-flows-title",
+     "type": "text",
+     "name": "Название области",
+     "content": "Пользовательские пути",
+     "x": 0,
+     "y": 0,
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": "$hb:typography.title.size",
+     "lineHeight": "$hb:typography.title.lineHeight",
+     "fontWeight": "600"
+    },
+    {
+     "id": "flow-cell-start",
+     "type": "frame",
+     "name": "Ячейка · Launcher / First run",
+     "layout": "none",
+     "x": 0,
+     "y": 40,
+     "width": 1280,
+     "height": 864,
+     "children": [
+      {
+       "id": "flow-cell-start-caption",
+       "type": "text",
+       "name": "Подпись",
+       "content": "Состояние: Launcher / First run",
+       "x": 0,
+       "y": 0,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight"
+      },
+      {
+       "id": "flow-first-run",
+       "type": "frame",
+       "name": "Launcher / First run / Desktop",
+       "reusable": true,
+       "width": 1280,
+       "height": 800,
+       "layout": "none",
+       "theme": {
+        "hb:mode": "light",
+        "hb:host": "desktop"
+       },
+       "fill": "$hb:surfaces.backdrop",
+       "clip": true,
+       "context": "Только Desktop: нативное окно лончера до старта JVM. Окно открывается сразу при запуске исполняемого файла, в размере основного окна приложения (dimensions.windowWidth × windowHeight). Сворачивание не останавливает загрузку; готовность не разворачивает окно и не крадёт фокус. Закрытие до готовности отменяет запуск. HiDPI и resize — платформенные, native.",
+       "children": [
+        {
+         "id": "flow-first-run-titlebar",
+         "type": "frame",
+         "name": "Title bar · системный, нативный (высота задаётся ОС)",
+         "x": 0,
+         "y": 0,
+         "width": 1280,
+         "height": 32,
+         "layout": "none",
+         "fill": "$hb:surfaces.header",
+         "children": [
+          {
+           "id": "flow-first-run-titlebar-title",
+           "type": "text",
+           "name": "Заголовок окна",
+           "content": "Heartbeat",
+           "x": 606,
+           "y": 8,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "500"
+          }
+         ]
+        },
+        {
+         "id": "flow-first-run-logo",
+         "type": "ref",
+         "ref": "hb:hb-icon-sparkles",
+         "name": "HbIcons / Sparkles",
+         "x": 616,
+         "y": 236,
+         "width": 48,
+         "height": 48,
+         "stroke": "$hb:colors.brand",
+         "strokeWidth": 3.36
+        },
+        {
+         "id": "flow-first-run-name",
+         "type": "text",
+         "name": "Имя приложения",
+         "content": "Heartbeat",
+         "x": 576,
+         "y": 304,
+         "fill": "$hb:colors.textPrimary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.title.size",
+         "lineHeight": "$hb:typography.title.lineHeight",
+         "fontWeight": "600"
+        },
+        {
+         "id": "flow-first-run-stage",
+         "type": "text",
+         "name": "Этап",
+         "content": "Загрузка платформы…",
+         "x": 560,
+         "y": 348,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.body.size",
+         "lineHeight": "$hb:typography.body.lineHeight",
+         "fontWeight": "$hb:typography.body.weight"
+        },
+        {
+         "id": "flow-first-run-progress",
+         "type": "frame",
+         "name": "Progress · track",
+         "x": 480,
+         "y": 392,
+         "width": 320,
+         "height": 6,
+         "layout": "none",
+         "cornerRadius": 3,
+         "fill": "$hb:colors.outlineSubtle",
+         "children": [
+          {
+           "id": "flow-first-run-progress-fill",
+           "type": "frame",
+           "name": "Progress · fill",
+           "x": 0,
+           "y": 0,
+           "width": 184,
+           "height": 6,
+           "layout": "none",
+           "cornerRadius": 3,
+           "fill": "$hb:colors.primary"
+          }
+         ]
+        },
+        {
+         "id": "flow-first-run-bytes",
+         "type": "text",
+         "name": "Прогресс в байтах",
+         "content": "145 МБ из 512 МБ · 28 %",
+         "x": 533,
+         "y": 410,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.caption.size",
+         "lineHeight": "$hb:typography.caption.lineHeight",
+         "fontWeight": "$hb:typography.caption.weight"
+        },
+        {
+         "id": "flow-first-run-cancel",
+         "type": "frame",
+         "name": "HbButton / Ghost / Regular",
+         "x": 600,
+         "y": 456,
+         "width": 80,
+         "height": 32,
+         "layout": "none",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "flow-first-run-cancel-label",
+           "type": "text",
+           "name": "flow-first-run-cancel-label",
+           "content": "Отмена",
+           "x": 12,
+           "y": 7,
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "500"
+          }
+         ]
+        },
+        {
+         "id": "flow-first-run-badge-1",
+         "type": "frame",
+         "name": "Бейдж 1",
+         "x": 812,
+         "y": 385,
+         "width": 20,
+         "height": 20,
+         "layout": "none",
+         "cornerRadius": 10,
+         "fill": "$hb:annotation.accent",
+         "children": [
+          {
+           "id": "flow-first-run-badge-1-label",
+           "type": "text",
+           "name": "Бейдж 1 · номер",
+           "content": "1",
+           "x": 6,
+           "y": 2,
+           "fill": "$hb:colors.onPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": 12,
+           "lineHeight": 1.2,
+           "fontWeight": "600"
+          }
+         ]
+        },
+        {
+         "id": "flow-first-run-badge-2",
+         "type": "frame",
+         "name": "Бейдж 2",
+         "x": 1240,
+         "y": 6,
+         "width": 20,
+         "height": 20,
+         "layout": "none",
+         "cornerRadius": 10,
+         "fill": "$hb:annotation.accent",
+         "children": [
+          {
+           "id": "flow-first-run-badge-2-label",
+           "type": "text",
+           "name": "Бейдж 2 · номер",
+           "content": "2",
+           "x": 6,
+           "y": 2,
+           "fill": "$hb:colors.onPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": 12,
+           "lineHeight": 1.2,
+           "fontWeight": "600"
+          }
+         ]
+        },
+        {
+         "id": "flow-first-run-badge-3",
+         "type": "frame",
+         "name": "Бейдж 3",
+         "x": 16,
+         "y": 6,
+         "width": 20,
+         "height": 20,
+         "layout": "none",
+         "cornerRadius": 10,
+         "fill": "$hb:annotation.accent",
+         "children": [
+          {
+           "id": "flow-first-run-badge-3-label",
+           "type": "text",
+           "name": "Бейдж 3 · номер",
+           "content": "3",
+           "x": 6,
+           "y": 2,
+           "fill": "$hb:colors.onPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": 12,
+           "lineHeight": 1.2,
+           "fontWeight": "600"
+          }
+         ]
+        }
+       ],
+       "y": 32
+      }
+     ]
+    },
+    {
+     "id": "flow-cell-error",
+     "type": "frame",
+     "name": "Ячейка · Launcher / Network error",
+     "layout": "none",
+     "x": 1520,
+     "y": 40,
+     "width": 1280,
+     "height": 864,
+     "children": [
+      {
+       "id": "flow-cell-error-caption",
+       "type": "text",
+       "name": "Подпись",
+       "content": "Состояние: Launcher / Network error",
+       "x": 0,
+       "y": 0,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight"
+      },
+      {
+       "id": "flow-error",
+       "type": "frame",
+       "name": "Launcher / Network error / Desktop",
+       "reusable": true,
+       "width": 1280,
+       "height": 800,
+       "layout": "none",
+       "theme": {
+        "hb:mode": "light",
+        "hb:host": "desktop"
+       },
+       "fill": "$hb:surfaces.backdrop",
+       "clip": true,
+       "context": "Ошибка первого запуска: нет сети, нет свободного места, повреждён файл или подпись. Повтор продолжает загрузку с сохранённого места (HTTP Range); отмена закрывает окно.",
+       "children": [
+        {
+         "id": "flow-error-titlebar",
+         "type": "frame",
+         "name": "Title bar · системный, нативный (высота задаётся ОС)",
+         "x": 0,
+         "y": 0,
+         "width": 1280,
+         "height": 32,
+         "layout": "none",
+         "fill": "$hb:surfaces.header",
+         "children": [
+          {
+           "id": "flow-error-titlebar-title",
+           "type": "text",
+           "name": "Заголовок окна",
+           "content": "Heartbeat",
+           "x": 606,
+           "y": 8,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "500"
+          }
+         ]
+        },
+        {
+         "id": "flow-error-illustration",
+         "type": "ref",
+         "ref": "hb:hb-illustration-offline",
+         "name": "HbIllustration / Offline",
+         "x": 520,
+         "y": 176,
+         "width": 240,
+         "height": 180
+        },
+        {
+         "id": "flow-error-title",
+         "type": "text",
+         "name": "Заголовок ошибки",
+         "content": "Нет соединения",
+         "x": 572,
+         "y": 396,
+         "fill": "$hb:colors.textPrimary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.title.size",
+         "lineHeight": "$hb:typography.title.lineHeight",
+         "fontWeight": "600"
+        },
+        {
+         "id": "flow-error-body",
+         "type": "text",
+         "name": "Пояснение",
+         "content": "Не удалось скачать файлы. Проверьте подключение к интернету — загрузка продолжится с сохранённого места.",
+         "x": 430,
+         "y": 440,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.body.size",
+         "lineHeight": "$hb:typography.body.lineHeight",
+         "fontWeight": "$hb:typography.body.weight",
+         "width": 420,
+         "textGrowth": "fixed-width"
+        },
+        {
+         "id": "flow-error-retry",
+         "type": "frame",
+         "name": "HbButton / Primary / Regular",
+         "x": 546,
+         "y": 516,
+         "width": 116,
+         "height": 32,
+         "layout": "none",
+         "fill": "$hb:colors.primary",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "flow-error-retry-label",
+           "type": "text",
+           "name": "flow-error-retry-label",
+           "content": "Повторить",
+           "x": 12,
+           "y": 7,
+           "fill": "$hb:colors.onPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "500"
+          }
+         ]
+        },
+        {
+         "id": "flow-error-cancel",
+         "type": "frame",
+         "name": "HbButton / Ghost / Regular",
+         "x": 674,
+         "y": 516,
+         "width": 80,
+         "height": 32,
+         "layout": "none",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "flow-error-cancel-label",
+           "type": "text",
+           "name": "flow-error-cancel-label",
+           "content": "Отмена",
+           "x": 12,
+           "y": 7,
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "500"
+          }
+         ]
+        },
+        {
+         "id": "flow-error-badge-1",
+         "type": "frame",
+         "name": "Бейдж 1",
+         "x": 776,
+         "y": 236,
+         "width": 20,
+         "height": 20,
+         "layout": "none",
+         "cornerRadius": 10,
+         "fill": "$hb:annotation.accent",
+         "children": [
+          {
+           "id": "flow-error-badge-1-label",
+           "type": "text",
+           "name": "Бейдж 1 · номер",
+           "content": "1",
+           "x": 6,
+           "y": 2,
+           "fill": "$hb:colors.onPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": 12,
+           "lineHeight": 1.2,
+           "fontWeight": "600"
+          }
+         ]
+        },
+        {
+         "id": "flow-error-badge-2",
+         "type": "frame",
+         "name": "Бейдж 2",
+         "x": 670,
+         "y": 522,
+         "width": 20,
+         "height": 20,
+         "layout": "none",
+         "cornerRadius": 10,
+         "fill": "$hb:annotation.accent",
+         "children": [
+          {
+           "id": "flow-error-badge-2-label",
+           "type": "text",
+           "name": "Бейдж 2 · номер",
+           "content": "2",
+           "x": 6,
+           "y": 2,
+           "fill": "$hb:colors.onPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": 12,
+           "lineHeight": 1.2,
+           "fontWeight": "600"
+          }
+         ]
+        }
+       ],
+       "y": 32
+      }
+     ]
+    },
+    {
+     "id": "flow-cell-retry",
+     "type": "frame",
+     "name": "Ячейка · Launcher / First run (resume)",
+     "layout": "none",
+     "x": 3040,
+     "y": 40,
+     "width": 1280,
+     "height": 864,
+     "children": [
+      {
+       "id": "flow-cell-retry-caption",
+       "type": "text",
+       "name": "Подпись",
+       "content": "Состояние: Launcher / First run (resume)",
+       "x": 0,
+       "y": 0,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight"
+      },
+      {
+       "id": "flow-retry",
+       "type": "frame",
+       "name": "Launcher / First run / Desktop",
+       "reusable": true,
+       "width": 1280,
+       "height": 800,
+       "layout": "none",
+       "theme": {
+        "hb:mode": "light",
+        "hb:host": "desktop"
+       },
+       "fill": "$hb:surfaces.backdrop",
+       "clip": true,
+       "context": "Только Desktop: нативное окно лончера до старта JVM. Окно открывается сразу при запуске исполняемого файла, в размере основного окна приложения (dimensions.windowWidth × windowHeight). Сворачивание не останавливает загрузку; готовность не разворачивает окно и не крадёт фокус. Закрытие до готовности отменяет запуск. HiDPI и resize — платформенные, native.",
+       "children": [
+        {
+         "id": "flow-retry-titlebar",
+         "type": "frame",
+         "name": "Title bar · системный, нативный (высота задаётся ОС)",
+         "x": 0,
+         "y": 0,
+         "width": 1280,
+         "height": 32,
+         "layout": "none",
+         "fill": "$hb:surfaces.header",
+         "children": [
+          {
+           "id": "flow-retry-titlebar-title",
+           "type": "text",
+           "name": "Заголовок окна",
+           "content": "Heartbeat",
+           "x": 606,
+           "y": 8,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "500"
+          }
+         ]
+        },
+        {
+         "id": "flow-retry-logo",
+         "type": "ref",
+         "ref": "hb:hb-icon-sparkles",
+         "name": "HbIcons / Sparkles",
+         "x": 616,
+         "y": 236,
+         "width": 48,
+         "height": 48,
+         "stroke": "$hb:colors.brand",
+         "strokeWidth": 3.36
+        },
+        {
+         "id": "flow-retry-name",
+         "type": "text",
+         "name": "Имя приложения",
+         "content": "Heartbeat",
+         "x": 576,
+         "y": 304,
+         "fill": "$hb:colors.textPrimary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.title.size",
+         "lineHeight": "$hb:typography.title.lineHeight",
+         "fontWeight": "600"
+        },
+        {
+         "id": "flow-retry-stage",
+         "type": "text",
+         "name": "Этап",
+         "content": "Загрузка платформы…",
+         "x": 560,
+         "y": 348,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.body.size",
+         "lineHeight": "$hb:typography.body.lineHeight",
+         "fontWeight": "$hb:typography.body.weight"
+        },
+        {
+         "id": "flow-retry-progress",
+         "type": "frame",
+         "name": "Progress · track",
+         "x": 480,
+         "y": 392,
+         "width": 320,
+         "height": 6,
+         "layout": "none",
+         "cornerRadius": 3,
+         "fill": "$hb:colors.outlineSubtle",
+         "children": [
+          {
+           "id": "flow-retry-progress-fill",
+           "type": "frame",
+           "name": "Progress · fill",
+           "x": 0,
+           "y": 0,
+           "width": 184,
+           "height": 6,
+           "layout": "none",
+           "cornerRadius": 3,
+           "fill": "$hb:colors.primary"
+          }
+         ]
+        },
+        {
+         "id": "flow-retry-bytes",
+         "type": "text",
+         "name": "Прогресс в байтах",
+         "content": "145 МБ из 512 МБ · 28 %",
+         "x": 533,
+         "y": 410,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.caption.size",
+         "lineHeight": "$hb:typography.caption.lineHeight",
+         "fontWeight": "$hb:typography.caption.weight"
+        },
+        {
+         "id": "flow-retry-cancel",
+         "type": "frame",
+         "name": "HbButton / Ghost / Regular",
+         "x": 600,
+         "y": 456,
+         "width": 80,
+         "height": 32,
+         "layout": "none",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "flow-retry-cancel-label",
+           "type": "text",
+           "name": "flow-retry-cancel-label",
+           "content": "Отмена",
+           "x": 12,
+           "y": 7,
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "500"
+          }
+         ]
+        },
+        {
+         "id": "flow-retry-badge-1",
+         "type": "frame",
+         "name": "Бейдж 1",
+         "x": 812,
+         "y": 385,
+         "width": 20,
+         "height": 20,
+         "layout": "none",
+         "cornerRadius": 10,
+         "fill": "$hb:annotation.accent",
+         "children": [
+          {
+           "id": "flow-retry-badge-1-label",
+           "type": "text",
+           "name": "Бейдж 1 · номер",
+           "content": "1",
+           "x": 6,
+           "y": 2,
+           "fill": "$hb:colors.onPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": 12,
+           "lineHeight": 1.2,
+           "fontWeight": "600"
+          }
+         ]
+        },
+        {
+         "id": "flow-retry-badge-2",
+         "type": "frame",
+         "name": "Бейдж 2",
+         "x": 1240,
+         "y": 6,
+         "width": 20,
+         "height": 20,
+         "layout": "none",
+         "cornerRadius": 10,
+         "fill": "$hb:annotation.accent",
+         "children": [
+          {
+           "id": "flow-retry-badge-2-label",
+           "type": "text",
+           "name": "Бейдж 2 · номер",
+           "content": "2",
+           "x": 6,
+           "y": 2,
+           "fill": "$hb:colors.onPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": 12,
+           "lineHeight": 1.2,
+           "fontWeight": "600"
+          }
+         ]
+        },
+        {
+         "id": "flow-retry-badge-3",
+         "type": "frame",
+         "name": "Бейдж 3",
+         "x": 16,
+         "y": 6,
+         "width": 20,
+         "height": 20,
+         "layout": "none",
+         "cornerRadius": 10,
+         "fill": "$hb:annotation.accent",
+         "children": [
+          {
+           "id": "flow-retry-badge-3-label",
+           "type": "text",
+           "name": "Бейдж 3 · номер",
+           "content": "3",
+           "x": 6,
+           "y": 2,
+           "fill": "$hb:colors.onPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": 12,
+           "lineHeight": 1.2,
+           "fontWeight": "600"
+          }
+         ]
+        }
+       ],
+       "y": 32
+      }
+     ]
+    },
+    {
+     "id": "flow-cell-launch",
+     "type": "frame",
+     "name": "Ячейка · Launcher / Launching",
+     "layout": "none",
+     "x": 4560,
+     "y": 40,
+     "width": 1280,
+     "height": 864,
+     "children": [
+      {
+       "id": "flow-cell-launch-caption",
+       "type": "text",
+       "name": "Подпись",
+       "content": "Состояние: Launcher / Launching",
+       "x": 0,
+       "y": 0,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight"
+      },
+      {
+       "id": "flow-launching",
+       "type": "frame",
+       "name": "Launcher / Launching / Desktop",
+       "reusable": true,
+       "width": 1280,
+       "height": 800,
+       "layout": "none",
+       "theme": {
+        "hb:mode": "light",
+        "hb:host": "desktop"
+       },
+       "fill": "$hb:surfaces.backdrop",
+       "clip": true,
+       "context": "Проверенный image активирован, JVM стартует из локального кэша. Это момент handoff: предпочтительно то же окно с embedded Compose, fallback — визуально непрерывный кроссфейд двух процессов (спайк Этапа 4). Отмена до takeover завершает JVM и отменяет запуск.",
+       "children": [
+        {
+         "id": "flow-launching-titlebar",
+         "type": "frame",
+         "name": "Title bar · системный, нативный (высота задаётся ОС)",
+         "x": 0,
+         "y": 0,
+         "width": 1280,
+         "height": 32,
+         "layout": "none",
+         "fill": "$hb:surfaces.header",
+         "children": [
+          {
+           "id": "flow-launching-titlebar-title",
+           "type": "text",
+           "name": "Заголовок окна",
+           "content": "Heartbeat",
+           "x": 606,
+           "y": 8,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "500"
+          }
+         ]
+        },
+        {
+         "id": "flow-launching-logo",
+         "type": "ref",
+         "ref": "hb:hb-icon-sparkles",
+         "name": "HbIcons / Sparkles",
+         "x": 616,
+         "y": 236,
+         "width": 48,
+         "height": 48,
+         "stroke": "$hb:colors.brand",
+         "strokeWidth": 3.36
+        },
+        {
+         "id": "flow-launching-name",
+         "type": "text",
+         "name": "Имя приложения",
+         "content": "Heartbeat",
+         "x": 576,
+         "y": 304,
+         "fill": "$hb:colors.textPrimary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.title.size",
+         "lineHeight": "$hb:typography.title.lineHeight",
+         "fontWeight": "600"
+        },
+        {
+         "id": "flow-launching-stage",
+         "type": "text",
+         "name": "Этап",
+         "content": "Запуск Heartbeat…",
+         "x": 576,
+         "y": 348,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.body.size",
+         "lineHeight": "$hb:typography.body.lineHeight",
+         "fontWeight": "$hb:typography.body.weight"
+        },
+        {
+         "id": "flow-launching-progress",
+         "type": "frame",
+         "name": "Progress · track",
+         "x": 480,
+         "y": 392,
+         "width": 320,
+         "height": 6,
+         "layout": "none",
+         "cornerRadius": 3,
+         "fill": "$hb:colors.outlineSubtle",
+         "children": [
+          {
+           "id": "flow-launching-progress-fill",
+           "type": "frame",
+           "name": "Progress · fill",
+           "x": 0,
+           "y": 0,
+           "width": 320,
+           "height": 6,
+           "layout": "none",
+           "cornerRadius": 3,
+           "fill": "$hb:colors.primary"
+          }
+         ]
+        },
+        {
+         "id": "flow-launching-caption",
+         "type": "text",
+         "name": "Пояснение",
+         "content": "Среда готова, запускаем приложение…",
+         "x": 543,
+         "y": 410,
+         "fill": "$hb:colors.textSecondary",
+         "fontFamily": "$hb:typography.family",
+         "fontSize": "$hb:typography.caption.size",
+         "lineHeight": "$hb:typography.caption.lineHeight",
+         "fontWeight": "$hb:typography.caption.weight"
+        },
+        {
+         "id": "flow-launching-cancel",
+         "type": "frame",
+         "name": "HbButton / Ghost / Regular",
+         "x": 600,
+         "y": 456,
+         "width": 80,
+         "height": 32,
+         "layout": "none",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "flow-launching-cancel-label",
+           "type": "text",
+           "name": "flow-launching-cancel-label",
+           "content": "Отмена",
+           "x": 12,
+           "y": 7,
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "500"
+          }
+         ]
+        },
+        {
+         "id": "flow-launching-badge-1",
+         "type": "frame",
+         "name": "Бейдж 1",
+         "x": 812,
+         "y": 385,
+         "width": 20,
+         "height": 20,
+         "layout": "none",
+         "cornerRadius": 10,
+         "fill": "$hb:annotation.accent",
+         "children": [
+          {
+           "id": "flow-launching-badge-1-label",
+           "type": "text",
+           "name": "Бейдж 1 · номер",
+           "content": "1",
+           "x": 6,
+           "y": 2,
+           "fill": "$hb:colors.onPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": 12,
+           "lineHeight": 1.2,
+           "fontWeight": "600"
+          }
+         ]
+        }
+       ],
+       "y": 32
+      }
+     ]
+    },
+    {
+     "id": "flow-arrow-0",
+     "type": "path",
+     "name": "Стрелка · шаг 1",
+     "geometry": "M10,10 L1450,10 M1436,18 L1450,10 L1436,2",
+     "viewBox": [
+      0,
+      0,
+      1460,
+      20
+     ],
+     "x": 660,
+     "y": 940,
+     "width": 1460,
+     "height": 20,
+     "stroke": "$hb:annotation.accent",
+     "strokeWidth": 3,
+     "strokeLinecap": "round",
+     "strokeLinejoin": "round",
+     "opacity": 0.65,
+     "theme": {
+      "hb:mode": "dark",
+      "hb:host": "desktop"
+     }
+    },
+    {
+     "id": "flow-arrow-0-dot",
+     "type": "ellipse",
+     "name": "Начало стрелки",
+     "x": 665,
+     "y": 945,
+     "width": 10,
+     "height": 10,
+     "fill": "$hb:annotation.accent",
+     "opacity": 0.65
+    },
+    {
+     "id": "flow-arrow-0-text",
+     "type": "text",
+     "name": "Подпись перехода",
+     "content": "ошибка сети, свободного места или повреждённый файл",
+     "x": 1265.0,
+     "y": 916,
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 13,
+     "lineHeight": 1.35,
+     "fontWeight": "400",
+     "width": 250,
+     "textGrowth": "fixed-width"
+    },
+    {
+     "id": "flow-arrow-1",
+     "type": "path",
+     "name": "Стрелка · шаг 2",
+     "geometry": "M10,10 L1450,10 M1436,18 L1450,10 L1436,2",
+     "viewBox": [
+      0,
+      0,
+      1460,
+      20
+     ],
+     "x": 2180,
+     "y": 990,
+     "width": 1460,
+     "height": 20,
+     "stroke": "$hb:annotation.accent",
+     "strokeWidth": 3,
+     "strokeLinecap": "round",
+     "strokeLinejoin": "round",
+     "opacity": 0.65,
+     "theme": {
+      "hb:mode": "dark",
+      "hb:host": "desktop"
+     }
+    },
+    {
+     "id": "flow-arrow-1-dot",
+     "type": "ellipse",
+     "name": "Начало стрелки",
+     "x": 2185,
+     "y": 995,
+     "width": 10,
+     "height": 10,
+     "fill": "$hb:annotation.accent",
+     "opacity": 0.65
+    },
+    {
+     "id": "flow-arrow-1-text",
+     "type": "text",
+     "name": "Подпись перехода",
+     "content": "«Повторить»: докачка с места остановки (Range)",
+     "x": 2785.0,
+     "y": 966,
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 13,
+     "lineHeight": 1.35,
+     "fontWeight": "400",
+     "width": 250,
+     "textGrowth": "fixed-width"
+    },
+    {
+     "id": "flow-arrow-2",
+     "type": "path",
+     "name": "Стрелка · шаг 3",
+     "geometry": "M10,10 L1450,10 M1436,18 L1450,10 L1436,2",
+     "viewBox": [
+      0,
+      0,
+      1460,
+      20
+     ],
+     "x": 3700,
+     "y": 940,
+     "width": 1460,
+     "height": 20,
+     "stroke": "$hb:annotation.accent",
+     "strokeWidth": 3,
+     "strokeLinecap": "round",
+     "strokeLinejoin": "round",
+     "opacity": 0.65,
+     "theme": {
+      "hb:mode": "dark",
+      "hb:host": "desktop"
+     }
+    },
+    {
+     "id": "flow-arrow-2-dot",
+     "type": "ellipse",
+     "name": "Начало стрелки",
+     "x": 3705,
+     "y": 945,
+     "width": 10,
+     "height": 10,
+     "fill": "$hb:annotation.accent",
+     "opacity": 0.65
+    },
+    {
+     "id": "flow-arrow-2-text",
+     "type": "text",
+     "name": "Подпись перехода",
+     "content": "файлы проверены, image активирован, стартует JVM",
+     "x": 4305.0,
+     "y": 916,
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 13,
+     "lineHeight": 1.35,
+     "fontWeight": "400",
+     "width": 250,
+     "textGrowth": "fixed-width"
+    },
+    {
+     "id": "flow-arrow-close",
+     "type": "path",
+     "name": "Стрелка · отмена",
+     "geometry": "M10,10 L10,90 M2,76 L10,90 L18,76",
+     "viewBox": [
+      0,
+      0,
+      20,
+      100
+     ],
+     "x": 630,
+     "y": 916,
+     "width": 20,
+     "height": 100,
+     "stroke": "$hb:annotation.accent",
+     "strokeWidth": 3,
+     "strokeLinecap": "round",
+     "strokeLinejoin": "round",
+     "opacity": 0.65,
+     "theme": {
+      "hb:mode": "dark",
+      "hb:host": "desktop"
+     }
+    },
+    {
+     "id": "flow-arrow-handoff",
+     "type": "path",
+     "name": "Стрелка · handoff",
+     "geometry": "M10,10 L10,90 M2,76 L10,90 L18,76",
+     "viewBox": [
+      0,
+      0,
+      20,
+      100
+     ],
+     "x": 5190,
+     "y": 916,
+     "width": 20,
+     "height": 100,
+     "stroke": "$hb:annotation.accent2",
+     "strokeWidth": 3,
+     "strokeLinecap": "round",
+     "strokeLinejoin": "round",
+     "opacity": 0.65,
+     "theme": {
+      "hb:mode": "dark",
+      "hb:host": "desktop"
+     }
+    },
+    {
+     "id": "flow-card-close",
+     "type": "frame",
+     "name": "Карточка · отмена",
+     "layout": "none",
+     "x": 360,
+     "y": 1030,
+     "width": 560,
+     "height": 150,
+     "children": [
+      {
+       "id": "flow-card-close-title",
+       "type": "text",
+       "name": "Заголовок карточки",
+       "content": "Окно закрыто до готовности",
+       "x": 0,
+       "y": 0,
+       "fill": "$hb:annotation.accent",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.label.size",
+       "lineHeight": "$hb:typography.label.lineHeight",
+       "fontWeight": "600"
+      },
+      {
+       "id": "flow-card-close-body",
+       "type": "text",
+       "name": "Текст карточки",
+       "content": "Загрузки останавливаются, частичные файлы сохраняются для resume; JVM, если уже стартовала, завершается штатно; неполный image не активируется; скрытых рабочих процессов не остаётся.",
+       "x": 0,
+       "y": 28,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight",
+       "width": 560,
+       "textGrowth": "fixed-width"
+      }
+     ]
+    },
+    {
+     "id": "flow-card-handoff",
+     "type": "frame",
+     "name": "Карточка · handoff",
+     "layout": "none",
+     "x": 4700,
+     "y": 1030,
+     "width": 640,
+     "height": 150,
+     "children": [
+      {
+       "id": "flow-card-handoff-title",
+       "type": "text",
+       "name": "Заголовок карточки",
+       "content": "Handoff в основной интерфейс",
+       "x": 0,
+       "y": 0,
+       "fill": "$hb:annotation.accent2",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.label.size",
+       "lineHeight": "$hb:typography.label.lineHeight",
+       "fontWeight": "600"
+      },
+      {
+       "id": "flow-card-handoff-body",
+       "type": "text",
+       "name": "Текст карточки",
+       "content": "Содержимое окна меняется на embedded Compose в том же окне (предпочтительно) либо второй процесс открывает окно только после первого кадра Compose (fallback: без мигания, скачков геометрии, второй иконки и видимого второго окна).",
+       "x": 0,
+       "y": 28,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight",
+       "width": 640,
+       "textGrowth": "fixed-width"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
