@@ -64,7 +64,7 @@ fun main(arguments: Array<String>) {
     if (handleHarnessCompilerProbe(arguments)) return
     val workerExit = handleProcessWorker(arguments)
     if (workerExit != null) kotlin.system.exitProcess(workerExit)
-    markLaunch("app.main")
+    LaunchMarks.mark("app.main")
     var hasCompletedLaunch = false
     try {
         launchHeartbeat(isDevelopment = false)
@@ -156,7 +156,7 @@ private fun launchLoggedHeartbeat(
     )
     val lifecycle = LifecycleRegistry()
     val graph = runOnUiThread { createHeartbeatGraph(isDevelopment, hasLocalSecrets) }
-    markLaunch("app.graph-created")
+    LaunchMarks.mark("app.graph-created")
     withFailedDesktopLaunchCleanup(cleanup = { shutdownFailedDesktopLaunch(graph, lifecycle::destroy) }) {
         launchDesktopApplication(lifecycle, graph, applicationIcons, instance)
     }
@@ -273,7 +273,7 @@ private fun FrameWindowScope.HeartbeatWindowContent(
         modifier.onGloballyPositioned {
             if (isFirstFramePending) {
                 isFirstFramePending = false
-                markLaunch("app.first-frame")
+                LaunchMarks.mark("app.first-frame")
             }
         },
         onActiveChange = onModalChange,

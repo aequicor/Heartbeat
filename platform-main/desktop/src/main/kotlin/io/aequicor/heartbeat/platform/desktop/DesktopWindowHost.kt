@@ -45,7 +45,7 @@ internal fun DesktopWindowHost(
             val shownListener = object : java.awt.event.WindowAdapter() {
                 override fun windowOpened(event: java.awt.event.WindowEvent) {
                     // Показано нативное окно (AWT): метка протокола времени запуска (Этап 0).
-                    markLaunch("app.window-shown")
+                    LaunchMarks.mark("app.window-shown")
                 }
             }
             currentWindow.addWindowListener(shownListener)

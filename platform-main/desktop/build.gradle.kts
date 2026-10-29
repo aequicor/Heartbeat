@@ -45,12 +45,10 @@ dependencies {
     implementation(libs.jbr.api)
     implementation(libs.jna.platform)
     // The launcher selector (SelectorMain) is the only project code on the installer's class path: it picks the slot of
-    // the platform launcher (LauncherMain) and starts it. The selector jar is packaged as the launcher of the app.
+    // the platform launcher (LauncherMain) and starts it. The launcher itself is an artifact of the train (assembleLauncher)
+    // and a file of the installer (the fallback of the selector), so it is a dependency only to be packaged.
     runtimeOnly(projects.platformMain.launcherSelector)
-    // The launcher jar is packaged as the fallback of the selector and carries the launch timeline protocol: the app
-    // writes its startup marks through LaunchTimeline, so the dependency is compile-visible. Nothing else of the
-    // launcher is called from the app on purpose (the slot launcher runs in its own class loader).
-    implementation(projects.platformMain.launcher)
+    runtimeOnly(projects.platformMain.launcher)
     testImplementation(libs.kotlin.testJunit)
     // The headless smoke of the shrunk train reads the health of the bundles (verifyShrunkTrain).
     testImplementation(projects.core.bundles.api)
