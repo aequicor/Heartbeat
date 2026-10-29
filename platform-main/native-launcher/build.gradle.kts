@@ -39,6 +39,8 @@ kotlin {
             executable {
                 baseName = "heartbeat-launcher"
                 entryPoint = "io.aequicor.heartbeat.platform.nativelauncher.main"
+                // GUI-подсистема: консольного окна-«чёрного квадрата» за спиной окна нет.
+                linkerOpts("-mwindows")
             }
         }
     }
