@@ -42,7 +42,15 @@ internal fun DesktopWindowHost(
         val currentWindow = window
         DisposableEffect(currentWindow) {
             nativeWindow = currentWindow
+            val shownListener = object : java.awt.event.WindowAdapter() {
+                override fun windowOpened(event: java.awt.event.WindowEvent) {
+                    // Показано нативное окно (AWT): метка протокола времени запуска (Этап 0).
+                    markLaunch("app.window-shown")
+                }
+            }
+            currentWindow.addWindowListener(shownListener)
             onDispose {
+                currentWindow.removeWindowListener(shownListener)
                 if (nativeWindow === currentWindow) nativeWindow = null
             }
         }

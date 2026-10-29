@@ -17,6 +17,7 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowState
@@ -63,6 +64,7 @@ fun main(arguments: Array<String>) {
     if (handleHarnessCompilerProbe(arguments)) return
     val workerExit = handleProcessWorker(arguments)
     if (workerExit != null) kotlin.system.exitProcess(workerExit)
+    markLaunch("app.main")
     var hasCompletedLaunch = false
     try {
         launchHeartbeat(isDevelopment = false)
@@ -154,6 +156,7 @@ private fun launchLoggedHeartbeat(
     )
     val lifecycle = LifecycleRegistry()
     val graph = runOnUiThread { createHeartbeatGraph(isDevelopment, hasLocalSecrets) }
+    markLaunch("app.graph-created")
     withFailedDesktopLaunchCleanup(cleanup = { shutdownFailedDesktopLaunch(graph, lifecycle::destroy) }) {
         launchDesktopApplication(lifecycle, graph, applicationIcons, instance)
     }
@@ -262,8 +265,19 @@ private fun FrameWindowScope.HeartbeatWindowContent(
     // Approval requests nobody can see expire by this; an agent driving the computer keeps the user attending.
     val isAttended = LocalWindowInfo.current.isWindowFocused || computerUse.isActive
     SideEffect { focus.update(isAttended) }
+    // Первый layout-проход кадра окна — момент его первой отрисовки: метка протокола времени запуска (Этап 0).
+    var isFirstFramePending by remember { mutableStateOf(true) }
     HbDesktopPopupRendering(window)
-    HbInWindowDialogHost(window, modifier, onActiveChange = onModalChange) {
+    HbInWindowDialogHost(
+        window,
+        modifier.onGloballyPositioned {
+            if (isFirstFramePending) {
+                isFirstFramePending = false
+                markLaunch("app.first-frame")
+            }
+        },
+        onActiveChange = onModalChange,
+    ) {
         DesktopWindowContent(state, content = content)
     }
 }
