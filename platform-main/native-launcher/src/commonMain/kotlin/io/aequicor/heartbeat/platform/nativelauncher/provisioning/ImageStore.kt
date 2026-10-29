@@ -1,10 +1,14 @@
 package io.aequicor.heartbeat.platform.nativelauncher.provisioning
 
-import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.platform.nativelauncher.LauncherLog
+
+
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okio.FileSystem
 import okio.Path
+
+private const val TAG = "Provision"
 
 /** Полностью проверенный и активированный image приложения, готовый к запуску без сети. */
 data class ProvisionedImage(val id: String, val directory: okio.Path, val runtimeId: String, val trainId: String)
@@ -18,7 +22,6 @@ data class ProvisionedImage(val id: String, val directory: okio.Path, val runtim
  * image остаётся нетронутым до полной готовности нового.
  */
 class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM) {
-    private val log = Log.tag("Provision")
     private val json = Json { ignoreUnknownKeys = true }
 
     val downloadsDir: Path get() = root.resolve("downloads")
@@ -43,7 +46,7 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
             val record = json.decodeFromString<ImageMarker>(fs.read(marker) { readUtf8() })
             if (record.id != id) return null
             ProvisionedImage(record.id, dir, record.runtimeId, record.trainId)
-        }.onFailure { log.w(it) { "Cannot read provisioned image marker: $marker" } }.getOrNull()
+        }.onFailure { LauncherLog.w(TAG, it) { "Cannot read provisioned image marker: $marker" } }.getOrNull()
     }
 
     fun markerFile(imageDir: Path): Path = imageDir.resolve("bootstrap-image.json")
@@ -86,7 +89,7 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
         fs.list(images).forEach { dir ->
             if (dir.name !in keep) {
                 runCatching { fs.deleteRecursively(dir) }
-                    .onFailure { log.w(it) { "Cannot prune old image: $dir" } }
+                    .onFailure { LauncherLog.w(TAG, it) { "Cannot prune old image: $dir" } }
             }
         }
     }
@@ -94,7 +97,7 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
     private fun readPointer(file: Path): String? {
         if (!fs.exists(file)) return null
         return runCatching { fs.read(file) { readUtf8().trim() } }
-            .onFailure { log.w(it) { "Cannot read image pointer: $file" } }
+            .onFailure { LauncherLog.w(TAG, it) { "Cannot read image pointer: $file" } }
             .getOrNull()?.takeIf { it.isNotBlank() }
     }
 }

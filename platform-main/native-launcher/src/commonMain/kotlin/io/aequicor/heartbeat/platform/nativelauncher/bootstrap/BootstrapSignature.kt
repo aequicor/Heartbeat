@@ -1,6 +1,10 @@
 package io.aequicor.heartbeat.platform.nativelauncher.bootstrap
 
-import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.platform.nativelauncher.LauncherLog
+
+private const val TAG = "Bootstrap"
+
+
 
 /**
  * Проверка подписи bootstrap-манифеста: detached Ed25519-подпись (64 байта) ровно от байтов JSON манифеста.
@@ -10,14 +14,13 @@ import io.aequicor.heartbeat.core.logging.Log
 object BootstrapSignature {
     const val SIGNATURE_BYTES = 64
 
-    private val log = Log.tag("Bootstrap")
 
     /** true, если подпись [signature] байтов [manifestBytes] сделана ключом из [trustedKeysDer]. */
     fun verify(manifestBytes: ByteArray, signature: ByteArray, trustedKeysDer: List<ByteArray>): Boolean {
         if (signature.size != SIGNATURE_BYTES || trustedKeysDer.isEmpty()) return false
         return trustedKeysDer.any { key ->
             runCatching { PlatformCrypto.ed25519Verify(key, signature, manifestBytes) }
-                .onFailure { log.w(it) { "Bootstrap signature verification failed" } }
+                .onFailure { LauncherLog.w(TAG, it) { "Bootstrap signature verification failed" } }
                 .getOrDefault(false)
         }
     }

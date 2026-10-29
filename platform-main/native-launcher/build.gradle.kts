@@ -10,16 +10,31 @@ plugins {
 kotlin {
     jvmToolchain(17)
     jvm()
+    mingwX64 {
+        binaries {
+            executable {
+                baseName = "heartbeat-launcher"
+                entryPoint = "io.aequicor.heartbeat.platform.nativelauncher.main"
+            }
+        }
+    }
 
     sourceSets {
         commonMain.dependencies {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.okio)
-            implementation(projects.core.logging)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }
+        jvmMain.dependencies {
+            implementation(projects.core.logging)
+        }
+        mingwMain.dependencies {
+            implementation(libs.ionspin.libsodium)
+            implementation(libs.ktor.client.winhttp)
+        }
     }
 }
+

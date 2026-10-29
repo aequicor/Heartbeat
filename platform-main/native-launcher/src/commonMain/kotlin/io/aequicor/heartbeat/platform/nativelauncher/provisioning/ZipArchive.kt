@@ -27,7 +27,8 @@ class ZipArchive(private val fs: FileSystem, private val file: Path) {
 
     /** Читает поток данных записи в [sink], распаковывая deflate; проверяет итоговый размер. */
     fun readEntry(entry: ZipEntry, sink: okio.BufferedSink) {
-        fs.openReadOnly(file).use { handle ->
+        val handle = fs.openReadOnly(file)
+        try {
             val header = handle.readBytes(entry.localOffset, LOCAL_HEADER_SIZE)
             require(header.leInt(0) == LOCAL_SIGNATURE) { "Bad local header for ${entry.name}" }
             val nameLength = header.leShort(26)
@@ -38,6 +39,8 @@ class ZipArchive(private val fs: FileSystem, private val file: Path) {
             } else {
                 copyStoredEntry(handle, entry, position, sink)
             }
+        } finally {
+            handle.close()
         }
     }
 
@@ -92,7 +95,8 @@ class ZipArchive(private val fs: FileSystem, private val file: Path) {
     }
 
     private fun readCentralDirectory(): List<ZipEntry> {
-        fs.openReadOnly(file).use { handle ->
+        val handle = fs.openReadOnly(file)
+        try {
             val size = handle.size()
             val tailLength = minOf(size, MAX_EOCD_SEARCH.toLong()).toInt()
             val tail = handle.readBytes(size - tailLength, tailLength)
@@ -141,6 +145,8 @@ class ZipArchive(private val fs: FileSystem, private val file: Path) {
                 offset += 46 + nameLength + extraLength + commentLength
             }
             return entries
+        } finally {
+            handle.close()
         }
     }
 

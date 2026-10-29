@@ -1,16 +1,21 @@
 package io.aequicor.heartbeat.platform.nativelauncher.provisioning
 
-import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.platform.nativelauncher.LauncherLog
+
+
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapArtifactInfo
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapManifest
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapManifestVerifier
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapSignature
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.sha256Hex
+import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.isAllowedArtifactUrl
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import okio.FileSystem
 import okio.Path
 import okio.buffer
+
+private const val TAG = "Provision"
 
 /** Этап provisioning для отображения в окне лончера. */
 enum class ProvisionStage { MANIFEST, DOWNLOAD, EXTRACT, ACTIVATE }
@@ -50,7 +55,6 @@ class BootstrapProvisioner(
     private val lockPollMillis: Long = 500,
     private val lockTimeoutMillis: Long = DEFAULT_LOCK_TIMEOUT_MILLIS,
 ) {
-    private val log = Log.tag("Provision")
 
     /** Проверенный локальный image для запуска без сети. */
     fun currentOfflineImage(): ProvisionedImage? = store.currentImage()
@@ -148,7 +152,7 @@ class BootstrapProvisioner(
 
     private suspend fun fetchManifest(isCancelled: () -> Boolean): BootstrapManifest {
         checkCancelled(isCancelled)
-        require(manifestUrl.startsWith("https://") && signatureUrl.startsWith("https://")) {
+        require(isAllowedArtifactUrl(manifestUrl) && isAllowedArtifactUrl(signatureUrl)) {
             "Bootstrap manifest and signature must use HTTPS"
         }
         val manifestBytes = get(manifestUrl, BootstrapManifestVerifier.MAX_MANIFEST_BYTES.toLong())
@@ -224,7 +228,7 @@ class BootstrapProvisioner(
             fs.delete(file)
             corrupted(info.url)
         }
-        log.i { "Artifact verified: $file ($downloaded bytes)" }
+        LauncherLog.i(TAG) { "Artifact verified: $file ($downloaded bytes)" }
         return file
     }
 
@@ -238,7 +242,7 @@ class BootstrapProvisioner(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(error) { "Cannot remove cancelled staging: $staging" }
+            LauncherLog.w(TAG, error) { "Cannot remove cancelled staging: $staging" }
         }
     }
 

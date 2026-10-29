@@ -44,8 +44,12 @@ class SafeZipExtractor(private val fs: FileSystem = FileSystem.SYSTEM, private v
                 entry.name.substringBeforeLast('/', "").takeIf { it.isNotEmpty() }?.let {
                     fs.createDirectories(stagingDir.resolve(it))
                 }
-                fs.sink(target, mustCreate = true).buffer().use { sink ->
-                    archive.readEntry(entry, sink)
+                fs.sink(target, mustCreate = true).buffer().let { sink ->
+                    try {
+                        archive.readEntry(entry, sink)
+                    } finally {
+                        sink.close()
+                    }
                 }
             }
         }
