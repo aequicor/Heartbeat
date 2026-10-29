@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.questionnaire.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
@@ -12,7 +13,8 @@ import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
 import io.aequicor.heartbeat.feature.questionnaire.impl.domain.QuestionnaireStorage
 import kotlinx.serialization.builtins.ListSerializer
 
-private val QuestionnaireSpec = KeyValueSpec("questionnaire")
+// A failed read must not become an empty queue that authorizes sealing and overwriting durable questions.
+private val QuestionnaireSpec = KeyValueSpec("questionnaire", readPolicy = KeyValueReadPolicy.Strict)
 private val PendingKey = jsonKey("pending", ListSerializer(Questionnaire.serializer()))
 
 /** Open questions in the profile key-value store; they hold question texts, never credentials. */
