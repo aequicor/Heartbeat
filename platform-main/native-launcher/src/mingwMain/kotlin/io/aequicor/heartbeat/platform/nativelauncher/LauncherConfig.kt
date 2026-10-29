@@ -44,7 +44,7 @@ data class LauncherConfig(
         private const val BITS_PER_BYTE = 8
         private const val BYTE_MASK = 0xff
 
-        private fun decodeBase64(value: String): ByteArray {
+        internal fun decodeBase64(value: String): ByteArray {
             val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
             val clean = value.filterNot { it.isWhitespace() || it == '=' }
             val out = ArrayList<Byte>(clean.length * 3 / 4)

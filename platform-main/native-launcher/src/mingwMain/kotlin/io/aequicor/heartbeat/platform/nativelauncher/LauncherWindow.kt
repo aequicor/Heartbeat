@@ -26,10 +26,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import okio.Path.Companion.toPath
 import platform.windows.BS_OWNERDRAW
 import platform.windows.BeginPaint
 import platform.windows.CLIP_DEFAULT_PRECIS
-import platform.windows.CW_USEDEFAULT
 import platform.windows.CloseHandle
 import platform.windows.CreateFontW
 import platform.windows.CreateSolidBrush
@@ -56,6 +56,7 @@ import platform.windows.GetFileAttributesW
 import platform.windows.GetMessageW
 import platform.windows.GetModuleFileNameW
 import platform.windows.GetModuleHandleW
+import platform.windows.GetSystemMetrics
 import platform.windows.GetTickCount64
 import platform.windows.HANDLE
 import platform.windows.HBRUSH
@@ -85,6 +86,8 @@ import platform.windows.PostQuitMessage
 import platform.windows.RECT
 import platform.windows.RegisterClassExW
 import platform.windows.RoundRect
+import platform.windows.SM_CXSCREEN
+import platform.windows.SM_CYSCREEN
 import platform.windows.SS_CENTER
 import platform.windows.SS_ICON
 import platform.windows.STM_SETICON
@@ -117,14 +120,15 @@ import platform.windows.WM_TIMER
 import platform.windows.WNDCLASSEXW
 import platform.windows.WPARAM
 import platform.windows.WS_CHILD
-import platform.windows.WS_OVERLAPPEDWINDOW
+import platform.windows.WS_POPUP
 import platform.windows.WS_VISIBLE
 import platform.windows.WaitForSingleObject
 import kotlin.concurrent.Volatile
 
 /**
  * Нативное окно лончера (Win32) по макету `design/features/native-launcher/native-launcher.pen`:
- * системный title bar с иконкой, логотип, название, этап, прогресс-бар, байты, Отмена/Повторить.
+ * edge-to-edge поверхность без системного title bar (WS_POPUP + тень), встроенная иконка приложения,
+ * логотип, название, этап, прогресс-бар, байты, Отмена/Повторить.
  * Окно создаётся до старта JVM; сворачивание не останавливает загрузку, закрытие отменяет запуск.
  * Тема — из токенов дизайн-системы ([LauncherTheme]), обновления прогресса — не чаще 100 мс.
  */
@@ -171,9 +175,10 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
                 0u,
                 WINDOW_CLASS.wcstr.getPointer(this),
                 "Heartbeat".wcstr.getPointer(this),
-                WS_OVERLAPPEDWINDOW.toUInt(),
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
+                // Edge-to-edge: без системного title bar и рамки; тень даёт CS_DROPSHADOW класса.
+                WS_POPUP.toUInt(),
+                (GetSystemMetrics(SM_CXSCREEN) - WINDOW_WIDTH) / 2,
+                (GetSystemMetrics(SM_CYSCREEN) - WINDOW_HEIGHT) / 2,
                 WINDOW_WIDTH,
                 WINDOW_HEIGHT,
                 null,
@@ -203,6 +208,7 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
             val className = WINDOW_CLASS.wcstr.getPointer(this)
             val wndClass = alloc<WNDCLASSEXW>()
             wndClass.cbSize = sizeOf<WNDCLASSEXW>().toUInt()
+            wndClass.style = CLASS_STYLE.toUInt()
             wndClass.lpfnWndProc = staticCFunction(::launcherWndProc)
             wndClass.hInstance = instance
             wndClass.lpszClassName = className
@@ -274,12 +280,29 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
             "platform-main/desktop/icons/dev/heartbeat.ico",
         )
         val roots = listOf(executableDirectory(), ".")
-        return roots.firstNotNullOfOrNull { root ->
+        val fromFile = roots.firstNotNullOfOrNull { root ->
             candidates.firstNotNullOfOrNull { candidate ->
                 val path = if (root == ".") candidate else "$root/$candidate"
                 loadIconFrom(path, size)
             }
         }
+        // Файла рядом с exe может не быть (E2E, dev-прогон): тогда иконка — из встроенной копии.
+        return fromFile ?: loadEmbeddedIcon(size)
+    }
+
+    private fun loadEmbeddedIcon(size: Int): HICON? {
+        val bytes = LauncherConfig.decodeBase64(EMBEDDED_ICON_BASE64)
+        val temp = embeddedIconPath(bytes.size) ?: return null
+        val fs = okio.FileSystem.SYSTEM
+        if (fs.metadataOrNull(temp)?.size != bytes.size.toLong()) {
+            fs.write(temp) { write(bytes) }
+        }
+        return loadIconFrom(temp.toString(), size)
+    }
+
+    private fun embeddedIconPath(size: Int): okio.Path? {
+        val temp = platform.posix.getenv("TEMP")?.toKString() ?: return null
+        return "$temp/heartbeat-launcher-icon-v$ICON_FILE_VERSION-$size.ico".toPath()
     }
 
     private fun executableDirectory(): String = memScoped {
@@ -490,6 +513,11 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         private const val PROGRESS_CLASS = "HeartbeatLauncherProgress"
         private const val WINDOW_WIDTH = 1280
         private const val WINDOW_HEIGHT = 800
+
+        // CS_DROPSHADOW: тень у borderless-окна без DWM-кастомизаций.
+        private const val CS_DROPSHADOW = 0x00020000
+        private const val CLASS_STYLE = CS_DROPSHADOW
+        private const val ICON_FILE_VERSION = 1
         private const val HANDOFF_TIMER_ID = 42
         private const val HANDOFF_INTERVAL_MS = 250
         private const val PROGRESS_INTERVAL_MS = 100L
