@@ -1,0 +1,4 @@
+package = io.aequicor.heartbeat.platform.nativelauncher.linuxui
+headers = linux_ui.h
+headerFilter = linux_ui.h
+linkerOpts.linux = -ldl

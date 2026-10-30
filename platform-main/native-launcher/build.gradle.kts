@@ -106,7 +106,16 @@ kotlin {
             entryPoint = "io.aequicor.heartbeat.platform.nativelauncher.main"
         }
     }
-    linuxX64()
+    linuxX64 {
+        compilations.getByName("main").cinterops.create("linuxUi") {
+            definitionFile.set(project.file("src/nativeInterop/cinterop/linuxUi.def"))
+            includeDirs(project.file("src/nativeInterop/cinterop"))
+        }
+        binaries.executable {
+            baseName = "heartbeat-launcher"
+            entryPoint = "io.aequicor.heartbeat.platform.nativelauncher.main"
+        }
+    }
     mingwX64 {
         binaries {
             executable {
@@ -170,3 +179,14 @@ kotlin {
     }
 }
 
+
+// The headless Linux ABI smoke uses the existing module-build runner without changing its workflow.
+// Other native tests need no display; this task deliberately supplies one for the GTK-only test.
+tasks.register<Exec>("linuxGtkSmokeTest") {
+    dependsOn("linkDebugTestLinuxX64")
+    val binary = layout.buildDirectory.file("bin/linuxX64/debugTest/test.kexe")
+    inputs.file(binary)
+    val linuxHost = providers.systemProperty("os.name").map { it.startsWith("Linux") }
+    onlyIf { linuxHost.get() }
+    commandLine("xvfb-run", "--auto-servernum", binary.get().asFile.absolutePath, "--ktest_filter=*LinuxUiTest*")
+}
