@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getLiveSessionById, IAgentLifecycleService, IAgentPermissionPolicyService } from '@moonshot-ai/agent-core-v2';
+import { getLiveSessionById, IAgentLifecycleService, IAgentPermissionPolicyService, IAgentSwarmService } from '@moonshot-ai/agent-core-v2';
 import { HeartbeatPermissionPolicy, installHeartbeatPermissions } from '../src/heartbeat-acp';
 import { AcpSession } from '../src/session';
 import { createTestClient, type TestClient } from './_helpers/acpClient';
@@ -177,13 +177,14 @@ describe('mandatory Heartbeat permission boundary', () => {
     expect(questions, observed.join(', ')).toBe(1);
   }, 30_000);
 
-  it.each([false, true])('binds HTTP MCP calls to the originating turn, child=%s', async (child) => {
+  it.each(['main', 'child', 'swarm'])('binds HTTP MCP calls to the originating turn, agent=%s', async (agent) => {
+    const child = agent !== 'main';
     home = await mkdtemp(join(tmpdir(), 'heartbeat-kimi-http-'));
     await writeFakeModelConfig(home);
     const scripted = createScriptedProvider();
     client = await createTestClient({ homeDir: home, extraSeeds: [scripted.seed] });
-    let approvalCall: string | undefined;
-    let receivedCall: unknown;
+    const approvalCalls: string[] = [];
+    const receivedCalls: unknown[] = [];
     const http = createServer(async (req, res) => {
       if (req.method !== 'POST') { res.writeHead(405).end(); return; }
       const chunks: Buffer[] = [];
@@ -192,11 +193,11 @@ describe('mandatory Heartbeat permission boundary', () => {
       if (message.id === undefined) { res.writeHead(202).end(); return; }
       let result: unknown;
       if (message.method === 'initialize') {
-        result = { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'test', version: '1' } };
+        result = { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'test', version: '1' }, instructions: 'OWNER INSTRUCTIONS FOR HOSTED TOOLS' };
       } else if (message.method === 'tools/list') {
         result = { tools: [{ name: 'echo', description: 'Echo', inputSchema: { type: 'object', properties: {} } }] };
       } else if (message.method === 'tools/call') {
-        receivedCall = message.params.arguments.__heartbeat_call;
+        receivedCalls.push(message.params.arguments.__heartbeat_call);
         result = { content: [{ type: 'text', text: 'ok' }], isError: false };
       } else {
         result = {};
@@ -213,7 +214,7 @@ describe('mandatory Heartbeat permission boundary', () => {
         expect(meta.heartbeatTurn).toBe('origin-one');
         if (meta.heartbeatCall !== undefined) {
           expect(meta.heartbeatAgent === 'main').toBe(!child);
-          approvalCall = meta.heartbeatCall;
+          approvalCalls.push(meta.heartbeatCall);
         }
         return { outcome: { outcome: 'selected', optionId: 'approve_once' } };
       });
@@ -222,16 +223,29 @@ describe('mandatory Heartbeat permission boundary', () => {
         { type: 'http', name: 'heartbeat_tools', url: `http://127.0.0.1:${address.port}/mcp`, headers: [] },
       ] }) as { sessionId: string };
       await client.waitForSessionUpdate('available_commands_update', 10_000);
-      if (child) {
+      if (agent === 'swarm') {
+        const session = getLiveSessionById(client.server.core.accessor, sessionId)!;
+        const main = session.accessor.get(IAgentLifecycleService).handleOf('main')!;
+        main.accessor.get(IAgentSwarmService).enter('manual');
+        scripted.mockNextResponse({ type: 'function', id: 'swarm_launch', name: 'AgentSwarm',
+          arguments: JSON.stringify({ description: 'swarm test', prompt_template: 'use echo for {{item}}', items: ['one', 'two'] }) });
+      } else if (child) {
         scripted.mockNextResponse({ type: 'function', id: 'child_launch', name: 'Agent',
           arguments: JSON.stringify({ description: 'child test', prompt: 'use the echo tool' }) });
       }
       scripted.mockNextResponse({ type: 'function', id: 'mcp_http', name: 'mcp__heartbeat_tools__echo', arguments: '{"__heartbeat_call":"forged"}' });
+      if (agent === 'swarm') scripted.mockNextResponse({ type: 'function', id: 'mcp_http_2', name: 'mcp__heartbeat_tools__echo', arguments: '{}' });
       scripted.mockNextText('done');
+      if (agent === 'swarm') scripted.mockNextText('done');
       if (child) scripted.mockNextText('parent done');
       await client.send('session/prompt', { sessionId, _meta: { heartbeatTurn: 'origin-one' }, prompt: [{ type: 'text', text: 'use echo' }] });
-      expect(approvalCall).toMatch(/^[0-9a-f-]{36}$/);
-      expect(receivedCall).toBe(approvalCall);
+      expect(approvalCalls).toHaveLength(agent === 'swarm' ? 2 : 1);
+      expect(new Set(approvalCalls).size).toBe(approvalCalls.length);
+      expect(approvalCalls.every((call) => /^[0-9a-f-]{36}$/.test(call))).toBe(true);
+      expect(new Set(receivedCalls)).toEqual(new Set(approvalCalls));
+      const descriptions = scripted.toolHistory().flat().filter((tool) => tool.name === 'mcp__heartbeat_tools__echo');
+      expect(descriptions.length).toBeGreaterThan(0);
+      expect(descriptions.every((tool) => tool.description.includes('OWNER INSTRUCTIONS FOR HOSTED TOOLS'))).toBe(true);
     } finally {
       http.closeAllConnections();
       await new Promise<void>((resolve) => http.close(() => resolve()));

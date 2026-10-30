@@ -27,6 +27,10 @@ PATCHED_PATHS = {
     "packages/agent-core-v2/src/agent/interaction/approval.ts",
     "packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts",
     "packages/agent-core-v2/src/agent/mcp/tools/mcp.ts",
+    "packages/agent-core-v2/src/mcpCore/client-http.ts",
+    "packages/agent-core-v2/src/mcpCore/types.ts",
+    "packages/acp-server/test/_helpers/scriptedProvider.ts",
+    "packages/agent-core-v2/test/features/tower/tools/spawnTool.test.ts",
     "packages/agent-core-v2/src/tool/toolContract.ts",
     "packages/agent-core-v2/src/agent/tools/agent/agentTool.ts",
     "packages/agent-core-v2/src/features/swarm/tools/agent-swarm/agentSwarmTool.ts",
@@ -110,12 +114,24 @@ def prepare(source, lock, version):
     (source / contract).write_text(replace_once(original(contract),
         "  readonly approvalRule: string;", "  readonly heartbeatCall?: string;\n  readonly approvalRule: string;"),
         encoding="utf-8")
+    http_client = "packages/agent-core-v2/src/mcpCore/client-http.ts"
+    (source / http_client).write_text(replace_once(original(http_client),
+        "  async listTools(): Promise<MCPToolDefinition[]> {",
+        "  getInstructions(): string | undefined { return this.client.getInstructions(); }\n\n"
+        "  async listTools(): Promise<MCPToolDefinition[]> {"), encoding="utf-8")
+    mcp_types = "packages/agent-core-v2/src/mcpCore/types.ts"
+    (source / mcp_types).write_text(replace_once(original(mcp_types),
+        "export interface MCPClient {", "export interface MCPClient {\n  getInstructions?(): string | undefined;"), encoding="utf-8")
     mcp_tool = "packages/agent-core-v2/src/agent/mcp/tools/mcp.ts"
     mcp_code = replace_once(original(mcp_tool),
         "import type { ToolDescription as KosongTool }", "import { randomUUID } from 'node:crypto';\nimport type { ToolDescription as KosongTool }")
     mcp_code = replace_once(mcp_code,
         "  const callTool = (activeClient: MCPClient, args: unknown, signal: AbortSignal) =>\n    activeClient.callTool(tool.name, (args ?? {}) as Record<string, unknown>, signal);\n",
         "")
+    mcp_code = replace_once(mcp_code,
+        "    description: tool.description,",
+        "    description: options.serverName === 'heartbeat_tools' && client.getInstructions?.()?.trim()\n"
+        "      ? `${tool.description}\\n\\n${client.getInstructions!()}` : tool.description,")
     mcp_code = replace_once(mcp_code,
         "    resolveExecution: (args) => ({\n      approvalRule: qualifiedName,",
         "    resolveExecution: (args) => {\n      const heartbeatCall = options.serverName === 'heartbeat_tools' ? randomUUID() : undefined;\n      const callTool = (activeClient: MCPClient, input: unknown, signal: AbortSignal) =>\n        activeClient.callTool(tool.name, heartbeatCall === undefined ? (input ?? {}) as Record<string, unknown> :\n          { ...((input ?? {}) as Record<string, unknown>), __heartbeat_call: heartbeatCall }, signal);\n      return {\n      heartbeatCall,\n      approvalRule: qualifiedName,")
@@ -139,7 +155,7 @@ def prepare(source, lock, version):
         "    const starting = Promise.resolve().then(() => this.subagents.run(\n"
         "      target.accessor.get(IAgentScopeContext).agentContext,\n"
         "      { kind: 'prompt', prompt: promptText },\n      { signal: controller.signal },\n    ));\n"
-        "    heartbeatOrigins(sessionId)?.register(agentId, this.callerAgentId, parentTurn, starting);\n"
+        "    heartbeatOrigins(sessionId)?.register(agentId, this.callerAgentId, parentTurn, starting, controller.signal);\n"
         "    const run = await starting;")
     (source / agent_tool).write_text(agent_code, encoding="utf-8")
     swarm_tool = "packages/agent-core-v2/src/features/swarm/tools/agent-swarm/agentSwarmTool.ts"
@@ -158,7 +174,7 @@ def prepare(source, lock, version):
         "      const starting = Promise.resolve().then(() => this.subagents.run(agentContextOf(child), request, {\n"
         "        signal: options.signal,\n        onReady: options.onReady,\n      }));\n"
         "      if (parent !== undefined && parent.agent === caller.id) {\n"
-        "        heartbeatOrigins(sessionId)?.register(agentId, parent.agent, parent.turn, starting);\n      }\n"
+        "        heartbeatOrigins(sessionId)?.register(agentId, parent.agent, parent.turn, starting, options.signal);\n      }\n"
         "      run = await starting;")
     (source / swarm_service).write_text(swarm_code, encoding="utf-8")
     tower_tool = "packages/agent-core-v2/src/features/tower/tools/spawn/spawnTool.ts"
@@ -173,7 +189,7 @@ def prepare(source, lock, version):
         "    const run = await this.subagents.run(\n      createdContext,\n      { kind: 'prompt', prompt },\n      { signal: controller.signal },\n    );",
         "    const starting = Promise.resolve().then(() => this.subagents.run(\n"
         "      createdContext,\n      { kind: 'prompt', prompt },\n      { signal: controller.signal },\n    ));\n"
-        "    heartbeatOrigins(this.sessionContext.sessionId)?.register(agentId, this.callerAgentId, parentTurn, starting);\n"
+        "    heartbeatOrigins(this.sessionContext.sessionId)?.register(agentId, this.callerAgentId, parentTurn, starting, controller.signal);\n"
         "    const run = await starting;")
     (source / tower_tool).write_text(tower_code, encoding="utf-8")
     acp_session = "packages/acp-server/src/session.ts"
@@ -267,6 +283,21 @@ def prepare(source, lock, version):
     metadata = json.loads(original(package))
     metadata["version"] = version
     (source / package).write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tower_test = "packages/agent-core-v2/test/features/tower/tools/spawnTool.test.ts"
+    tower_test_code = "import { HeartbeatOrigins, installHeartbeatOrigins, removeHeartbeatOrigins } from '#/heartbeat/origins';\n" + original(tower_test)
+    tower_test_code = replace_once(tower_test_code, "  function argsFor(kind: 'worker' | 'reviewer', model?: string): TowerSpawnToolInput {",
+        (NATIVE / "heartbeat-tower-test.txt").read_text(encoding="utf-8") + "\n  function argsFor(kind: 'worker' | 'reviewer', model?: string): TowerSpawnToolInput {")
+    (source / tower_test).write_text(tower_test_code, encoding="utf-8")
+    helper = "packages/acp-server/test/_helpers/scriptedProvider.ts"
+    helper_code = replace_once(original(helper), "    private readonly calls: Array<readonly Message[]>,",
+        "    private readonly calls: Array<readonly Message[]>,\n    private readonly toolCalls: Array<readonly Tool[]>,")
+    helper_code = replace_once(helper_code, "    this.calls.push(history);", "    this.calls.push(history);\n    this.toolCalls.push(_tools);")
+    helper_code = replace_once(helper_code, "  callHistory(): ReadonlyArray<readonly Message[]>;",
+        "  callHistory(): ReadonlyArray<readonly Message[]>;\n  toolHistory(): ReadonlyArray<readonly Tool[]>;")
+    helper_code = replace_once(helper_code, "  const provider = new ScriptedChatProvider(queue, calls);",
+        "  const toolCalls: Array<readonly Tool[]> = [];\n  const provider = new ScriptedChatProvider(queue, calls, toolCalls);")
+    helper_code = replace_once(helper_code, "    callHistory: () => calls,", "    callHistory: () => calls,\n    toolHistory: () => toolCalls,")
+    (source / helper).write_text(helper_code, encoding="utf-8")
     shutil.copyfile(NATIVE / "heartbeat-permissions.test.ts",
                     source / "packages/acp-server/test/heartbeat-permissions.test.ts")
     shutil.copyfile(NATIVE / "heartbeat-acp.ts", source / "packages/acp-server/src/heartbeat-acp.ts")
@@ -314,6 +345,8 @@ def main():
          "test/features/plan/heartbeat-plan.test.ts", "-t", "Heartbeat mandatory"], source, env)
     run([node, pnpm, "exec", "vitest", "run", "--project", "agent-core-v2",
          "test/agent/mcp/heartbeat-binding.test.ts", "test/heartbeat/heartbeat-origins.test.ts"], source, env)
+    run([node, pnpm, "exec", "vitest", "run", "--project", "agent-core-v2",
+         "test/features/tower/tools/spawnTool.test.ts", "-t", "binds a Tower worker"], source, env)
     run([node, pnpm, "-C", "apps/kimi-code", "run", "build:native:sea"], source, env)
     os_name = {"Windows": "win32", "Darwin": "darwin", "Linux": "linux"}[platform.system()]
     arch = {"AMD64": "x64", "x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]

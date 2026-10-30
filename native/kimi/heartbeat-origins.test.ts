@@ -50,6 +50,18 @@ describe('Heartbeat agent origin', () => {
     expect(await origins.resolve('child', 3)).toBeUndefined();
   });
 
+  it('revokes descendants when an intermediate agent is cancelled', async () => {
+    const origins = new HeartbeatOrigins(async () => 'root');
+    const parent = new AbortController();
+    const never = new Promise<unknown>(() => {});
+    origins.register('parent', 'main', 1, Promise.resolve({ turn: { id: 2 }, completion: never }), parent.signal);
+    origins.register('child', 'parent', 2, Promise.resolve({ turn: { id: 3 }, completion: never }));
+    expect(await origins.resolve('child', 3)).toBe('root');
+    parent.abort();
+    expect(await origins.resolve('parent', 2)).toBeUndefined();
+    expect(await origins.resolve('child', 3)).toBeUndefined();
+  });
+
   it('isolates concurrent asynchronous swarm parent contexts', async () => {
     const values = await Promise.all([
       withHeartbeatParent('a', 1, async () => { await Promise.resolve(); return heartbeatParent(); }),

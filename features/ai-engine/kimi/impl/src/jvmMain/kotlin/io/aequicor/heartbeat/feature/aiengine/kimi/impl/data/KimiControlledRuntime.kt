@@ -33,7 +33,7 @@ internal fun kimiControlledExecutable(
             }
         }
         val hash = digest.digest().joinToString("") { "%02x".format(Locale.ROOT, it) }
-        val isPinned = properties.getProperty("version") == "2.4.0-hb3" &&
+        val isPinned = properties.getProperty("version") == "2.4.0-hb4" &&
             properties.getProperty("sourceCommit") == "f26e4d91ef8d5d233f6c20b42a150f96924d4f5e" &&
             properties.getProperty("permissionGate") == "1"
         if (isPinned && properties.getProperty("sha256") == hash) {
