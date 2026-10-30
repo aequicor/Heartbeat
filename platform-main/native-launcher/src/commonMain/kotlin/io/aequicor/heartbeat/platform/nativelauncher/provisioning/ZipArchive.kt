@@ -2,6 +2,7 @@
 
 package io.aequicor.heartbeat.platform.nativelauncher.provisioning
 
+import kotlinx.coroutines.CancellationException
 import okio.FileSystem
 import okio.Path
 
@@ -27,7 +28,7 @@ class ZipArchive(private val fs: FileSystem, private val file: Path) {
     val entries: List<ZipEntry> = readCentralDirectory()
 
     /** Читает поток данных записи в [sink], распаковывая deflate; проверяет итоговый размер. */
-    fun readEntry(entry: ZipEntry, sink: okio.BufferedSink) {
+    fun readEntry(entry: ZipEntry, sink: okio.BufferedSink, isCancelled: () -> Boolean = { false }) {
         val handle = fs.openReadOnly(file)
         try {
             val header = handle.readBytes(entry.localOffset, LOCAL_HEADER_SIZE)
@@ -36,37 +37,52 @@ class ZipArchive(private val fs: FileSystem, private val file: Path) {
             val extraLength = header.leShort(28)
             val position = entry.localOffset + LOCAL_HEADER_SIZE + nameLength + extraLength
             if (entry.method == DEFLATED) {
-                inflateEntry(handle, entry, position, sink)
+                inflateEntry(handle, entry, position, sink, isCancelled)
             } else {
-                copyStoredEntry(handle, entry, position, sink)
+                copyStoredEntry(handle, entry, position, sink, isCancelled)
             }
         } finally {
             handle.close()
         }
     }
 
-    private fun copyStoredEntry(handle: okio.FileHandle, entry: ZipEntry, position: Long, sink: okio.BufferedSink) {
+    private fun copyStoredEntry(
+        handle: okio.FileHandle,
+        entry: ZipEntry,
+        position: Long,
+        sink: okio.BufferedSink,
+        isCancelled: () -> Boolean,
+    ) {
         var offset = position
         var remaining = entry.compressedSize
         var produced = 0L
         while (remaining > 0) {
+            checkExtractionCancelled(isCancelled)
             val chunk = handle.readBytes(offset, minOf(remaining, CHUNK.toLong()).toInt())
             offset += chunk.size
             remaining -= chunk.size
-            sink.write(chunk, 0, chunk.size)
             produced += chunk.size
+            require(produced <= entry.uncompressedSize) { "Entry exceeds its declared size: ${entry.name}" }
+            sink.write(chunk, 0, chunk.size)
         }
         checkProduced(entry, produced)
     }
 
-    private fun inflateEntry(handle: okio.FileHandle, entry: ZipEntry, position: Long, sink: okio.BufferedSink) {
+    private fun inflateEntry(
+        handle: okio.FileHandle,
+        entry: ZipEntry,
+        position: Long,
+        sink: okio.BufferedSink,
+        isCancelled: () -> Boolean,
+    ) {
         var offset = position
         var remaining = entry.compressedSize
         var produced = 0L
         val output = ByteArray(CHUNK)
         val inflater = RawInflater()
         try {
-            while (remaining > 0 || !inflater.finished()) {
+            while (!inflater.finished()) {
+                checkExtractionCancelled(isCancelled)
                 if (remaining > 0 && inflater.needsInput()) {
                     val chunk = handle.readBytes(offset, minOf(remaining, CHUNK.toLong()).toInt())
                     offset += chunk.size
@@ -75,14 +91,16 @@ class ZipArchive(private val fs: FileSystem, private val file: Path) {
                 }
                 val count = inflater.inflate(output)
                 if (count > 0) {
-                    sink.write(output, 0, count)
                     produced += count
+                    require(produced <= entry.uncompressedSize) { "Entry exceeds its declared size: ${entry.name}" }
+                    sink.write(output, 0, count)
                 } else if (inflater.needsInput() && remaining == 0L && !inflater.finished()) {
                     error("Truncated deflate stream for ${entry.name}")
                 } else if (count == 0 && !inflater.needsInput() && !inflater.finished()) {
                     error("Stalled deflate stream for ${entry.name}")
                 }
             }
+            require(remaining == 0L) { "Trailing compressed data for ${entry.name}" }
             checkProduced(entry, produced)
         } finally {
             inflater.end()
@@ -169,6 +187,10 @@ class ZipArchive(private val fs: FileSystem, private val file: Path) {
         private const val UNIX_REGULAR = 0x8000
         private const val UNIX_DIRECTORY = 0x4000
     }
+}
+
+private fun checkExtractionCancelled(isCancelled: () -> Boolean) {
+    if (isCancelled()) throw CancellationException("Bootstrap extraction cancelled")
 }
 
 internal fun ByteArray.leShort(offset: Int): Int =

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.platform.nativelauncher.provisioning
 
+import kotlinx.coroutines.CancellationException
 import okio.FileSystem
 import okio.Path
 import okio.buffer
@@ -18,6 +19,7 @@ class SafeZipExtractor(
         require(fs === FileSystem.SYSTEM) { "Custom FileSystem requires its own file-mode adapter" }
         ProvisioningPlatform.applyFileMode(path, mode)
     },
+    private val isCancelled: () -> Boolean = { false },
 ) {
     data class ZipLimits(
         val maxEntries: Int = 10_000,
@@ -26,11 +28,13 @@ class SafeZipExtractor(
     )
 
     fun extract(archiveFile: Path, stagingDir: Path) {
+        checkCancelled()
         val archive = ZipArchive(fs, archiveFile)
         val entries = archive.entries
         require(entries.size <= limits.maxEntries) { "Too many entries in $archiveFile: ${entries.size}" }
         var total = 0L
         entries.forEach { entry ->
+            checkCancelled()
             validateName(entry.name)
             require(!entry.isEncrypted) { "Encrypted entry: ${entry.name}" }
             require(!entry.isSymlink) { "Symlink in archive: ${entry.name}" }
@@ -45,6 +49,7 @@ class SafeZipExtractor(
         }
         fs.createDirectories(stagingDir)
         entries.forEach { entry ->
+            checkCancelled()
             val target = stagingDir.resolve(entry.name)
             if (entry.isDirectory) {
                 fs.createDirectories(target)
@@ -54,7 +59,7 @@ class SafeZipExtractor(
                 }
                 fs.sink(target, mustCreate = true).buffer().let { sink ->
                     try {
-                        archive.readEntry(entry, sink)
+                        archive.readEntry(entry, sink, isCancelled)
                     } finally {
                         sink.close()
                     }
@@ -62,6 +67,10 @@ class SafeZipExtractor(
                 applyFileMode(target, entry.unixMode)
             }
         }
+    }
+
+    private fun checkCancelled() {
+        if (isCancelled()) throw CancellationException("Bootstrap extraction cancelled")
     }
 
     private fun validateName(name: String) {

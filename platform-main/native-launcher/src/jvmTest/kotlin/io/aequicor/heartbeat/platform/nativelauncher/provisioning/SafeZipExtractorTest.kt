@@ -139,6 +139,51 @@ class SafeZipExtractorTest {
     }
 
     @Test
+    fun inflatedDataCannotExceedTheDeclaredEntrySize() {
+        val archive = zipOf("oversized-stream.zip", mapOf("payload" to ByteArray(65536) { 1 }))
+        val bytes = Files.readAllBytes(archive.toNioPath())
+        val central = centralHeader(bytes)
+        repeat(4) { bytes[central + 24 + it] = if (it == 0) 1 else 0 }
+        Files.write(archive.toNioPath(), bytes)
+        val staging = temp.resolve("staging-oversized")
+        assertFailsWith<IllegalArgumentException> { SafeZipExtractor(fs).extract(archive, staging) }
+        assertTrue(fs.metadata(staging.resolve("payload")).size!! <= 1)
+    }
+
+    @Test
+    fun earlyDeflateEndWithUnreadCompressedDataIsRejected() {
+        val payload = kotlin.random.Random(1).nextBytes(65536)
+        val archive = zipOf("early-end.zip", mapOf("payload" to payload))
+        val bytes = Files.readAllBytes(archive.toNioPath())
+        val nameLength = (bytes[26].toInt() and 255) or ((bytes[27].toInt() and 255) shl 8)
+        val extraLength = (bytes[28].toInt() and 255) or ((bytes[29].toInt() and 255) shl 8)
+        val dataOffset = 30 + nameLength + extraLength
+        val earlyEnd = "cb48cdc9c95728cf2fca490100".chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        earlyEnd.copyInto(bytes, dataOffset)
+        Files.write(archive.toNioPath(), bytes)
+        assertFailsWith<IllegalArgumentException> {
+            SafeZipExtractor(
+                fs,
+            ).extract(archive, temp.resolve("staging-early"))
+        }
+    }
+
+    private fun centralHeader(bytes: ByteArray): Int = bytes.toList().windowed(4).indexOfFirst {
+        it.toByteArray().contentEquals(byteArrayOf(0x50, 0x4b, 0x01, 0x02))
+    }
+
+    @Test
+    fun cancellationStopsSynchronousInflationBeforeTheNextChunk() {
+        val archive = zipOf("cancelled.zip", mapOf("payload" to ByteArray(65536) { 1 }))
+        val staging = temp.resolve("staging-cancelled")
+        val extractor = SafeZipExtractor(fs, isCancelled = {
+            (fs.metadataOrNull(staging.resolve("payload"))?.size ?: 0) > 0
+        })
+        assertFailsWith<kotlinx.coroutines.CancellationException> { extractor.extract(archive, staging) }
+        assertTrue(fs.metadata(staging.resolve("payload")).size!! < 65536)
+    }
+
+    @Test
     fun truncatedDeflateStreamIsRejected() {
         val archive = zipOf(
             "truncated.zip",

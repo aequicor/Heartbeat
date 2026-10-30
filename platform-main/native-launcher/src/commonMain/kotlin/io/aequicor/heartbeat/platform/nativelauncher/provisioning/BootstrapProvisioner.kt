@@ -119,13 +119,20 @@ class BootstrapProvisioner(
             Artifact("platform", manifest.platform),
             Artifact("seed", manifest.seed),
         )
-        val files = artifacts.map { artifact -> downloadArtifact(artifact, onProgress, isCancelled) }
+        var completedBytes = 0L
+        val files = artifacts.map { artifact ->
+            downloadArtifact(artifact, { progress ->
+                onProgress(
+                    progress.copy(downloadedBytes = completedBytes + progress.downloadedBytes, totalBytes = totalBytes),
+                )
+            }, isCancelled).also { completedBytes += artifact.info.size }
+        }
         val staging = store.stagingDir(imageId)
         try {
             if (fs.exists(staging)) fs.deleteRecursively(staging)
             fs.createDirectories(staging)
             onProgress(ProvisionProgress(ProvisionStage.EXTRACT))
-            val extractor = SafeZipExtractor(fs)
+            val extractor = SafeZipExtractor(fs, isCancelled = isCancelled)
             extractor.extract(files[0], staging)
             checkCancelled(isCancelled)
             extractor.extract(files[1], staging)
@@ -212,6 +219,11 @@ class BootstrapProvisioner(
         val partSize = if (fs.exists(file)) fs.metadata(file).size ?: 0L else 0L
         if (partSize > info.size) fs.delete(file)
         val offset = if (fs.exists(file)) fs.metadata(file).size ?: 0L else 0L
+        if (offset == info.size) {
+            val verified = verifyDownload(file, info, offset)
+            onProgress(ProvisionProgress(ProvisionStage.DOWNLOAD, artifact.name, offset, info.size))
+            return verified
+        }
         var downloaded = offset
         var sink: okio.BufferedSink? = null
         val result = try {
@@ -229,21 +241,34 @@ class BootstrapProvisioner(
                 },
                 onChunk = { chunk ->
                     checkCancelled(isCancelled)
-                    checkNotNull(sink).write(chunk, 0, chunk.size)
-                    downloaded += chunk.size
+                    downloaded = writeDownloadChunk(checkNotNull(sink), chunk, downloaded, info)
                     onProgress(ProvisionProgress(ProvisionStage.DOWNLOAD, artifact.name, downloaded, info.size))
                 },
             )
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            throw ProvisionException.Network("Cannot download ${info.url}: $error", error)
+            throw downloadFailure(error, info.url)
         } finally {
             sink?.close()
         }
         if (result.status !in SUCCESS_RANGE) networkError("HTTP ${result.status} for ${info.url}")
         return verifyDownload(file, info, downloaded)
     }
+
+    private fun writeDownloadChunk(
+        sink: okio.BufferedSink,
+        chunk: ByteArray,
+        downloaded: Long,
+        info: BootstrapArtifactInfo,
+    ): Long {
+        if (chunk.size > info.size - downloaded) corrupted(info.url)
+        sink.write(chunk, 0, chunk.size)
+        return downloaded + chunk.size
+    }
+
+    private fun downloadFailure(error: Exception, url: String): Exception =
+        if (error is ProvisionException) error else ProvisionException.Network("Cannot download $url: $error", error)
 
     private fun verifyDownload(file: Path, info: BootstrapArtifactInfo, downloaded: Long): Path {
         if (!fs.exists(file)) corrupted(info.url)

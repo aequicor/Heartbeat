@@ -177,6 +177,36 @@ class BootstrapProvisionerTest {
     }
 
     @Test
+    fun completedDownloadIsReusedAndTotalProgressIsMonotonic() {
+        val fixture = Fixture()
+        fs.createDirectories(fixture.store.downloadsDir)
+        fs.write(fixture.store.downloadsDir.resolve("runtime.part")) { write(fixture.runtime) }
+        val transport = fixture.transport()
+        val progress = mutableListOf<ProvisionProgress>()
+        runBlocking { fixture.provisioner(transport).provision(onProgress = { progress += it }) }
+        assertTrue(transport.downloads.none { it.contains("runtime.zip") })
+        val downloads = progress.filter { it.stage == ProvisionStage.DOWNLOAD }
+        assertTrue(downloads.zipWithNext().all { (a, b) -> a.downloadedBytes <= b.downloadedBytes })
+        assertEquals(downloads.last().totalBytes, downloads.last().downloadedBytes)
+    }
+
+    @Test
+    fun oversizedArtifactStopsBeforeWritingPastSignedSize() {
+        val fixture = Fixture()
+        val transport = fixture.transport()
+        transport.responses["$BASE/runtime.zip"] = fixture.runtime + ByteArray(1024)
+        assertFailsWith<ProvisionException.CorruptedDownload> {
+            runBlocking {
+                fixture.provisioner(
+                    transport,
+                ).provision()
+            }
+        }
+        assertTrue(fs.metadata(fixture.store.downloadsDir.resolve("runtime.part")).size!! <= fixture.runtime.size)
+        assertNull(fixture.store.currentImage())
+    }
+
+    @Test
     fun resumeAppendsToPartialDownload() {
         val fixture = Fixture()
         val transport = fixture.transport()
