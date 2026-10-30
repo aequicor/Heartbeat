@@ -40,5 +40,12 @@ class SourceIntegrityTest(unittest.TestCase):
             build_runtime.prepare(self.source, {"commit": "0" * 40}, "unused")
 
 
+class RuntimeArchTest(unittest.TestCase):
+    def test_supported_platform_architectures(self):
+        for machine, expected in [("AMD64", "x64"), ("x86_64", "x64"), ("ARM64", "arm64"), ("aarch64", "arm64")]:
+            with self.subTest(machine=machine):
+                self.assertEqual(expected, build_runtime.runtime_arch(machine))
+
+
 if __name__ == "__main__":
     unittest.main()

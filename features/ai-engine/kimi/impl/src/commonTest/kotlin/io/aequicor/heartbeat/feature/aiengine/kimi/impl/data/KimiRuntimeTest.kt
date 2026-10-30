@@ -138,6 +138,52 @@ class KimiRuntimeTest {
     }
 
     @Test
+    fun `agent revocation blocks pending admissions and cancels running calls`() = runTest {
+        val connection = FakeConnection()
+        val bridge = TestBridge()
+        val tools = object : ProfileAgentTools by TestAgentTools {
+            override suspend fun specifications(scope: AgentToolScope) =
+                listOf(AgentToolSpec("tool", "Tool", JsonObject(emptyMap())))
+        }
+        val runtime = runtime(connection, this, tools = tools, bridge = bridge)
+        val session = runtime.create(CreateSessionRequest(target, areDetachedToolsEnabled = true))
+        session.sender().send(prompt("first"))
+        fun approval(call: String) = AcpPermissionRequest(
+            session.ref.nativeId,
+            buildJsonObject {
+                put("title", "mcp__heartbeat_tools__tool")
+                put(
+                    "_meta",
+                    buildJsonObject {
+                        put("heartbeatTurn", connection.turnToken)
+                        put("heartbeatCall", call)
+                    },
+                )
+            },
+            listOf(AcpPermissionOption("allow", "Allow", "allow_once")),
+        )
+        suspend fun revoke(call: String, origin: String = connection.turnToken) {
+            connection.update(
+                """{"sessionUpdate":"heartbeat_hosted_revoked","heartbeatTurn":"$origin","heartbeatCall":"$call"}""",
+            )
+        }
+        revoke("before")
+        assertEquals(AcpPermissionOutcome.Cancelled, runtime.requestPermission(approval("before")))
+        assertEquals(AcpPermissionOutcome.Selected("allow"), runtime.requestPermission(approval("pending")))
+        revoke("pending")
+        assertNull(bridge.context("pending", "tool"))
+        assertEquals(AcpPermissionOutcome.Selected("allow"), runtime.requestPermission(approval("running")))
+        val lifetime = requireNotNull(bridge.context("running", "tool")?.lifetime)
+        revoke("running", "different-turn")
+        assertTrue(lifetime.isActive)
+        revoke("running")
+        assertFalse(lifetime.isActive)
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        testScheduler.advanceUntilIdle()
+        runtime.close()
+    }
+
+    @Test
     fun `question awaits the selected offered answer`() = runTest {
         val connection = FakeConnection()
         val runtime = runtime(connection, this)
@@ -167,6 +213,45 @@ class KimiRuntimeTest {
         assertEquals(listOf("A", "B", "Skip"), pending.options.map { it.title })
         session.permissions().respond(PermissionDecision(turn, pending.id, PermissionOptionId("b")))
         assertEquals(AcpPermissionOutcome.Selected("b"), answer.await())
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        testScheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `plan review always waits for the users selected option`() = runTest {
+        val connection = FakeConnection()
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        val turn = session.sender().send(prompt("plan"))
+        val request = AcpPermissionRequest(
+            session.ref.nativeId,
+            buildJsonObject {
+                put("title", "ExitPlanMode")
+                put(
+                    "content",
+                    Json.parseToJsonElement("""[{"type":"content","content":{"type":"text","text":"Plan body"}}]"""),
+                )
+                put(
+                    "_meta",
+                    buildJsonObject {
+                        put("heartbeatTurn", connection.turnToken)
+                        put("heartbeatPlanReview", true)
+                    },
+                )
+            },
+            listOf(
+                AcpPermissionOption("plan_opt_0", "First", "allow_once"),
+                AcpPermissionOption("plan_opt_1", "Second", "allow_once"),
+                AcpPermissionOption("plan_revise", "Revise", "reject_once"),
+            ),
+        )
+        val answer = async { runtime.requestPermission(request) }
+        testScheduler.runCurrent()
+        val pending = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value).requests.single()
+        assertEquals("Plan body", pending.title)
+        assertEquals(listOf("First", "Second", "Revise"), pending.options.map { it.title })
+        session.permissions().respond(PermissionDecision(turn, pending.id, PermissionOptionId("plan_revise")))
+        assertEquals(AcpPermissionOutcome.Selected("plan_revise"), answer.await())
         connection.prompt.complete(AcpPromptResult("end_turn"))
         testScheduler.advanceUntilIdle()
     }

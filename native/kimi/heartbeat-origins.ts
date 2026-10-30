@@ -9,6 +9,7 @@ export function withHeartbeatParent<T>(agent: string, turn: number, run: () => T
 export function heartbeatParent(): { agent: string; turn: number } | undefined {
   return parentContext.getStore();
 }
+export type HeartbeatLease = { readonly origin: string; watch(abort: () => void): Promise<(() => void) | undefined> };
 type Run = { readonly turn: { readonly id?: number }; readonly completion: Promise<unknown> };
 type Entry = {
   readonly parent: string;
@@ -68,6 +69,42 @@ export class HeartbeatOrigins {
       return undefined;
     }
   }
+  async lease(agent: string, turn: number): Promise<HeartbeatLease | undefined> {
+    const generation = this.children.get(agent);
+    const origin = await this.resolve(agent, turn);
+    if (origin === undefined || (agent !== 'main' && this.children.get(agent) !== generation)) return undefined;
+    return {
+      origin,
+      watch: async (onAbort) => {
+        if (agent !== 'main' && this.children.get(agent) !== generation) return undefined;
+        return this.watch(agent, turn, origin, onAbort);
+      },
+    };
+  }
+
+  async watch(agent: string, turn: number, expected: string, onAbort: () => void): Promise<(() => void) | undefined> {
+    const generation = this.children.get(agent);
+    if (await this.resolve(agent, turn) !== expected) return undefined;
+    if (agent === 'main') return () => {};
+    let entry = this.children.get(agent);
+    if (entry === undefined || entry !== generation || !this.isLive(entry)) return undefined;
+    const signals: AbortSignal[] = [];
+    while (entry !== undefined) {
+      if (entry.signal !== undefined) signals.push(entry.signal);
+      entry = entry.parentEntry;
+    }
+    let active = true;
+    const dispose = () => {
+      if (!active) return;
+      active = false;
+      for (const signal of signals) signal.removeEventListener('abort', abort);
+    };
+    const abort = () => { dispose(); onAbort(); };
+    for (const signal of signals) signal.addEventListener('abort', abort, { once: true });
+    if (signals.some((signal) => signal.aborted)) abort();
+    return dispose;
+  }
+
   private isLive(entry: Entry): boolean {
     const seen = new Set<Entry>();
     let current: Entry | undefined = entry;
@@ -89,4 +126,31 @@ export function removeHeartbeatOrigins(id: string, origins: HeartbeatOrigins): v
 }
 export function heartbeatOrigins(id: string): HeartbeatOrigins | undefined {
   return sessions.get(id);
+}
+
+const callsKey = Symbol.for('heartbeat.kimi.hosted-revocations.v1');
+const callsShared = globalThis as typeof globalThis & { [callsKey]?: Map<string, { turn: string; dispose: () => void }> };
+const hostedRevocations = callsShared[callsKey] ??= new Map<string, { turn: string; dispose: () => void }>();
+const turnsKey = Symbol.for('heartbeat.kimi.active-hosted-turns.v1');
+const turnsShared = globalThis as typeof globalThis & { [turnsKey]?: Set<string> };
+const activeHostedTurns = turnsShared[turnsKey] ??= new Set<string>();
+export function beginHostedTurn(turn: string | undefined): void { if (turn !== undefined) activeHostedTurns.add(turn); }
+export function registerHostedRevocation(call: string, turn: string, dispose: () => void): boolean {
+  if (!activeHostedTurns.has(turn)) { dispose(); return false; }
+  hostedRevocations.get(call)?.dispose();
+  hostedRevocations.set(call, { turn, dispose });
+  return true;
+}
+export function completeHostedCall(call: string | undefined): void {
+  if (call === undefined) return;
+  const dispose = hostedRevocations.get(call);
+  hostedRevocations.delete(call);
+  dispose?.dispose();
+}
+export function clearHostedTurn(turn: string | undefined): void {
+  if (turn === undefined) return;
+  activeHostedTurns.delete(turn);
+  for (const [call, entry] of hostedRevocations) {
+    if (entry.turn === turn) completeHostedCall(call);
+  }
 }

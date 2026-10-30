@@ -456,6 +456,8 @@ internal class KimiSession(
     private var isHostedEnabled = false
     private val hostedAdmissions = mutableMapOf<String, Pair<TurnId, String>>()
     private val usedHostedCalls = mutableSetOf<String>()
+    private val revokedHostedCalls = mutableSetOf<String>()
+    private val hostedLifetimes = mutableMapOf<String, Job>()
     private val submission = MutableStateFlow<CompletableDeferred<Unit>?>(null)
     private var isCancelPending = false
     private var isInterrupting = false
@@ -612,7 +614,7 @@ internal class KimiSession(
         val admission = hostedAdmissions.remove(call) ?: return@withLock null
         if (admission != (turn.id to name)) return@withLock null
         val prompt = currentRequest ?: return@withLock null
-        val lifetime = turnLifetime?.takeIf { it.isActive } ?: return@withLock null
+        val lifetime = hostedLifetimes[call]?.takeIf { it.isActive } ?: return@withLock null
         if (!isHostedEnabled || runtime.isClosed) return@withLock null
         AgentToolContext(
             ref, route.workspace, turn.id, prompt.id, prompt.trust ?: TrustLevel.Ask,
@@ -625,7 +627,9 @@ internal class KimiSession(
     suspend fun permission(request: AcpPermissionRequest): AcpPermissionOutcome {
         val (turn, prompt, lifetime) = activePermission(request) ?: return AcpPermissionOutcome.Cancelled
         val meta = request.toolCall["_meta"] as? JsonObject ?: return AcpPermissionOutcome.Cancelled
-        if ((meta["heartbeatQuestion"] as? JsonPrimitive)?.contentOrNull == "true") {
+        if ((meta["heartbeatQuestion"] as? JsonPrimitive)?.contentOrNull == "true" ||
+            (meta["heartbeatPlanReview"] as? JsonPrimitive)?.contentOrNull == "true"
+        ) {
             return requestQuestion(turn.id, request)
         }
         // Never persist a CLI allow rule that could bypass later modes.
@@ -682,7 +686,8 @@ internal class KimiSession(
         val isAdmitted = mutex.withLock {
             if (currentTurn?.id != turn || currentTurn?.outcome != null || origin != turnToken) return@withLock false
             if (!isHostedEnabled || turnLifetime?.isActive != true || name !in hosted.names) return@withLock false
-            if (call.isBlank() || !usedHostedCalls.add(call)) return@withLock false
+            if (call.isBlank() || call in revokedHostedCalls || !usedHostedCalls.add(call)) return@withLock false
+            hostedLifetimes[call] = Job(turnLifetime)
             hostedAdmissions[call] = turn to name
             true
         }
@@ -772,9 +777,21 @@ internal class KimiSession(
                 updateTool(update, turn)
             }
 
+            "heartbeat_hosted_revoked" -> revokeCall(update)
+
             "plan" -> updatePlan(update)
 
             "usage_update" -> runtime.receiveUsage(this, update)
+        }
+    }
+
+    private fun revokeCall(update: JsonObject) {
+        val origin = update["heartbeatTurn"]?.jsonPrimitive?.contentOrNull
+        val call = update["heartbeatCall"]?.jsonPrimitive?.contentOrNull
+        if (origin == turnToken && origin != null && !call.isNullOrBlank()) {
+            revokedHostedCalls.add(call)
+            hostedAdmissions.remove(call)
+            hostedLifetimes.remove(call)?.cancel()
         }
     }
 
@@ -877,6 +894,8 @@ internal class KimiSession(
         turnToken = null
         hostedAdmissions.clear()
         usedHostedCalls.clear()
+        revokedHostedCalls.clear()
+        hostedLifetimes.clear()
         submission.value?.completeExceptionally(
             EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, turn.request)),
         )

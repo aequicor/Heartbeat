@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HeartbeatOrigins, heartbeatOrigins, installHeartbeatOrigins, removeHeartbeatOrigins, withHeartbeatParent, heartbeatParent } from '../../src/heartbeat/origins';
+import { HeartbeatOrigins, heartbeatOrigins, installHeartbeatOrigins, removeHeartbeatOrigins, withHeartbeatParent, heartbeatParent, registerHostedRevocation, completeHostedCall, clearHostedTurn, beginHostedTurn } from '../../src/heartbeat/origins';
 
 describe('Heartbeat agent origin', () => {
   it('waits for early child launches and preserves ancestry across nested agents', async () => {
@@ -60,6 +60,47 @@ describe('Heartbeat agent origin', () => {
     parent.abort();
     expect(await origins.resolve('parent', 2)).toBeUndefined();
     expect(await origins.resolve('child', 3)).toBeUndefined();
+  });
+
+  it('observes ancestor cancellation once and removes call listeners on completion', async () => {
+    const origins = new HeartbeatOrigins(async () => 'root');
+    const parent = new AbortController();
+    const child = new AbortController();
+    const never = new Promise<unknown>(() => {});
+    origins.register('parent', 'main', 1, Promise.resolve({ turn: { id: 2 }, completion: never }), parent.signal);
+    origins.register('child', 'parent', 2, Promise.resolve({ turn: { id: 3 }, completion: never }), child.signal);
+    let revoked = 0;
+    const dispose = await origins.watch('child', 3, 'root', () => { revoked++; });
+    expect(dispose).toBeDefined();
+    beginHostedTurn('root');
+    expect(registerHostedRevocation('call', 'root', dispose!)).toBe(true);
+    parent.abort();
+    child.abort();
+    expect(revoked).toBe(1);
+    completeHostedCall('call');
+    let disposed = 0;
+    registerHostedRevocation('another', 'root', () => { disposed++; });
+    clearHostedTurn('different');
+    expect(disposed).toBe(0);
+    clearHostedTurn('root');
+    expect(disposed).toBe(1);
+    expect(registerHostedRevocation('late', 'root', () => { disposed++; })).toBe(false);
+    expect(disposed).toBe(2);
+  });
+
+  it('cannot attach an old approval to a resumed generation', async () => {
+    const origins = new HeartbeatOrigins(async () => 'root');
+    let finish!: () => void;
+    const completion = new Promise<void>((resolve) => { finish = resolve; });
+    const never = new Promise<unknown>(() => {});
+    origins.register('child', 'main', 1, Promise.resolve({ turn: { id: 2 }, completion }));
+    const lease = await origins.lease('child', 2);
+    expect(lease?.origin).toBe('root');
+    finish();
+    await completion;
+    await Promise.resolve();
+    origins.register('child', 'main', 1, Promise.resolve({ turn: { id: 2 }, completion: never }));
+    expect(await lease?.watch(() => {})).toBeUndefined();
   });
 
   it('isolates concurrent asynchronous swarm parent contexts', async () => {

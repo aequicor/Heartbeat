@@ -29,6 +29,10 @@ PATCHED_PATHS = {
     "packages/agent-core-v2/src/agent/mcp/tools/mcp.ts",
     "packages/agent-core-v2/src/mcpCore/client-http.ts",
     "packages/agent-core-v2/src/mcpCore/types.ts",
+    "packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts",
+    "packages/agent-core-v2/src/agent/tools/ask-user-question/askUserQuestionTool.ts",
+    "packages/agent-core-v2/src/agent/tools/ask-user-question/ask-user-question.ts",
+    "packages/agent-core-v2/src/agent/tools/ask-user-question/ask-user.md",
     "packages/acp-server/test/_helpers/scriptedProvider.ts",
     "packages/agent-core-v2/test/features/tower/tools/spawnTool.test.ts",
     "packages/agent-core-v2/src/tool/toolContract.ts",
@@ -124,19 +128,58 @@ def prepare(source, lock, version):
         "export interface MCPClient {", "export interface MCPClient {\n  getInstructions?(): string | undefined;"), encoding="utf-8")
     mcp_tool = "packages/agent-core-v2/src/agent/mcp/tools/mcp.ts"
     mcp_code = replace_once(original(mcp_tool),
-        "import type { ToolDescription as KosongTool }", "import { randomUUID } from 'node:crypto';\nimport type { ToolDescription as KosongTool }")
+        "import type { ToolDescription as KosongTool }", "import { randomUUID } from 'node:crypto';\nimport { completeHostedCall } from '#/heartbeat/origins';\nimport type { ToolDescription as KosongTool }")
     mcp_code = replace_once(mcp_code,
         "  const callTool = (activeClient: MCPClient, args: unknown, signal: AbortSignal) =>\n    activeClient.callTool(tool.name, (args ?? {}) as Record<string, unknown>, signal);\n",
         "")
     mcp_code = replace_once(mcp_code,
-        "    description: tool.description,",
-        "    description: options.serverName === 'heartbeat_tools' && client.getInstructions?.()?.trim()\n"
-        "      ? `${tool.description}\\n\\n${client.getInstructions!()}` : tool.description,")
-    mcp_code = replace_once(mcp_code,
         "    resolveExecution: (args) => ({\n      approvalRule: qualifiedName,",
         "    resolveExecution: (args) => {\n      const heartbeatCall = options.serverName === 'heartbeat_tools' ? randomUUID() : undefined;\n      const callTool = (activeClient: MCPClient, input: unknown, signal: AbortSignal) =>\n        activeClient.callTool(tool.name, heartbeatCall === undefined ? (input ?? {}) as Record<string, unknown> :\n          { ...((input ?? {}) as Record<string, unknown>), __heartbeat_call: heartbeatCall }, signal);\n      return {\n      heartbeatCall,\n      approvalRule: qualifiedName,")
     mcp_code = replace_once(mcp_code, "      },\n    }),\n  };\n}", "      },\n    };\n    },\n  };\n}")
+    mcp_code = replace_once(mcp_code, "      execute: async (context) => {\n", "      execute: async (context) => {\n        try {\n")
+    mcp_code = replace_once(mcp_code, "          providerType: options.providerType?.(),\n        });\n      },",
+        "          providerType: options.providerType?.(),\n        });\n        } finally { completeHostedCall(heartbeatCall); }\n      },")
     (source / mcp_tool).write_text(mcp_code, encoding="utf-8")
+    requester = "packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts"
+    requester_code = "import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';\n" + original(requester)
+    requester_code = replace_once(requester_code,
+        "    @ISessionUsageService private readonly usage: ISessionUsageService,",
+        "    @ISessionUsageService private readonly usage: ISessionUsageService,\n"
+        "    @ISessionMcpHandle private readonly heartbeatMcp: ISessionMcpHandle,")
+    requester_code = replace_once(requester_code,
+        "    const messages = overrides.messages ?? this.context.get();\n    return {",
+        "    const messages = overrides.messages ?? this.context.get();\n"
+        "    const basePrompt = overrides.systemPrompt ?? turnConfig?.systemPrompt ?? this.profile.getSystemPrompt();\n"
+        "    const instructions = overrides.source?.type === 'turn'\n"
+        "      ? this.heartbeatMcp.connectionManager.resolved('heartbeat_tools')?.client.getInstructions?.()?.trim() : undefined;\n"
+        "    const heartbeatPrompt = instructions ? `${basePrompt}\\n\\n${instructions}` : basePrompt;\n"
+        "    return {")
+    requester_code = replace_once(requester_code,
+        "      systemPrompt: overrides.systemPrompt ?? turnConfig?.systemPrompt ?? this.profile.getSystemPrompt(),",
+        "      systemPrompt: heartbeatPrompt,")
+    (source / requester).write_text(requester_code, encoding="utf-8")
+    ask_tool = "packages/agent-core-v2/src/agent/tools/ask-user-question/askUserQuestionTool.ts"
+    ask_code = replace_once(original(ask_tool),
+        "    if (this.bootstrap.args.nonInteractive === true) {",
+        "    if (args.questions.length !== 1 || args.questions[0]?.multi_select === true) {\n"
+        "      return { isError: true, output: 'This client supports one single-select question at a time. Ask separately without multi-select.' };\n"
+        "    }\n    if (this.bootstrap.args.nonInteractive === true) {")
+    (source / ask_tool).write_text(ask_code, encoding="utf-8")
+    ask_schema = "packages/agent-core-v2/src/agent/tools/ask-user-question/ask-user-question.ts"
+    ask_schema_code = replace_once(original(ask_schema),
+        "2-4 meaningful, distinct options. Do NOT include an 'Other' option — the system adds one automatically.",
+        "2-4 meaningful, distinct options. The connected client only supports choosing an offered option.")
+    ask_schema_code = replace_once(ask_schema_code, "Whether the user can select multiple options.",
+        "The connected client only supports single selection; set this to false.")
+    (source / ask_schema).write_text(ask_schema_code, encoding="utf-8")
+    ask_description = "packages/agent-core-v2/src/agent/tools/ask-user-question/ask-user.md"
+    ask_description_code = replace_once(original(ask_description),
+        '- Users always have an "Other" option for custom input — don\'t create one yourself\n- Use multi_select to allow multiple answers to be selected for a question',
+        '- The connected client supports one question and one offered option per call; custom answers and multi-select are unavailable.')
+    ask_description_code = replace_once(ask_description_code,
+        'comma-separated labels for multi_select, or the user\'s own words if they picked "Other"',
+        'the selected offered option')
+    (source / ask_description).write_text(ask_description_code, encoding="utf-8")
     origin_path = source / "packages/agent-core-v2/src/heartbeat/origins.ts"
     origin_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(NATIVE / "heartbeat-origins.ts", origin_path)
@@ -198,7 +241,7 @@ def prepare(source, lock, version):
     session_code = replace_once(session_code,
         "import { AcpInteractionBridge } from './interaction-bridge';",
         "import { AcpInteractionBridge } from './interaction-bridge';\n"
-        "import { HeartbeatOrigins, installHeartbeatOrigins, removeHeartbeatOrigins } from '@moonshot-ai/agent-core-v2/heartbeat/origins';")
+        "import { HeartbeatOrigins, installHeartbeatOrigins, removeHeartbeatOrigins, clearHostedTurn, beginHostedTurn } from '@moonshot-ai/agent-core-v2/heartbeat/origins';")
     session_code = replace_once(session_code,
         "  private readonly interactionBridge: AcpInteractionBridge;",
         "  private readonly heartbeatOrigins: HeartbeatOrigins;\n  private readonly interactionBridge: AcpInteractionBridge;")
@@ -210,10 +253,10 @@ def prepare(source, lock, version):
         "    removeHeartbeatOrigins(this.sessionId, this.heartbeatOrigins);\n    this.interactionBridge.dispose();")
     session_code = replace_once(session_code,
         "new AcpInteractionBridge(conn, this.session, sessionId, elicitationForm)",
-        "new AcpInteractionBridge(conn, this.session, sessionId, elicitationForm, (agent, turn) => agent === undefined || turn === undefined ? Promise.resolve(undefined) : this.heartbeatOrigins.resolve(agent, turn))")
+        "new AcpInteractionBridge(conn, this.session, sessionId, elicitationForm, (agent, turn) => agent === undefined || turn === undefined ? Promise.resolve(undefined) : this.heartbeatOrigins.lease(agent, turn))")
     session_code = replace_once(session_code,
         "const driver: TurnDriver = { resolve, reject, settled: false, early: [] };",
-        "const driver: TurnDriver = { resolve, reject, settled: false, early: [], launch, heartbeatTurn };")
+        "const driver: TurnDriver = { resolve, reject, settled: false, early: [], launch, heartbeatTurn };\n      beginHostedTurn(heartbeatTurn);")
     session_code = replace_once(session_code,
         "  async prompt(blocks: readonly ContentBlock[]): Promise<PromptResponse> {",
         "  async prompt(blocks: readonly ContentBlock[], heartbeatTurn?: string): Promise<PromptResponse> {")
@@ -245,26 +288,57 @@ def prepare(source, lock, version):
         "      return undefined;\n"
         "    }\n"
         "  }\n\n  private driveTurn(input: readonly ContentPart[], heartbeatTurn?: string): Promise<PromptResponse> {")
+    session_code = replace_once(session_code, "    driver.settled = true;\n", "    driver.settled = true;\n    clearHostedTurn(driver.heartbeatTurn);\n")
     (source / acp_session).write_text(session_code, encoding="utf-8")
     interaction = "packages/acp-server/src/interaction-bridge.ts"
-    interaction_code = replace_once(original(interaction),
+    interaction_original = "import { registerHostedRevocation, completeHostedCall, type HeartbeatLease } from '@moonshot-ai/agent-core-v2/heartbeat/origins';\n" + original(interaction)
+    interaction_code = replace_once(interaction_original,
         "    private readonly elicitationForm = false,\n", "    private readonly elicitationForm = false,\n"
-        "    private readonly acceptsHostedApproval: (agent: string | undefined, turn: number | undefined) => Promise<string | undefined> = async () => undefined,\n")
+        "    private readonly acceptsHostedApproval: (agent: string | undefined, turn: number | undefined) => Promise<HeartbeatLease | undefined> = async () => undefined,\n")
     interaction_code = replace_once(interaction_code,
         "    const toolCall = buildPermissionToolCallUpdate(req);",
-        "    const heartbeatTurn = await this.acceptsHostedApproval(req.agentId, req.turnId);\n"
-        "    if (heartbeatTurn === undefined) return { decision: 'rejected' };\n"
+        "    const lease = await this.acceptsHostedApproval(req.agentId, req.turnId);\n"
+        "    if (lease === undefined) return { decision: 'rejected' };\n"
+        "    const heartbeatTurn = lease.origin;\n"
         "    const original = buildPermissionToolCallUpdate(req);\n"
-        "    const toolCall = { ...original, _meta: { ...original._meta, heartbeatTurn, heartbeatAgent: req.agentId } };")
+        "    const toolCall = { ...original, _meta: { ...original._meta, heartbeatTurn, heartbeatAgent: req.agentId, heartbeatPlanReview: req.display.kind === 'plan_review' } };")
+    interaction_code = replace_once(interaction_code,
+        "    const options = approvalRequestToPermissionOptions(req);",
+        "    const options = approvalRequestToPermissionOptions(req);\n"
+        "    const call = req.heartbeatCall;\n"
+        "    if (call !== undefined) {\n"
+        "      if (req.agentId === undefined || req.turnId === undefined) return { decision: 'rejected' };\n"
+        "      const dispose = await lease.watch(() => {\n"
+        "        completeHostedCall(call);\n"
+        "        void this.conn.sessionUpdate({ sessionId: this.sessionId, update: {\n"
+        "          sessionUpdate: 'heartbeat_hosted_revoked', heartbeatTurn, heartbeatCall: call,\n"
+        "        } as never }).catch(() => {});\n"
+        "      });\n"
+        "      if (dispose === undefined) return { decision: 'rejected' };\n"
+        "      if (!registerHostedRevocation(call, heartbeatTurn, dispose)) return { decision: 'rejected' };\n"
+        "    }")
+    interaction_code = replace_once(interaction_code,
+        "      return attachSelectedLabel(\n        response,",
+        "      const selected = response.outcome.outcome === 'selected' ? response.outcome.optionId : undefined;\n"
+        "      if (call !== undefined && !options.some((option) => option.optionId === selected && option.kind === 'allow_once')) {\n"
+        "        completeHostedCall(call);\n      }\n"
+        "      return attachSelectedLabel(\n        response,")
+    interaction_code = replace_once(interaction_code,
+        "      log.warn('acp: requestPermission failed; rejecting', {",
+        "      completeHostedCall(call);\n      log.warn('acp: requestPermission failed; rejecting', {")
     interaction_code = replace_once(interaction_code,
         "        const result = await this.handleQuestion(interaction.payload as QuestionRequest);",
         "        const question = interaction.payload as QuestionRequest;\n"
         "        const agent = interaction.tags?.['agentId'];\n"
-        "        const heartbeatTurn = await this.acceptsHostedApproval(typeof agent === 'string' ? agent : undefined, question.turnId);\n"
+        "        const heartbeatTurn = (await this.acceptsHostedApproval(typeof agent === 'string' ? agent : undefined, question.turnId))?.origin;\n"
         "        const result = heartbeatTurn === undefined ? null : await this.handleQuestion(question, heartbeatTurn, agent as string);")
     interaction_code = replace_once(interaction_code,
         "private async handleQuestion(req: QuestionRequest): Promise<QuestionAnswers | null>",
         "private async handleQuestion(req: QuestionRequest, heartbeatTurn: string, agent: string): Promise<QuestionAnswers | null>")
+    interaction_code = replace_once(interaction_code,
+        "    const questions = req.questions;",
+        "    const questions = req.questions;\n"
+        "    if (questions.length > 1 || questions[0]?.multiSelect === true) return null;")
     interaction_code = replace_once(interaction_code,
         "          title: 'AskUserQuestion',\n", "          title: 'AskUserQuestion',\n          _meta: { heartbeatTurn, heartbeatQuestion: true, heartbeatAgent: agent },\n")
     (source / interaction).write_text(interaction_code, encoding="utf-8")
@@ -290,13 +364,13 @@ def prepare(source, lock, version):
     (source / tower_test).write_text(tower_test_code, encoding="utf-8")
     helper = "packages/acp-server/test/_helpers/scriptedProvider.ts"
     helper_code = replace_once(original(helper), "    private readonly calls: Array<readonly Message[]>,",
-        "    private readonly calls: Array<readonly Message[]>,\n    private readonly toolCalls: Array<readonly Tool[]>,")
-    helper_code = replace_once(helper_code, "    this.calls.push(history);", "    this.calls.push(history);\n    this.toolCalls.push(_tools);")
+        "    private readonly calls: Array<readonly Message[]>,\n    private readonly toolCalls: Array<readonly Tool[]>,\n    private readonly systemCalls: string[],")
+    helper_code = replace_once(helper_code, "    this.calls.push(history);", "    this.calls.push(history);\n    this.toolCalls.push(_tools);\n    this.systemCalls.push(_systemPrompt);")
     helper_code = replace_once(helper_code, "  callHistory(): ReadonlyArray<readonly Message[]>;",
-        "  callHistory(): ReadonlyArray<readonly Message[]>;\n  toolHistory(): ReadonlyArray<readonly Tool[]>;")
+        "  callHistory(): ReadonlyArray<readonly Message[]>;\n  toolHistory(): ReadonlyArray<readonly Tool[]>;\n  systemHistory(): readonly string[];")
     helper_code = replace_once(helper_code, "  const provider = new ScriptedChatProvider(queue, calls);",
-        "  const toolCalls: Array<readonly Tool[]> = [];\n  const provider = new ScriptedChatProvider(queue, calls, toolCalls);")
-    helper_code = replace_once(helper_code, "    callHistory: () => calls,", "    callHistory: () => calls,\n    toolHistory: () => toolCalls,")
+        "  const toolCalls: Array<readonly Tool[]> = [];\n  const systemCalls: string[] = [];\n  const provider = new ScriptedChatProvider(queue, calls, toolCalls, systemCalls);")
+    helper_code = replace_once(helper_code, "    callHistory: () => calls,", "    callHistory: () => calls,\n    toolHistory: () => toolCalls,\n    systemHistory: () => systemCalls,")
     (source / helper).write_text(helper_code, encoding="utf-8")
     shutil.copyfile(NATIVE / "heartbeat-permissions.test.ts",
                     source / "packages/acp-server/test/heartbeat-permissions.test.ts")
@@ -311,6 +385,10 @@ def prepare(source, lock, version):
         replace_once(original(plan_test), "  describe('guard', () => {",
             (NATIVE / "heartbeat-plan.test.fragment.ts").read_text(encoding="utf-8") + "  describe('guard', () => {"),
         encoding="utf-8")
+
+
+def runtime_arch(machine):
+    return {"amd64": "x64", "x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}[machine.lower()]
 
 
 def main():
@@ -349,7 +427,7 @@ def main():
          "test/features/tower/tools/spawnTool.test.ts", "-t", "binds a Tower worker"], source, env)
     run([node, pnpm, "-C", "apps/kimi-code", "run", "build:native:sea"], source, env)
     os_name = {"Windows": "win32", "Darwin": "darwin", "Linux": "linux"}[platform.system()]
-    arch = {"AMD64": "x64", "x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]
+    arch = runtime_arch(platform.machine())
     target = f"{os_name}-{arch}"
     executable = "kimi.exe" if os_name == "win32" else "kimi"
     built = source / f"apps/kimi-code/dist-native/bin/{target}/{executable}"

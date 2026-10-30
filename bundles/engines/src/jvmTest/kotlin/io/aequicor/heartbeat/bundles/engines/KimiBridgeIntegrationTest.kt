@@ -32,11 +32,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DesktopAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.KimiRuntime
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -120,6 +122,23 @@ class KimiBridgeIntegrationTest {
                 assertEquals(session.ref, tools.calls.single().session)
                 assertEquals("x", tools.arguments.single().getValue("value").jsonPrimitive.content)
                 assertTrue("__heartbeat_call" !in tools.arguments.single())
+                tools.block = true
+                wire.input.send(
+                    """{"jsonrpc":"2.0","id":100,"method":"session/request_permission","params":{""" +
+                        """"sessionId":"native","toolCall":{"title":"mcp__heartbeat_tools__tool",""" +
+                        """"_meta":{"heartbeatTurn":"$turnToken","heartbeatCall":"call-2"}},""" +
+                        """"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"}]}}""",
+                )
+                assertTrue(wire.next().toString().contains("selected"))
+                val running = async { mcpCall(url, token, "call-2") }
+                tools.started.await()
+                wire.input.send(
+                    """{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"native","update":{""" +
+                        """"sessionUpdate":"heartbeat_hosted_revoked","heartbeatTurn":"$turnToken",""" +
+                        """"heartbeatCall":"call-2"}}}""",
+                )
+                tools.cancelled.await()
+                running.await()
                 wire.reply(prompt, """{"stopReason":"end_turn"}""")
             } finally {
                 runtime.close()
@@ -191,6 +210,9 @@ private class TestProfile :
 private class TestTools : ProfileAgentTools {
     val calls = mutableListOf<AgentToolContext>()
     val arguments = mutableListOf<JsonObject>()
+    var block = false
+    val started = CompletableDeferred<Unit>()
+    val cancelled = CompletableDeferred<Unit>()
     override suspend fun specifications(workspace: WorkspaceRef?) = listOf(
         AgentToolSpec("tool", "Tool", JsonObject(emptyMap())),
     )
@@ -198,6 +220,14 @@ private class TestTools : ProfileAgentTools {
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         calls += context
         this.arguments += arguments
+        if (block) {
+            try {
+                started.complete(Unit)
+                awaitCancellation()
+            } finally {
+                cancelled.complete(Unit)
+            }
+        }
         return AgentToolResult("ok")
     }
 }

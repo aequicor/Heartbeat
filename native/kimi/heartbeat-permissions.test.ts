@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getLiveSessionById, IAgentLifecycleService, IAgentPermissionPolicyService, IAgentSwarmService } from '@moonshot-ai/agent-core-v2';
+import { getLiveSessionById, IAgentLifecycleService, IAgentPermissionPolicyService, IAgentSwarmService, IAgentTaskService } from '@moonshot-ai/agent-core-v2';
 import { HeartbeatPermissionPolicy, installHeartbeatPermissions } from '../src/heartbeat-acp';
 import { AcpSession } from '../src/session';
 import { createTestClient, type TestClient } from './_helpers/acpClient';
@@ -177,6 +177,30 @@ describe('mandatory Heartbeat permission boundary', () => {
     expect(questions, observed.join(', ')).toBe(1);
   }, 30_000);
 
+  it.each(['multiple questions', 'multiple selection'])('rejects unsupported %s without inventing answers', async (kind) => {
+    home = await mkdtemp(join(tmpdir(), 'heartbeat-kimi-question-'));
+    await writeFakeModelConfig(home);
+    const scripted = createScriptedProvider();
+    client = await createTestClient({ homeDir: home, extraSeeds: [scripted.seed] });
+    let questions = 0;
+    client.onRequest('session/request_permission', (params) => {
+      const meta = (params as { toolCall: { _meta?: { heartbeatQuestion?: boolean } } }).toolCall._meta;
+      if (meta?.heartbeatQuestion === true) questions++;
+      return { outcome: { outcome: 'selected', optionId: 'approve_once' } };
+    });
+    await client.send('initialize', { protocolVersion: 1, clientCapabilities: {} });
+    const { sessionId } = await client.send('session/new', { cwd: home, mcpServers: [] }) as { sessionId: string };
+    await client.waitForSessionUpdate('available_commands_update', 10_000);
+    const question = { question: 'Pick one', header: 'Pick', options: [{ label: 'A' }, { label: 'B' }],
+      multi_select: kind === 'multiple selection' };
+    scripted.mockNextResponse({ type: 'function', id: 'question', name: 'AskUserQuestion',
+      arguments: JSON.stringify({ questions: kind === 'multiple questions' ? [question, { ...question, question: 'Another' }] : [question] }) });
+    scripted.mockNextText('done');
+    await client.send('session/prompt', { sessionId, _meta: { heartbeatTurn: 'question-turn' }, prompt: [{ type: 'text', text: 'ask' }] });
+    expect(questions).toBe(0);
+    expect(JSON.stringify(scripted.callHistory())).toContain('supports one single-select question at a time');
+  }, 30_000);
+
   it.each(['main', 'child', 'swarm'])('binds HTTP MCP calls to the originating turn, agent=%s', async (agent) => {
     const child = agent !== 'main';
     home = await mkdtemp(join(tmpdir(), 'heartbeat-kimi-http-'));
@@ -245,8 +269,81 @@ describe('mandatory Heartbeat permission boundary', () => {
       expect(new Set(receivedCalls)).toEqual(new Set(approvalCalls));
       const descriptions = scripted.toolHistory().flat().filter((tool) => tool.name === 'mcp__heartbeat_tools__echo');
       expect(descriptions.length).toBeGreaterThan(0);
-      expect(descriptions.every((tool) => tool.description.includes('OWNER INSTRUCTIONS FOR HOSTED TOOLS'))).toBe(true);
+      expect(descriptions.every((tool) => !tool.description.includes('OWNER INSTRUCTIONS FOR HOSTED TOOLS'))).toBe(true);
+      for (const prompt of scripted.systemHistory()) {
+        expect(prompt.split('OWNER INSTRUCTIONS FOR HOSTED TOOLS')).toHaveLength(2);
+      }
     } finally {
+      http.closeAllConnections();
+      await new Promise<void>((resolve) => http.close(() => resolve()));
+    }
+  }, 30_000);
+
+  it('notifies the host when a child is cancelled during hosted approval', async () => {
+    home = await mkdtemp(join(tmpdir(), 'heartbeat-kimi-revoke-'));
+    await writeFakeModelConfig(home);
+    const scripted = createScriptedProvider();
+    client = await createTestClient({ homeDir: home, extraSeeds: [scripted.seed] });
+    let approved!: (call: string) => void;
+    const pendingApproval = new Promise<string>((resolve) => { approved = resolve; });
+    let release!: () => void;
+    const decision = new Promise<void>((resolve) => { release = resolve; });
+    const http = createServer(async (req, res) => {
+      if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      const message = JSON.parse(Buffer.concat(chunks).toString());
+      if (message.id === undefined) { res.writeHead(202).end(); return; }
+      const result = message.method === 'initialize'
+        ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'test', version: '1' } }
+        : message.method === 'tools/list'
+          ? { tools: [{ name: 'echo', description: 'Echo', inputSchema: { type: 'object', properties: {} } }] }
+          : { content: [{ type: 'text', text: 'ok' }], isError: false };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
+    });
+    await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = http.address();
+      if (address === null || typeof address === 'string') throw new Error('HTTP address unavailable');
+      client.onRequest('session/request_permission', async (params) => {
+        const meta = (params as { toolCall: { _meta: { heartbeatCall?: string } } }).toolCall._meta;
+        if (meta.heartbeatCall !== undefined) { approved(meta.heartbeatCall); await decision; }
+        return { outcome: { outcome: 'selected', optionId: 'approve_once' } };
+      });
+      await client.send('initialize', { protocolVersion: 1, clientCapabilities: {} });
+      const { sessionId } = await client.send('session/new', { cwd: home, mcpServers: [
+        { type: 'http', name: 'heartbeat_tools', url: `http://127.0.0.1:${address.port}/mcp`, headers: [] },
+      ] }) as { sessionId: string };
+      await client.waitForSessionUpdate('available_commands_update', 10_000);
+      scripted.mockNextResponse({ type: 'function', id: 'child', name: 'Agent',
+        arguments: JSON.stringify({ description: 'child', prompt: 'use echo' }) });
+      scripted.mockNextResponse({ type: 'function', id: 'echo', name: 'mcp__heartbeat_tools__echo', arguments: '{}' });
+      scripted.mockNextText('parent done');
+      const prompt = client.send('session/prompt', { sessionId, _meta: { heartbeatTurn: 'test-turn' }, prompt: [{ type: 'text', text: 'use echo' }] });
+      let promptSettled = false;
+      void prompt.then(() => { promptSettled = true; });
+      const call = await pendingApproval;
+      const session = getLiveSessionById(client.server.core.accessor, sessionId)!;
+      const main = session.accessor.get(IAgentLifecycleService).handleOf('main')!;
+      const tasks = main.accessor.get(IAgentTaskService);
+      let childTask = tasks.list(true).find((task) => task.kind === 'agent');
+      for (let i = 0; childTask === undefined && i < 100; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        childTask = tasks.list(true).find((task) => task.kind === 'agent');
+      }
+      if (childTask === undefined) throw new Error('child task was not registered');
+      const stopping = tasks.stopByUser(childTask.taskId);
+      const revoked = await client.waitForSessionUpdate('heartbeat_hosted_revoked', 5_000);
+      const update = (revoked.params as { update: { heartbeatTurn: string; heartbeatCall: string } }).update;
+      expect(update.heartbeatTurn).toBe('test-turn');
+      expect(update.heartbeatCall).toBe(call);
+      expect(promptSettled).toBe(false);
+      release();
+      await stopping;
+      await prompt;
+    } finally {
+      release?.();
       http.closeAllConnections();
       await new Promise<void>((resolve) => http.close(() => resolve()));
     }
