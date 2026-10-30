@@ -193,3 +193,8 @@ tasks.register<Exec>("linuxGtkSmokeTest") {
     onlyIf { linuxHost.get() }
     commandLine("xvfb-run", "--auto-servernum", binary.get().asFile.absolutePath, "--ktest_filter=*LinuxUiTest*")
 }
+
+// Native failures otherwise appear only as AssertionError at null:-1, hiding the actual violated assertion.
+tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest>().configureEach {
+    testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+}
