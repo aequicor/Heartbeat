@@ -2,9 +2,17 @@ package io.aequicor.heartbeat.platform.nativelauncher.bootstrap
 
 import kotlinx.serialization.json.Json
 
+private const val MAX_TCP_PORT = 65535
+
 /** HTTPS обязателен; HTTP допускается только к loopback для локальных проверок provisioning. */
-fun isAllowedArtifactUrl(url: String): Boolean =
-    url.startsWith("https://") || url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")
+fun isAllowedArtifactUrl(url: String): Boolean {
+    if (url.startsWith("https://")) return true
+    if (!url.startsWith("http://")) return false
+    val authority = url.removePrefix("http://").takeWhile { it != '/' && it != '?' && it != '#' }
+    val match = Regex("(127\\.0\\.0\\.1|localhost|\\[::1\\])(?::([0-9]+))?").matchEntire(authority) ?: return false
+    val port = match.groupValues[2]
+    return port.isEmpty() || port.toIntOrNull()?.let { it in 1..MAX_TCP_PORT } == true
+}
 
 /**
  * Разбор и валидация bootstrap-манифеста до любого использования его значений: лимит размера, поддерживаемая схема,

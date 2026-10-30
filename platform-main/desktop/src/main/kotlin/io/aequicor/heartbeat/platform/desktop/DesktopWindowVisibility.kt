@@ -8,6 +8,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
 import io.aequicor.heartbeat.core.logging.Log
 import java.awt.EventQueue
@@ -104,6 +108,22 @@ internal class DesktopWindowVisibility(
         windowState.isMinimized = false
         isVisible = true
         restoreRequest++
+    }
+
+    /** Restores the native launcher's presentation without treating background readiness as an Open gesture. */
+    fun showFromHandoff(presentation: DesktopHandoff.Presentation) {
+        log.i {
+            "Showing handoff window: minimized=${presentation.isMinimized}, " +
+                "activate=${presentation.isActivationRequested}"
+        }
+        presentation.bounds?.let { bounds ->
+            windowState.position = WindowPosition(bounds.x.dp, bounds.y.dp)
+            windowState.size = DpSize(bounds.width.dp, bounds.height.dp)
+        }
+        if (presentation.isMaximized) windowState.placement = WindowPlacement.Maximized
+        windowState.isMinimized = presentation.isMinimized
+        isVisible = true
+        if (presentation.isActivationRequested && !presentation.isMinimized) restoreRequest++
     }
 
     override fun close() {

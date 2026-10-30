@@ -110,4 +110,19 @@ class BootstrapManifestVerifierTest {
         )
         assertTrue(sha256Hex(ByteArray(0)) == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     }
+
+    @Test
+    fun httpIsLimitedToExactLoopbackAuthority() {
+        listOf("http://localhost/a", "http://127.0.0.1:8080/a", "http://[::1]:123/a").forEach {
+            kotlin.test.assertTrue(isAllowedArtifactUrl(it), it)
+        }
+        listOf(
+            "http://localhost.evil/a",
+            "http://127.0.0.10/a",
+            "http://localhost@evil/a",
+            "http://127.0.0.1.evil/a",
+            "http://localhost:65536/a",
+            "http://localhost:bad/a",
+        ).forEach { kotlin.test.assertFalse(isAllowedArtifactUrl(it), it) }
+    }
 }

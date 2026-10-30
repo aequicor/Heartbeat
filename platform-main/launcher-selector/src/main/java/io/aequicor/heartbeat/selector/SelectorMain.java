@@ -35,12 +35,19 @@ public final class SelectorMain {
         Selector selector = new Selector(SelectorPaths.slotsDir(), trustedKeys());
         boolean owner = !isAuxiliary(args) && selector.becomeOwner();
         LaunchMarks.mark(isAuxiliary(args) ? "selector.auxiliary" : owner ? "selector.owner" : "selector.secondary");
-        run(selector, args, SelectorAgent.instrumentation(), embeddedJar(), owner);
+        try (NativeCancellation cancellation = NativeCancellation.watch(args)) {
+            run(selector, args, SelectorAgent.instrumentation(), embeddedJar(), owner, cancellation::enable);
+        }
         LaunchMarks.mark("selector.app-finished");
     }
 
     static void run(Selector selector, String[] args, java.lang.instrument.Instrumentation inst, Path embedded,
                     boolean owner) throws Exception {
+        run(selector, args, inst, embedded, owner, () -> { });
+    }
+
+    private static void run(Selector selector, String[] args, java.lang.instrument.Instrumentation inst, Path embedded,
+                            boolean owner, Runnable applicationStarted) throws Exception {
         Set<String> failed = new HashSet<>();
         while (true) {
             Choice choice = selector.choose(failed);
@@ -53,7 +60,11 @@ public final class SelectorMain {
             System.clearProperty(DEFERRED);
             LaunchMarks.mark("selector.launcher-start");
             try {
-                SlotLauncher.launch(jar, args, inst, confirmation(selector, choice, owner), owner ? stager(selector) : null);
+                Runnable confirmation = confirmation(selector, choice, owner);
+                SlotLauncher.launch(jar, args, inst, () -> {
+                    confirmation.run();
+                    applicationStarted.run();
+                }, owner ? stager(selector) : null);
                 LaunchMarks.mark("selector.app-returned");
                 return;
             } catch (SlotLauncher.NotStartedException e) {

@@ -29,7 +29,7 @@ import platform.posix.errno
 import platform.posix.kill
 
 /** Owned POSIX child: argv is never joined into a shell command; standard streams are inherited for workers. */
-internal class UnixChild private constructor(private val pid: Int) {
+internal class UnixChild private constructor(val pid: Int) {
     private var exitCode: Int? = null
 
     fun poll(): Int? = waitFor(blocking = false)

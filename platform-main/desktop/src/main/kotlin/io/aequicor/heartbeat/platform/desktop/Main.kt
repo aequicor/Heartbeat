@@ -213,6 +213,7 @@ private fun launchDesktopApplication(
         DesktopWindowHost(
             onCloseRequest = visibility::closeWindow,
             isVisible = visibility.isVisible,
+            isAutoRequestFocus = DesktopHandoff.directory() == null,
             icon = icon,
             state = windowState,
             isAlwaysOnTop = computerUse.isActive,

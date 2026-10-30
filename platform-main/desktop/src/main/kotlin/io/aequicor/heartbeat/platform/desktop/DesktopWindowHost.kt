@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +26,7 @@ internal fun DesktopWindowHost(
     nativePresentation: @Composable (ComposeWindow) -> Unit,
     isVisible: Boolean = true,
     isAlwaysOnTop: Boolean = false,
+    isAutoRequestFocus: Boolean = true,
     icon: Painter? = null,
     onPreviewKeyEvent: (KeyEvent) -> Boolean = { false },
     content: @Composable FrameWindowScope.() -> Unit,
@@ -40,6 +42,7 @@ internal fun DesktopWindowHost(
         onPreviewKeyEvent = onPreviewKeyEvent,
     ) {
         val currentWindow = window
+        SideEffect { currentWindow.isAutoRequestFocus = isAutoRequestFocus }
         DisposableEffect(currentWindow) {
             nativeWindow = currentWindow
             val shownListener = object : java.awt.event.WindowAdapter() {

@@ -66,8 +66,46 @@ val generateBootstrapDefaults = tasks.register("generateBootstrapDefaults") {
 kotlin {
     jvmToolchain(17)
     jvm()
-    macosX64()
-    macosArm64()
+    listOf(macosX64(), macosArm64()).forEach { target ->
+        val arch = if (target.name == "macosArm64") "arm64" else "x86_64"
+        val bridgeSource = layout.projectDirectory.file("src/nativeInterop/cinterop/macos_ui.m")
+        val bridgeHeader = layout.projectDirectory.file("src/nativeInterop/cinterop/macos_ui.h")
+        val bridgeObject = layout.buildDirectory.file("native-bridge/$arch/macos_ui.o")
+        val macHost = providers.systemProperty("os.name").map { it.startsWith("Mac") }
+        val compileBridge = tasks.register<Exec>("compileMacosUi" + target.name.replaceFirstChar { it.uppercase() }) {
+            inputs.files(bridgeSource, bridgeHeader)
+            inputs.property("arch", arch)
+            outputs.file(bridgeObject)
+            if (macHost.get()) {
+                inputs.property("sdk", providers.exec {
+                    commandLine("/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path")
+                }.standardOutput.asText)
+                inputs.property("clang", providers.exec {
+                    commandLine("/usr/bin/xcrun", "--sdk", "macosx", "clang", "--version")
+                }.standardOutput.asText)
+            }
+            onlyIf { macHost.get() }
+            doFirst { bridgeObject.get().asFile.parentFile.mkdirs() }
+            commandLine("/usr/bin/xcrun", "--sdk", "macosx", "clang", "-fobjc-arc", "-fblocks",
+                "-arch", arch, "-mmacosx-version-min=12.0", "-c", bridgeSource.asFile.absolutePath,
+                "-o", bridgeObject.get().asFile.absolutePath)
+        }
+        target.compilations.getByName("main").cinterops.create("macosUi") {
+            definitionFile.set(project.file("src/nativeInterop/cinterop/macosUi.def"))
+            includeDirs(project.file("src/nativeInterop/cinterop"))
+        }
+        target.binaries.all {
+            linkerOpts(bridgeObject.get().asFile.absolutePath)
+            linkTaskProvider.configure {
+                dependsOn(compileBridge)
+                inputs.file(bridgeObject)
+            }
+        }
+        target.binaries.executable {
+            baseName = "heartbeat-launcher"
+            entryPoint = "io.aequicor.heartbeat.platform.nativelauncher.main"
+        }
+    }
     linuxX64()
     mingwX64 {
         binaries {
@@ -105,7 +143,10 @@ kotlin {
         nativeMain {
             kotlin.srcDir(generateBootstrapDefaults.map { it.outputs.files.single() })
         }
+        macosMain.dependencies { implementation(libs.ktor.client.darwin) }
+        linuxMain.dependencies { implementation(libs.ktor.client.curl) }
         nativeMain.dependencies {
+            implementation(libs.ktor.client.core)
             implementation(libs.ionspin.libsodium)
         }
         mingwMain {
@@ -116,6 +157,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.okio)
         }
+        nativeTest.dependencies { implementation(libs.ktor.client.mock) }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }
