@@ -1,0 +1,147 @@
+package = io.aequicor.heartbeat.platform.nativelauncher.windowsprocess
+---
+#define _WIN32_WINNT 0x0601
+#include <windows.h>
+#include <stdlib.h>
+
+/* GetNativeSystemInfo deliberately reports AMD64 to x64 code emulated on ARM64.
+ * Resolve the actual native machine through IsWow64Process2; older x64 Windows lack that export. */
+typedef BOOL (WINAPI *HbMachineQuery)(HANDLE, USHORT *, USHORT *);
+static inline USHORT hb_query_native_machine(HbMachineQuery query) {
+    USHORT process = 0, native = 0;
+    if (query) return query(GetCurrentProcess(), &process, &native) ? native : 0;
+    SYSTEM_INFO info = {0};
+    GetNativeSystemInfo(&info);
+    return info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64 ? IMAGE_FILE_MACHINE_ARM64 :
+           info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ? IMAGE_FILE_MACHINE_AMD64 : 0;
+}
+static inline USHORT hb_native_machine(void) {
+    HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+    return hb_query_native_machine((HbMachineQuery)GetProcAddress(kernel, "IsWow64Process2"));
+}
+
+/* Top-down 32-bit surfaces allow deterministic area coverage instead of driver-dependent StretchBlt filtering. */
+static inline HBITMAP hb_create_surface(HDC dc, int width, int height, void **pixels) {
+    BITMAPINFO info = {0};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    return CreateDIBSection(dc, &info, DIB_RGB_COLORS, pixels, NULL, 0);
+}
+
+/* Resolve only coverage bounds; solid backgrounds need one sample rather than sixteen. */
+static inline void hb_resolve_region(const void *source, void *destination, int pitch,
+                                     int left, int top, int right, int bottom, int scale) {
+    const unsigned char *src = (const unsigned char *)source;
+    unsigned char *dst = (unsigned char *)destination;
+    for (int y = top; y < bottom; y++) {
+        for (int x = left; x < right; x++) {
+            unsigned sums[3] = {0, 0, 0};
+            for (int sy = 0; sy < scale; sy++) {
+                const unsigned char *p = src + ((size_t)(y * scale + sy) * pitch * scale + x * scale) * 4;
+                for (int sx = 0; sx < scale; sx++, p += 4) {
+                    sums[0] += p[0]; sums[1] += p[1]; sums[2] += p[2];
+                }
+            }
+            unsigned char *p = dst + ((size_t)y * pitch + x) * 4;
+            p[0] = (unsigned char)((sums[0] + scale * scale / 2) / (scale * scale));
+            p[1] = (unsigned char)((sums[1] + scale * scale / 2) / (scale * scale));
+            p[2] = (unsigned char)((sums[2] + scale * scale / 2) / (scale * scale));
+            p[3] = 0;
+        }
+    }
+}
+
+static inline void hb_copy_surface(const void *source, void *destination, int width, int height, int pitch, int scale) {
+    GdiFlush();
+    const DWORD *src = (const DWORD *)source;
+    DWORD *dst = (DWORD *)destination;
+    for (int y = 0; y < height; y++) {
+        const DWORD *row = src + (size_t)y * scale * scale * pitch;
+        for (int x = 0; x < width; x++) dst[(size_t)y * pitch + x] = row[x * scale];
+    }
+}
+
+static inline void hb_resolve_surface(const void *source, void *destination, int width, int height, int pitch) {
+    GdiFlush();
+    hb_resolve_region(source, destination, pitch, 0, 0, width, height, 4);
+}
+
+/* A continuous diagonal light band; the caller supplies the rounded skeleton mask as the DC clip path. */
+static inline BOOL hb_shimmer_band(HDC dc, int top, int bottom, int center, int halfWidth,
+                                   COLORREF base, COLORREF highlight) {
+    typedef BOOL (WINAPI *GradientProc)(HDC, PTRIVERTEX, ULONG, PVOID, ULONG, ULONG);
+    HMODULE library = LoadLibraryW(L"msimg32.dll");
+    if (!library) return FALSE;
+    GradientProc gradient = (GradientProc)GetProcAddress(library, "GradientFill");
+    BOOL result = FALSE;
+    if (gradient) {
+        TRIVERTEX vertices[6] = {0};
+        for (int i = 0; i < 6; i++) {
+            int band = i / 2;
+            COLORREF color = band == 1 ? highlight : base;
+            vertices[i].x = center + (band - 1) * halfWidth - (i % 2 ? (bottom - top) / 3 : 0);
+            vertices[i].y = i % 2 ? bottom : top;
+            vertices[i].Red = GetRValue(color) << 8;
+            vertices[i].Green = GetGValue(color) << 8;
+            vertices[i].Blue = GetBValue(color) << 8;
+            vertices[i].Alpha = 0xffff;
+        }
+        GRADIENT_TRIANGLE triangles[4] = {{0, 1, 2}, {1, 3, 2}, {2, 3, 4}, {3, 5, 4}};
+        result = gradient(dc, vertices, 6, triangles, 4, GRADIENT_FILL_TRIANGLE);
+    }
+    FreeLibrary(library);
+    return result;
+}
+
+/* Only duplicate standard streams are inherited; no other bootstrap file/lock handle reaches a worker. */
+static inline DWORD hb_start_process(const wchar_t *executable, wchar_t *command, HANDLE *process) {
+    STARTUPINFOEXW startup = {0};
+    PROCESS_INFORMATION info = {0};
+    HANDLE streams[3] = {NULL, NULL, NULL};
+    HANDLE inherited[3];
+    const DWORD ids[3] = {STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE};
+    int count = 0;
+    DWORD error = 0;
+    startup.StartupInfo.cb = sizeof(startup);
+    startup.StartupInfo.dwFlags = STARTF_FORCEOFFFEEDBACK;
+    for (int i = 0; i < 3; i++) {
+        HANDLE source = GetStdHandle(ids[i]);
+        if (source && source != INVALID_HANDLE_VALUE) {
+            if (!DuplicateHandle(GetCurrentProcess(), source, GetCurrentProcess(), &streams[i], 0, TRUE,
+                                 DUPLICATE_SAME_ACCESS)) { error = GetLastError(); goto cleanup; }
+            inherited[count++] = streams[i];
+        }
+    }
+    if (count) {
+        SIZE_T bytes = 0;
+        InitializeProcThreadAttributeList(NULL, 1, 0, &bytes);
+        startup.lpAttributeList = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(bytes);
+        if (!startup.lpAttributeList) { error = ERROR_NOT_ENOUGH_MEMORY; goto cleanup; }
+        if (!InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0, &bytes)) {
+            error = GetLastError(); free(startup.lpAttributeList); startup.lpAttributeList = NULL; goto cleanup;
+        }
+        if (!UpdateProcThreadAttribute(startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                                       inherited, sizeof(HANDLE) * count, NULL, NULL)) {
+            error = GetLastError(); goto cleanup;
+        }
+        startup.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = streams[0];
+        startup.StartupInfo.hStdOutput = streams[1];
+        startup.StartupInfo.hStdError = streams[2];
+    }
+    if (!CreateProcessW(executable, command, NULL, NULL, count != 0, EXTENDED_STARTUPINFO_PRESENT,
+                        NULL, NULL, &startup.StartupInfo, &info)) { error = GetLastError(); goto cleanup; }
+    CloseHandle(info.hThread);
+    *process = info.hProcess;
+cleanup:
+    if (startup.lpAttributeList) {
+        DeleteProcThreadAttributeList(startup.lpAttributeList);
+        free(startup.lpAttributeList);
+    }
+    for (int i = 0; i < 3; i++) if (streams[i]) CloseHandle(streams[i]);
+    return error;
+}

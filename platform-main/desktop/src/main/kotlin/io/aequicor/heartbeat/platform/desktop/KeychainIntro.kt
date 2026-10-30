@@ -6,6 +6,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
@@ -19,7 +24,9 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.platform.dibundle.createDesktopHostDispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -69,15 +76,34 @@ internal fun showKeychainIntroIfNeeded(
 /** Blocks until the user continues or closes the window. */
 private fun showKeychainIntro() {
     val labels = ResourceBundle.getBundle("keychain_intro")
+    val handoff = DesktopHandoff.directory()
+    val dispatchers = createDesktopHostDispatchers()
     application(exitProcessOnExit = false) {
         val state = rememberWindowState(size = DpSize.Unspecified, position = WindowPosition(Alignment.Center))
+        var isVisible by remember { mutableStateOf(handoff == null) }
+        val continueLaunch = {
+            handoff?.let(DesktopHandoff::requestActivation)
+            exitApplication()
+        }
         Window(
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = continueLaunch,
             state = state,
             title = labels.getString("title"),
             resizable = false,
+            visible = isVisible,
         ) {
-            HbTheme { KeychainIntroContent(labels, onContinue = ::exitApplication) }
+            HbTheme { KeychainIntroContent(labels, onContinue = continueLaunch) }
+            LaunchedEffect(handoff) {
+                if (handoff != null) {
+                    val presentation = withContext(dispatchers.io) {
+                        DesktopHandoff.awaitHidden(handoff)
+                        DesktopHandoff.presentation(handoff)
+                    }
+                    window.isAutoRequestFocus = presentation.isActivationRequested && !presentation.isMinimized
+                    state.isMinimized = presentation.isMinimized
+                    isVisible = true
+                }
+            }
         }
     }
 }

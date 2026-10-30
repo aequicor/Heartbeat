@@ -1,0 +1,333 @@
+package io.aequicor.heartbeat.platform.nativelauncher.provisioning
+
+import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapArtifactInfo
+import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapManifest
+import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapManifestVerifier
+import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapSignature
+import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.NATIVE_LAUNCHER_VERSION
+import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.isAllowedArtifactUrl
+import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.sha256Hex
+import io.aequicor.heartbeat.platform.nativelauncher.launcherLog
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import okio.FileSystem
+import okio.IOException
+import okio.Path
+import okio.buffer
+
+private const val TAG = "Provision"
+
+/** Этап provisioning для отображения в окне лончера. */
+enum class ProvisionStage { MANIFEST, DOWNLOAD, EXTRACT, ACTIVATE }
+
+/** Download bytes cover the entire runtime + platform + seed set, including resumed bytes. */
+data class ProvisionProgress(
+    val stage: ProvisionStage,
+    val artifact: String? = null,
+    val downloadedBytes: Long = 0,
+    val totalBytes: Long = 0,
+)
+
+/** Ожидаемые отказы provisioning; текст показывается пользователю в окне лончера. */
+sealed class ProvisionException(message: String, cause: Throwable? = null) : Exception(message, cause) {
+    class Network(message: String, cause: Throwable? = null) : ProvisionException(message, cause)
+    class BadSignature : ProvisionException("Bootstrap manifest signature is not trusted")
+    class InsufficientSpace(val requiredBytes: Long) :
+        ProvisionException("Not enough free space for provisioning: $requiredBytes bytes required")
+    class CorruptedDownload(url: String) : ProvisionException("Downloaded artifact failed size/SHA-256 check: $url")
+    class LockTimeout : ProvisionException("Another instance is provisioning; timed out waiting for it")
+}
+
+/**
+ * Полный цикл первого запуска и обновления: манифест → проверка подписи и схемы → загрузка runtime/platform/seed
+ * с resume через Range → проверка размера и SHA-256 → безопасная распаковка в staging → атомарная активация.
+ * Повторный запуск использует [currentOfflineImage] и не требует сети; удалённый манифест не блокирует offline-запуск.
+ * Блокировка исключает параллельный provisioning: ожидающий экземпляр принимает готовый image владельца.
+ * Отмена оставляет частичные `.part` для resume, удаляет staging и не активирует неполный image.
+ */
+class BootstrapProvisioner(
+    private val store: ImageStore,
+    private val transport: HttpTransport,
+    private val manifestUrl: String,
+    private val signatureUrl: String,
+    private val trustedKeys: List<ByteArray>,
+    private val fs: FileSystem = FileSystem.SYSTEM,
+    private val freeSpace: (Path) -> Long = ProvisioningPlatform::freeSpaceBytes,
+    private val expectedVersion: String? = null,
+    private val expectedTarget: String? = null,
+    private val expectedChannel: String? = null,
+    private val lockPollMillis: Long = 500,
+    private val lockTimeoutMillis: Long = DEFAULT_LOCK_TIMEOUT_MILLIS,
+) {
+
+    /** Проверенный локальный image для запуска без сети. */
+    fun currentOfflineImage(): ProvisionedImage? = store.currentImage()
+
+    suspend fun provision(
+        onProgress: (ProvisionProgress) -> Unit = {},
+        isCancelled: () -> Boolean = { false },
+    ): ProvisionedImage {
+        val before = store.currentImage()
+        val lock = acquireLock(isCancelled)
+        try {
+            return provisionLocked(before, onProgress, isCancelled)
+        } finally {
+            lock.release()
+        }
+    }
+
+    private suspend fun provisionLocked(
+        before: ProvisionedImage?,
+        onProgress: (ProvisionProgress) -> Unit,
+        isCancelled: () -> Boolean,
+    ): ProvisionedImage {
+        val current = store.currentImage()
+        if (current != null && current.id != before?.id && matchesInstalledPlatform(current)) {
+            // Владелец блокировки уже собрал image, пока этот экземпляр ждал: дублировать работу не нужно.
+            return current
+        }
+        val manifest = fetchManifest(isCancelled)
+        require(manifest.minNativeLauncherVersion <= NATIVE_LAUNCHER_VERSION) { "A newer native launcher is required" }
+        require(expectedVersion == null || manifest.version == expectedVersion) { "Unexpected bootstrap version" }
+        require(expectedTarget == null || "${manifest.os}-${manifest.arch}" == expectedTarget) {
+            "Unexpected bootstrap OS or architecture"
+        }
+        require(expectedChannel == null || manifest.channel == expectedChannel) { "Unexpected bootstrap channel" }
+        val imageId = imageId(manifest)
+        return if (current?.id == imageId) current else provisionNewImage(manifest, imageId, onProgress, isCancelled)
+    }
+
+    private fun matchesInstalledPlatform(image: ProvisionedImage): Boolean {
+        if (image.minNativeLauncherVersion > NATIVE_LAUNCHER_VERSION) return false
+        val isVersionMatching = expectedVersion == null || image.platformVersion == expectedVersion
+        val isTargetMatching = expectedTarget == null || image.platformTarget == expectedTarget
+        val isChannelMatching = expectedChannel == null || image.platformChannel == expectedChannel
+        return isVersionMatching && isTargetMatching && isChannelMatching
+    }
+
+    private suspend fun provisionNewImage(
+        manifest: BootstrapManifest,
+        imageId: String,
+        onProgress: (ProvisionProgress) -> Unit,
+        isCancelled: () -> Boolean,
+    ): ProvisionedImage {
+        // The provision lock owns this staging, including remnants of a terminated prior process.
+        val staging = store.stagingDir(imageId)
+        if (fs.exists(staging)) fs.deleteRecursively(staging)
+        val totalBytes = manifest.runtime.size + manifest.platform.size + manifest.seed.size
+        onProgress(ProvisionProgress(ProvisionStage.MANIFEST, totalBytes = totalBytes))
+        val required = totalBytes * 2
+        val free = freeSpace(store.root)
+        if (free < required) throw ProvisionException.InsufficientSpace(required)
+        val artifacts = listOf(
+            Artifact("runtime", manifest.runtime),
+            Artifact("platform", manifest.platform),
+            Artifact("seed", manifest.seed),
+        )
+        var completedBytes = 0L
+        val files = artifacts.map { artifact ->
+            val file = downloadArtifact(artifact, { progress ->
+                onProgress(
+                    progress.copy(downloadedBytes = completedBytes + progress.downloadedBytes, totalBytes = totalBytes),
+                )
+            }, isCancelled)
+            completedBytes += artifact.info.size
+            onProgress(ProvisionProgress(ProvisionStage.DOWNLOAD, artifact.name, completedBytes, totalBytes))
+            file
+        }
+        try {
+            fs.createDirectories(staging)
+            onProgress(ProvisionProgress(ProvisionStage.EXTRACT))
+            val extractor = SafeZipExtractor(fs, isCancelled = isCancelled)
+            extractor.extract(files[0], staging)
+            checkCancelled(isCancelled)
+            extractor.extract(files[1], staging)
+            checkCancelled(isCancelled)
+            extractor.extract(
+                files[2],
+                staging.resolve(BootstrapLayout.forPlatform(manifest.os, manifest.channel).seed),
+            )
+            checkCancelled(isCancelled)
+            val image = ProvisionedImage(
+                imageId,
+                store.imageDir(imageId),
+                manifest.runtime.id,
+                manifest.seed.trainId,
+                manifest.version,
+                "${manifest.os}-${manifest.arch}",
+                manifest.channel,
+                manifest.minNativeLauncherVersion,
+            )
+            onProgress(ProvisionProgress(ProvisionStage.ACTIVATE))
+            activateImage(image, staging, isCancelled)
+            store.prune()
+            return checkNotNull(store.currentImage()) { "Activated image is missing" }
+        } finally {
+            // Activation moves staging away; every failed extraction must release its disk space.
+            if (fs.exists(staging)) cleanupStaging(staging)
+        }
+    }
+
+    /** A freshly extracted executable can briefly be held by Windows scanners; keep the verified staging intact. */
+    private suspend fun activateImage(image: ProvisionedImage, staging: Path, isCancelled: () -> Boolean) {
+        repeat(ACTIVATION_ATTEMPTS) { attempt ->
+            checkCancelled(isCancelled)
+            try {
+                store.activate(image, staging)
+                return
+            } catch (error: IOException) {
+                if (attempt == ACTIVATION_ATTEMPTS - 1 || !fs.exists(staging)) throw error
+                launcherLog.w(TAG, error) { "Image activation temporarily blocked; retrying verified staging" }
+                delay(ACTIVATION_RETRY_MILLIS)
+            }
+        }
+    }
+
+    private data class Artifact(val name: String, val info: BootstrapArtifactInfo)
+
+    private fun imageId(manifest: BootstrapManifest): String {
+        val raw = "${manifest.version}-${manifest.os}-${manifest.arch}-${manifest.channel}-" +
+            "${manifest.seed.trainId}-${manifest.platform.sha256.take(HASH_PREFIX)}-v2"
+        return raw.map { if (it.isLetterOrDigit() || it in SAFE_ID_PUNCTUATION) it else '-' }.joinToString("")
+    }
+
+    private suspend fun acquireLock(isCancelled: () -> Boolean): ProvisionLockHandle {
+        var waited = 0L
+        while (true) {
+            ProvisioningPlatform.tryLock(store.lockFile)?.let { return it }
+            if (waited >= lockTimeoutMillis) throw ProvisionException.LockTimeout()
+            delay(lockPollMillis)
+            waited += lockPollMillis
+            if (isCancelled()) throw CancellationException("Provisioning cancelled while waiting for the lock")
+        }
+    }
+
+    private suspend fun fetchManifest(isCancelled: () -> Boolean): BootstrapManifest {
+        checkCancelled(isCancelled)
+        require(isAllowedArtifactUrl(manifestUrl) && isAllowedArtifactUrl(signatureUrl)) {
+            "Bootstrap manifest and signature must use HTTPS"
+        }
+        val manifestBytes = get(manifestUrl, BootstrapManifestVerifier.MAX_MANIFEST_BYTES.toLong())
+        val signature = get(signatureUrl, BootstrapSignature.SIGNATURE_BYTES.toLong())
+        checkCancelled(isCancelled)
+        if (!BootstrapSignature.verify(manifestBytes, signature, trustedKeys)) {
+            throw ProvisionException.BadSignature()
+        }
+        return BootstrapManifestVerifier.parse(manifestBytes)
+    }
+
+    private suspend fun get(url: String, limit: Long): ByteArray {
+        val response = try {
+            transport.getBytes(url, limit)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw ProvisionException.Network("Cannot download $url: $error", error)
+        }
+        if (response.status != HTTP_OK) networkError("HTTP ${response.status} for $url")
+        if (response.body.size > limit) networkError("Response exceeds the limit for $url")
+        return response.body
+    }
+
+    private suspend fun downloadArtifact(
+        artifact: Artifact,
+        onProgress: (ProvisionProgress) -> Unit,
+        isCancelled: () -> Boolean,
+    ): Path {
+        val file = store.downloadsDir.resolve("${artifact.name}.part")
+        fs.createDirectories(store.downloadsDir)
+        val info = artifact.info
+        val partSize = if (fs.exists(file)) fs.metadata(file).size ?: 0L else 0L
+        if (partSize > info.size) fs.delete(file)
+        val offset = if (fs.exists(file)) fs.metadata(file).size ?: 0L else 0L
+        if (offset == info.size) {
+            val verified = verifyDownload(file, info, offset)
+            onProgress(ProvisionProgress(ProvisionStage.DOWNLOAD, artifact.name, offset, info.size))
+            return verified
+        }
+        var downloaded = offset
+        var sink: okio.BufferedSink? = null
+        val result = try {
+            transport.download(
+                info.url,
+                offset,
+                onStart = { isResumed ->
+                    sink = if (isResumed && offset > 0) {
+                        fs.appendingSink(file).buffer()
+                    } else {
+                        // Сервер не поддержал Range: пишем с нуля, а не дописываем к хвосту.
+                        downloaded = 0
+                        fs.sink(file).buffer()
+                    }
+                },
+                onChunk = { chunk ->
+                    checkCancelled(isCancelled)
+                    downloaded = writeDownloadChunk(checkNotNull(sink), chunk, downloaded, info)
+                    onProgress(ProvisionProgress(ProvisionStage.DOWNLOAD, artifact.name, downloaded, info.size))
+                },
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw downloadFailure(error, info.url)
+        } finally {
+            sink?.close()
+        }
+        if (result.status !in SUCCESS_RANGE) networkError("HTTP ${result.status} for ${info.url}")
+        return verifyDownload(file, info, downloaded)
+    }
+
+    private fun writeDownloadChunk(
+        sink: okio.BufferedSink,
+        chunk: ByteArray,
+        downloaded: Long,
+        info: BootstrapArtifactInfo,
+    ): Long {
+        if (chunk.size > info.size - downloaded) corrupted(info.url)
+        sink.write(chunk, 0, chunk.size)
+        return downloaded + chunk.size
+    }
+
+    private fun downloadFailure(error: Exception, url: String): Exception =
+        if (error is ProvisionException) error else ProvisionException.Network("Cannot download $url: $error", error)
+
+    private fun verifyDownload(file: Path, info: BootstrapArtifactInfo, downloaded: Long): Path {
+        if (!fs.exists(file)) corrupted(info.url)
+        val size = fs.metadata(file).size
+        if (size != info.size || sha256Hex(fs.read(file) { readByteArray() }) != info.sha256) {
+            fs.delete(file)
+            corrupted(info.url)
+        }
+        launcherLog.i(TAG) { "Artifact verified: $file ($downloaded bytes)" }
+        return file
+    }
+
+    private fun checkCancelled(isCancelled: () -> Boolean) {
+        if (isCancelled()) throw CancellationException("Provisioning cancelled")
+    }
+
+    private fun cleanupStaging(staging: Path) {
+        try {
+            fs.deleteRecursively(staging)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            launcherLog.w(TAG, error) { "Cannot remove unfinished staging: $staging" }
+        }
+    }
+
+    private fun networkError(message: String, cause: Throwable? = null): Nothing =
+        throw ProvisionException.Network(message, cause)
+
+    private fun corrupted(url: String): Nothing = throw ProvisionException.CorruptedDownload(url)
+
+    companion object {
+        private const val HASH_PREFIX = 12
+        private const val ACTIVATION_ATTEMPTS = 5
+        private const val ACTIVATION_RETRY_MILLIS = 250L
+        private const val DEFAULT_LOCK_TIMEOUT_MILLIS = 10 * 60 * 1000L
+        private const val HTTP_OK = 200
+        private const val SAFE_ID_PUNCTUATION = "._-"
+        private val SUCCESS_RANGE = HTTP_OK..299
+    }
+}

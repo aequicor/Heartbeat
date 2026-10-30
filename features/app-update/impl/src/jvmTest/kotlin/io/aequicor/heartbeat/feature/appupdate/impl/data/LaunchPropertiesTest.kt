@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.InstallationCheck
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.ReleasePlatform
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -104,5 +105,44 @@ class LaunchPropertiesTest {
         assertEquals(ReleasePlatform.LinuxX64, releasePlatform(HostPlatform.Linux, "x86_64"))
         assertNull(releasePlatform(HostPlatform.Linux, "aarch64"))
         assertNull(releasePlatform(HostPlatform.Android, "aarch64"))
+    }
+
+    @Test
+    fun `native installation is updated while workers retain the JVM path`() {
+        val inner = "/cache/images/one/Heartbeat.app/Contents/MacOS/Heartbeat"
+        val outer = "/Applications/Heartbeat.app/Contents/MacOS/Heartbeat"
+        val properties = release + mapOf("jpackage.app-path" to inner, "heartbeat.native.launcher" to outer)
+        assertEquals(Path.of(outer).toAbsolutePath(), LaunchProperties(properties::get).launcher)
+        assertEquals(inner, properties["jpackage.app-path"])
+    }
+
+    @Test
+    fun `invalid native path cannot fall back to updating the inner cache`() {
+        val properties = release + ("heartbeat.native.launcher" to "relative/Heartbeat")
+        assertNull(LaunchProperties(properties::get).launcher)
+        assertNull(LaunchProperties((release + ("heartbeat.native.launcher" to "bad\u0000path"))::get).launcher)
+    }
+
+    @Test
+    fun `direct JVM cache fallback runs without claiming a replaceable installation`() {
+        val image = createTempDirectory("app-update-bootstrap")
+        try {
+            Files.writeString(image.resolve("bootstrap-image.json"), "{}")
+            listOf("Heartbeat.exe", "bin/Heartbeat", "Heartbeat.app/Contents/MacOS/Heartbeat").forEach { relative ->
+                val executable = image.resolve(relative)
+                Files.createDirectories(executable.parent)
+                Files.writeString(executable, "")
+                val properties = release + ("jpackage.app-path" to executable.toString())
+                assertNull(LaunchProperties(properties::get).launcher)
+                assertEquals(
+                    InstallationCheck.Unsupported(UnsupportedReason.NotReleaseBuild),
+                    probe(properties).current(),
+                )
+                val native = properties + ("heartbeat.native.launcher" to image.resolve("outer/Heartbeat").toString())
+                assertEquals(image.resolve("outer/Heartbeat"), LaunchProperties(native::get).launcher)
+            }
+        } finally {
+            image.toFile().deleteRecursively()
+        }
     }
 }

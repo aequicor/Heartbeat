@@ -14,8 +14,8 @@ name: Release
 # The release is also a channel of bundles: it carries the train of its commit (train-manifest.json and the jars
 # that changed), optimized by ProGuard: usually built here, promoted from the nightly pre-release train-o<sha12> only
 # when the release commit was the master head of that run. The fast train-t<sha12> of a push is never released. Every
-# installer is the platform plus the whole train as its seed (scripts/train_seed.py) and must fit the size budget
-# (scripts/check_installer_size.py) before anything is published.
+# installer contains only the native launcher. Signed bootstrap manifests reference runtime/platform/seed archives
+# published beside it; all five thin installers must fit 10 MiB before anything is published.
 # dry_run builds and checks everything without creating a tag or publishing:
 #   gh workflow run release.yml --ref <branch> -f release_level=patch -F dry_run=true
 run-name: "Release ${{ inputs.release_level }}${{ inputs.dry_run && ' (dry run)' || '' }}"
@@ -120,6 +120,8 @@ jobs:
           retention-days: 7
 
   train:
+    outputs:
+      train: ${{ steps.promote.outputs.train }}
     name: Bundle train
     needs: [version, checks]
     runs-on: ubuntu-24.04
@@ -190,8 +192,8 @@ jobs:
           path: train-out/
           if-no-files-found: error
           retention-days: 7
-      # The installers start offline: their seed is the whole train, with the jars of earlier trains downloaded by
-      # the url of the manifest and every jar checked against its SHA-256.
+      # The first-use seed is the whole train; prior jars are fetched and checked against their SHA-256.
+      # The native installer needs a first download; the prepared application then starts offline.
       - name: Assemble the seed of the installers
         run: python3 scripts/train_seed.py --train-dir train-out --out train-seed
       - uses: actions/upload-artifact@v7
@@ -202,6 +204,7 @@ jobs:
           retention-days: 7
 
   desktop-linux:
+    environment: ${{ inputs.dry_run && 'launcher-dry-run' || 'launcher-signing' }}
     name: Desktop Linux x64
     needs: [version, checks, train]
     runs-on: ubuntu-24.04
@@ -238,6 +241,10 @@ jobs:
       - name: Verify Linux runtimes and package the release
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          TRAIN: ${{ needs.train.outputs.train }}
+          # Dry-run artifacts are not trusted by installed launchers and can never reach Publish.
+          LOCAL_SIGNING: ${{ inputs.dry_run }}
+          HEARTBEAT_BOOTSTRAP_SIGNING_KEY: ${{ secrets.HEARTBEAT_BOOTSTRAP_SIGNING_KEY }}
         # One Gradle invocation shares configuration and compilation across the native checks and packaging.
         run: |
           export XDG_DATA_HOME="$RUNNER_TEMP/heartbeat-test-keyring-data"
@@ -251,9 +258,12 @@ jobs:
             -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64 \
             :core:secrets:impl:nativeSecretsTest \
             :features:browser:impl:browserNativeTest :features:browser:impl:browserDocumentNativeTest \
-            :platform-main:desktop:verifyReleaseHarnessCompiler :platform-main:desktop:packageReleaseDeb \
+            :platform-main:desktop:verifyReleaseHarnessCompiler :platform-main:desktop:packageBootstrapArtifacts \
+            :platform-main:native-launcher:packageThinReleaseDeb \
+            :platform-main:native-launcher:linkReleaseExecutableMingwX64 \
             :chromium-plugin:panel:prepareChromiumPanelArtifact \
             -Pheartbeat.seedDir=.release-seed \
+            -Pheartbeat.trainId="$TRAIN" -Pheartbeat.bootstrapLocalSigning="$LOCAL_SIGNING" \
             --no-daemon --stacktrace --profile
           TEST
       - uses: actions/upload-artifact@v7
@@ -262,18 +272,23 @@ jobs:
           path: chromium-plugin/panel/build/release-panel/
           if-no-files-found: error
           retention-days: 7
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-windows-x64
+          path: platform-main/native-launcher/build/bin/mingwX64/releaseExecutable/heartbeat-launcher.exe
+          if-no-files-found: error
+          retention-days: 7
       - name: Name the Linux installer
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
-          shopt -s nullglob
-          packages=(platform-main/desktop/build/compose/binaries/main-release/deb/*.deb)
-          if [ "${#packages[@]}" -ne 1 ]; then
-            echo "::error::Expected one Debian package"
-            exit 1
-          fi
           mkdir release
-          cp "${packages[0]}" "release/Heartbeat-$VERSION-linux-x64.deb"
+          cp "platform-main/native-launcher/build/thin/installers/Heartbeat-$VERSION-linux-x64.deb" release/
+          bootstrap=platform-main/desktop/build/bootstrap
+          cp "$bootstrap/bootstrap-linux-x64.json" "$bootstrap/bootstrap-linux-x64.json.sig" release/
+          for component in runtime platform seed; do
+            cp "$bootstrap/heartbeat-$component-$VERSION-linux-x64.zip" release/
+          done
           # The installers pin this portable first-use component; publish it in the same release and checksum set.
           cp "platform-main/desktop/build/release-components/Heartbeat-$VERSION-chromium-extension.zip" release/
       - uses: actions/upload-artifact@v7
@@ -506,6 +521,7 @@ jobs:
           retention-days: 7
 
   desktop:
+    environment: ${{ inputs.dry_run && 'launcher-dry-run' || 'launcher-signing' }}
     name: Desktop ${{ matrix.platform }}
     needs: [version, desktop-linux, train]
     strategy:
@@ -514,16 +530,16 @@ jobs:
         include:
           - platform: macos-arm64
             runner: macos-15
-            task: packageReleaseDmg
+            task: packageThinReleaseDmg
           - platform: macos-x64
             runner: macos-15-intel
-            task: packageReleaseDmg
+            task: packageThinReleaseDmg
           - platform: windows-x64
             runner: windows-2025
-            task: packageReleaseInnoSetup
+            task: packageThinReleaseInnoSetup
           - platform: windows-arm64
             runner: windows-11-arm
-            task: packageReleaseInnoSetup
+            task: packageThinReleaseInnoSetup
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     steps:
@@ -551,6 +567,11 @@ jobs:
         with:
           name: train-seed
           path: .release-seed
+      - uses: actions/download-artifact@v8
+        if: runner.os == 'Windows'
+        with:
+          name: native-windows-x64
+          path: .release-native
       - name: Install Inno Setup
         if: runner.os == 'Windows'
         shell: pwsh
@@ -560,14 +581,22 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          TRAIN: ${{ needs.train.outputs.train }}
+          # Dry-run artifacts are not trusted by installed launchers and can never reach Publish.
+          LOCAL_SIGNING: ${{ inputs.dry_run }}
+          HEARTBEAT_BOOTSTRAP_SIGNING_KEY: ${{ secrets.HEARTBEAT_BOOTSTRAP_SIGNING_KEY }}
           TASK: ${{ matrix.task }}
+          NATIVE_EXECUTABLE: ${{ runner.os == 'Windows' && '.release-native/heartbeat-launcher.exe' || '' }}
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           -Pheartbeat.chromiumPanelDir=.release-panel
           -Pheartbeat.seedDir=.release-seed
-          :platform-main:desktop:verifyReleaseHarnessCompiler ":platform-main:desktop:$TASK"
+          -Pheartbeat.trainId="$TRAIN" -Pheartbeat.bootstrapLocalSigning="$LOCAL_SIGNING"
+          ${NATIVE_EXECUTABLE:+-Pheartbeat.thinNativeExecutable=$NATIVE_EXECUTABLE}
+          :platform-main:desktop:verifyReleaseHarnessCompiler :platform-main:desktop:packageBootstrapArtifacts
+          ":platform-main:native-launcher:$TASK"
           --no-daemon --stacktrace --profile
       - name: Name the installer
         shell: bash
@@ -575,18 +604,18 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
           PLATFORM: ${{ matrix.platform }}
         run: |
-          binaries=platform-main/desktop/build/compose/binaries/main-release
+          binaries=platform-main/native-launcher/build/thin/installers
           mkdir release
           if [ "$RUNNER_OS" = Windows ]; then
-            cp "$binaries/exe/Heartbeat-$VERSION-setup.exe" "release/Heartbeat-$VERSION-$PLATFORM-setup.exe"
+            cp "$binaries/Heartbeat-$VERSION-$PLATFORM-setup.exe" release/
           else
-            images=("$binaries"/dmg/*.dmg)
-            if [ "${#images[@]}" -ne 1 ]; then
-              echo "::error::Expected one disk image"
-              exit 1
-            fi
-            cp "${images[0]}" "release/Heartbeat-$VERSION-$PLATFORM.dmg"
+            cp "$binaries/Heartbeat-$VERSION-$PLATFORM.dmg" release/
           fi
+          bootstrap=platform-main/desktop/build/bootstrap
+          cp "$bootstrap/bootstrap-$PLATFORM.json" "$bootstrap/bootstrap-$PLATFORM.json.sig" release/
+          for component in runtime platform seed; do
+            cp "$bootstrap/heartbeat-$component-$VERSION-$PLATFORM.zip" release/
+          done
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.platform }}
@@ -607,7 +636,7 @@ jobs:
 
   installer-size:
     name: Installer size
-    needs: [desktop-linux, desktop]
+    needs: [version, train, desktop-linux, desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -620,6 +649,10 @@ jobs:
           path: release
           merge-multiple: true
       - name: Check the installers against the size budget
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          TRAIN: ${{ needs.train.outputs.train }}
+          LOCAL_SIGNING: ${{ inputs.dry_run }}
         run: |
           set -o pipefail  # the gate is the script's exit code, not tee's
           shopt -s nullglob
@@ -628,7 +661,8 @@ jobs:
             echo "::error::Expected 5 installers, found ${#installers[@]}"
             exit 1
           fi
-          python3 scripts/check_installer_size.py "${installers[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 scripts/verify_bootstrap_release.py release --version "$VERSION" --train "$TRAIN" --local-signing "$LOCAL_SIGNING"
+          python3 scripts/check_installer_size.py --limit-bytes 10485760 "${installers[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
 
   publish:
     name: Publish
@@ -676,7 +710,7 @@ jobs:
         working-directory: release
         run: |
           shopt -s nullglob  # a train may carry no jar of its own
-          sha256sum Heartbeat-* bundle-*.jar train-manifest.json > SHA256SUMS
+          sha256sum Heartbeat-* heartbeat-*.zip bootstrap-*.json bootstrap-*.json.sig bundle-*.jar train-manifest.json > SHA256SUMS
           cat SHA256SUMS
       - name: Publish the release
         env:
@@ -703,6 +737,9 @@ jobs:
             ставятся поверх той же подписью.
           - iOS: `…-ios.ipa` не подписан. Установите его через AltStore или Sideloadly, они подпишут приложение вашим
             Apple ID (бесплатная подпись действует 7 дней).
+
+          Desktop: первый запуск скачивает подписанные runtime/platform/seed; после подготовки образа запуск работает офлайн.
+          Windows ARM64 использует x64 native launcher под эмуляцией и отдельный ARM64 JVM-процесс.
 
           `SHA256SUMS` — контрольные суммы всех файлов релиза.
           NOTES

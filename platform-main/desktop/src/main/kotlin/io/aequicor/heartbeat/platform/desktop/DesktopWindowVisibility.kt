@@ -8,6 +8,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
 import io.aequicor.heartbeat.core.logging.Log
 import java.awt.EventQueue
@@ -25,9 +29,10 @@ internal fun rememberDesktopWindowVisibility(
     isComputerUseActive: Boolean,
     instance: DesktopInstance?,
     onQuit: () -> Unit,
+    startHidden: Boolean = false,
 ): DesktopWindowVisibility {
     val currentQuit by rememberUpdatedState(onQuit)
-    val visibility = remember(windowState) { DesktopWindowVisibility(windowState) { currentQuit() } }
+    val visibility = remember(windowState) { DesktopWindowVisibility(windowState, startHidden) { currentQuit() } }
     DisposableEffect(visibility, image, instance) {
         visibility.installTray { open, quit -> installDesktopTray(image, open, quit) }
         val reopen = installDesktopReopenHandler(visibility::openWindow)
@@ -68,12 +73,15 @@ internal fun RestoreDesktopWindowFocus(window: Window, visibility: DesktopWindow
  * Keeps the window and its root alive in the tray. A close gesture may hide the window only after the native
  * tray is installed; otherwise it follows the full quit flow so the app never becomes unreachable.
  */
-internal class DesktopWindowVisibility(private val windowState: WindowState, private val onQuit: () -> Unit) :
-    AutoCloseable {
+internal class DesktopWindowVisibility(
+    private val windowState: WindowState,
+    startHidden: Boolean = false,
+    private val onQuit: () -> Unit,
+) : AutoCloseable {
     private val log = Log.tag("DesktopWindowVisibility")
     private var tray: AutoCloseable? = null
 
-    var isVisible: Boolean by mutableStateOf(true)
+    var isVisible: Boolean by mutableStateOf(!startHidden)
         private set
 
     /** Changes even when the window is already visible, so another Open gesture can bring it to the front. */
@@ -100,6 +108,28 @@ internal class DesktopWindowVisibility(private val windowState: WindowState, pri
         windowState.isMinimized = false
         isVisible = true
         restoreRequest++
+    }
+
+    /** Restores the native launcher's presentation without treating background readiness as an Open gesture. */
+    fun showFromHandoff(presentation: DesktopHandoff.Presentation) {
+        log.i {
+            "Showing handoff window: minimized=${presentation.isMinimized}, " +
+                "activate=${presentation.isActivationRequested}"
+        }
+        presentation.bounds?.let { bounds ->
+            windowState.position = WindowPosition(bounds.x.dp, bounds.y.dp)
+            windowState.size = DpSize(bounds.width.dp, bounds.height.dp)
+        }
+        if (presentation.isMaximized) windowState.placement = WindowPlacement.Maximized
+        windowState.isMinimized = presentation.isMinimized
+        isVisible = true
+        if (presentation.isActivationRequested && !presentation.isMinimized) restoreRequest++
+    }
+
+    /** Starts the render clock behind the launcher without taking focus from the launcher or another app. */
+    fun showForHandoff() {
+        log.v { "Preparing the application window without activation" }
+        isVisible = true
     }
 
     override fun close() {

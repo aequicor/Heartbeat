@@ -49,6 +49,10 @@ data class HbColors(
     val consoleSuccess: Color = Color(0xFFABD1B7)
     val consoleWarning: Color = Color(0xFFE1C894)
     val consoleError: Color = Color(0xFFE0A8B2)
+
+    /** Muted final pulse in the approved native-to-Compose desktop startup animation. */
+    val startupPulseInk: Color = if (isDark) primary else Color(0xFF938F97)
+
     val onPrimary: Color = accessibleContentColor(primary)
     val onBrand: Color = accessibleContentColor(brand)
     val onSecondary: Color = accessibleContentColor(secondary)

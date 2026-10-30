@@ -1,0 +1,4 @@
+headers = macos_ui.h
+headerFilter = macos_ui.h
+linkerOpts = -framework AppKit -framework Foundation
+package = io.aequicor.heartbeat.platform.nativelauncher.macosui

@@ -15,6 +15,9 @@ import java.util.function.Predicate;
  *
  * <p>Слоты меняет только владелец ({@link Selector#becomeOwner()}); вспомогательные процессы того же исполняемого
  * файла (первый аргумент начинается с {@code --}) и второй экземпляр читают слоты и ничего не пишут.
+ *
+ * <p>Этапы запуска пишут метки протокола времени ({@link LaunchMarks}, этапы {@code selector.*}, общий формат с
+ * лаунчером и приложением): измерение времени до окна, см. {@code launch-timeline-*.jsonl} в логах данных.
  */
 public final class SelectorMain {
     /** Системное свойство для лаунчера: запущенный слот пробный и не подтверждён. */
@@ -28,13 +31,24 @@ public final class SelectorMain {
     }
 
     public static void main(String[] args) throws Exception {
+        LaunchMarks.mark("selector.main");
         Selector selector = new Selector(SelectorPaths.slotsDir(), trustedKeys());
         boolean owner = !isAuxiliary(args) && selector.becomeOwner();
-        run(selector, args, SelectorAgent.instrumentation(), embeddedJar(), owner);
+        LaunchMarks.mark(isAuxiliary(args) ? "selector.auxiliary" : owner ? "selector.owner" : "selector.secondary");
+        try (NativeCancellation cancellation = NativeCancellation.watch(args)) {
+            run(selector, args, SelectorAgent.instrumentation(), embeddedJar(), owner, cancellation::enable, false);
+        }
+        LaunchMarks.mark("selector.app-finished");
     }
 
     static void run(Selector selector, String[] args, java.lang.instrument.Instrumentation inst, Path embedded,
                     boolean owner) throws Exception {
+        // Test fixtures finish synchronously and have no shutdown hooks that need their class loader.
+        run(selector, args, inst, embedded, owner, () -> { }, true);
+    }
+
+    private static void run(Selector selector, String[] args, java.lang.instrument.Instrumentation inst, Path embedded,
+                            boolean owner, Runnable applicationStarted, boolean closeFixtureLoader) throws Exception {
         Set<String> failed = new HashSet<>();
         while (true) {
             Choice choice = selector.choose(failed);
@@ -45,8 +59,14 @@ public final class SelectorMain {
             // a trial launcher must not touch irreversible data (DB restore, migration) until it is confirmed
             System.setProperty(TRIAL, Boolean.toString(owner && choice.trial()));
             System.clearProperty(DEFERRED);
+            LaunchMarks.mark("selector.launcher-start");
             try {
-                SlotLauncher.launch(jar, args, inst, confirmation(selector, choice, owner), owner ? stager(selector) : null);
+                Runnable confirmation = confirmation(selector, choice, owner);
+                SlotLauncher.launch(jar, args, inst, () -> {
+                    confirmation.run();
+                    applicationStarted.run();
+                }, owner ? stager(selector) : null, closeFixtureLoader);
+                LaunchMarks.mark("selector.app-returned");
                 return;
             } catch (SlotLauncher.NotStartedException e) {
                 if (choice.kind() == Choice.Kind.EMBEDDED) {

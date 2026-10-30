@@ -9,6 +9,14 @@ import kotlin.test.assertTrue
 
 class DesktopWindowVisibilityTest {
     @Test
+    fun preparingForHandoffStartsRenderingWithoutRequestingFocus() {
+        val visibility = DesktopWindowVisibility(WindowState(), startHidden = true) {}
+        visibility.showForHandoff()
+        assertTrue(visibility.isVisible)
+        assertEquals(0, visibility.restoreRequest)
+    }
+
+    @Test
     fun `closing and reopening retain the application and tray until application disposal`() {
         val events = mutableListOf<String>()
         val state = WindowState()

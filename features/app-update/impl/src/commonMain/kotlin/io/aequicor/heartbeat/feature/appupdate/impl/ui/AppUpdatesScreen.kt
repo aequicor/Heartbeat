@@ -131,7 +131,7 @@ private fun BuildSection(build: AppBuildUi?, modifier: Modifier = Modifier) {
         if (build?.train != null) {
             HbDivider()
             HbSettingsRow(stringResource(Res.string.updates_train), Modifier.testTag("updates-train")) {
-                HbText(build.train.orEmpty(), style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
+                HbText(build.train, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
             }
         }
         if (build?.pendingTrains?.isNotEmpty() == true) {
@@ -194,9 +194,9 @@ private fun StatusSection(
             { onIntent(AppUpdatesScreenIntent.Check) },
             Modifier.testTag("updates-check"),
             style = HbButtonStyle.Secondary,
-            enabled = state.canCheck,
+            enabled = state.isCheckEnabled,
         )
-        if (state.canInstall) {
+        if (state.isInstallEnabled) {
             HbButton(
                 stringResource(Res.string.updates_install),
                 { onIntent(AppUpdatesScreenIntent.Install) },

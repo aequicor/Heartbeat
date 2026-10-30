@@ -3,10 +3,12 @@ import io.aequicor.heartbeat.buildlogic.CollectPlatformJars
 import io.aequicor.heartbeat.buildlogic.CompressReleaseDmg
 import io.aequicor.heartbeat.buildlogic.HarnessProbeArguments
 import io.aequicor.heartbeat.buildlogic.PackageInnoSetup
+import io.aequicor.heartbeat.buildlogic.PrepareBootstrapImage
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
 import io.aequicor.heartbeat.buildlogic.PrepareReleaseRuntimeJars
 import io.aequicor.heartbeat.buildlogic.TrainPlatformJars
 import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
+import io.aequicor.heartbeat.buildlogic.WriteBootstrapManifest
 import io.aequicor.heartbeat.buildlogic.WriteComponentMetadata
 import io.aequicor.heartbeat.buildlogic.WriteTrainSeed
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
@@ -29,6 +31,9 @@ plugins {
     alias(libs.plugins.heartbeat.jcef)
     alias(libs.plugins.heartbeat.train)
 }
+
+// The native cover and Compose continuation draw the same authored artwork and monotonic timeline.
+kotlin.sourceSets.getByName("main").kotlin.srcDir("../native-launcher/src/sceneMain/kotlin")
 
 dependencies {
     implementation(projects.platformMain.shared)
@@ -620,6 +625,113 @@ afterEvaluate {
             compilerFiles.from(configurations.runtimeClasspath)
         })
         timeout.set(Duration.ofMinutes(5))
+    }
+    run {
+        // Full images remain available for packaged checks and fallback. Bootstrap archives preserve the
+        // exact jpackage layout, including executable modes and the .app root on macOS.
+        val bootstrapOs = when (piOs) {
+            "darwin" -> "macos"
+            else -> piOs
+        }
+        val bootstrapTarget = "$bootstrapOs-$piArch"
+        val bootstrapDir = layout.buildDirectory.dir("bootstrap")
+        val canPackageBootstrap = !isTestingFlavor
+        val imageName = releaseImage.flatMap { it.packageName }
+        val macBundle = imageName.map { "$it.app" }
+        val releaseImageDir = releaseImage.flatMap { image ->
+            image.destinationDir.dir(image.packageName.map { if (piOs == "darwin") "$it.app" else it })
+        }
+        val bootstrapStageName = if (bootstrapOs == "macos") "${heartbeatChannel.packageName}.app" else heartbeatChannel.packageName
+        val prepareBootstrapImage = tasks.register<PrepareBootstrapImage>("prepareBootstrapImage") {
+            group = "compose desktop"
+            description = "Stages and seals the JVM image with the HeartbeatJvm fallback before splitting artifacts."
+            dependsOn(releaseImage)
+            sourceImage.set(releaseImageDir)
+            os.set(bootstrapOs)
+            appName.set(imageName)
+            destination.set(layout.buildDirectory.dir("bootstrap-image").map { root ->
+                root.dir(bootstrapStageName)
+            })
+        }
+        val bootstrapImageDir = prepareBootstrapImage.flatMap { it.destination }
+        val runtimePath = when (piOs) {
+            "darwin" -> "Contents/runtime"
+            "linux" -> "lib/runtime"
+            else -> "runtime"
+        }
+        val seedPath = when (piOs) {
+            "darwin" -> "Contents/app/resources/seed"
+            "linux" -> "lib/app/resources/seed"
+            else -> "app/resources/seed"
+        }
+        val packageBootstrapRuntime = tasks.register<Zip>("packageBootstrapRuntime") {
+            group = "compose desktop"
+            description = "Packs the exact runtime of the verified release image as a bootstrap artifact."
+            dependsOn(prepareBootstrapImage)
+            useFileSystemPermissions()
+            doFirst { check(canPackageBootstrap) { "Bootstrap packaging requires a release, beta or dev image" } }
+            from(bootstrapImageDir) {
+                include("$runtimePath/**")
+                if (piOs == "darwin") into(macBundle)
+            }
+            destinationDirectory.set(bootstrapDir)
+            archiveFileName.set("heartbeat-runtime-$heartbeatApplicationVersion-$bootstrapTarget.zip")
+        }
+        val packageBootstrapPlatform = tasks.register<Zip>("packageBootstrapPlatform") {
+            group = "compose desktop"
+            description = "Packs the release image without runtime and seed as the bootstrap platform artifact."
+            dependsOn(prepareBootstrapImage)
+            useFileSystemPermissions()
+            doFirst { check(canPackageBootstrap) { "Bootstrap packaging requires a release, beta or dev image" } }
+            from(bootstrapImageDir) {
+                include("**")
+                exclude("$runtimePath/**", "$seedPath/**")
+                if (piOs == "darwin") into(macBundle)
+            }
+            destinationDirectory.set(bootstrapDir)
+            archiveFileName.set("heartbeat-platform-$heartbeatApplicationVersion-$bootstrapTarget.zip")
+        }
+        val packageBootstrapSeed = tasks.register<Zip>("packageBootstrapSeed") {
+            group = "compose desktop"
+            description = "Packs the seed train of the release image as the bootstrap seed artifact."
+            dependsOn(prepareBootstrapImage)
+            useFileSystemPermissions()
+            doFirst { check(canPackageBootstrap) { "Bootstrap packaging requires a release, beta or dev image" } }
+            from(bootstrapImageDir.map { it.dir(seedPath) })
+            destinationDirectory.set(bootstrapDir)
+            archiveFileName.set("heartbeat-seed-$heartbeatApplicationVersion-$bootstrapTarget.zip")
+        }
+        val writeBootstrapManifest = tasks.register<WriteBootstrapManifest>("writeBootstrapManifest") {
+            group = "compose desktop"
+            description = "Writes the signed bootstrap manifest of the thin installer artifacts."
+            dependsOn(packageBootstrapRuntime, packageBootstrapPlatform, packageBootstrapSeed)
+            version.set(heartbeatApplicationVersion)
+            channel.set(heartbeatChannel.id)
+            os.set(bootstrapOs)
+            arch.set(piArch)
+            runtimeId.set("jbr${libs.versions.desktop.jdk.get()}-$bootstrapTarget")
+            trainId.set(providers.gradleProperty("heartbeat.trainId").orElse("seed-$heartbeatApplicationVersion"))
+            releaseBaseUrl.set(
+                "https://github.com/$heartbeatUpdateRepository/releases/download/v$heartbeatApplicationVersion",
+            )
+            signingKey.set(providers.environmentVariable("HEARTBEAT_BOOTSTRAP_SIGNING_KEY"))
+            trustedKeysFile.set(
+                rootProject.layout.projectDirectory.file("platform-main/native-launcher/bootstrap-trusted-keys.txt"),
+            )
+            allowEphemeralKey.set(
+                providers.gradleProperty("heartbeat.bootstrapLocalSigning").map(String::toBoolean).orElse(false),
+            )
+            runtimeFile.set(packageBootstrapRuntime.flatMap { it.archiveFile })
+            platformFile.set(packageBootstrapPlatform.flatMap { it.archiveFile })
+            seedFile.set(packageBootstrapSeed.flatMap { it.archiveFile })
+            manifestFile.set(bootstrapDir.map { it.file("bootstrap-$bootstrapTarget.json") })
+            signatureFile.set(bootstrapDir.map { it.file("bootstrap-$bootstrapTarget.json.sig") })
+        }
+        tasks.register("packageBootstrapArtifacts") {
+            group = "compose desktop"
+            description = "Builds runtime/platform/seed zips and the signed bootstrap manifest."
+            dependsOn(writeBootstrapManifest)
+        }
     }
     tasks.withType<AbstractJvmToolOperationTask>().configureEach {
         javaHome.set(desktopJavaHome)

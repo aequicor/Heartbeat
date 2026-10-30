@@ -73,8 +73,9 @@ class LauncherMainTest {
             LauncherMain.userDataDir("Windows 11", "C:\\Users\\me", "C:\\Users\\me\\AppData\\Roaming", null, null));
         assertEquals(Path.of("/home/me/.local/share/heartbeat"),
             LauncherMain.userDataDir("Linux", "/home/me", null, null, null));
-        assertEquals(Path.of("/data/heartbeat-dev"),
-            LauncherMain.userDataDir("Linux", "/home/me", null, "/data", "Heartbeat-Dev"));
+        Path xdgDataHome = Path.of("/data").toAbsolutePath();
+        assertEquals(xdgDataHome.resolve("heartbeat-dev"),
+            LauncherMain.userDataDir("Linux", "/home/me", null, xdgDataHome.toString(), "Heartbeat-Dev"));
         assertEquals(Path.of("/home/me/.local/share/heartbeat"),
             LauncherMain.userDataDir("Linux", "/home/me", null, "relative", "bad name!"));
     }

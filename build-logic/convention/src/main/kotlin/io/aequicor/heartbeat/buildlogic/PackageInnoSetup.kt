@@ -45,6 +45,9 @@ abstract class PackageInnoSetup : DefaultTask() {
     /** Launcher file name inside [appImage], e.g. `Heartbeat.exe`. */
     @get:Input abstract val appExecutable: Property<String>
 
+    /** Installed icon filename; full images use the exe resource, thin images have a separate ICO. */
+    @get:Input abstract val appIconFile: Property<String>
+
     @get:Input abstract val appVersion: Property<String>
 
     @get:Input abstract val appPublisher: Property<String>
@@ -53,6 +56,14 @@ abstract class PackageInnoSetup : DefaultTask() {
 
     /** Inno Setup architecture identifier the installer runs on in 64-bit mode: `x64compatible` or `arm64`. */
     @get:Input abstract val architecture: Property<String>
+
+    /** Windows build tuple; thin ARM64 packages require Windows 11 for their emulated x64 native launcher. */
+    @get:Input abstract val minimumWindowsVersion: Property<String>
+
+    init {
+        minimumWindowsVersion.convention("10.0")
+        appIconFile.convention(appExecutable)
+    }
 
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -83,10 +94,12 @@ abstract class PackageInnoSetup : DefaultTask() {
         val defines = mapOf(
             "AppImageDir" to image.absolutePath,
             "AppExeName" to appExecutable.get(),
+            "AppIconFile" to appIconFile.get(),
             "AppVersion" to appVersion.get(),
             "AppPublisher" to appPublisher.get(),
             "AppDescription" to appDescription.get(),
             "AppArchitecture" to architecture.get(),
+            "MinWindowsVersion" to minimumWindowsVersion.get(),
             "SetupIconFile" to setupIcon.get().asFile.absolutePath,
             "WizardSmallImageFile" to wizardSmallImages.files.joinToString(",") { it.absolutePath },
         )

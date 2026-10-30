@@ -1,0 +1,2 @@
+# Separate Ed25519 bootstrap release key (X.509 DER, base64). Never use the launcher-slot signing key.
+MCowBQYDK2VwAyEAL7jDmP7Gxr+mmKF9eQ2+80E2C1QS6SHbeC3q5YlE/3o=

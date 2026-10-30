@@ -24,6 +24,12 @@ import kotlin.time.Duration.Companion.seconds
 internal interface DockableWindow {
     val state: WindowState
 
+    /** Host coordinate units per requested Compose dp; native hosts keep virtual-screen origins unscaled. */
+    val coordinateScale: Double get() = 1.0
+
+    /** Refreshes a host-managed state snapshot before the dock starts issuing requests. */
+    fun prepare() {}
+
     /** False once the native window is gone and requests can no longer be applied. */
     val isAlive: Boolean
 
@@ -33,7 +39,7 @@ internal interface DockableWindow {
     /** Whether the native window is minimized. */
     val isMinimized: Boolean
 
-    /** Native bounds in AWT logical pixels, which Compose treats as dp. */
+    /** Bounds in the host coordinate space; [coordinateScale] converts requested sizes to this space. */
     val bounds: Rectangle
 
     /** Usable area of the monitor holding the window, without the taskbar, Dock and menu bar. */
@@ -61,6 +67,7 @@ internal class ComputerUseWindowDock(private val window: DockableWindow) {
 
     /** Keeps the window pinned as a [width] x [height] session until cancelled, then restores it. */
     suspend fun holdPinned(width: Int, height: Int): Nothing = transitions.withLock {
+        window.prepare()
         val session = DockedSession(window.placement, window.isMinimized)
         try {
             pin(session, width, height)
@@ -89,7 +96,11 @@ internal class ComputerUseWindowDock(private val window: DockableWindow) {
         } else {
             awaitSettledBounds("remembering the latest ones")
         }
-        val target = computerUseSessionBounds(window.workArea, width, height)
+        val target = computerUseSessionBounds(
+            window.workArea,
+            (width * window.coordinateScale).toInt(),
+            (height * window.coordinateScale).toInt(),
+        )
         requestBounds(target)
         log.i { "Agent capture: session pinned to the screen edge" }
     }

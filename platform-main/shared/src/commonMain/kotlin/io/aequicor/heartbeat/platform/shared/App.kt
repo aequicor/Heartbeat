@@ -2,10 +2,12 @@ package io.aequicor.heartbeat.platform.shared
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,6 +28,8 @@ import io.aequicor.heartbeat.ds.components.HbDiagramRenderer
 import io.aequicor.heartbeat.ds.components.HbDiagramsProvider
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbWindowDragArea
+import io.aequicor.heartbeat.ds.components.HbWindowStartupLoading
+import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -80,8 +84,13 @@ fun createAppRoot(context: ComponentContext, graph: HeartbeatGraph): HeartbeatRo
  * fences of Markdown passes its [diagramRenderer] (desktop: PlantUML); without one they stay code.
  */
 @Composable
-fun App(root: HeartbeatRoot, modifier: Modifier = Modifier, diagramRenderer: HbDiagramRenderer? = null) {
-    HbTheme {
+fun App(
+    root: HeartbeatRoot,
+    modifier: Modifier = Modifier,
+    diagramRenderer: HbDiagramRenderer? = null,
+    darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme(),
+) {
+    HbTheme(darkTheme = darkTheme) {
         HbDiagramsProvider(diagramRenderer, diagramLabels()) {
             AppContent(root, modifier)
         }
@@ -122,13 +131,23 @@ private fun AppContent(root: HeartbeatRoot, modifier: Modifier = Modifier) {
                 }
             }
         }
-        RootContent(root, Modifier.weight(1f), loading = {
-            Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop)) {
-                if (HbTheme.dimensions.isDesktop) {
-                    HbWindowDragArea(Modifier.fillMaxWidth().height(HbTheme.dimensions.headerHeight)) { }
-                }
+        RootContent(root, Modifier.weight(1f), loading = { RootLoading() })
+    }
+}
+
+@Composable
+private fun RootLoading() {
+    HbWindowStartupLoading()
+    HbBoxWithConstraints(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop)) {
+        if (HbTheme.dimensions.isDesktop) {
+            if (maxWidth >= HbTheme.dimensions.compactBreakpoint) {
+                Box(
+                    Modifier.fillMaxHeight().width(HbTheme.dimensions.sidebarWidth)
+                        .background(HbTheme.surfaces.sidebar),
+                )
             }
-        })
+            HbWindowDragArea(Modifier.fillMaxWidth().height(HbTheme.dimensions.headerHeight)) { }
+        }
     }
 }
 

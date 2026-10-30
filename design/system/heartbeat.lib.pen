@@ -4929,6 +4929,13 @@
     ]
   },
   "variables": {
+    "colors.startupPulseInk": {
+      "type": "color",
+      "value": [
+        {"value": "#938F97", "theme": {"mode": "light"}},
+        {"value": "#BFB3D4", "theme": {"mode": "dark"}}
+      ]
+    },
     "typography.family": {
       "type": "string",
       "value": "Inter"
@@ -7803,6 +7810,14 @@
           }
         }
       ]
+    },
+    "dimensions.nativeCaptionControlsWidth": {
+      "type": "number",
+      "value": 144
+    },
+    "dimensions.startupTitleWidth": {
+      "type": "number",
+      "value": 160
     },
     "dimensions.headerHeight": {
       "type": "number",
