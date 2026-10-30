@@ -13,6 +13,7 @@ class PackagedJvmConfigurationTest {
         [JavaOptions]
         java-options=-javaagent:${'$'}APPDIR/launcher-selector.jar
         java-options=-Dheartbeat.selector.embedded=${'$'}APPDIR/resources/launcher-embedded.seed
+        java-options=-Dheartbeat.app.main=io.aequicor.heartbeat.platform.desktop.MainKt
         java-options=-Dexample=value with spaces
     """.trimIndent()
 
@@ -49,5 +50,28 @@ class PackagedJvmConfigurationTest {
                 "C:/app",
             )
         }
+    }
+
+    @Test
+    fun rejectsSubstitutionAndConflictingOptions() {
+        val selectorPath = "app.classpath=${'$'}APPDIR/launcher-selector.jar"
+        assertFailsWith<IllegalArgumentException> {
+            parsePackagedJvmConfiguration(config.replace(selectorPath, "app.classpath=other.jar"), "C:/app")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            parsePackagedJvmConfiguration(config.replace("-javaagent:${'$'}APPDIR", "-javaagent:C:/other"), "C:/app")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            parsePackagedJvmConfiguration(config + "\njava-options=-Dheartbeat.app.main=other.Main", "C:/app")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            parsePackagedJvmConfiguration(config + "\njava-options=-Dheartbeat.selector.embedded=other", "C:/app")
+        }
+    }
+
+    @Test
+    fun acceptsWindowsPathSeparators() {
+        val windowsConfig = config.replace("${'$'}APPDIR/", "${'$'}APPDIR\\")
+        parsePackagedJvmConfiguration(windowsConfig, "C:\\Пример приложения\\app")
     }
 }

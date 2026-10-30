@@ -36,23 +36,46 @@ internal fun parsePackagedJvmConfiguration(text: String, appDirectory: String): 
         }
     }
     val result = PackagedJvmConfiguration(mainClass.orEmpty(), classpath, options)
-    validatePackagedJvmConfiguration(result)
+    validatePackagedJvmConfiguration(result, appDirectory)
     return result
 }
 
-private fun validatePackagedJvmConfiguration(configuration: PackagedJvmConfiguration) {
-    require(
-        configuration.mainClass == "io.aequicor.heartbeat.selector.SelectorMain",
-    ) { "Unexpected packaged entry point" }
+private fun validatePackagedJvmConfiguration(configuration: PackagedJvmConfiguration, appDirectory: String) {
+    require(configuration.mainClass == "io.aequicor.heartbeat.selector.SelectorMain") {
+        "Unexpected packaged entry point"
+    }
+    val selector = "$appDirectory/launcher-selector.jar".replace('\\', '/')
     require(configuration.classpath.isNotEmpty() && configuration.classpath.none { it.isEmpty() }) {
         "Missing packaged classpath"
     }
-    val hasAgent = configuration.options.any {
-        it.startsWith("-javaagent:") && it.removePrefix("-javaagent:").endsWith("launcher-selector.jar")
+    require(configuration.classpath.first().replace('\\', '/') == selector) {
+        "Selector must be first on the packaged classpath"
     }
-    require(hasAgent) { "Missing selector agent" }
-    val hasEmbedded = configuration.options.any {
-        it.startsWith("-Dheartbeat.selector.embedded=") && it.substringAfter('=').isNotEmpty()
+    val agents = configuration.options.filter { it.startsWith("-javaagent:") }
+    require(agents.map { it.replace('\\', '/') } == listOf("-javaagent:$selector")) {
+        "Unexpected selector agent"
     }
-    require(hasEmbedded) { "Missing embedded launcher" }
+    requireUniqueOption(
+        configuration.options,
+        "-Dheartbeat.selector.embedded=",
+        "$appDirectory/resources/launcher-embedded.seed",
+        normalizePath = true,
+    )
+    requireUniqueOption(
+        configuration.options,
+        "-Dheartbeat.app.main=",
+        "io.aequicor.heartbeat.platform.desktop.MainKt",
+    )
+}
+
+private fun requireUniqueOption(
+    options: List<String>,
+    prefix: String,
+    expected: String,
+    normalizePath: Boolean = false,
+) {
+    val values = options.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
+    val normalized = if (normalizePath) values.map { it.replace('\\', '/') } else values
+    val expectedValue = if (normalizePath) expected.replace('\\', '/') else expected
+    require(normalized == listOf(expectedValue)) { "Missing or ambiguous packaged option: $prefix" }
 }
