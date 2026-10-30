@@ -131,17 +131,19 @@ describe('mandatory Heartbeat permission boundary', () => {
     const scripted = createScriptedProvider();
     client = await createTestClient({ homeDir: home, extraSeeds: [scripted.seed] });
     let approvals = 0;
-    client.onRequest('session/request_permission', () => {
+    client.onRequest('session/request_permission', (params) => {
+      const call = (params as { toolCall: { _meta?: { heartbeatCall?: string } } }).toolCall;
+      expect(call._meta?.heartbeatCall).toMatch(/^[0-9a-f-]{36}$/);
       approvals++;
       return { outcome: { outcome: 'selected', optionId: 'reject_once' } };
     });
     await client.send('initialize', { protocolVersion: 1, clientCapabilities: {} });
     const fixture = fileURLToPath(new URL('../../agent-core-v2/test/mcpCore/fixtures/mock-stdio-server.mjs', import.meta.url));
     const { sessionId } = await client.send('session/new', { cwd: home, mcpServers: [
-      { name: 'host', command: process.execPath, args: [fixture], env: [] },
+      { name: 'heartbeat_tools', command: process.execPath, args: [fixture], env: [] },
     ] }) as { sessionId: string };
     await client.waitForSessionUpdate('available_commands_update', 10_000);
-    scripted.mockNextResponse({ type: 'function', id: 'mcp_call', name: 'mcp__host__echo', arguments: '{"text":"gated"}' });
+    scripted.mockNextResponse({ type: 'function', id: 'mcp_call', name: 'mcp__heartbeat_tools__echo', arguments: '{"text":"gated"}' });
     scripted.mockNextText('denied');
     await client.send('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'use echo' }] });
     expect(approvals).toBe(1);

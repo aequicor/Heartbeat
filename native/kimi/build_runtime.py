@@ -25,11 +25,14 @@ PATCHED_PATHS = {
     "packages/agent-core-v2/src/workspace/workspaceMcpConfig/workspaceMcpConfigService.ts",
     "packages/agent-core-v2/src/agent/interaction/approval.ts",
     "packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts",
+    "packages/agent-core-v2/src/agent/mcp/tools/mcp.ts",
+    "packages/agent-core-v2/src/tool/toolContract.ts",
 }
 ADDED_PATHS = {
     "apps/kimi-code/src/cli/sub/heartbeat-acp.ts", "packages/acp-server/src/heartbeat-acp.ts",
     "packages/acp-server/test/heartbeat-permissions.test.ts",
     "packages/agent-core-v2/test/features/plan/heartbeat-plan.test.ts",
+    "packages/agent-core-v2/test/agent/mcp/heartbeat-binding.test.ts",
 }
 
 
@@ -81,20 +84,35 @@ def prepare(source, lock, version):
         "    // Heartbeat: saved MCP configuration is inert and needs no filesystem watchers."), encoding="utf-8")
     approval_type = "packages/agent-core-v2/src/agent/interaction/approval.ts"
     (source / approval_type).write_text(replace_once(original(approval_type),
-        "  readonly toolName: string;", "  readonly toolName: string;\n  readonly toolInput?: unknown;"), encoding="utf-8")
+        "  readonly toolName: string;", "  readonly toolName: string;\n  readonly toolInput?: unknown;\n  readonly heartbeatCall?: string;"), encoding="utf-8")
     approval_service = "packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts"
     (source / approval_service).write_text(replace_once(original(approval_service),
         "      toolName: name,\n      action,\n      display,",
-        "      toolName: name,\n      toolInput: context.args,\n      action,\n      display,"), encoding="utf-8")
+        "      toolName: name,\n      toolInput: context.args,\n      heartbeatCall: context.execution.heartbeatCall,\n      action,\n      display,"), encoding="utf-8")
     approval_map = "packages/acp-server/src/approval.ts"
     mapped = replace_once(original(approval_map), "import { acpToolCallId } from './events-map';",
         "import { acpToolCallId, inferToolKind } from './events-map';")
     (source / approval_map).write_text(replace_once(mapped,
-        "    title: req.toolName,", "    title: req.toolName,\n    kind: inferToolKind(req.toolName),\n    rawInput: req.toolInput,"), encoding="utf-8")
+        "    title: req.toolName,", "    title: req.toolName,\n    kind: inferToolKind(req.toolName),\n    rawInput: req.toolInput,\n    _meta: req.heartbeatCall ? { heartbeatCall: req.heartbeatCall } : undefined,"), encoding="utf-8")
+    contract = "packages/agent-core-v2/src/tool/toolContract.ts"
+    (source / contract).write_text(replace_once(original(contract),
+        "  readonly approvalRule: string;", "  readonly heartbeatCall?: string;\n  readonly approvalRule: string;"),
+        encoding="utf-8")
+    mcp_tool = "packages/agent-core-v2/src/agent/mcp/tools/mcp.ts"
+    mcp_code = replace_once(original(mcp_tool),
+        "import type { ToolDescription as KosongTool }", "import { randomUUID } from 'node:crypto';\nimport type { ToolDescription as KosongTool }")
+    mcp_code = replace_once(mcp_code,
+        "  const callTool = (activeClient: MCPClient, args: unknown, signal: AbortSignal) =>\n    activeClient.callTool(tool.name, (args ?? {}) as Record<string, unknown>, signal);\n",
+        "")
+    mcp_code = replace_once(mcp_code,
+        "    resolveExecution: (args) => ({\n      approvalRule: qualifiedName,",
+        "    resolveExecution: (args) => {\n      const heartbeatCall = options.serverName === 'heartbeat_tools' ? randomUUID() : undefined;\n      const callTool = (activeClient: MCPClient, input: unknown, signal: AbortSignal) =>\n        activeClient.callTool(tool.name, heartbeatCall === undefined ? (input ?? {}) as Record<string, unknown> :\n          { ...((input ?? {}) as Record<string, unknown>), __heartbeat_call: heartbeatCall }, signal);\n      return {\n      heartbeatCall,\n      approvalRule: qualifiedName,")
+    mcp_code = replace_once(mcp_code, "      },\n    }),\n  };\n}", "      },\n    };\n    },\n  };\n}")
+    (source / mcp_tool).write_text(mcp_code, encoding="utf-8")
     server = "packages/acp-server/src/server.ts"
     (source / server).write_text(replace_once(original(server),
         "const agentCapabilities: AgentCapabilities = {",
-        'const agentCapabilities: AgentCapabilities = {\n      _meta: { heartbeat: { permissionGate: 1 } },'),
+        'const agentCapabilities: AgentCapabilities = {\n      _meta: { heartbeat: { permissionGate: 1, hostedCallBinding: 1 } },'),
         encoding="utf-8")
     package = "apps/kimi-code/package.json"
     metadata = json.loads(original(package))
@@ -103,6 +121,8 @@ def prepare(source, lock, version):
     shutil.copyfile(NATIVE / "heartbeat-permissions.test.ts",
                     source / "packages/acp-server/test/heartbeat-permissions.test.ts")
     shutil.copyfile(NATIVE / "heartbeat-acp.ts", source / "packages/acp-server/src/heartbeat-acp.ts")
+    shutil.copyfile(NATIVE / "heartbeat-binding.test.ts",
+                    source / "packages/agent-core-v2/test/agent/mcp/heartbeat-binding.test.ts")
     plan_test = "packages/agent-core-v2/test/features/plan/planGuard.test.ts"
     (source / "packages/agent-core-v2/test/features/plan/heartbeat-plan.test.ts").write_text(
         replace_once(original(plan_test), "  describe('guard', () => {",
@@ -140,6 +160,8 @@ def main():
          "test/heartbeat-permissions.test.ts"], source, env)
     run([node, pnpm, "exec", "vitest", "run", "--project", "agent-core-v2",
          "test/features/plan/heartbeat-plan.test.ts", "-t", "Heartbeat mandatory"], source, env)
+    run([node, pnpm, "exec", "vitest", "run", "--project", "agent-core-v2",
+         "test/agent/mcp/heartbeat-binding.test.ts"], source, env)
     run([node, pnpm, "-C", "apps/kimi-code", "run", "build:native:sea"], source, env)
     os_name = {"Windows": "win32", "Darwin": "darwin", "Linux": "linux"}[platform.system()]
     arch = {"AMD64": "x64", "x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]
