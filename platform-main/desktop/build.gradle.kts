@@ -653,7 +653,13 @@ afterEvaluate {
             releaseBaseUrl.set(
                 "https://github.com/$heartbeatUpdateRepository/releases/download/v$heartbeatApplicationVersion",
             )
-            signingKey.set(providers.gradleProperty("heartbeat.bootstrapSigningKey"))
+            signingKey.set(providers.environmentVariable("HEARTBEAT_BOOTSTRAP_SIGNING_KEY"))
+            trustedKeysFile.set(
+                rootProject.layout.projectDirectory.file("platform-main/native-launcher/bootstrap-trusted-keys.txt"),
+            )
+            allowEphemeralKey.set(
+                providers.gradleProperty("heartbeat.bootstrapLocalSigning").map(String::toBoolean).orElse(false),
+            )
             runtimeFile.set(packageBootstrapRuntime.flatMap { it.archiveFile })
             platformFile.set(packageBootstrapPlatform.flatMap { it.archiveFile })
             seedFile.set(packageBootstrapSeed.flatMap { it.archiveFile })

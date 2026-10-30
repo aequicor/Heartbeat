@@ -3,24 +3,21 @@ package io.aequicor.heartbeat.buildlogic
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
-import java.security.KeyFactory
-import java.security.KeyPairGenerator
-import java.security.PrivateKey
-import java.security.Signature
-import java.security.spec.PKCS8EncodedKeySpec
-import java.util.Base64
 
 /**
  * Пишет bootstrap-манифест тонкого установщика (схема v1) и его detached Ed25519-подпись: подписываются ровно
  * байты JSON. Размеры и SHA-256 вычисляются из собранных zip-артефактов (runtime/platform/seed), URL — из базового
- * адреса релиза и имён файлов. Ключ подписи — отдельный release-ключ (`heartbeat.bootstrapSigningKey`, PKCS#8
- * в base64), не ключ слотов. Без свойства локальная сборка подписывает одноразовым ключом и печатает его публичную
- * часть: такой манифест годится только для локальных проверок, релиз обязан передавать закреплённый ключ.
+ * адреса релиза и имён файлов. Ключ подписи — отдельный release-ключ из HEARTBEAT_BOOTSTRAP_SIGNING_KEY (PKCS#8
+ * Base64), не ключ слотов; подпись обязана проверяться встроенными native ключами. Без ключа сборка закрыта.
+ * Одноразовая подпись разрешена только явно для локальных проверок (allowEphemeralKey), публичная часть выводится
+ * в журнал. Секрет не является входом задачи: среди inputs хранится только SHA-256.
  */
 abstract class WriteBootstrapManifest : DefaultTask() {
     @get:Input
@@ -44,9 +41,24 @@ abstract class WriteBootstrapManifest : DefaultTask() {
     @get:Input
     abstract val releaseBaseUrl: Property<String>
 
+    @get:Internal
+    abstract val signingKey: Property<String>
+
     @get:Input
     @get:Optional
-    abstract val signingKey: Property<String>
+    val signingKeyDigest: Provider<String>
+        get() = signingKey.map { it.filterNot(Char::isWhitespace) }.filter { it.isNotEmpty() }
+            .map { sha256Hex(it.toByteArray()) }
+
+    @get:Input
+    abstract val allowEphemeralKey: Property<Boolean>
+
+    @get:InputFile
+    abstract val trustedKeysFile: RegularFileProperty
+
+    init {
+        allowEphemeralKey.convention(false)
+    }
 
     @get:InputFile
     abstract val runtimeFile: RegularFileProperty
@@ -91,43 +103,29 @@ abstract class WriteBootstrapManifest : DefaultTask() {
             append("}\n")
         }
         val manifestBytes = manifest.toByteArray(Charsets.UTF_8)
+        val trustedKeys = trustedKeysFile.get().asFile.readLines()
+            .map(String::trim).filter { it.isNotEmpty() && !it.startsWith("#") }
+        val signed = signBootstrapManifest(manifestBytes, signingKey.orNull, trustedKeys, allowEphemeralKey.get())
+        signed.ephemeralPublicKey?.let { publicKey ->
+            logger.warn("Local-only bootstrap signature, one-off public key (X.509 Base64): {}", publicKey)
+        }
         manifestFile.get().asFile.writeBytes(manifestBytes)
-        val privateKey = signingKey()
-        val signer = Signature.getInstance("Ed25519")
-        signer.initSign(privateKey)
-        signer.update(manifestBytes)
-        signatureFile.get().asFile.writeBytes(signer.sign())
+        signatureFile.get().asFile.writeBytes(signed.signature)
         logger.lifecycle("Bootstrap manifest: {}", manifestFile.get().asFile)
     }
 
     private data class Artifact(val fileName: String, val url: String, val size: Long, val sha256: String)
 
     private fun artifact(file: RegularFileProperty, baseUrl: String): Artifact {
-        val bytes = file.get().asFile.readBytes()
-        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
-        val name = file.get().asFile.name
-        return Artifact(name, "$baseUrl/$name", bytes.size.toLong(), digest.joinToString("") { "%02x".format(it) })
+        val source = file.get().asFile
+        val name = source.name
+        return Artifact(name, "$baseUrl/$name", source.length(), sha256Hex(source))
     }
 
     private fun artifactFields(artifact: Artifact): String =
         "    \"url\": \"${escape(artifact.url)}\",\n" +
             "    \"size\": ${artifact.size},\n" +
             "    \"sha256\": \"${artifact.sha256}\"\n"
-
-    private fun signingKey(): PrivateKey {
-        val encoded = signingKey.orNull?.trim()
-        val factory = KeyFactory.getInstance("Ed25519")
-        if (!encoded.isNullOrEmpty()) {
-            return factory.generatePrivate(PKCS8EncodedKeySpec(Base64.getDecoder().decode(encoded)))
-        }
-        val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
-        logger.warn(
-            "heartbeat.bootstrapSigningKey is not set: the bootstrap manifest is signed with a one-off key " +
-                "usable only for local checks. Public key (X.509, base64): {}",
-            Base64.getEncoder().encodeToString(pair.public.encoded),
-        )
-        return pair.private
-    }
 
     private fun escape(value: String): String = buildString {
         for (c in value) {
