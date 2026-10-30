@@ -231,9 +231,16 @@ run {
         "windows" -> "MingwX64"
         else -> "LinuxX64"
     }
-    val thinBinary = layout.buildDirectory.file(
-        "bin/${thinTarget.replaceFirstChar { it.lowercase() }}/releaseExecutable/heartbeat-launcher." +
-            if (thinOs == "windows") "exe" else "kexe",
+    // Windows ARM64 packages the verified x64 PE from the upstream Linux job; it does not compile K/N on ARM64.
+    // The image packager still validates the binary ABI before copying this explicit override.
+    val suppliedNative = providers.gradleProperty("heartbeat.thinNativeExecutable").map {
+        rootProject.layout.projectDirectory.file(it)
+    }
+    val thinBinary = suppliedNative.orElse(
+        layout.buildDirectory.file(
+            "bin/${thinTarget.replaceFirstChar { it.lowercase() }}/releaseExecutable/heartbeat-launcher." +
+                if (thinOs == "windows") "exe" else "kexe",
+        ),
     )
     val thinPackager = rootProject.layout.projectDirectory.file("scripts/package_thin_installer.py")
     val thinIcons = rootProject.layout.projectDirectory.dir("platform-main/desktop/icons")
@@ -243,7 +250,7 @@ run {
     val prepareThinImage = tasks.register<Exec>("prepareThinReleaseImage") {
         group = "distribution"
         description = "Prepares a native-only release installer image without JVM, libraries or seed."
-        dependsOn("linkReleaseExecutable$thinTarget")
+        if (!suppliedNative.isPresent) dependsOn("linkReleaseExecutable$thinTarget")
         inputs.files(thinBinary, thinPackager)
         inputs.dir(thinIcons)
         inputs.property("version", thinVersion)
