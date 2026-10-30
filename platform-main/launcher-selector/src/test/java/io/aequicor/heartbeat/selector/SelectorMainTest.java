@@ -47,6 +47,7 @@ class SelectorMainTest {
     void withoutSlotsTheEmbeddedLauncherRuns() throws Exception {
         SelectorMain.run(selector, ARGS, null, embedded, true);
         assertEquals("embedded;", System.getProperty(LauncherFixtures.LOG));
+        java.nio.file.Files.delete(embedded); // Fixture loader must release its jar, including on Windows.
     }
 
     @Test

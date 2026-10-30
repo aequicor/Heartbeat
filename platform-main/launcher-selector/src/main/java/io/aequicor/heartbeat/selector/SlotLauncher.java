@@ -84,7 +84,7 @@ final class SlotLauncher {
      * @throws Exception ошибка самого лаунчера или приложения после передачи управления (как её бросил {@code start})
      */
     static void launch(Path jar, String[] args, Instrumentation inst, Runnable applicationStarted,
-                       Predicate<Map<String, String>> stager) throws Exception {
+                       Predicate<Map<String, String>> stager, boolean closeFixtureLoader) throws Exception {
         // URLClassLoader hides a jar that cannot be opened behind ClassNotFoundException; open it first to tell a
         // locked file (try again later) from a corrupt one (final)
         try (JarFile ignored = new JarFile(jar.toFile())) {
@@ -134,6 +134,12 @@ final class SlotLauncher {
                 throw (Error) cause;
             }
             throw e;
+        } finally {
+            // Production launchers can keep shutdown hooks and background work after start returns.
+            // Synchronous test fixtures do not, and must release their jars before @TempDir cleanup.
+            if (closeFixtureLoader) {
+                closeQuietly(loader);
+            }
         }
     }
 

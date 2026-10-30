@@ -36,18 +36,19 @@ public final class SelectorMain {
         boolean owner = !isAuxiliary(args) && selector.becomeOwner();
         LaunchMarks.mark(isAuxiliary(args) ? "selector.auxiliary" : owner ? "selector.owner" : "selector.secondary");
         try (NativeCancellation cancellation = NativeCancellation.watch(args)) {
-            run(selector, args, SelectorAgent.instrumentation(), embeddedJar(), owner, cancellation::enable);
+            run(selector, args, SelectorAgent.instrumentation(), embeddedJar(), owner, cancellation::enable, false);
         }
         LaunchMarks.mark("selector.app-finished");
     }
 
     static void run(Selector selector, String[] args, java.lang.instrument.Instrumentation inst, Path embedded,
                     boolean owner) throws Exception {
-        run(selector, args, inst, embedded, owner, () -> { });
+        // Test fixtures finish synchronously and have no shutdown hooks that need their class loader.
+        run(selector, args, inst, embedded, owner, () -> { }, true);
     }
 
     private static void run(Selector selector, String[] args, java.lang.instrument.Instrumentation inst, Path embedded,
-                            boolean owner, Runnable applicationStarted) throws Exception {
+                            boolean owner, Runnable applicationStarted, boolean closeFixtureLoader) throws Exception {
         Set<String> failed = new HashSet<>();
         while (true) {
             Choice choice = selector.choose(failed);
@@ -64,7 +65,7 @@ public final class SelectorMain {
                 SlotLauncher.launch(jar, args, inst, () -> {
                     confirmation.run();
                     applicationStarted.run();
-                }, owner ? stager(selector) : null);
+                }, owner ? stager(selector) : null, closeFixtureLoader);
                 LaunchMarks.mark("selector.app-returned");
                 return;
             } catch (SlotLauncher.NotStartedException e) {
