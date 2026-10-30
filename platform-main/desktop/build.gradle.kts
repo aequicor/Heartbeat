@@ -3,6 +3,7 @@ import io.aequicor.heartbeat.buildlogic.CollectPlatformJars
 import io.aequicor.heartbeat.buildlogic.CompressReleaseDmg
 import io.aequicor.heartbeat.buildlogic.HarnessProbeArguments
 import io.aequicor.heartbeat.buildlogic.PackageInnoSetup
+import io.aequicor.heartbeat.buildlogic.PrepareBootstrapImage
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
 import io.aequicor.heartbeat.buildlogic.PrepareReleaseRuntimeJars
 import io.aequicor.heartbeat.buildlogic.TrainPlatformJars
@@ -593,6 +594,19 @@ afterEvaluate {
         val releaseImageDir = releaseImage.flatMap { image ->
             image.destinationDir.dir(image.packageName.map { if (piOs == "darwin") "$it.app" else it })
         }
+        val bootstrapStageName = if (bootstrapOs == "macos") "${heartbeatChannel.packageName}.app" else heartbeatChannel.packageName
+        val prepareBootstrapImage = tasks.register<PrepareBootstrapImage>("prepareBootstrapImage") {
+            group = "compose desktop"
+            description = "Stages and seals the JVM image with the HeartbeatJvm fallback before splitting artifacts."
+            dependsOn(releaseImage)
+            sourceImage.set(releaseImageDir)
+            os.set(bootstrapOs)
+            appName.set(imageName)
+            destination.set(layout.buildDirectory.dir("bootstrap-image").map { root ->
+                root.dir(bootstrapStageName)
+            })
+        }
+        val bootstrapImageDir = prepareBootstrapImage.flatMap { it.destination }
         val runtimePath = when (piOs) {
             "darwin" -> "Contents/runtime"
             "linux" -> "lib/runtime"
@@ -606,10 +620,10 @@ afterEvaluate {
         val packageBootstrapRuntime = tasks.register<Zip>("packageBootstrapRuntime") {
             group = "compose desktop"
             description = "Packs the exact runtime of the verified release image as a bootstrap artifact."
-            dependsOn(releaseImage)
+            dependsOn(prepareBootstrapImage)
             useFileSystemPermissions()
             doFirst { check(canPackageBootstrap) { "Bootstrap packaging requires a release, beta or dev image" } }
-            from(releaseImageDir) {
+            from(bootstrapImageDir) {
                 include("$runtimePath/**")
                 if (piOs == "darwin") into(macBundle)
             }
@@ -619,10 +633,10 @@ afterEvaluate {
         val packageBootstrapPlatform = tasks.register<Zip>("packageBootstrapPlatform") {
             group = "compose desktop"
             description = "Packs the release image without runtime and seed as the bootstrap platform artifact."
-            dependsOn(releaseImage)
+            dependsOn(prepareBootstrapImage)
             useFileSystemPermissions()
             doFirst { check(canPackageBootstrap) { "Bootstrap packaging requires a release, beta or dev image" } }
-            from(releaseImageDir) {
+            from(bootstrapImageDir) {
                 include("**")
                 exclude("$runtimePath/**", "$seedPath/**")
                 if (piOs == "darwin") into(macBundle)
@@ -633,10 +647,10 @@ afterEvaluate {
         val packageBootstrapSeed = tasks.register<Zip>("packageBootstrapSeed") {
             group = "compose desktop"
             description = "Packs the seed train of the release image as the bootstrap seed artifact."
-            dependsOn(releaseImage)
+            dependsOn(prepareBootstrapImage)
             useFileSystemPermissions()
             doFirst { check(canPackageBootstrap) { "Bootstrap packaging requires a release, beta or dev image" } }
-            from(releaseImageDir.map { it.dir(seedPath) })
+            from(bootstrapImageDir.map { it.dir(seedPath) })
             destinationDirectory.set(bootstrapDir)
             archiveFileName.set("heartbeat-seed-$heartbeatApplicationVersion-$bootstrapTarget.zip")
         }
