@@ -2,16 +2,16 @@
 
 package io.aequicor.heartbeat.platform.nativelauncher
 
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
-import platform.windows.GetNativeSystemInfo
-import platform.windows.SYSTEM_INFO
+import io.aequicor.heartbeat.platform.nativelauncher.windowsprocess.hb_native_machine
 
-internal actual fun launcherHostTarget(): String = memScoped {
-    val info = alloc<SYSTEM_INFO>()
-    GetNativeSystemInfo(info.ptr)
-    if (info.wProcessorArchitecture.toInt() == PROCESSOR_ARCHITECTURE_ARM64) "windows-arm64" else "windows-x64"
+/** Native payload architecture, even when this x64 executable is emulated on Windows ARM64. */
+internal actual fun launcherHostTarget(): String = windowsPayloadTarget(hb_native_machine().toInt())
+
+internal fun windowsPayloadTarget(nativeMachine: Int): String = when (nativeMachine) {
+    IMAGE_FILE_MACHINE_ARM64 -> "windows-arm64"
+    IMAGE_FILE_MACHINE_AMD64 -> "windows-x64"
+    else -> error("Cannot determine supported Windows host architecture: $nativeMachine")
 }
 
-private const val PROCESSOR_ARCHITECTURE_ARM64 = 12
+private const val IMAGE_FILE_MACHINE_ARM64 = 0xaa64
+private const val IMAGE_FILE_MACHINE_AMD64 = 0x8664

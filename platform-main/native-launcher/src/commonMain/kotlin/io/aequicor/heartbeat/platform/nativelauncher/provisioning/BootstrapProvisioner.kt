@@ -9,9 +9,7 @@ import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.isAllowedArtifact
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.sha256Hex
 import io.aequicor.heartbeat.platform.nativelauncher.launcherLog
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import okio.FileSystem
 import okio.IOException
 import okio.Path
@@ -113,6 +111,9 @@ class BootstrapProvisioner(
         onProgress: (ProvisionProgress) -> Unit,
         isCancelled: () -> Boolean,
     ): ProvisionedImage {
+        // The provision lock owns this staging, including remnants of a terminated prior process.
+        val staging = store.stagingDir(imageId)
+        if (fs.exists(staging)) fs.deleteRecursively(staging)
         val totalBytes = manifest.runtime.size + manifest.platform.size + manifest.seed.size
         onProgress(ProvisionProgress(ProvisionStage.MANIFEST, totalBytes = totalBytes))
         val required = totalBytes * 2
@@ -134,10 +135,7 @@ class BootstrapProvisioner(
             onProgress(ProvisionProgress(ProvisionStage.DOWNLOAD, artifact.name, completedBytes, totalBytes))
             file
         }
-        val staging = store.stagingDir(imageId)
-        val provisioningContext = currentCoroutineContext()
         try {
-            if (fs.exists(staging)) fs.deleteRecursively(staging)
             fs.createDirectories(staging)
             onProgress(ProvisionProgress(ProvisionStage.EXTRACT))
             val extractor = SafeZipExtractor(fs, isCancelled = isCancelled)
@@ -165,7 +163,8 @@ class BootstrapProvisioner(
             store.prune()
             return checkNotNull(store.currentImage()) { "Activated image is missing" }
         } finally {
-            if (!provisioningContext.isActive || isCancelled()) cleanupStaging(staging)
+            // Activation moves staging away; every failed extraction must release its disk space.
+            if (fs.exists(staging)) cleanupStaging(staging)
         }
     }
 
@@ -313,7 +312,7 @@ class BootstrapProvisioner(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            launcherLog.w(TAG, error) { "Cannot remove cancelled staging: $staging" }
+            launcherLog.w(TAG, error) { "Cannot remove unfinished staging: $staging" }
         }
     }
 

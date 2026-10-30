@@ -178,7 +178,8 @@ internal class BootstrapSession(private val config: LauncherConfig, private val 
 
     private fun preparationFailureMessage(error: Exception): String = when (error) {
         is ProvisionException.Network ->
-            "Не удалось загрузить компоненты. Проверьте подключение к сети и повторите попытку."
+            "Нет соединения\nНе удалось скачать файлы. Проверьте подключение к интернету — " +
+                "загрузка продолжится с сохранённого места."
 
         is ProvisionException.BadSignature ->
             "Не удалось проверить подпись компонентов. Установите свежую версию лончера."

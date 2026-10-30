@@ -8,6 +8,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
@@ -45,10 +46,26 @@ internal fun DesktopWindowComputerUsePresentation(
     activity: ComputerUseActivity,
     capturePresentation: ComputerUseCapturePresentation,
     dockable: DockableWindow,
+    isWindowVisible: () -> Boolean = { true },
+    onSuppressionChange: (Boolean) -> Unit = {},
 ) {
     val overlay = remember(window) { ComputerUseScreenOverlay() }
     val pointer = remember(window) { ComputerUsePointerOverlay() }
-    val presentation = remember(window, overlay) { DesktopCapturePresentation(window, overlay) }
+    val currentVisibility = rememberUpdatedState(isWindowVisible)
+    val currentSuppressionChange = rememberUpdatedState(onSuppressionChange)
+    val presentation = remember(window, overlay) {
+        DesktopCapturePresentation(
+            window,
+            overlay,
+            isWindowVisible = { currentVisibility.value() },
+            onSuppressionChange = { currentSuppressionChange.value(it) },
+        )
+    }
+    val isVisible = isWindowVisible()
+    DisposableEffect(presentation, isVisible) {
+        presentation.onVisibilityChanged()
+        onDispose { }
+    }
     val dock = remember(dockable) { ComputerUseWindowDock(dockable) }
     val dimensions = HbDimensions.Desktop
     val colors = HbColors.forHost(isSystemInDarkTheme(), isDesktop = true)

@@ -5,6 +5,8 @@ plugins {
 }
 
 kotlin {
+    sourceSets.androidMain { kotlin.srcDir("src/mobileMain/kotlin") }
+    sourceSets.iosMain { kotlin.srcDir("src/mobileMain/kotlin") }
     sourceSets.commonMain.dependencies {
         implementation(projects.features.aiEngine.kimi.api)
         implementation(projects.features.aiEngine.acpInterface.api)

@@ -30,8 +30,13 @@ import java.util.concurrent.FutureTask
  * Java window visibility stays unchanged, preserving Compose composition, window state and capture
  * registration. Restoration neither activates a window nor resurrects a disposed presentation.
  */
-internal class DesktopCapturePresentation(private val window: Window, private val overlay: ComputerUseScreenOverlay) :
-    ComputerUsePresentation,
+internal class DesktopCapturePresentation(
+    private val window: Window,
+    private val overlay: ComputerUseScreenOverlay,
+    private val isWindowVisible: () -> Boolean = { true },
+    private val suppressorOverride: CaptureSuppressor? = null,
+    private val onSuppressionChange: (Boolean) -> Unit = {},
+) : ComputerUsePresentation,
     AutoCloseable {
     private val log = Log.tag("DesktopCapturePresentation")
     private var isClosed = false
@@ -39,7 +44,7 @@ internal class DesktopCapturePresentation(private val window: Window, private va
     private var shadowPause: AutoCloseable? = null
     private var nativeSuppression: NativeCaptureSuppression? = null
     private val suppressor by lazy {
-        when {
+        suppressorOverride ?: when {
             Platform.isMac() -> MacCaptureSuppressor()
             Platform.isWindows() -> WindowsCaptureSuppressor()
             else -> error("Capture presentation requires macOS or Windows")
@@ -55,9 +60,10 @@ internal class DesktopCapturePresentation(private val window: Window, private va
             val pause = if (reason == ComputerUseSuppressionReason.CapturePixels) overlay.pauseForCapture() else null
             var isSuppressed = false
             try {
-                nativeSuppression = suppressor.suppress(window)
+                if (nativeSuppression == null) nativeSuppression = suppressor.suppress(window)
                 shadowPause = pause
                 isSuppressed = true
+                onSuppressionChange(true)
             } finally {
                 if (!isSuppressed) pause?.close()
             }
@@ -78,22 +84,40 @@ internal class DesktopCapturePresentation(private val window: Window, private va
     override fun close() {
         checkEventThread()
         isClosed = true
-        overlay.close()
-        // Active leases retain native handles until capture's finally block releases them.
+        try {
+            overlay.close()
+        } finally {
+            // Active leases retain native handles until capture's finally block releases them.
+            if (suppressionCount == 0) releaseNativeSuppression(false)
+        }
+    }
+
+    /** A tray-hidden host keeps its owned native windows hidden until the user reopens it. */
+    fun onVisibilityChanged() {
+        checkEventThread()
+        if (!isClosed && suppressionCount == 0 && isWindowVisible()) releaseNativeSuppression(true)
     }
 
     private fun restorePresentation() {
         val pause = shadowPause
-        val suppression = nativeSuppression
         shadowPause = null
-        nativeSuppression = null
         try {
             // Apply pending shadow changes first: disposed peers must never be restored by the native lease.
             pause?.close()
         } finally {
-            suppression?.restore(!isClosed)
+            try {
+                if (isClosed || isWindowVisible()) releaseNativeSuppression(!isClosed)
+            } finally {
+                onSuppressionChange(false)
+            }
         }
         log.d { "Computer-use pixel capture finished; presentation restored" }
+    }
+
+    private fun releaseNativeSuppression(isPresentationAlive: Boolean) {
+        val suppression = nativeSuppression
+        nativeSuppression = null
+        suppression?.restore(isPresentationAlive)
     }
 
     private fun checkEventThread() {
@@ -101,11 +125,11 @@ internal class DesktopCapturePresentation(private val window: Window, private va
     }
 }
 
-private fun interface NativeCaptureSuppression {
+internal fun interface NativeCaptureSuppression {
     fun restore(isPresentationAlive: Boolean)
 }
 
-private fun interface CaptureSuppressor {
+internal fun interface CaptureSuppressor {
     fun suppress(window: Window): NativeCaptureSuppression
 }
 

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -39,14 +40,17 @@ import io.aequicor.heartbeat.platform.nativelauncher.LauncherPoint
 
 /** Opaque matching frame over the live Studio. Only the native reveal acknowledgement starts its continuation. */
 @Composable
-internal fun EmbeddedIntroOverlay(revealedAt: Long?, modifier: Modifier = Modifier) {
+internal fun EmbeddedIntroOverlay(
+    revealedAt: Long?,
+    modifier: Modifier = Modifier,
+    onVisibleChange: (Boolean) -> Unit = {},
+) {
     var now by remember { mutableLongStateOf(Kernel32.INSTANCE.GetTickCount64()) }
     LaunchedEffect(revealedAt) {
-        while (EmbeddedIntroTimeline.continuation(now, revealedAt).opacity > 0) {
-            withFrameNanos { now = Kernel32.INSTANCE.GetTickCount64() }
-        }
+        animateEmbeddedIntro(revealedAt, now, { withFrameNanos { Kernel32.INSTANCE.GetTickCount64() } }) { now = it }
     }
     val frame = EmbeddedIntroTimeline.continuation(now, revealedAt)
+    SideEffect { onVisibleChange(frame.opacity > 0) }
     val colors = HbTheme.colors
     val surfaces = HbTheme.surfaces
     val headerHeight = HbTheme.dimensions.headerHeight
@@ -73,6 +77,20 @@ internal fun EmbeddedIntroOverlay(revealedAt: Long?, modifier: Modifier = Modifi
         ) {
             HbText("Heartbeat", style = HbTheme.typography.label, color = HbTheme.colors.textSecondary, maxLines = 1)
         }
+    }
+}
+
+internal suspend fun animateEmbeddedIntro(
+    revealedAt: Long?,
+    initialTime: Long,
+    nextFrame: suspend () -> Long,
+    onFrame: (Long) -> Unit,
+) {
+    if (revealedAt == null) return
+    var now = initialTime
+    while (EmbeddedIntroTimeline.continuation(now, revealedAt).opacity > 0) {
+        now = nextFrame()
+        onFrame(now)
     }
 }
 

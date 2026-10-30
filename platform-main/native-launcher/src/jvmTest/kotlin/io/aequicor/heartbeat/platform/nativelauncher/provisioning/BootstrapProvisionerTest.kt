@@ -115,14 +115,16 @@ class BootstrapProvisionerTest {
             expectedVersion: String? = null,
             expectedTarget: String? = null,
             expectedChannel: String? = null,
+            ioFs: FileSystem = fs,
+            availableSpace: (Path) -> Long = { free },
         ) = BootstrapProvisioner(
             store = store,
             transport = transport,
             manifestUrl = "$BASE/manifest.json",
             signatureUrl = "$BASE/manifest.sig",
             trustedKeys = listOf(keyPair.public.encoded),
-            fs = fs,
-            freeSpace = { free },
+            fs = ioFs,
+            freeSpace = availableSpace,
             expectedVersion = expectedVersion,
             expectedTarget = expectedTarget,
             expectedChannel = expectedChannel,
@@ -309,6 +311,45 @@ class BootstrapProvisionerTest {
         }
         assertNull(fixture.provisioner(transport).currentOfflineImage())
         assertTrue((fs.metadata(fixture.store.downloadsDir.resolve("runtime.part")).size ?: 0) > 0)
+    }
+
+    @Test
+    fun failedExtractionReleasesStagingAndRetryKeepsVerifiedDownloads(): Unit = runBlocking {
+        val fixture = Fixture()
+        val transport = fixture.transport()
+        val failing = object : ForwardingFileSystem(fs) {
+            override fun sink(file: Path, mustCreate: Boolean): okio.Sink {
+                val sink = super.sink(file, mustCreate)
+                if (file.name != "java.dll") return sink
+                return object : okio.ForwardingSink(sink) {
+                    override fun write(source: okio.Buffer, byteCount: Long) {
+                        super.write(source, byteCount)
+                        throw IOException("No space left on device")
+                    }
+                }
+            }
+        }
+        assertFailsWith<IOException> { fixture.provisioner(transport, ioFs = failing).provision() }
+        assertTrue(fs.list(fixture.store.root.resolve("staging")).isEmpty())
+        assertNull(fixture.store.currentImage())
+        val downloads = transport.downloads.toList()
+        fixture.provisioner(transport).provision()
+        assertEquals(downloads, transport.downloads)
+        assertNotNull(fixture.store.currentImage())
+    }
+
+    @Test
+    fun interruptedStagingIsRemovedBeforeCheckingFreeSpace(): Unit = runBlocking {
+        val fixture = Fixture()
+        val transport = fixture.transport()
+        val id = "1.0.0-windows-x64-release-train-1-${fixture.manifest.platform.sha256.take(12)}-v2"
+        val staging = fixture.store.stagingDir(id)
+        fs.createDirectories(staging)
+        fs.write(staging.resolve("partial")) { writeUtf8("incomplete image") }
+        fixture.provisioner(transport, availableSpace = {
+            if (fs.exists(staging)) 0L else Long.MAX_VALUE
+        }).provision()
+        assertNotNull(fixture.store.currentImage())
     }
 
     @Test

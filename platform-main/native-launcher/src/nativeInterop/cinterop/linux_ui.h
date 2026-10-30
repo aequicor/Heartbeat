@@ -7,7 +7,7 @@
 typedef struct { int activate, minimized, x, y, width, height, maximized; } hb_gtk_presentation;
 typedef struct { int x, y, width, height; } hb_gdk_rectangle;
 typedef struct {
-    void *library, *builder, *window, *stage, *bytes, *progress, *retry;
+    void *library, *builder, *window, *panel, *stage, *bytes, *progress, *retry, *cancel, *title, *icon, *offline;
     int action;
     int (*init_check)(int *, char ***);
     void (*allowed_backends)(const char *);
@@ -25,10 +25,106 @@ typedef struct {
     void *(*pixbuf_load)(const char *, int, int, int, void **);
     void (*image_pixbuf)(void *, void *), (*window_icon)(void *, void *);
     void (*free_error)(void *);
+    void *(*style_context)(void *);
+    void (*style_color)(void *, unsigned int, void *);
+    void (*add_class)(void *, const char *), (*remove_class)(void *, const char *);
+    void (*set_spacing)(void *, int), (*set_margin_bottom)(void *, int), (*set_size_request)(void *, int, int);
+    void (*source_rgb)(void *, double, double, double);
+    void (*move_to)(void *, double, double), (*line_to)(void *, double, double);
+    void (*curve_to)(void *, double, double, double, double, double, double);
+    void (*close_path)(void *), (*fill)(void *), (*fill_preserve)(void *), (*stroke)(void *);
+    void (*line_width)(void *, double);
+    void (*line_cap)(void *, int), (*line_join)(void *, int);
+    void (*label_markup)(void *, const char *);
+    char *(*markup_printf)(const char *, ...);
+    void (*free_string)(void *);
     void *(*css_new)(void), *(*screen_default)(void);
     int (*css_load)(void *, const char *, long, void **);
     void (*css_add)(void *, void *, unsigned int);
 } hb_gtk_ui;
+
+/* Exact vectors of HbIllustration / Offline; Cairo and GTK resolve display scaling themselves. */
+static void hb_offline_color(hb_gtk_ui *ui, void *cr, int dark, int index) {
+    // HbColors/HbSurfaces DesktopLight and DesktopDark, matching the approved offline illustration.
+    static const unsigned colors[2][7] = {
+        {0xefedf3, 0xe4e4e5, 0xf7f7f7, 0xffffff, 0x616162, 0xe9e5ef, 0x000000},
+        {0x36353b, 0x3d3d3f, 0x2b2b2d, 0x2b2b2d, 0xb6b6b8, 0xbfb3d4, 0x000000}
+    };
+    unsigned rgb = colors[dark][index];
+    ui->source_rgb(cr, ((rgb >> 16) & 255)/255.0, ((rgb >> 8) & 255)/255.0, (rgb & 255)/255.0);
+}
+static int hb_offline_draw(void *widget, void *cr, void *context) {
+    hb_gtk_ui *ui = (hb_gtk_ui *)context;
+    double rgba[4] = {0};
+    ui->style_color(ui->style_context(widget), 0, rgba);
+    int dark = rgba[0] + rgba[1] + rgba[2] > 1.5;
+    ui->line_width(cr, 1.6); ui->line_cap(cr, 1); ui->line_join(cr, 1);
+    ui->move_to(cr , 40, 101);
+    ui->curve_to(cr , 29, 65, 62, 26, 103, 33);
+    ui->curve_to(cr , 142, 8, 207, 38, 201, 89);
+    ui->curve_to(cr , 222, 132, 172, 157, 132, 147);
+    ui->curve_to(cr , 87, 164, 32, 145, 40, 101);
+    ui->close_path(cr);
+    hb_offline_color(ui, cr, dark, 0); ui->fill(cr);
+    ui->move_to(cr , 36, 150);
+    ui->line_to(cr , 204, 150);
+    ui->move_to(cr , 39, 57);
+    ui->line_to(cr , 47, 57);
+    ui->move_to(cr , 43, 53);
+    ui->line_to(cr , 43, 61);
+    ui->move_to(cr , 196, 117);
+    ui->line_to(cr , 204, 117);
+    ui->move_to(cr , 200, 113);
+    ui->line_to(cr , 200, 121);
+    hb_offline_color(ui, cr, dark, 1); ui->stroke(cr);
+    ui->move_to(cr , 76, 135);
+    ui->line_to(cr , 169, 135);
+    ui->curve_to(cr , 177, 135, 181, 138.333, 181, 145);
+    ui->line_to(cr , 64, 145);
+    ui->curve_to(cr , 64, 138.333, 68, 135, 76, 135);
+    ui->close_path(cr);
+    hb_offline_color(ui, cr, dark, 2); ui->fill_preserve(cr);
+    hb_offline_color(ui, cr, dark, 1); ui->stroke(cr);
+    ui->move_to(cr , 70, 61);
+    ui->line_to(cr , 169, 61);
+    ui->curve_to(cr , 174.333, 61, 177, 63.667, 177, 69);
+    ui->line_to(cr , 177, 127);
+    ui->line_to(cr , 62, 127);
+    ui->line_to(cr , 62, 69);
+    ui->curve_to(cr , 62, 63.667, 64.667, 61, 70, 61);
+    ui->close_path(cr);
+    ui->move_to(cr , 55, 127);
+    ui->line_to(cr , 184, 127);
+    ui->line_to(cr , 178, 140);
+    ui->line_to(cr , 61, 140);
+    ui->close_path(cr);
+    hb_offline_color(ui, cr, dark, 3); ui->fill_preserve(cr);
+    hb_offline_color(ui, cr, dark, 4); ui->stroke(cr);
+    ui->move_to(cr , 76, 73);
+    ui->line_to(cr , 163, 73);
+    ui->line_to(cr , 163, 116);
+    ui->line_to(cr , 76, 116);
+    ui->close_path(cr);
+    hb_offline_color(ui, cr, dark, 5); ui->fill_preserve(cr);
+    hb_offline_color(ui, cr, dark, 6); ui->stroke(cr);
+    ui->move_to(cr , 108, 127);
+    ui->line_to(cr , 108, 131);
+    ui->line_to(cr , 131, 131);
+    ui->line_to(cr , 131, 127);
+    ui->move_to(cr , 100, 41);
+    ui->curve_to(cr , 112.667, 31.667, 125.333, 31.667, 138, 41);
+    ui->move_to(cr , 107, 50);
+    ui->curve_to(cr , 115, 44, 123, 44, 131, 50);
+    ui->move_to(cr , 92, 29);
+    ui->line_to(cr , 146, 61);
+    hb_offline_color(ui, cr, dark, 4); ui->stroke(cr);
+    ui->move_to(cr , 107, 89);
+    ui->line_to(cr , 132, 105);
+    ui->move_to(cr , 132, 89);
+    ui->line_to(cr , 107, 105);
+    hb_offline_color(ui, cr, dark, 6); ui->stroke(cr);
+    return 0;
+}
 
 static void hb_gtk_cancel(void *widget, void *context) { ((hb_gtk_ui *)context)->action = 1; }
 static void hb_gtk_retry(void *widget, void *context) { ((hb_gtk_ui *)context)->action = 2; }
@@ -59,22 +155,39 @@ static inline void *hb_gtk_create(const char *icon_path) {
     HB_LOAD(window_state, "gdk_window_get_state"); HB_LOAD(frame_extents, "gdk_window_get_frame_extents");
     HB_LOAD(pixbuf_load, "gdk_pixbuf_new_from_file_at_scale"); HB_LOAD(image_pixbuf, "gtk_image_set_from_pixbuf");
     HB_LOAD(window_icon, "gtk_window_set_icon"); HB_LOAD(free_error, "g_error_free");
+    HB_LOAD(style_context, "gtk_widget_get_style_context"); HB_LOAD(style_color, "gtk_style_context_get_color");
+    HB_LOAD(add_class, "gtk_style_context_add_class"); HB_LOAD(remove_class, "gtk_style_context_remove_class");
+    HB_LOAD(set_spacing, "gtk_box_set_spacing"); HB_LOAD(set_margin_bottom, "gtk_widget_set_margin_bottom");
+    HB_LOAD(set_size_request, "gtk_widget_set_size_request");
+    HB_LOAD(source_rgb, "cairo_set_source_rgb"); HB_LOAD(move_to, "cairo_move_to"); HB_LOAD(line_to, "cairo_line_to");
+    HB_LOAD(curve_to, "cairo_curve_to"); HB_LOAD(close_path, "cairo_close_path"); HB_LOAD(fill, "cairo_fill");
+    HB_LOAD(fill_preserve, "cairo_fill_preserve"); HB_LOAD(stroke, "cairo_stroke"); HB_LOAD(line_width, "cairo_set_line_width");
+    HB_LOAD(line_cap, "cairo_set_line_cap"); HB_LOAD(line_join, "cairo_set_line_join");
+    HB_LOAD(label_markup, "gtk_label_set_markup");
+    HB_LOAD(markup_printf, "g_markup_printf_escaped"); HB_LOAD(free_string, "g_free");
     HB_LOAD(css_new, "gtk_css_provider_new"); HB_LOAD(css_load, "gtk_css_provider_load_from_data");
     HB_LOAD(css_add, "gtk_style_context_add_provider_for_screen"); HB_LOAD(screen_default, "gdk_screen_get_default");
 #undef HB_LOAD
     /* The supported Linux desktop is X11/XWayland, matching the JVM/AWT window backend. */
     ui->allowed_backends("x11");
     if (!ui->init_check(NULL, NULL)) goto failed;
-    const char *xml = "<interface><requires lib=\"gtk+\" version=\"3.20\"/><object class=\"GtkWindow\" id=\"window\"><property name=\"title\">Heartbeat</property><property name=\"default-width\">1280</property><property name=\"default-height\">800</property><property name=\"window-position\">center</property><property name=\"icon-name\">heartbeat</property><child><object class=\"GtkBox\" id=\"panel\"><property name=\"orientation\">vertical</property><property name=\"spacing\">20</property><property name=\"halign\">center</property><property name=\"valign\">center</property><property name=\"width-request\">360</property><property name=\"margin\">32</property><child><object class=\"GtkImage\" id=\"icon\"/></child><child><object class=\"GtkLabel\"><property name=\"label\">Heartbeat</property><attributes><attribute name=\"size\" value=\"32768\"/><attribute name=\"weight\" value=\"600\"/></attributes></object></child><child><object class=\"GtkLabel\" id=\"stage\"><property name=\"label\">Подготовка приложения…</property><property name=\"wrap\">True</property><property name=\"max-width-chars\">48</property><property name=\"justify\">center</property></object></child><child><object class=\"GtkProgressBar\" id=\"progress\"/></child><child><object class=\"GtkLabel\" id=\"bytes\"><property name=\"label\"> </property></object></child><child><object class=\"GtkBox\"><property name=\"orientation\">horizontal</property><property name=\"spacing\">12</property><property name=\"halign\">center</property><child><object class=\"GtkButton\" id=\"retry\"><property name=\"label\">Повторить</property><property name=\"no-show-all\">True</property></object></child><child><object class=\"GtkButton\" id=\"cancel\"><property name=\"label\">Отмена</property></object></child></object></child></object></child></object></interface>";
+    const char *xml = "<interface><requires lib=\"gtk+\" version=\"3.20\"/><object class=\"GtkWindow\" id=\"window\"><property name=\"title\">Heartbeat</property><property name=\"default-width\">1280</property><property name=\"default-height\">800</property><property name=\"window-position\">center</property><property name=\"icon-name\">heartbeat</property><child><object class=\"GtkBox\" id=\"panel\"><property name=\"orientation\">vertical</property><property name=\"spacing\">20</property><property name=\"halign\">center</property><property name=\"valign\">center</property><property name=\"width-request\">360</property><property name=\"margin\">32</property><child><object class=\"GtkDrawingArea\" id=\"offline\"><property name=\"width-request\">240</property><property name=\"height-request\">180</property><property name=\"halign\">center</property><property name=\"no-show-all\">True</property></object></child><child><object class=\"GtkImage\" id=\"icon\"/></child><child><object class=\"GtkLabel\" id=\"title\"><property name=\"label\">Heartbeat</property><property name=\"use-markup\">True</property></object></child><child><object class=\"GtkLabel\" id=\"stage\"><property name=\"label\">Подготовка приложения…</property><property name=\"wrap\">True</property><property name=\"max-width-chars\">48</property><property name=\"justify\">center</property></object></child><child><object class=\"GtkProgressBar\" id=\"progress\"/></child><child><object class=\"GtkLabel\" id=\"bytes\"><property name=\"label\"> </property></object></child><child><object class=\"GtkBox\"><property name=\"orientation\">horizontal</property><property name=\"spacing\">12</property><property name=\"halign\">center</property><child><object class=\"GtkButton\" id=\"retry\"><property name=\"label\">Повторить</property><property name=\"no-show-all\">True</property></object></child><child><object class=\"GtkButton\" id=\"cancel\"><property name=\"label\">Отмена</property></object></child></object></child></object></child></object></interface>";
     ui->builder = ui->builder_new(xml, -1);
     if (!ui->builder) goto failed;
     ui->window = ui->builder_get(ui->builder, "window");
+    ui->panel = ui->builder_get(ui->builder, "panel");
     /* Bundled JBR21 XToolkit derives WM_CLASS from the selector main class, replacing dots with hyphens. */
     ui->wmclass(ui->window, "io-aequicor-heartbeat-selector-SelectorMain", "io-aequicor-heartbeat-selector-SelectorMain");
+    ui->offline = ui->builder_get(ui->builder, "offline");
+    ui->icon = ui->builder_get(ui->builder, "icon");
+    ui->title = ui->builder_get(ui->builder, "title");
+    ui->label_markup(ui->title, "<span size=\"32768\" weight=\"600\">Heartbeat</span>");
+    ui->connect(ui->offline, "draw", (void (*)(void))hb_offline_draw, ui, NULL, 0);
     ui->stage = ui->builder_get(ui->builder, "stage");
     ui->bytes = ui->builder_get(ui->builder, "bytes");
     ui->progress = ui->builder_get(ui->builder, "progress");
     ui->retry = ui->builder_get(ui->builder, "retry");
+    ui->cancel = ui->builder_get(ui->builder, "cancel");
     ui->connect(ui->window, "delete-event", (void (*)(void))hb_gtk_close, ui, NULL, 0);
     ui->connect(ui->builder_get(ui->builder, "cancel"), "clicked", (void (*)(void))hb_gtk_cancel, ui, NULL, 0);
     ui->connect(ui->retry, "clicked", (void (*)(void))hb_gtk_retry, ui, NULL, 0);
@@ -89,7 +202,17 @@ static inline void *hb_gtk_create(const char *icon_path) {
     /* Snapshot of HbColors.DesktopLight.primaryContainer; native GTK handles system text/background/theme. */
     void *css = ui->css_new();
     void *css_error = NULL;
-    if (ui->css_load(css, "progressbar progress { background: #e9e5ef; border: none; min-height: 6px; }", -1, &css_error))
+    const char *rules =
+        "progressbar progress { background: #e9e5ef; border: none; min-height: 6px; }"
+        "button.hb-primary-light, button.hb-primary-dark { background-image: none; border: none; box-shadow: none; "
+        "border-radius: 6px; min-width: 116px; min-height: 32px; padding: 0; color: #000; }"
+        "button.hb-primary-light { background-color: #e9e5ef; }"
+        "button.hb-primary-dark { background-color: #bfb3d4; }"
+        "button.hb-ghost-light, button.hb-ghost-dark { background: transparent; border: none; box-shadow: none; "
+        "border-radius: 6px; min-width: 80px; min-height: 32px; padding: 0; }"
+        "button.hb-ghost-light { color: #242426; } button.hb-ghost-dark { color: #eeeef0; }"
+        "label.hb-secondary-light { color: #616162; } label.hb-secondary-dark { color: #b6b6b8; }";
+    if (ui->css_load(css, rules, -1, &css_error))
         ui->css_add(ui->screen_default(), css, 600);
     if (css_error) ui->free_error(css_error);
     ui->unref(css);
@@ -111,7 +234,41 @@ static inline int hb_gtk_iterate(void *handle) {
 }
 static inline void hb_gtk_update(void *handle, const char *stage, const char *bytes, double fraction, int failed) {
     hb_gtk_ui *ui = (hb_gtk_ui *)handle;
-    ui->label_text(ui->stage, stage); ui->label_text(ui->bytes, bytes);
+    const char *separator = failed ? strchr(stage, '\n') : NULL;
+    char title[256];
+    if (separator) {
+        size_t length = (size_t)(separator - stage);
+        if (length >= sizeof(title)) length = sizeof(title) - 1;
+        memcpy(title, stage, length); title[length] = 0;
+    }
+    ui->label_text(ui->stage, separator ? separator + 1 : stage); ui->label_text(ui->bytes, bytes);
+    double foreground[4] = {0};
+    ui->style_color(ui->style_context(ui->title), 0, foreground);
+    int dark = foreground[0] + foreground[1] + foreground[2] > 1.5;
+    const char *primary = dark ? "hb-primary-dark" : "hb-primary-light";
+    const char *ghost = dark ? "hb-ghost-dark" : "hb-ghost-light";
+    const char *secondary = dark ? "hb-secondary-dark" : "hb-secondary-light";
+    void *retryStyle = ui->style_context(ui->retry), *cancelStyle = ui->style_context(ui->cancel);
+    void *stageStyle = ui->style_context(ui->stage);
+    ui->remove_class(retryStyle, "hb-primary-light"); ui->remove_class(retryStyle, "hb-primary-dark");
+    ui->remove_class(cancelStyle, "hb-ghost-light"); ui->remove_class(cancelStyle, "hb-ghost-dark");
+    ui->remove_class(stageStyle, "hb-secondary-light"); ui->remove_class(stageStyle, "hb-secondary-dark");
+    ui->set_spacing(ui->panel, failed ? 0 : 20);
+    ui->set_margin_bottom(ui->offline, failed ? 40 : 0);
+    ui->set_margin_bottom(ui->title, failed ? 24 : 0);
+    ui->set_margin_bottom(ui->stage, failed ? 16 : 0);
+    ui->set_size_request(ui->stage, failed ? 420 : -1, -1);
+    if (failed) {
+        ui->add_class(retryStyle, primary); ui->add_class(cancelStyle, ghost); ui->add_class(stageStyle, secondary);
+        char *markup = ui->markup_printf("<span size=\"14336\" weight=\"600\">%s</span>",
+            separator ? title : "Не удалось подготовить приложение");
+        ui->label_markup(ui->title, markup);
+        ui->free_string(markup);
+        ui->show(ui->offline); ui->hide(ui->icon); ui->hide(ui->bytes);
+    } else {
+        ui->label_markup(ui->title, "<span size=\"32768\" weight=\"600\">Heartbeat</span>");
+        ui->hide(ui->offline); ui->show(ui->icon); ui->show(ui->bytes);
+    }
     if (failed) { ui->hide(ui->progress); ui->show(ui->retry); }
     else {
         ui->show(ui->progress); ui->hide(ui->retry);

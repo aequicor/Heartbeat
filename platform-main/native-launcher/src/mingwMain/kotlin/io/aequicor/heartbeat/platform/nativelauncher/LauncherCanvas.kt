@@ -40,6 +40,7 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
     private var pixelHeight = 0
     private var width = 0
     private var height = 0
+    private var sampleScale = 4
     private var capacityWidth = 0
     private var capacityHeight = 0
 
@@ -60,7 +61,7 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
         val dc = checkNotNull(memory)
         platform.windows.SetMapMode(dc, platform.windows.MM_ANISOTROPIC)
         platform.windows.SetWindowExtEx(dc, this.width, this.height, null)
-        platform.windows.SetViewportExtEx(dc, width * SCALE, height * SCALE, null)
+        platform.windows.SetViewportExtEx(dc, width * sampleScale, height * sampleScale, null)
         textLayers.clear()
         coverage.clear()
         draw()
@@ -68,7 +69,7 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
         val destination = checkNotNull(output)
         val sourcePixels = checkNotNull(pixels)
         val destinationPixels = checkNotNull(outputPixels)
-        hb_copy_surface(sourcePixels, destinationPixels, width, height, capacityWidth)
+        hb_copy_surface(sourcePixels, destinationPixels, width, height, capacityWidth, sampleScale)
         coverage.forEach {
             hb_resolve_region(
                 sourcePixels,
@@ -78,6 +79,7 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
                 it.top,
                 it.right,
                 it.bottom,
+                sampleScale,
             )
         }
         textLayers.forEach { it(destination) }
@@ -88,22 +90,35 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
         releaseBuffer()
         var isAllocated = false
         try {
-            allocateBuffer(target, width, height)
+            sampleScale = launcherRasterScale(roundedCapacity(width), roundedCapacity(height))
+            try {
+                allocateBuffer(target, width, height)
+            } catch (error: IllegalStateException) {
+                if (sampleScale == 1) throw error
+                launcherLog.w("LauncherCanvas", error) { "Retrying startup drawing without supersampling" }
+                releaseBuffer()
+                sampleScale = 1
+                allocateBuffer(target, width, height)
+            }
             isAllocated = true
         } finally {
             if (!isAllocated) releaseBuffer()
         }
     }
 
+    private fun roundedCapacity(value: Int): Int = ((value + BUFFER_STEP - 1) / BUFFER_STEP) * BUFFER_STEP
+
     private fun allocateBuffer(target: HDC, width: Int, height: Int) {
         // Retain allocation while shrinking; growing a few pixels must not reallocate a large 4x bitmap every frame.
-        capacityWidth = ((width + BUFFER_STEP - 1) / BUFFER_STEP) * BUFFER_STEP
-        capacityHeight = ((height + BUFFER_STEP - 1) / BUFFER_STEP) * BUFFER_STEP
+        capacityWidth = roundedCapacity(width)
+        capacityHeight = roundedCapacity(height)
         val dc = checkNotNull(platform.windows.CreateCompatibleDC(target)) { "Cannot allocate startup drawing context" }
         memory = dc
         bitmap = memScoped {
             val data = alloc<COpaquePointerVar>()
-            checkNotNull(hb_create_surface(target, capacityWidth * SCALE, capacityHeight * SCALE, data.ptr)) {
+            checkNotNull(
+                hb_create_surface(target, capacityWidth * sampleScale, capacityHeight * sampleScale, data.ptr),
+            ) {
                 "Cannot allocate startup frame buffer"
             }.also { pixels = checkNotNull(data.value) }
         }
@@ -239,12 +254,16 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
         val dc = checkNotNull(memory)
         val saved = platform.windows.SaveDC(dc)
         platform.windows.SetMapMode(dc, platform.windows.MM_TEXT)
-        val pen = platform.windows.CreatePen(platform.windows.PS_SOLID, (stroke * SCALE * density).roundToInt(), color)
+        val pen = platform.windows.CreatePen(
+            platform.windows.PS_SOLID,
+            (stroke * sampleScale * density).roundToInt(),
+            color,
+        )
         val old = platform.windows.SelectObject(dc, pen)
         val data = allocArray<POINT>(points.size)
         points.forEachIndexed { index, point ->
-            data[index].x = (point.x * SCALE * density).roundToInt()
-            data[index].y = (point.y * SCALE * density).roundToInt()
+            data[index].x = (point.x * sampleScale * density).roundToInt()
+            data[index].y = (point.y * sampleScale * density).roundToInt()
         }
         platform.windows.Polyline(dc, data, points.size)
         platform.windows.SelectObject(dc, old)
@@ -276,15 +295,15 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
             if (index == 0) {
                 platform.windows.MoveToEx(
                     dc,
-                    (point.x * SCALE * density).roundToInt(),
-                    (point.y * SCALE * density).roundToInt(),
+                    (point.x * sampleScale * density).roundToInt(),
+                    (point.y * sampleScale * density).roundToInt(),
                     null,
                 )
             } else {
                 platform.windows.LineTo(
                     dc,
-                    (point.x * SCALE * density).roundToInt(),
-                    (point.y * SCALE * density).roundToInt(),
+                    (point.x * sampleScale * density).roundToInt(),
+                    (point.y * sampleScale * density).roundToInt(),
                 )
             }
         }
@@ -293,7 +312,7 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
         platform.windows.SelectClipPath(dc, platform.windows.RGN_AND)
         platform.windows.SetMapMode(dc, platform.windows.MM_ANISOTROPIC)
         platform.windows.SetWindowExtEx(dc, width, height, null)
-        platform.windows.SetViewportExtEx(dc, pixelWidth * SCALE, pixelHeight * SCALE, null)
+        platform.windows.SetViewportExtEx(dc, pixelWidth * sampleScale, pixelHeight * sampleScale, null)
         for (row in 0 until size) {
             val color = launcherBlend(LauncherBrand.BLUE, LauncherBrand.VIOLET, 1 - row.toDouble() / size)
             fill(x, y + row, size, 1, launcherBlend(color, background, opacity))
@@ -341,7 +360,6 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
     }
 
     companion object {
-        private const val SCALE = 4
         private const val SHIMMER_HALF_WIDTH = 120
         private const val BUFFER_STEP = 128
         private const val MULTILINE_HEIGHT = 90

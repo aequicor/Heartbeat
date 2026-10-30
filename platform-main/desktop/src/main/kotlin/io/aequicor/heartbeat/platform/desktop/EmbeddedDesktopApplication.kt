@@ -14,8 +14,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.window.rememberWindowState
+import com.arkivanov.decompose.extensions.compose.lifecycle.LifecycleController
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
-import com.arkivanov.essenty.lifecycle.resume
 import com.sun.jna.Pointer
 import com.sun.jna.platform.win32.User32
 import com.sun.jna.platform.win32.WinDef.HWND
@@ -74,10 +74,15 @@ private class EmbeddedDesktopSession(
     private val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
     private val root by lazy { createDesktopRoot(lifecycle, graph) }
     private val nativeWindow = HWND(Pointer(host.handle))
+    private val isIconic = com.sun.jna.NativeLibrary.getInstance("user32").getFunction("IsIconic")
     private var panel: ComposePanel? = null
     private var timer: Timer? = null
     private var revealedAt by mutableStateOf<Long?>(null)
     private var onCloseRequest: (() -> Unit)? = null
+    private var onMinimizedChange: ((Boolean) -> Unit)? = null
+    private var isIntroVisible by mutableStateOf(true)
+    private var isCaptureSuppressed by mutableStateOf(false)
+    private var lastRestoreRequest = 0
 
     fun attach() {
         val window = frame
@@ -99,7 +104,6 @@ private class EmbeddedDesktopSession(
         content.setContent { Content(window, content, rootPane) }
         window.validate()
         window.isVisible = true
-        lifecycle.resume()
         timer = Timer(EMBEDDED_POLL_MILLIS) { synchronize(window) }.also { it.start() }
     }
 
@@ -107,6 +111,7 @@ private class EmbeddedDesktopSession(
     private fun synchronize(window: Frame) {
         try {
             host.synchronize(window)
+            onMinimizedChange?.invoke(isNativeMinimized())
             if (revealedAt == null && host.isRevealed()) {
                 val now = com.sun.jna.platform.win32.Kernel32.INSTANCE.GetTickCount64()
                 log.v { "revealedAt: null -> $now" }
@@ -156,6 +161,8 @@ private class EmbeddedDesktopSession(
     private fun Content(window: Frame, content: ComposePanel, rootPane: JRootPane) {
         val quit = rememberApplicationQuit(graph, lifecycle, stopped::countDown)
         val state = rememberWindowState()
+        val lifecycleState = rememberWindowState()
+        LifecycleController(lifecycle, lifecycleState)
         val computerUse by root.computerUse.collectAsState()
         val visibility = rememberDesktopWindowVisibility(
             state,
@@ -167,14 +174,17 @@ private class EmbeddedDesktopSession(
         val isFocused = LocalWindowInfo.current.isWindowFocused || computerUse.isActive
         SideEffect {
             onCloseRequest = visibility::closeWindow
+            onMinimizedChange = { lifecycleState.isMinimized = it }
             graph.windowFocus.update(isFocused)
         }
-        DisposableEffect(visibility.isVisible, visibility.restoreRequest) {
+        DisposableEffect(visibility.isVisible, visibility.restoreRequest, isCaptureSuppressed) {
             if (!visibility.isVisible) {
                 User32.INSTANCE.ShowWindow(nativeWindow, WinUser.SW_HIDE)
-            } else if (visibility.restoreRequest > 0) {
-                User32.INSTANCE.ShowWindow(nativeWindow, WinUser.SW_RESTORE)
+            } else if (shouldOpenEmbeddedWindow(isCaptureSuppressed, visibility.restoreRequest, lastRestoreRequest)) {
+                val command = embeddedOpenCommand(isNativeMinimized())
+                User32.INSTANCE.ShowWindow(nativeWindow, command)
                 User32.INSTANCE.SetForegroundWindow(nativeWindow)
+                lastRestoreRequest = visibility.restoreRequest
             }
             onDispose { }
         }
@@ -183,9 +193,18 @@ private class EmbeddedDesktopSession(
             onDispose { }
         }
         val dockable = remember(window, state) { EmbeddedDockableWindow(nativeWindow, state) }
-        DesktopWindowComputerUsePresentation(window, computerUse, graph.capturePresentation, dockable)
+        DesktopWindowComputerUsePresentation(
+            window,
+            computerUse,
+            graph.capturePresentation,
+            dockable,
+            isWindowVisible = { visibility.isVisible },
+            onSuppressionChange = { isCaptureSuppressed = it },
+        )
         Studio(window, content, rootPane)
     }
+
+    private fun isNativeMinimized(): Boolean = isIconic.invokeInt(arrayOf(nativeWindow)) != 0
 
     @androidx.compose.runtime.Composable
     private fun Studio(window: Frame, content: ComposePanel, rootPane: JRootPane) {
@@ -199,7 +218,7 @@ private class EmbeddedDesktopSession(
         HbInWindowDialogHost(
             window,
             modifier = Modifier.onPreviewKeyEvent { event ->
-                !hasModal && openSettingsOnShortcut(event, root)
+                embeddedConsumesKey(isIntroVisible, hasModal) { openSettingsOnShortcut(event, root) }
             }.drawWithContent {
                 drawContent()
                 if (startup.isReady && ready.compareAndSet(false, true)) {
@@ -225,7 +244,7 @@ private class EmbeddedDesktopSession(
                             platformUi = io.aequicor.heartbeat.ds.adaptive.PlatformUi.Fluent,
                             dimensions = HbDimensions.Desktop,
                         ) {
-                            EmbeddedIntroOverlay(revealedAt)
+                            EmbeddedIntroOverlay(revealedAt, onVisibleChange = { isIntroVisible = it })
                         }
                     }
                 }
@@ -254,6 +273,18 @@ private fun presentEmbeddedFrame(panel: ComposePanel, frame: Frame, host: Embedd
 }
 
 private const val EMBEDDED_POLL_MILLIS = 16
+
+/** An already maximized window must stay maximized when a repeated launch activates it. */
+internal fun embeddedOpenCommand(isMinimized: Boolean): Int = if (isMinimized) WinUser.SW_RESTORE else WinUser.SW_SHOWNA
+
+internal fun shouldOpenEmbeddedWindow(isCaptureSuppressed: Boolean, request: Int, applied: Int): Boolean =
+    !isCaptureSuppressed && request > applied
+
+internal inline fun embeddedConsumesKey(
+    isIntroVisible: Boolean,
+    hasModal: Boolean,
+    onShortcut: () -> Boolean,
+): Boolean = isIntroVisible || (!hasModal && onShortcut())
 
 private fun setEmbeddedTopmost(window: HWND, active: Boolean) {
     val order = HWND(Pointer(if (active) WINDOWS_TOPMOST else WINDOWS_NOT_TOPMOST))

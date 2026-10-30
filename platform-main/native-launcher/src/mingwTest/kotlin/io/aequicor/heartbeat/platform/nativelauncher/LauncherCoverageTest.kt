@@ -23,6 +23,18 @@ import kotlin.test.assertTrue
 
 class LauncherCoverageTest {
     @Test
+    fun adaptiveSamplingPreservesStrideAtOneAndTwoSamples() = memScoped {
+        for (scale in listOf(1, 2)) {
+            val source = allocArray<UIntVar>(4 * scale * scale)
+            repeat(4 * scale * scale) { source[it] = 0x204080u }
+            val result = allocArray<UIntVar>(4)
+            hb_copy_surface(source, result, 2, 2, 2, scale)
+            hb_resolve_region(source, result, 2, 0, 0, 2, 2, scale)
+            repeat(4) { assertEquals(0x204080u, result[it]) }
+        }
+    }
+
+    @Test
     fun roundedSkeletonKeepsItsMaskAndSmoothContinuousGradient() = memScoped {
         val dc = assertNotNull(platform.windows.CreateCompatibleDC(null))
         val data = alloc<COpaquePointerVar>()
@@ -57,10 +69,10 @@ class LauncherCoverageTest {
         repeat(32) { source[it] = 0x204080u }
         repeat(4) { row -> repeat(4) { column -> source[row * 8 + column] = if (row < 2) 0xFFFFFFu else 0u } }
         val result = allocArray<UIntVar>(2)
-        hb_copy_surface(source, result, 2, 1, 2)
+        hb_copy_surface(source, result, 2, 1, 2, 4)
         assertEquals(0xFFFFFFu, result[0])
         assertEquals(0x204080u, result[1])
-        hb_resolve_region(source, result, 2, 0, 0, 1, 1)
+        hb_resolve_region(source, result, 2, 0, 0, 1, 1, 4)
         assertEquals(0x808080u, result[0])
         assertEquals(0x204080u, result[1])
     }
