@@ -112,6 +112,15 @@ class RuntimeDeliveryTest(unittest.TestCase):
         (self.root / "native/kimi/test_build.py").write_text("a test", encoding="utf-8")
         self.assertEqual(before, runtimes.recipes(self.root)[0]["buildFingerprint"])
 
+    def test_symlinked_repository_root_has_the_same_build_identity(self):
+        with tempfile.TemporaryDirectory() as folder:
+            linked = Path(folder) / "repository"
+            try:
+                linked.symlink_to(self.root.resolve(), target_is_directory=True)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"Directory symlinks are unavailable: {error}")
+            self.assertEqual(runtimes.recipes(self.root.resolve()), runtimes.recipes(linked))
+
     def test_package_has_flat_safe_files_and_reproducible_hash(self):
         target = "win32-x64"
         self.output(target)

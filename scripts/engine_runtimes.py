@@ -47,6 +47,7 @@ def inside(root, relative):
 
 
 def recipes(root=ROOT):
+    root = Path(root).resolve()
     catalog = read_json(root / "native/runtimes.json")
     if catalog.get("schemaVersion") != 1:
         raise ValueError("Unsupported runtime catalog schema")
