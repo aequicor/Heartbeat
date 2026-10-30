@@ -282,7 +282,12 @@ public final class LauncherMain {
         }
     }
 
-    /** Показывает экран первого запуска (или работает без окна в headless) и ждёт активации поезда. */
+    /** Нативный загрузчик владеет окном до готовности приложения; отдельный Swing-экран ему не нужен. */
+    static boolean hasNativeHandoff(String directory) {
+        return directory != null && !directory.isBlank();
+    }
+
+    /** Показывает экран первого запуска без нативного загрузчика и ждёт активации поезда. */
     private static void ensureFirstLaunch(FirstLaunch firstLaunch) throws IOException, InterruptedException {
         if (!firstLaunch.isNeeded()) {
             return;
@@ -290,7 +295,7 @@ public final class LauncherMain {
         // Без baseUrl (офлайн-установщик) качаются только бандлы со своим адресом; недостающий jar — ошибка.
         String baseUrl = firstLaunch.baseUrl();
         FirstLaunchScreen.Task task = listener -> firstLaunch.run(new HttpFetcher(baseUrl), listener);
-        if (GraphicsEnvironment.isHeadless()) {
+        if (GraphicsEnvironment.isHeadless() || hasNativeHandoff(System.getenv("HEARTBEAT_HANDOFF_DIR"))) {
             task.run(new FirstLaunch.Listener() {
                 @Override
                 public void onLog(String line) {

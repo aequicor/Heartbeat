@@ -126,6 +126,12 @@ internal class DesktopWindowVisibility(
         if (presentation.isActivationRequested && !presentation.isMinimized) restoreRequest++
     }
 
+    /** Starts the render clock behind the launcher without taking focus from the launcher or another app. */
+    fun showForHandoff() {
+        log.v { "Preparing the application window without activation" }
+        isVisible = true
+    }
+
     override fun close() {
         val registration = tray
         tray = null

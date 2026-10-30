@@ -32,11 +32,15 @@ import javax.swing.JFrame
 
 /** Owns native decoration for one window; no native handles or JBR types escape into common UI. */
 @Composable
-internal fun FrameWindowScope.DesktopWindowContent(state: WindowState, content: @Composable () -> Unit) {
+internal fun FrameWindowScope.DesktopWindowContent(
+    state: WindowState,
+    darkTheme: Boolean? = null,
+    content: @Composable () -> Unit,
+) {
     val controller = remember(window) { DesktopWindowChrome(window) }
     var chrome by remember { mutableStateOf(HbWindowChrome()) }
     var revision by remember { mutableIntStateOf(0) }
-    val isDark = isSystemInDarkTheme()
+    val isDark = darkTheme ?: isSystemInDarkTheme()
     val isActive = LocalWindowInfo.current.isWindowFocused
     DisposableEffect(controller, window) {
         val changes = object : ComponentAdapter() {

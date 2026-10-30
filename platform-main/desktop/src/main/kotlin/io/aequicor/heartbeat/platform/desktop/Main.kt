@@ -31,6 +31,8 @@ import io.aequicor.heartbeat.core.common.MutableWindowFocus
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbDesktopPopupRendering
 import io.aequicor.heartbeat.ds.components.HbInWindowDialogHost
+import io.aequicor.heartbeat.ds.components.HbWindowStartupProvider
+import io.aequicor.heartbeat.ds.components.HbWindowStartupState
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseActivity
 import io.aequicor.heartbeat.platform.dibundle.AppShutdownAccessors
@@ -165,6 +167,12 @@ private fun launchLoggedHeartbeat(
 /** Read by the platform launcher's shutdown hook (`platform-main/launcher`, `LauncherMain`). */
 private const val LAUNCHER_CLEAN_EXIT = "heartbeat.exit.clean"
 
+private fun launcherDarkThemeOverride(): Boolean? = when (System.getenv("HEARTBEAT_LAUNCHER_THEME")) {
+    "dark" -> true
+    "light" -> false
+    else -> null
+}
+
 private fun launchDesktopApplication(
     lifecycle: LifecycleRegistry,
     graph: HeartbeatGraph,
@@ -173,26 +181,13 @@ private fun launchDesktopApplication(
 ) {
     val root = createDesktopRoot(lifecycle, graph)
     val dimensions = HbDimensions()
+    val initialHandoff = DesktopHandoff.presentation()
+    val isForcedDark = launcherDarkThemeOverride()
     application {
-        val systemQuit = remember { DesktopSystemQuit() }
-        val shutdown = graph as AppShutdownAccessors
-        val quitRequests = rememberDesktopCloseHandler(
-            shutdown.shutdownParticipants,
-            graph.dispatchers,
-            shutdown::closeScopes,
-            lifecycle::destroy,
-        ) {
-            // Compose ends the JVM with exitProcess(0): tell the platform launcher this exit is not a crash.
-            System.setProperty(LAUNCHER_CLEAN_EXIT, "true")
-            exitApplication()
-            systemQuit.complete()
-        }
-        // Every handler instance shares the same remembered closing state, so the first one is installed once.
-        DisposableEffect(Unit) {
-            installDesktopQuitHandler(systemQuit, quitRequests.quit)
-            onDispose { }
-        }
-        QuitForAppUpdate(graph.machines, quitRequests.restart)
+        var isHandoffFinished by remember { mutableStateOf(DesktopHandoff.directory() == null) }
+        val handoffSession = remember { HandoffSession() }
+        val isHandoffDark = handoffSession.darkTheme(initialHandoff, isHandoffFinished, isForcedDark)
+        val quitRequests = rememberApplicationQuit(graph, lifecycle) { exitApplication() }
         val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
         val computerUse by root.computerUse.collectAsState()
@@ -204,7 +199,6 @@ private fun launchDesktopApplication(
             quitRequests.quit,
             startHidden = DesktopHandoff.directory() != null,
         )
-        HandoffEffect(visibility, graph.dispatchers.io)
         val plantUml = remember(graph) { (graph as PlantUmlAccessors).plantUml }
         val diagrams = remember(plantUml) { PlantUmlDiagramRenderer(plantUml, graph.dispatchers.default) }
         val areDiagramsAvailable by plantUml.availability.collectAsState(false)
@@ -219,16 +213,67 @@ private fun launchDesktopApplication(
             isAlwaysOnTop = computerUse.isActive,
             onPreviewKeyEvent = { event -> !hasModal && openSettingsOnShortcut(event, root) },
             nativePresentation = { window ->
+                HandoffEffect(window, visibility, graph.dispatchers.io, handoffSession, quitRequests.quit) {
+                    isHandoffFinished = true
+                }
                 RestoreDesktopWindowFocus(window, visibility)
                 DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
             },
         ) {
-            HeartbeatWindowContent(windowState, applicationIcons, graph.windowFocus, computerUse, { hasModal = it }) {
-                App(root, diagramRenderer = diagrams.takeIf { areDiagramsAvailable })
+            HeartbeatWindowContent(
+                windowState,
+                applicationIcons,
+                graph.windowFocus,
+                computerUse,
+                { hasModal = it },
+                handoffSession,
+                darkTheme = isHandoffDark,
+            ) {
+                HeartbeatApp(root, diagrams, areDiagramsAvailable, isHandoffDark)
             }
         }
         DesktopPermissionGuide(graph)
     }
+}
+
+@Composable
+private fun rememberApplicationQuit(
+    graph: HeartbeatGraph,
+    lifecycle: LifecycleRegistry,
+    onExit: () -> Unit,
+): DesktopQuitRequests {
+    val systemQuit = remember { DesktopSystemQuit() }
+    val shutdown = graph as AppShutdownAccessors
+    val requests = rememberDesktopCloseHandler(
+        shutdown.shutdownParticipants,
+        graph.dispatchers,
+        shutdown::closeScopes,
+        lifecycle::destroy,
+    ) {
+        System.setProperty(LAUNCHER_CLEAN_EXIT, "true")
+        onExit()
+        systemQuit.complete()
+    }
+    DisposableEffect(Unit) {
+        installDesktopQuitHandler(systemQuit, requests.quit)
+        onDispose { }
+    }
+    QuitForAppUpdate(graph.machines, requests.restart)
+    return requests
+}
+
+@Composable
+private fun HeartbeatApp(
+    root: HeartbeatRoot,
+    diagrams: PlantUmlDiagramRenderer,
+    areDiagramsAvailable: Boolean,
+    darkTheme: Boolean?,
+) {
+    App(
+        root,
+        diagramRenderer = diagrams.takeIf { areDiagramsAvailable },
+        darkTheme = darkTheme ?: androidx.compose.foundation.isSystemInDarkTheme(),
+    )
 }
 
 /** Creates the root and starts application work once, while the desktop event loop is available. */
@@ -258,7 +303,9 @@ private fun FrameWindowScope.HeartbeatWindowContent(
     focus: MutableWindowFocus,
     computerUse: ComputerUseActivity,
     onModalChange: (Boolean) -> Unit,
+    handoffSession: HandoffSession,
     modifier: Modifier = Modifier,
+    darkTheme: Boolean? = null,
     content: @Composable () -> Unit,
 ) {
     DisposableEffect(window, icons) {
@@ -271,9 +318,13 @@ private fun FrameWindowScope.HeartbeatWindowContent(
     // Первый layout-проход кадра окна — момент его первой отрисовки: метка протокола времени запуска (Этап 0).
     var isFirstFramePending by remember { mutableStateOf(true) }
     HbDesktopPopupRendering(window)
+    val startup = remember(window) { HbWindowStartupState() }
+    val handoffModifier = remember(window, startup, handoffSession) {
+        Modifier.handoffFrame(window, handoffSession) { startup.isReady }
+    }
     HbInWindowDialogHost(
         window,
-        modifier.onGloballyPositioned {
+        modifier.then(handoffModifier).onGloballyPositioned {
             if (isFirstFramePending) {
                 isFirstFramePending = false
                 LaunchMarks.mark("app.first-frame")
@@ -281,7 +332,9 @@ private fun FrameWindowScope.HeartbeatWindowContent(
         },
         onActiveChange = onModalChange,
     ) {
-        DesktopWindowContent(state, content = content)
+        HbWindowStartupProvider(startup) {
+            DesktopWindowContent(state, darkTheme = darkTheme, content = content)
+        }
     }
 }
 
