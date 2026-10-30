@@ -23,7 +23,11 @@ public object KimiEngine {
     )
 }
 
-/** Process configuration. Values are never executed through a shell or logged. */
+/**
+ * Process configuration. Sessions use Heartbeat's packaged runtime with a mandatory permission gate,
+ * sharing the user's Kimi login. [executable] is retained for compatibility and is not a runtime override.
+ * Values are never executed through a shell or logged.
+ */
 public data class KimiConfiguration(
     public val executable: String = "kimi",
     public val workingDirectory: String? = null,

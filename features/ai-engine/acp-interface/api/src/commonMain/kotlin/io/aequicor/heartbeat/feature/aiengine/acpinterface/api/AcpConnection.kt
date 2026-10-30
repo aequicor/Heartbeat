@@ -23,6 +23,8 @@ public interface AcpClientFactory {
  * Cancelling a caller only abandons its wait: an already submitted operation continues in the owner scope.
  * The client never retries requests, switches credentials, or claims that a local cancellation stopped a turn.
  */
+// ACP lifecycle, session operations and compatibility overloads share one connection.
+@Suppress("TooManyFunctions")
 public interface AcpConnection {
     /** Negotiates v1; unsupported versions close the connection. */
     public suspend fun initialize(client: AcpImplementation): AcpInitialization
@@ -30,17 +32,44 @@ public interface AcpConnection {
     /** Invokes an advertised authentication method without selecting one implicitly. */
     public suspend fun authenticate(methodId: String)
 
-    /** Creates a session in an absolute working directory. MCP servers are not configured by this service. */
+    /** Sends trusted authentication metadata and returns the complete extension-bearing response. */
+    public suspend fun authenticate(methodId: String, metadata: JsonObject): JsonObject =
+        throw UnsupportedOperationException("ACP authentication metadata unavailable")
+
+    /** Signs out when the agent advertises the ACP logout capability. */
+    public suspend fun logout(): Unit = throw UnsupportedOperationException("ACP logout unavailable")
+
+    /** Creates a session in an absolute working directory without MCP servers. */
     public suspend fun newSession(cwd: String): AcpSession
 
     /** Replays updates through the handler before returning; requires the loadSession capability. */
     public suspend fun loadSession(sessionId: String, cwd: String): AcpSession
+
+    /** Creates a session with trusted MCP definitions. Definitions may contain secrets and must not be logged. */
+    public suspend fun newSession(cwd: String, servers: List<JsonObject>): AcpSession =
+        if (servers.isEmpty()) newSession(cwd) else throw UnsupportedOperationException("ACP MCP unavailable")
+
+    /** Restores a session with trusted ACP MCP server definitions, which may contain secrets. */
+    public suspend fun loadSession(sessionId: String, cwd: String, servers: List<JsonObject>): AcpSession =
+        if (servers.isEmpty()) {
+            loadSession(sessionId, cwd)
+        } else {
+            throw UnsupportedOperationException("ACP MCP unavailable")
+        }
 
     /**
      * Sends content blocks and waits for the agent's final stop reason; updates and permissions are handled meanwhile.
      * [AcpClientHandler.onPromptSubmitted] establishes local wire submission before this call returns a result.
      */
     public suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult
+
+    /** Sends trusted extension metadata with a prompt; metadata may contain secrets and is never logged. */
+    public suspend fun prompt(sessionId: String, content: List<JsonObject>, metadata: JsonObject): AcpPromptResult =
+        if (metadata.isEmpty()) {
+            prompt(sessionId, content)
+        } else {
+            throw UnsupportedOperationException("ACP metadata unavailable")
+        }
 
     /** Sends one text block through the multimodal prompt contract. */
     public suspend fun prompt(sessionId: String, text: String): AcpPromptResult = prompt(
@@ -76,6 +105,9 @@ public interface AcpConnection {
 
 /** Callbacks installed for the whole connection, including updates sent while loading a session. */
 public interface AcpClientHandler {
+    /** Connection closed or disconnected; return promptly without blocking the ACP reader. */
+    public fun onDisconnected(): Unit = Unit
+
     /**
      * Observes successful submission of a session/prompt frame, before releasing the prompt/cancel admission
      * barrier and before delivering its result to the caller. This confirms local submission, not remote acceptance.

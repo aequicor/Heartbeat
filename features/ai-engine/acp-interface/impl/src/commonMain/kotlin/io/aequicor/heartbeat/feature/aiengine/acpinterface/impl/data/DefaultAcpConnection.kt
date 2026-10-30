@@ -39,6 +39,7 @@ internal class DefaultAcpConnection(
     private val peer = AcpRpcPeer(
         transport,
         scope,
+        onClosed = { handler.onDisconnected() },
         onNotification = { method, params ->
             if (method == "session/update") {
                 handler.onSessionUpdate(AcpSessionUpdate(params.string("sessionId"), params.obj("update")))
@@ -92,17 +93,41 @@ internal class DefaultAcpConnection(
         }
     }
 
-    override suspend fun newSession(cwd: String): AcpSession = owned {
+    override suspend fun authenticate(methodId: String, metadata: JsonObject): JsonObject = owned {
+        val info = ready()
+        require(info.authMethods.any { it.id == methodId }) { "Authentication method was not advertised" }
+        log.i { "ACP authenticate with metadata" }
+        peer.request("authenticate", fields("methodId" to JsonPrimitive(methodId), "_meta" to metadata))
+    }
+
+    override suspend fun logout() {
+        owned {
+            val auth = ready().agentCapabilities["auth"] as? JsonObject
+            check(auth?.get("logout") is JsonObject) { "ACP logout was not advertised" }
+            log.i { "ACP logout" }
+            peer.request("logout", JsonObject(emptyMap()))
+        }
+    }
+
+    override suspend fun newSession(cwd: String): AcpSession = newSession(cwd, emptyList())
+
+    override suspend fun newSession(cwd: String, servers: List<JsonObject>): AcpSession = owned {
         ready()
         requireAbsolute(cwd)
         log.i { "ACP new session" }
-        val result = peer.request("session/new", sessionParams(cwd))
+        val result = peer.request("session/new", sessionParams(cwd, servers))
         val id = parse { result.string("sessionId").also { if (it.isBlank()) throw AcpException.Protocol() } }
         lock.withLock { sessions.add(id) }
         AcpSession(id, result)
     }
 
-    override suspend fun loadSession(sessionId: String, cwd: String): AcpSession = owned {
+    override suspend fun loadSession(sessionId: String, cwd: String): AcpSession = loadSession(
+        sessionId,
+        cwd,
+        emptyList(),
+    )
+
+    override suspend fun loadSession(sessionId: String, cwd: String, servers: List<JsonObject>): AcpSession = owned {
         val info = ready()
         check((info.agentCapabilities["loadSession"] as? JsonPrimitive)?.booleanOrNull == true) {
             "Agent does not support loading sessions"
@@ -112,7 +137,8 @@ internal class DefaultAcpConnection(
         log.i { "ACP load session" }
         lock.withLock { check(busySessions.add(sessionId)) { "Session is busy" } }
         try {
-            val result = peer.request("session/load", JsonObject(sessionParams(cwd) + sessionId(sessionId)))
+            val params = JsonObject(sessionParams(cwd, servers) + sessionId(sessionId))
+            val result = peer.request("session/load", params)
             lock.withLock { sessions.add(sessionId) }
             AcpSession(sessionId, result)
         } finally {
@@ -120,36 +146,40 @@ internal class DefaultAcpConnection(
         }
     }
 
-    override suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult = owned {
-        var isTurnOwned = false
-        try {
-            val response = admissions.withLock {
-                requireSession(sessionId)
-                lock.withLock {
-                    check(busySessions.add(sessionId)) { "Session is busy" }
-                    isTurnOwned = true
-                }
-                permissions.begin(sessionId)
-                log.i { "ACP prompt" }
-                peer.submit("session/prompt", promptParams(sessionId, content)).also {
-                    try {
-                        handler.onPromptSubmitted(sessionId)
-                    } catch (error: CancellationException) {
-                        withContext(NonCancellable) { peer.close() }
-                        throw error
-                    } catch (error: Exception) {
-                        log.w(AcpDiagnostic(error)) { "ACP prompt submission observer failed" }
-                        withContext(NonCancellable) { peer.close() }
-                        throw error
+    override suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult =
+        prompt(sessionId, content, JsonObject(emptyMap()))
+
+    override suspend fun prompt(sessionId: String, content: List<JsonObject>, metadata: JsonObject): AcpPromptResult =
+        owned {
+            var isTurnOwned = false
+            try {
+                val response = admissions.withLock {
+                    requireSession(sessionId)
+                    lock.withLock {
+                        check(busySessions.add(sessionId)) { "Session is busy" }
+                        isTurnOwned = true
+                    }
+                    permissions.begin(sessionId)
+                    log.i { "ACP prompt" }
+                    peer.submit("session/prompt", promptParams(sessionId, content, metadata)).also {
+                        try {
+                            handler.onPromptSubmitted(sessionId)
+                        } catch (error: CancellationException) {
+                            withContext(NonCancellable) { peer.close() }
+                            throw error
+                        } catch (error: Exception) {
+                            log.w(AcpDiagnostic(error)) { "ACP prompt submission observer failed" }
+                            withContext(NonCancellable) { peer.close() }
+                            throw error
+                        }
                     }
                 }
+                val body = response.await()
+                parse { acpJson.decodeFromJsonElement(AcpPromptResult.serializer(), body) }
+            } finally {
+                if (isTurnOwned) withContext(NonCancellable) { lock.withLock { busySessions.remove(sessionId) } }
             }
-            val body = response.await()
-            parse { acpJson.decodeFromJsonElement(AcpPromptResult.serializer(), body) }
-        } finally {
-            if (isTurnOwned) withContext(NonCancellable) { lock.withLock { busySessions.remove(sessionId) } }
         }
-    }
 
     override suspend fun cancel(sessionId: String) {
         owned {
@@ -181,12 +211,10 @@ internal class DefaultAcpConnection(
         }
     }
 
-    private fun promptParams(sessionId: String, content: List<JsonObject>): JsonObject {
+    private fun promptParams(sessionId: String, content: List<JsonObject>, metadata: JsonObject): JsonObject {
         require(content.isNotEmpty()) { "ACP prompt requires at least one content block" }
-        return fields(
-            sessionId(sessionId),
-            "prompt" to JsonArray(content),
-        )
+        val params = fields(sessionId(sessionId), "prompt" to JsonArray(content))
+        return if (metadata.isEmpty()) params else JsonObject(params + ("_meta" to metadata))
     }
 
     override suspend fun close() {
@@ -242,8 +270,8 @@ internal class DefaultAcpConnection(
         lock.withLock { require(id in sessions) { "Session does not belong to this connection" } }
     }
 
-    private fun sessionParams(cwd: String): JsonObject =
-        fields("cwd" to JsonPrimitive(cwd), "mcpServers" to JsonArray(emptyList()))
+    private fun sessionParams(cwd: String, servers: List<JsonObject>): JsonObject =
+        fields("cwd" to JsonPrimitive(cwd), "mcpServers" to JsonArray(servers))
 
     private fun sessionId(id: String): Pair<String, JsonPrimitive> = "sessionId" to JsonPrimitive(id)
 

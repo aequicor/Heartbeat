@@ -15,8 +15,12 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSessionUpdate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachment
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
@@ -28,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
@@ -47,6 +52,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PlanStep
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PlanStepStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -68,6 +74,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
@@ -75,7 +82,9 @@ import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -84,13 +93,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import kotlin.concurrent.Volatile
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -105,11 +117,14 @@ internal class KimiRuntime(
     private val toggles: FeatureToggles,
     internal val tools: ProfileAgentTools = NoAgentTools,
     internal val resources: ResourceResolver = ResourceResolver { null },
+    fetchProviderUsage: (suspend () -> ProviderUsageSnapshot?)? = null,
+    private val bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    private val ownedScope: Job? = null,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
     AcpClientHandler {
-    private val providerUsage = KimiProviderUsage { toggles.get(EngineUsageEnabled) }
+    private val providerUsage = KimiProviderUsage(fetchProviderUsage) { toggles.get(EngineUsageEnabled) }
     override val features = KimiFeatures(
         CreatesSessions to this,
         AttachesSessions to this,
@@ -122,7 +137,11 @@ internal class KimiRuntime(
 
     @Volatile
     private var isShutdown = false
-    override val isClosed: Boolean get() = isShutdown
+
+    @Volatile
+    private var isDisconnected = false
+    override val isClosed: Boolean
+        get() = isShutdown || isDisconnected || scope.coroutineContext[Job]?.isActive == false
 
     private val usageToggleObserver = scope.launch {
         try {
@@ -137,9 +156,24 @@ internal class KimiRuntime(
     override suspend fun create(request: CreateSessionRequest): ActiveSession {
         checkActive()
         val cwd = directory(request)
-        val native = connection.newSession(cwd)
-        configureCatching(native.sessionId, native.metadata, request.target)
-        return session(native.sessionId, request.target, request.workspace, native.metadata, cwd).lease()
+        val hosted = hosted(
+            request.target,
+            request.workspace,
+            null,
+            request.areDetachedToolsEnabled,
+            request.preselected,
+        )
+        var isTransferred = false
+        try {
+            val native = connection.newSession(cwd, hosted.servers)
+            configureCatching(native.sessionId, native.metadata, request.target)
+            val session = session(native.sessionId, request.target, request.workspace, native.metadata, cwd, hosted)
+            hosted.session.value = session
+            isTransferred = true
+            return session.lease(request.areDetachedToolsEnabled)
+        } finally {
+            if (!isTransferred) hosted.close()
+        }
     }
 
     suspend fun discoverCatalog(
@@ -192,26 +226,39 @@ internal class KimiRuntime(
             ) {
                 throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
             }
-            return@withLock existing.lease()
+            return@withLock existing.lease(request.areDetachedToolsEnabled)
         }
         if (!initialization.agentCapabilities["loadSession"].supportsLoad()) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
         }
         val cwd = directory(CreateSessionRequest(request.target, request.workspace))
-        val native = connection.loadSession(nativeId, cwd)
-        configureCatching(nativeId, native.metadata, request.target)
-        session(nativeId, request.target, request.workspace, native.metadata, cwd).lease()
+        val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, nativeId)
+        val hosted = hosted(request.target, request.workspace, ref, request.areDetachedToolsEnabled, emptyMap())
+        var isTransferred = false
+        try {
+            val native = connection.loadSession(nativeId, cwd, hosted.servers)
+            configureCatching(nativeId, native.metadata, request.target)
+            val session = session(nativeId, request.target, request.workspace, native.metadata, cwd, hosted)
+            hosted.session.value = session
+            isTransferred = true
+            session.lease(request.areDetachedToolsEnabled)
+        } finally {
+            if (!isTransferred) hosted.close()
+        }
     }
 
+    @Suppress("LongParameterList") // A session is bound to its native identity, route and capability.
     private suspend fun session(
         nativeId: String,
         target: EngineTarget,
         workspace: io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef?,
         metadata: JsonObject,
         workingDirectory: String,
+        hosted: KimiHosted,
     ): KimiSession = mutex.withLock {
         checkActive()
-        sessions.value[nativeId] ?: run {
+        check(nativeId !in sessions.value) { "Kimi session identity already registered" }
+        run {
             val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, nativeId)
             val route = ExecutionRoute(
                 KimiEngine.Id,
@@ -228,10 +275,43 @@ internal class KimiRuntime(
                 this,
                 kimiNativeCatalog(metadata, initialization.agentCapabilities),
                 workingDirectory,
+                hosted,
             )
             sessions.value = sessions.value + (nativeId to created)
             created
         }
+    }
+
+    private suspend fun hosted(
+        target: EngineTarget,
+        workspace: io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef?,
+        ref: SessionRef?,
+        enabled: Boolean,
+        preselected: Map<String, Set<String>>,
+    ): KimiHosted {
+        val holder = KimiHosted()
+        if (workspace == null && !enabled) return holder
+        val scope = AgentToolScope(workspace, target, session = ref, preselected = preselected)
+        val names = tools.specifications(scope).mapTo(mutableSetOf()) { it.name }
+        if (names.isEmpty()) return holder
+        check(bridge.isAvailable) { "Hosted tools bridge is unavailable" }
+        val attachment = bridge.attachCorrelated(scope.copy(declared = names)) { call, name ->
+            holder.session.value?.hostedContext(call, name)
+        }
+        holder.attachment = attachment
+        holder.names = names
+        val header = buildJsonObject {
+            put("name", "Authorization")
+            put("value", "Bearer ${attachment.endpoint.token}")
+        }
+        val server = buildJsonObject {
+            put("type", "http")
+            put("name", HOSTED_TOOLS_SERVER)
+            put("url", "${attachment.endpoint.url.trimEnd('/')}/mcp")
+            put("headers", JsonArray(listOf(header)))
+        }
+        holder.servers = listOf(server)
+        return holder
     }
 
     @HighFrequency
@@ -263,10 +343,9 @@ internal class KimiRuntime(
         if (isShutdown) return
         isShutdown = true
         usageToggleObserver.cancel()
-        try {
-            withContext(NonCancellable) { connection.close() }
-        } finally {
-            withContext(NonCancellable) {
+        sessions.value.values.forEach { it.revokeHosted() }
+        withContext(NonCancellable) {
+            try {
                 val detached = mutex.withLock {
                     log.i { "Kimi runtime closed" }
                     val previous = sessions.value.values.toList()
@@ -274,17 +353,30 @@ internal class KimiRuntime(
                     previous
                 }
                 detached.forEach { it.disconnected() }
+            } finally {
+                withContext(NonCancellable) {
+                    try {
+                        connection.close()
+                    } finally {
+                        ownedScope?.cancel()
+                    }
+                }
             }
         }
     }
 
+    internal fun connectionClosed() {
+        isDisconnected = true
+        sessions.value.values.forEach { it.revokeHosted() }
+    }
+
     internal fun checkActive() {
         scope.coroutineContext.ensureActive()
-        if (isShutdown) throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+        if (isClosed) throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
     }
 
     companion object {
-        @Suppress("LongParameterList") // The factory stitches independent DI-provided profile dependencies.
+        @Suppress("LongParameterList", "ThrowsCount", "LongMethod") // Failures close the owned transport and scope.
         suspend fun open(
             identity: RuntimeIdentity,
             transport: io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport,
@@ -294,42 +386,86 @@ internal class KimiRuntime(
             toggles: FeatureToggles,
             tools: ProfileAgentTools = NoAgentTools,
             resources: ResourceResolver = ResourceResolver { null },
+            fetchProviderUsage: (suspend () -> ProviderUsageSnapshot?)? = null,
+            bridge: AgentToolBridge = UnavailableAgentToolBridge,
         ): KimiRuntime {
             val runtime = MutableStateFlow<KimiRuntime?>(null)
-            val connection = clients.connect(
-                transport,
-                scope,
-                object : AcpClientHandler {
-                    override suspend fun onSessionUpdate(update: AcpSessionUpdate) {
-                        runtime.value?.onSessionUpdate(update)
-                    }
+            val disconnected = MutableStateFlow(false)
+            val runtimeScope = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+            val connection = try {
+                clients.connect(
+                    transport,
+                    runtimeScope,
+                    object : AcpClientHandler {
+                        override fun onDisconnected() {
+                            disconnected.value = true
+                            runtime.value?.let { created ->
+                                created.connectionClosed()
+                                scope.launch { created.close() }
+                            }
+                        }
 
-                    override fun onPromptSubmitted(sessionId: String) {
-                        runtime.value?.onPromptSubmitted(sessionId)
-                    }
+                        override suspend fun onSessionUpdate(update: AcpSessionUpdate) {
+                            runtime.value?.onSessionUpdate(update)
+                        }
 
-                    override suspend fun requestPermission(request: AcpPermissionRequest): AcpPermissionOutcome =
-                        runtime.value?.requestPermission(request) ?: AcpPermissionOutcome.Cancelled
-                },
-            )
+                        override fun onPromptSubmitted(sessionId: String) {
+                            runtime.value?.onPromptSubmitted(sessionId)
+                        }
+
+                        override suspend fun requestPermission(request: AcpPermissionRequest): AcpPermissionOutcome =
+                            runtime.value?.requestPermission(request) ?: AcpPermissionOutcome.Cancelled
+                    },
+                )
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                runtimeScope.coroutineContext[Job]?.cancel()
+                transport.close()
+                throw error
+            } catch (error: Exception) {
+                runtimeScope.coroutineContext[Job]?.cancel()
+                transport.close()
+                throw error
+            }
             var isTransferred = false
             try {
                 val initialization = connection.initialize(AcpImplementation("heartbeat", "1", "Heartbeat"))
+                val meta = initialization.agentCapabilities["_meta"] as? JsonObject
+                val heartbeat = meta?.get("heartbeat") as? JsonObject
+                if (heartbeat?.get("permissionGate")?.jsonPrimitive?.contentOrNull != "1" ||
+                    heartbeat["hostedCallBinding"]?.jsonPrimitive?.contentOrNull != "1"
+                ) {
+                    throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+                }
                 return KimiRuntime(
                     identity,
                     connection,
-                    scope,
+                    runtimeScope,
                     initialization,
                     directory,
                     toggles,
                     tools,
                     resources,
-                ).also {
-                    runtime.value = it
+                    fetchProviderUsage,
+                    bridge,
+                    runtimeScope.coroutineContext[Job],
+                ).also { created ->
+                    runtime.value = created
+                    if (disconnected.value) {
+                        created.connectionClosed()
+                        scope.launch { created.close() }
+                    }
                     isTransferred = true
                 }
             } finally {
-                if (!isTransferred) withContext(NonCancellable) { connection.close() }
+                if (!isTransferred) {
+                    withContext(NonCancellable) {
+                        try {
+                            connection.close()
+                        } finally {
+                            runtimeScope.coroutineContext[Job]?.cancel()
+                        }
+                    }
+                }
             }
         }
     }
@@ -341,6 +477,7 @@ internal class KimiStoredSession(ref: SessionRef) : EngineSession {
     override val features = KimiFeatures()
 }
 
+@Suppress("LongParameterList", "TooManyFunctions") // Session owns handles, protocol callbacks and turn lifecycle.
 internal class KimiSession(
     val ref: SessionRef,
     val route: ExecutionRoute,
@@ -348,6 +485,7 @@ internal class KimiSession(
     private val runtime: KimiRuntime,
     private val catalog: KimiModelCatalog,
     private val workingDirectory: String,
+    private val hosted: KimiHosted,
 ) : SessionHistory {
     val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
     val contextUsage = KimiContextUsage()
@@ -356,17 +494,28 @@ internal class KimiSession(
     private var messageId: ItemId? = null
     private val pending = mutableMapOf<PermissionRequestId, PendingPermission>()
     private val mutex = Mutex()
+    private val admissions = Mutex()
     private var position = 0L
     private var currentTurn: Turn? = null
     private var currentRequest: PromptRequest? = null
+    private val sessionLifetime = Job(runtime.scope.coroutineContext[Job])
+    private var turnToken: String? = null
+
+    @Volatile
+    private var turnLifetime: Job? = null
+    private var isHostedEnabled = false
+    private val hostedAdmissions = mutableMapOf<String, Pair<TurnId, String>>()
+    private val usedHostedCalls = mutableSetOf<String>()
+    private val revokedHostedCalls = mutableSetOf<String>()
+    private val hostedLifetimes = mutableMapOf<String, Job>()
     private val submission = MutableStateFlow<CompletableDeferred<Unit>?>(null)
     private var isCancelPending = false
     private var isInterrupting = false
     private val log = Log.tag("KimiSession")
 
-    suspend fun lease(): ActiveSession = mutex.withLock {
+    suspend fun lease(areDetachedToolsEnabled: Boolean): ActiveSession = mutex.withLock {
         runtime.checkActive()
-        KimiLease(this).also { leases += it }
+        KimiLease(this, areDetachedToolsEnabled).also { leases += it }
     }
 
     suspend fun release(lease: KimiLease) = mutex.withLock {
@@ -381,23 +530,39 @@ internal class KimiSession(
         }
     }
 
-    suspend fun send(request: PromptRequest, lease: KimiLease): TurnId {
-        val (turn, submitted) = mutex.withLock {
-            checkLease(lease)
-            if (isCancelPending || (currentTurn != null && currentTurn?.outcome == null)) busy()
-            start(request)
+    suspend fun send(request: PromptRequest, lease: KimiLease): TurnId = admissions.withLock {
+        mutex.withLock {
+            checkReadyToSend(lease)
+            validate(request)
         }
-        submitted.await()
-        return turn.id
-    }
-
-    private suspend fun start(request: PromptRequest): Pair<Turn, CompletableDeferred<Unit>> {
-        validate(request)
+        // ACP may send session updates before answering configuration RPCs. Its reader must not wait for our lock.
         val content = kimiPromptInputs(request, catalog.inputSupport, runtime.resources)
         applyEffort(request)
+        val (turn, submitted) = mutex.withLock {
+            checkReadyToSend(lease)
+            start(request, content, lease.areDetachedToolsEnabled)
+        }
+        submitted.await()
+        turn.id
+    }
+
+    private fun checkReadyToSend(lease: KimiLease) {
+        checkLease(lease)
+        if (isCancelPending || (currentTurn != null && currentTurn?.outcome == null)) busy()
+    }
+
+    private fun start(
+        request: PromptRequest,
+        content: List<JsonObject>,
+        areDetachedToolsEnabled: Boolean,
+    ): Pair<Turn, CompletableDeferred<Unit>> {
         val turn = Turn(TurnId(newId("turn")), request.id, target, decisionMode = request.decisionMode)
         currentTurn = turn
         currentRequest = request
+        isHostedEnabled = route.workspace != null || areDetachedToolsEnabled
+        turnLifetime = Job(sessionLifetime)
+        val token = newId("host-turn")
+        turnToken = token
         val submitted = CompletableDeferred<Unit>()
         submission.value = submitted
         isInterrupting = false
@@ -408,7 +573,8 @@ internal class KimiSession(
         addMessage(MessageRole.User, request.parts, turn.id)
         runtime.scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val result = runtime.connection.prompt(ref.nativeId, content)
+                val metadata = buildJsonObject { put("heartbeatTurn", token) }
+                val result = runtime.connection.prompt(ref.nativeId, content, metadata)
                 finish(turn.id, if (result.stopReason == "cancelled") TurnOutcome.Cancelled else TurnOutcome.Completed)
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
@@ -464,16 +630,16 @@ internal class KimiSession(
                 if (currentTurn?.id != turn || currentTurn?.outcome != null) return@async
                 isCancelPending = true
                 isInterrupting = true
+                turnLifetime?.cancel()
                 refreshState()
                 requireNotNull(submission.value)
             }
             try {
                 submitted.await()
-                mutex.withLock {
-                    if (currentTurn?.id == turn && currentTurn?.outcome == null) {
-                        runtime.connection.cancel(ref.nativeId)
-                    }
+                val isCurrent = mutex.withLock {
+                    currentTurn?.id == turn && currentTurn?.outcome == null
                 }
+                if (isCurrent) runtime.connection.cancel(ref.nativeId)
             } finally {
                 withContext(NonCancellable) { mutex.withLock { isCancelPending = false } }
             }
@@ -493,11 +659,35 @@ internal class KimiSession(
         refreshState()
     }
 
+    suspend fun hostedContext(call: String, name: String): AgentToolContext? = mutex.withLock {
+        val turn = currentTurn?.takeIf { it.outcome == null } ?: return@withLock null
+        val admission = hostedAdmissions.remove(call) ?: return@withLock null
+        if (admission != (turn.id to name)) return@withLock null
+        val prompt = currentRequest ?: return@withLock null
+        val lifetime = hostedLifetimes[call]?.takeIf { it.isActive } ?: return@withLock null
+        if (!isHostedEnabled || runtime.isClosed) return@withLock null
+        AgentToolContext(
+            ref, route.workspace, turn.id, prompt.id, prompt.trust ?: TrustLevel.Ask,
+            AgentToolPermissions { approval -> requestUserPermission(turn.id, approval) },
+            lifetime = lifetime, target = target, decisionMode = prompt.decisionMode,
+            reviewTarget = prompt.reviewTarget, userInstruction = prompt.userInstruction,
+        )
+    }
+
     suspend fun permission(request: AcpPermissionRequest): AcpPermissionOutcome {
-        val (turn, prompt) = mutex.withLock {
-            val active = currentTurn?.takeIf { it.outcome == null } ?: return AcpPermissionOutcome.Cancelled
-            active to (currentRequest ?: return AcpPermissionOutcome.Cancelled)
+        val (turn, prompt, lifetime) = activePermission(request) ?: return AcpPermissionOutcome.Cancelled
+        val meta = request.toolCall["_meta"] as? JsonObject ?: return AcpPermissionOutcome.Cancelled
+        if ((meta["heartbeatQuestion"] as? JsonPrimitive)?.contentOrNull == "true" ||
+            (meta["heartbeatPlanReview"] as? JsonPrimitive)?.contentOrNull == "true"
+        ) {
+            return requestQuestion(turn.id, request)
         }
+        // Never persist a CLI allow rule that could bypass later modes.
+        val option = request.options.firstOrNull { it.kind == "allow_once" }
+            ?: return AcpPermissionOutcome.Cancelled
+        val title = request.toolCall["title"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val prefix = "mcp__${HOSTED_TOOLS_SERVER}__"
+        if (title.startsWith(prefix)) return admitHosted(request, turn.id, title.removePrefix(prefix), option.optionId)
         val permissions = AgentToolPermissions { approval -> requestUserPermission(turn.id, approval) }
         val context = AgentToolContext(
             ref,
@@ -507,18 +697,85 @@ internal class KimiSession(
             prompt.trust ?: TrustLevel.Ask,
             permissions,
             callId = request.toolCall["toolCallId"]?.jsonPrimitive?.contentOrNull?.let(::ToolCallId),
+            lifetime = lifetime,
             target = target,
             decisionMode = prompt.decisionMode,
             reviewTarget = prompt.reviewTarget,
             userInstruction = prompt.userInstruction,
         )
         val verdict = runtime.tools.authorizeNative(context, kimiNativeCall(request.toolCall, workingDirectory))
-        val isActive = mutex.withLock { currentTurn?.id == turn.id && currentTurn?.outcome == null }
+        val isActive = mutex.withLock {
+            currentTurn?.id == turn.id && currentTurn?.outcome == null && lifetime.isActive
+        }
         if (!isActive || verdict is NativeVerdict.Deny) return AcpPermissionOutcome.Cancelled
-        val option = request.options.firstOrNull { it.kind == "allow_once" }
-            ?: request.options.firstOrNull { it.kind.startsWith("allow") }
-            ?: return AcpPermissionOutcome.Cancelled
         return AcpPermissionOutcome.Selected(option.optionId)
+    }
+
+    private suspend fun activePermission(request: AcpPermissionRequest): Triple<Turn, PromptRequest, Job>? {
+        if (runtime.isClosed) return null
+        val meta = request.toolCall["_meta"] as? JsonObject ?: return null
+        val origin = (meta["heartbeatTurn"] as? JsonPrimitive)?.contentOrNull ?: return null
+        return mutex.withLock {
+            val turn = currentTurn?.takeIf { it.outcome == null } ?: return@withLock null
+            val lifetime = turnLifetime?.takeIf { it.isActive } ?: return@withLock null
+            val prompt = currentRequest ?: return@withLock null
+            if (origin != turnToken) return@withLock null
+            Triple(turn, prompt, lifetime)
+        }
+    }
+
+    private suspend fun admitHosted(
+        request: AcpPermissionRequest,
+        turn: TurnId,
+        name: String,
+        option: String,
+    ): AcpPermissionOutcome {
+        val meta = request.toolCall["_meta"] as? JsonObject ?: return AcpPermissionOutcome.Cancelled
+        val call = (meta["heartbeatCall"] as? JsonPrimitive)?.contentOrNull ?: return AcpPermissionOutcome.Cancelled
+        val origin = (meta["heartbeatTurn"] as? JsonPrimitive)?.contentOrNull ?: return AcpPermissionOutcome.Cancelled
+        val isAdmitted = mutex.withLock {
+            if (currentTurn?.id != turn || currentTurn?.outcome != null || origin != turnToken) return@withLock false
+            if (!isHostedEnabled || turnLifetime?.isActive != true || name !in hosted.names) return@withLock false
+            if (call.isBlank() || call in revokedHostedCalls || !usedHostedCalls.add(call)) return@withLock false
+            hostedLifetimes[call] = Job(turnLifetime)
+            hostedAdmissions[call] = turn to name
+            true
+        }
+        return if (isAdmitted) AcpPermissionOutcome.Selected(option) else AcpPermissionOutcome.Cancelled
+    }
+
+    private suspend fun requestQuestion(turn: TurnId, request: AcpPermissionRequest): AcpPermissionOutcome {
+        val (id, answer) = mutex.withLock {
+            if (currentTurn?.id != turn || currentTurn?.outcome != null || turnLifetime?.isActive != true) {
+                return@withLock null
+            }
+            val options = request.options.map {
+                PermissionOption(PermissionOptionId(it.optionId), it.name, it.kind.startsWith("reject"))
+            }
+            if (options.isEmpty() || options.map { it.id }.distinct().size != options.size) {
+                return@withLock null
+            }
+            val title = request.toolCall["content"]?.jsonArray?.firstOrNull()?.jsonObject
+                ?.get("content")?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull ?: "Question"
+            val id = PermissionRequestId(newId("question"))
+            val normalized = PermissionRequest(id, turn, title, options)
+            val answer = CompletableDeferred<AcpPermissionOutcome>()
+            pending[id] = PendingPermission(normalized, answer)
+            log.i { "Kimi question requested" }
+            refreshState()
+            history.publish { SessionEvent.PermissionRequested(it, normalized) }
+            id to answer
+        } ?: return AcpPermissionOutcome.Cancelled
+        try {
+            return answer.await()
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    pending.remove(id)
+                    refreshState()
+                }
+            }
+        }
     }
 
     private suspend fun requestUserPermission(turn: TurnId, approval: AgentToolApproval): Boolean {
@@ -570,9 +827,21 @@ internal class KimiSession(
                 updateTool(update, turn)
             }
 
+            "heartbeat_hosted_revoked" -> revokeCall(update)
+
             "plan" -> updatePlan(update)
 
             "usage_update" -> runtime.receiveUsage(this, update)
+        }
+    }
+
+    private fun revokeCall(update: JsonObject) {
+        val origin = update["heartbeatTurn"]?.jsonPrimitive?.contentOrNull
+        val call = update["heartbeatCall"]?.jsonPrimitive?.contentOrNull
+        if (origin == turnToken && origin != null && !call.isNullOrBlank()) {
+            revokedHostedCalls.add(call)
+            hostedAdmissions.remove(call)
+            hostedLifetimes.remove(call)?.cancel()
         }
     }
 
@@ -670,6 +939,13 @@ internal class KimiSession(
         val turn = currentTurn?.takeIf { it.id == id && it.outcome == null } ?: return@withLock
         val finished = turn.copy(outcome = outcome)
         currentTurn = finished
+        turnLifetime?.cancel()
+        turnLifetime = null
+        turnToken = null
+        hostedAdmissions.clear()
+        usedHostedCalls.clear()
+        revokedHostedCalls.clear()
+        hostedLifetimes.clear()
         submission.value?.completeExceptionally(
             EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, turn.request)),
         )
@@ -680,7 +956,14 @@ internal class KimiSession(
         history.publish { SessionEvent.TurnFinished(it, finished.id, outcome) }
     }
 
+    fun revokeHosted() {
+        sessionLifetime.cancel()
+        hosted.close()
+        turnLifetime?.cancel()
+    }
+
     suspend fun disconnected() {
+        revokeHosted()
         val turn = mutex.withLock { currentTurn }
         if (turn != null) finish(turn.id, TurnOutcome.Unknown)
         mutex.withLock {
@@ -724,12 +1007,27 @@ internal class KimiSession(
     )
 }
 
+/** Capability exists for the native session; each invocation resolves and captures its active turn. */
+internal class KimiHosted : AutoCloseable {
+    val session = MutableStateFlow<KimiSession?>(null)
+    var attachment: AgentToolBridgeAttachment? = null
+    var names: Set<String> = emptySet()
+    var servers: List<JsonObject> = emptyList()
+    override fun close() {
+        session.value = null
+        Log.tag("KimiHosted").i { "Hosted session detached" }
+        attachment?.close()
+        attachment = null
+    }
+}
+
 /** Independent observation handle; closing it never cancels the profile-owned native turn. */
-internal class KimiLease(private val session: KimiSession) :
+internal class KimiLease(private val session: KimiSession, val areDetachedToolsEnabled: Boolean) :
     ActiveSession,
     SendsPrompts,
     CancelsTurns,
     RequestsPermissions,
+    AppliesTrustLevels,
     ReconcilesSession {
     override val ref = session.ref
     override val route = session.route
@@ -738,6 +1036,7 @@ internal class KimiLease(private val session: KimiSession) :
         SendsPrompts to this,
         CancelsTurns to this,
         RequestsPermissions to this,
+        AppliesTrustLevels to this,
         ReconcilesSession to this,
         SessionHistory to session,
         SessionContextUsage to session.contextUsage,

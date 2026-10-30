@@ -4,6 +4,10 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpImplementation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -11,6 +15,53 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AcpConnectionTest {
+    @Test
+    fun `new and load forward trusted MCP servers`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize("""{"loadSession":true}""")
+        val server = Json.parseToJsonElement(
+            """{"type":"http","name":"host","url":"http://127.0.0.1/mcp",""" +
+                """"headers":[{"name":"Authorization","value":"Bearer secret"}]}""",
+        ).jsonObject
+        val creating = backgroundScope.async { h.client.newSession("/workspace", listOf(server)) }
+        val create = h.outgoing("session/new")
+        assertEquals(
+            kotlinx.serialization.json.JsonArray(listOf(server)),
+            create.obj("params")["mcpServers"] as kotlinx.serialization.json.JsonArray,
+        )
+        h.reply(create, """{"sessionId":"session"}""")
+        creating.await()
+        val loading = backgroundScope.async { h.client.loadSession("other", "/workspace", listOf(server)) }
+        val load = h.outgoing("session/load")
+        assertEquals(
+            kotlinx.serialization.json.JsonArray(listOf(server)),
+            load.obj("params")["mcpServers"] as kotlinx.serialization.json.JsonArray,
+        )
+        h.reply(load, "{}")
+        loading.await()
+        h.client.close()
+    }
+
+    @Test
+    fun `prompt forwards trusted metadata on the wire`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize()
+        h.session()
+        val content = listOf(
+            buildJsonObject {
+                put("type", "text")
+                put("text", "hello")
+            },
+        )
+        val metadata = buildJsonObject { put("heartbeatTurn", "opaque") }
+        val sending = backgroundScope.async { h.client.prompt("session", content, metadata) }
+        val request = h.outgoing("session/prompt")
+        assertEquals(metadata, request.obj("params")["_meta"])
+        h.reply(request, """{"stopReason":"end_turn"}""")
+        sending.await()
+        h.client.close()
+    }
+
     @Test
     fun `initialization advertises no filesystem or terminal access`() = runTest {
         val h = AcpTestHarness(this)
@@ -71,6 +122,46 @@ class AcpConnectionTest {
             listOf("future_update", "agent_message_chunk"),
             h.handler.updates.map { it.update.string("sessionUpdate") },
         )
+        h.client.close()
+    }
+
+    @Test
+    fun `disconnection notifies the handler exactly once`() = runTest {
+        val harness = AcpTestHarness(this)
+        harness.initialize()
+        harness.transport.input.close()
+        testScheduler.runCurrent()
+        assertEquals(1, harness.handler.disconnects)
+        harness.client.close()
+        assertEquals(1, harness.handler.disconnects)
+    }
+
+    @Test
+    fun `logout requires advertised capability and sends ACP logout`() = runTest {
+        val unsupported = AcpTestHarness(this)
+        unsupported.initialize()
+        assertFailsWith<IllegalStateException> { unsupported.client.logout() }
+        unsupported.client.close()
+        val supported = AcpTestHarness(this)
+        supported.initialize("""{"auth":{"logout":{}}}""")
+        val operation = backgroundScope.async { supported.client.logout() }
+        val request = supported.outgoing("logout")
+        assertTrue(request.obj("params").isEmpty())
+        supported.reply(request, "{}")
+        operation.await()
+        supported.client.close()
+    }
+
+    @Test
+    fun `authentication metadata and response are preserved`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize()
+        val metadata = buildJsonObject { put("heartbeatOAuthStatus", true) }
+        val task = backgroundScope.async { h.client.authenticate("login", metadata) }
+        val request = h.outgoing("authenticate")
+        assertEquals(metadata, request.obj("params")["_meta"])
+        h.reply(request, """{"_meta":{"heartbeatOAuthSignedIn":false}}""")
+        assertEquals(false, task.await().obj("_meta")["heartbeatOAuthSignedIn"]?.toString()?.toBooleanStrict())
         h.client.close()
     }
 

@@ -24,6 +24,7 @@ internal class AcpRpcPeer(
     private val scope: CoroutineScope,
     private val onNotification: suspend (String, JsonObject) -> Unit,
     private val onRequest: suspend (JsonElement, String, JsonObject) -> Unit,
+    private val onClosed: () -> Unit,
 ) {
     private val log = Log.tag("AcpRpcPeer")
     private val state = Mutex()
@@ -90,6 +91,7 @@ internal class AcpRpcPeer(
         waiting.forEach { it.completeExceptionally(AcpException.Disconnected()) }
         transport.close()
         scope.cancel()
+        onClosed()
     }
 
     private suspend fun write(body: JsonObject) {
