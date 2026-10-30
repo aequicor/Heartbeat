@@ -30,11 +30,23 @@ public interface AcpConnection {
     /** Invokes an advertised authentication method without selecting one implicitly. */
     public suspend fun authenticate(methodId: String)
 
-    /** Creates a session in an absolute working directory. MCP servers are not configured by this service. */
+    /** Creates a session in an absolute working directory without MCP servers. */
     public suspend fun newSession(cwd: String): AcpSession
 
     /** Replays updates through the handler before returning; requires the loadSession capability. */
     public suspend fun loadSession(sessionId: String, cwd: String): AcpSession
+
+    /** Creates a session with trusted MCP definitions. Definitions may contain secrets and must not be logged. */
+    public suspend fun newSession(cwd: String, servers: List<JsonObject>): AcpSession =
+        if (servers.isEmpty()) newSession(cwd) else throw UnsupportedOperationException("ACP MCP unavailable")
+
+    /** Restores a session with trusted ACP MCP server definitions, which may contain secrets. */
+    public suspend fun loadSession(sessionId: String, cwd: String, servers: List<JsonObject>): AcpSession =
+        if (servers.isEmpty()) {
+            loadSession(sessionId, cwd)
+        } else {
+            throw UnsupportedOperationException("ACP MCP unavailable")
+        }
 
     /**
      * Sends content blocks and waits for the agent's final stop reason; updates and permissions are handled meanwhile.

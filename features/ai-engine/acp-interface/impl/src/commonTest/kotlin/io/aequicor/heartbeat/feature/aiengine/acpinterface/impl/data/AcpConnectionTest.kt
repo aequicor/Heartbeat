@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpImplementation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -11,6 +13,33 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AcpConnectionTest {
+    @Test
+    fun `new and load forward trusted MCP servers`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize("""{"loadSession":true}""")
+        val server = Json.parseToJsonElement(
+            """{"type":"http","name":"host","url":"http://127.0.0.1/mcp",""" +
+                """"headers":[{"name":"Authorization","value":"Bearer secret"}]}""",
+        ).jsonObject
+        val creating = backgroundScope.async { h.client.newSession("/workspace", listOf(server)) }
+        val create = h.outgoing("session/new")
+        assertEquals(
+            kotlinx.serialization.json.JsonArray(listOf(server)),
+            create.obj("params")["mcpServers"] as kotlinx.serialization.json.JsonArray,
+        )
+        h.reply(create, """{"sessionId":"session"}""")
+        creating.await()
+        val loading = backgroundScope.async { h.client.loadSession("other", "/workspace", listOf(server)) }
+        val load = h.outgoing("session/load")
+        assertEquals(
+            kotlinx.serialization.json.JsonArray(listOf(server)),
+            load.obj("params")["mcpServers"] as kotlinx.serialization.json.JsonArray,
+        )
+        h.reply(load, "{}")
+        loading.await()
+        h.client.close()
+    }
+
     @Test
     fun `initialization advertises no filesystem or terminal access`() = runTest {
         val h = AcpTestHarness(this)

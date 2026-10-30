@@ -92,17 +92,25 @@ internal class DefaultAcpConnection(
         }
     }
 
-    override suspend fun newSession(cwd: String): AcpSession = owned {
+    override suspend fun newSession(cwd: String): AcpSession = newSession(cwd, emptyList())
+
+    override suspend fun newSession(cwd: String, servers: List<JsonObject>): AcpSession = owned {
         ready()
         requireAbsolute(cwd)
         log.i { "ACP new session" }
-        val result = peer.request("session/new", sessionParams(cwd))
+        val result = peer.request("session/new", sessionParams(cwd, servers))
         val id = parse { result.string("sessionId").also { if (it.isBlank()) throw AcpException.Protocol() } }
         lock.withLock { sessions.add(id) }
         AcpSession(id, result)
     }
 
-    override suspend fun loadSession(sessionId: String, cwd: String): AcpSession = owned {
+    override suspend fun loadSession(sessionId: String, cwd: String): AcpSession = loadSession(
+        sessionId,
+        cwd,
+        emptyList(),
+    )
+
+    override suspend fun loadSession(sessionId: String, cwd: String, servers: List<JsonObject>): AcpSession = owned {
         val info = ready()
         check((info.agentCapabilities["loadSession"] as? JsonPrimitive)?.booleanOrNull == true) {
             "Agent does not support loading sessions"
@@ -112,7 +120,8 @@ internal class DefaultAcpConnection(
         log.i { "ACP load session" }
         lock.withLock { check(busySessions.add(sessionId)) { "Session is busy" } }
         try {
-            val result = peer.request("session/load", JsonObject(sessionParams(cwd) + sessionId(sessionId)))
+            val params = JsonObject(sessionParams(cwd, servers) + sessionId(sessionId))
+            val result = peer.request("session/load", params)
             lock.withLock { sessions.add(sessionId) }
             AcpSession(sessionId, result)
         } finally {
@@ -242,8 +251,8 @@ internal class DefaultAcpConnection(
         lock.withLock { require(id in sessions) { "Session does not belong to this connection" } }
     }
 
-    private fun sessionParams(cwd: String): JsonObject =
-        fields("cwd" to JsonPrimitive(cwd), "mcpServers" to JsonArray(emptyList()))
+    private fun sessionParams(cwd: String, servers: List<JsonObject>): JsonObject =
+        fields("cwd" to JsonPrimitive(cwd), "mcpServers" to JsonArray(servers))
 
     private fun sessionId(id: String): Pair<String, JsonPrimitive> = "sessionId" to JsonPrimitive(id)
 
