@@ -1,4 +1,7 @@
 [versions]
+kimi-runtime = "2.4.0-hb1" # native/kimi/source-lock.json pins the upstream source and host permission ABI.
+kimi-build-node = "24.15.0"
+kimi-build-pnpm = "10.33.0"
 pi = "0.87.1" # SHA-256 of release assets: platform-main/desktop/build.gradle.kts (piChecksums)
 # Fallback fonts of the Chromium extension side panel (SHA-256: chromium-plugin/panel/build.gradle.kts, panelFonts)
 noto-emoji = "v2.051" # tag of googlefonts/noto-emoji

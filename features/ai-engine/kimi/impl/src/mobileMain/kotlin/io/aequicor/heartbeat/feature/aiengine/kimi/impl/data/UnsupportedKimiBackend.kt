@@ -10,10 +10,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import io.aequicor.heartbeat.feature.aiengine.kimi.impl.domain.KimiBackend
@@ -22,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.kimi.impl.domain.KimiBackend
 @Inject
 internal class UnsupportedKimiBackend : KimiBackend {
     override suspend fun checkRequirements(): EngineAvailability = EngineAvailability.UnsupportedPlatform
+    override suspend fun inspect(launch: LaunchContext): Installation = unsupported()
     override fun accepts(source: AuthSource, context: EngineContext): Boolean = false
     override fun authContext(context: EngineContext) = KimiEngine.AuthContext
     override suspend fun bind(binding: EngineBindingId, source: AuthSource): Unit = unsupported()

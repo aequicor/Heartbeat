@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
@@ -47,6 +48,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PlanStep
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PlanStepStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -105,11 +107,12 @@ internal class KimiRuntime(
     private val toggles: FeatureToggles,
     internal val tools: ProfileAgentTools = NoAgentTools,
     internal val resources: ResourceResolver = ResourceResolver { null },
+    fetchProviderUsage: (suspend () -> ProviderUsageSnapshot?)? = null,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
     AcpClientHandler {
-    private val providerUsage = KimiProviderUsage { toggles.get(EngineUsageEnabled) }
+    private val providerUsage = KimiProviderUsage(fetchProviderUsage) { toggles.get(EngineUsageEnabled) }
     override val features = KimiFeatures(
         CreatesSessions to this,
         AttachesSessions to this,
@@ -294,6 +297,7 @@ internal class KimiRuntime(
             toggles: FeatureToggles,
             tools: ProfileAgentTools = NoAgentTools,
             resources: ResourceResolver = ResourceResolver { null },
+            fetchProviderUsage: (suspend () -> ProviderUsageSnapshot?)? = null,
         ): KimiRuntime {
             val runtime = MutableStateFlow<KimiRuntime?>(null)
             val connection = clients.connect(
@@ -315,6 +319,11 @@ internal class KimiRuntime(
             var isTransferred = false
             try {
                 val initialization = connection.initialize(AcpImplementation("heartbeat", "1", "Heartbeat"))
+                val meta = initialization.agentCapabilities["_meta"] as? JsonObject
+                val heartbeat = meta?.get("heartbeat") as? JsonObject
+                if (heartbeat?.get("permissionGate")?.jsonPrimitive?.contentOrNull != "1") {
+                    throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+                }
                 return KimiRuntime(
                     identity,
                     connection,
@@ -324,6 +333,7 @@ internal class KimiRuntime(
                     toggles,
                     tools,
                     resources,
+                    fetchProviderUsage,
                 ).also {
                     runtime.value = it
                     isTransferred = true
@@ -356,6 +366,7 @@ internal class KimiSession(
     private var messageId: ItemId? = null
     private val pending = mutableMapOf<PermissionRequestId, PendingPermission>()
     private val mutex = Mutex()
+    private val admissions = Mutex()
     private var position = 0L
     private var currentTurn: Turn? = null
     private var currentRequest: PromptRequest? = null
@@ -381,20 +392,28 @@ internal class KimiSession(
         }
     }
 
-    suspend fun send(request: PromptRequest, lease: KimiLease): TurnId {
-        val (turn, submitted) = mutex.withLock {
-            checkLease(lease)
-            if (isCancelPending || (currentTurn != null && currentTurn?.outcome == null)) busy()
-            start(request)
+    suspend fun send(request: PromptRequest, lease: KimiLease): TurnId = admissions.withLock {
+        mutex.withLock {
+            checkReadyToSend(lease)
+            validate(request)
         }
-        submitted.await()
-        return turn.id
-    }
-
-    private suspend fun start(request: PromptRequest): Pair<Turn, CompletableDeferred<Unit>> {
-        validate(request)
+        // ACP may send session updates before answering configuration RPCs. Its reader must not wait for our lock.
         val content = kimiPromptInputs(request, catalog.inputSupport, runtime.resources)
         applyEffort(request)
+        val (turn, submitted) = mutex.withLock {
+            checkReadyToSend(lease)
+            start(request, content)
+        }
+        submitted.await()
+        turn.id
+    }
+
+    private fun checkReadyToSend(lease: KimiLease) {
+        checkLease(lease)
+        if (isCancelPending || (currentTurn != null && currentTurn?.outcome == null)) busy()
+    }
+
+    private fun start(request: PromptRequest, content: List<JsonObject>): Pair<Turn, CompletableDeferred<Unit>> {
         val turn = Turn(TurnId(newId("turn")), request.id, target, decisionMode = request.decisionMode)
         currentTurn = turn
         currentRequest = request
@@ -494,6 +513,9 @@ internal class KimiSession(
     }
 
     suspend fun permission(request: AcpPermissionRequest): AcpPermissionOutcome {
+        // The host decides every call independently; never persist a CLI allow rule that could bypass later modes.
+        val option = request.options.firstOrNull { it.kind == "allow_once" }
+            ?: return AcpPermissionOutcome.Cancelled
         val (turn, prompt) = mutex.withLock {
             val active = currentTurn?.takeIf { it.outcome == null } ?: return AcpPermissionOutcome.Cancelled
             active to (currentRequest ?: return AcpPermissionOutcome.Cancelled)
@@ -515,9 +537,6 @@ internal class KimiSession(
         val verdict = runtime.tools.authorizeNative(context, kimiNativeCall(request.toolCall, workingDirectory))
         val isActive = mutex.withLock { currentTurn?.id == turn.id && currentTurn?.outcome == null }
         if (!isActive || verdict is NativeVerdict.Deny) return AcpPermissionOutcome.Cancelled
-        val option = request.options.firstOrNull { it.kind == "allow_once" }
-            ?: request.options.firstOrNull { it.kind.startsWith("allow") }
-            ?: return AcpPermissionOutcome.Cancelled
         return AcpPermissionOutcome.Selected(option.optionId)
     }
 
@@ -730,6 +749,7 @@ internal class KimiLease(private val session: KimiSession) :
     SendsPrompts,
     CancelsTurns,
     RequestsPermissions,
+    AppliesTrustLevels,
     ReconcilesSession {
     override val ref = session.ref
     override val route = session.route
@@ -738,6 +758,7 @@ internal class KimiLease(private val session: KimiSession) :
         SendsPrompts to this,
         CancelsTurns to this,
         RequestsPermissions to this,
+        AppliesTrustLevels to this,
         ReconcilesSession to this,
         SessionHistory to session,
         SessionContextUsage to session.contextUsage,

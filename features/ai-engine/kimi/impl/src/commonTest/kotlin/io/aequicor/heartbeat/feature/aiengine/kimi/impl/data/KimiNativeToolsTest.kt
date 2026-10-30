@@ -10,6 +10,20 @@ import kotlin.test.assertEquals
 
 class KimiNativeToolsTest {
     @Test
+    fun `native command kind cannot be downgraded by a fallback read name`() {
+        val call = kimiNativeCall(
+            buildJsonObject {
+                put("kind", "execute")
+                put("name", "read")
+                put("rawInput", buildJsonObject { put("command", "git status") })
+            },
+            "/workspace",
+        )
+        assertEquals(AgentToolAction.Command, call.action)
+        assertEquals("execute", call.name)
+    }
+
+    @Test
     fun `read and edit calls expose their target paths to profile rules`() {
         val read = kimiNativeCall(
             buildJsonObject {

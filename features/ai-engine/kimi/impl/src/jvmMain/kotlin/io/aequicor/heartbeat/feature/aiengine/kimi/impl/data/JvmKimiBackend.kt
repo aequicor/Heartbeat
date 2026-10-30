@@ -23,6 +23,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -30,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiConfiguration
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
@@ -53,6 +56,7 @@ internal class JvmKimiBackend(
     private val toggles: FeatureToggles,
     private val tools: ProfileAgentTools,
     private val resources: ResourceResolver,
+    private val localApi: JvmKimiLocalApi,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: KimiConfiguration = KimiConfiguration(),
 ) : KimiBackend {
@@ -60,21 +64,40 @@ internal class JvmKimiBackend(
     private val mutex = Mutex()
     private var runtime: KimiRuntime? = null
 
-    override suspend fun checkRequirements(): EngineAvailability = try {
+    override suspend fun checkRequirements(): EngineAvailability =
+        if (inspect(LaunchContext()).isRunnable) EngineAvailability.Available else unavailable()
+
+    /** The panel inspects the same CLI that sessions start, rather than treating the adapter as built in. */
+    override suspend fun inspect(launch: LaunchContext): Installation = withContext(dispatchers.io) {
+        val executable = try {
+            kimiControlledExecutable()
+        } catch (error: EngineException) {
+            log.w(error) { "Controlled Kimi runtime is missing or invalid" }
+            return@withContext Installation(source = InstallSource.Missing, isRunnable = false)
+        }
+        val isRunnable = probe(executable)
+        Installation(
+            source = if (isRunnable) InstallSource.Bundled else InstallSource.Missing,
+            path = executable.takeIf { isRunnable },
+            isRunnable = isRunnable,
+        )
+    }
+
+    private suspend fun probe(executable: String): Boolean = try {
         val exit = probeKimiProcess(dispatchers, PROBE_TIMEOUT_MS) {
-            ProcessBuilder(configuration.executable, "--version")
+            ProcessBuilder(executable, "--version")
                 .directory(java.io.File(configuration.workingDirectory ?: System.getProperty("user.home")))
                 .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .start()
         }
         if (exit == null) log.w { "Kimi CLI probe timed out" }
-        if (exit == 0) EngineAvailability.Available else unavailable()
+        exit == 0
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
         log.w(error) { "Kimi CLI probe failed" }
-        unavailable()
+        false
     }
 
     override fun accepts(source: AuthSource, context: EngineContext): Boolean =
@@ -98,7 +121,9 @@ internal class JvmKimiBackend(
         }
         val discovery = openRuntime(RuntimeIdentity(context.engine, source.info.id, source.info.revision))
         try {
-            return discovery.discoverCatalog(context.binding).modelInfo(context.engine, context.binding)
+            val models = discovery.discoverCatalog(context.binding).modelInfo(context.engine, context.binding)
+            val limits = localApi.modelLimits()
+            return models.map { model -> model.copy(contextLimitTokens = limits[model.target.model.value]) }
         } finally {
             withContext(NonCancellable) { discovery.close() }
         }
@@ -111,9 +136,10 @@ internal class JvmKimiBackend(
     }
 
     private suspend fun openRuntime(identity: RuntimeIdentity): KimiRuntime {
+        val executable = withContext(dispatchers.io) { kimiControlledExecutable() }
         val transport = transports.open(
             AcpCommand(
-                configuration.executable,
+                executable,
                 listOf("acp"),
                 configuration.workingDirectory,
             ),
@@ -127,6 +153,7 @@ internal class JvmKimiBackend(
             toggles,
             tools,
             resources,
+            localApi::usage,
         )
     }
 

@@ -17,10 +17,10 @@ internal val KimiNativeCatalog = listOf(
 internal fun kimiNativeCall(toolCall: JsonObject, workingDirectory: String): NativeToolCall {
     val kind = toolCall["kind"]?.jsonPrimitive?.contentOrNull.orEmpty()
     val fallbackName = toolCall["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
-    val name = when {
-        kind == "read" || fallbackName == "read" -> "read"
-        kind == "edit" || fallbackName == "edit" -> "edit"
-        kind == "execute" || fallbackName == "execute" -> "execute"
+    val name = when (kind.ifBlank { fallbackName }) {
+        "read" -> "read"
+        "edit" -> "edit"
+        "execute" -> "execute"
         else -> "other"
     }
     val action = when (name) {

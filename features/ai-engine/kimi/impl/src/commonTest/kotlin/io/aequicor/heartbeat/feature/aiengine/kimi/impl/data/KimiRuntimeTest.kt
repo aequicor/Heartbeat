@@ -22,12 +22,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -45,6 +47,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
@@ -61,6 +64,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -76,10 +80,44 @@ import kotlin.test.assertTrue
 
 class KimiRuntimeTest {
     @Test
+    fun `persistent CLI approval is never selected by Heartbeat`() = runTest {
+        val connection = FakeConnection()
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        session.sender().send(prompt("no-persistent-approval"))
+        val result = runtime.requestPermission(
+            AcpPermissionRequest(
+                session.ref.nativeId,
+                buildJsonObject { put("kind", "execute") },
+                listOf(AcpPermissionOption("always", "Always allow", "allow_always")),
+            ),
+        )
+        assertEquals(AcpPermissionOutcome.Cancelled, result)
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        testScheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `context usage arriving after turn completion is retained by the session`() = runTest {
+        val connection = FakeConnection()
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        val usage = (session.features.resolve(SessionContextUsage) as FeatureAccess.Available).feature
+        assertNull(usage.state.value)
+        session.sender().send(prompt("usage"))
+        connection.prompt.complete(AcpPromptResult("end_turn"))
+        testScheduler.advanceUntilIdle()
+        connection.update("""{"sessionUpdate":"usage_update","used":1200,"size":262144}""")
+        assertEquals(1200L, usage.state.value?.usedTokens)
+        assertEquals(262144L, usage.state.value?.capacityTokens)
+    }
+
+    @Test
     fun `prompt merges streamed text and completes turn`() = runTest {
         val connection = FakeConnection()
         val runtime = runtime(connection, this)
         val session = runtime.create(CreateSessionRequest(target))
+        assertIs<FeatureAccess.Available<AppliesTrustLevels>>(session.features.resolve(AppliesTrustLevels))
         val turn = session.sender().send(PromptRequest(RequestId("request"), listOf(ContentPart.Text("Hello"))))
         connection.update("""{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hel"}}""")
         connection.update("""{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"lo"}}""")
@@ -222,6 +260,35 @@ class KimiRuntimeTest {
         assertEquals(SessionFailureReason.Busy, failure.reason)
         connection.prompt.complete(AcpPromptResult("end_turn"))
         testScheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `stock CLI without mandatory permission gate is closed before sessions`() = runTest {
+        val connection = FakeConnection()
+        val transport = object : AcpTransport {
+            override suspend fun receive(): String? = null
+            override suspend fun send(frame: String) = Unit
+            override fun close() = Unit
+        }
+        val clients = object : AcpClientFactory {
+            override fun connect(
+                transport: AcpTransport,
+                scope: CoroutineScope,
+                handler: AcpClientHandler,
+            ): AcpConnection = connection
+        }
+        val failure = assertFailsWith<EngineException> {
+            KimiRuntime.open(
+                RuntimeIdentity(KimiEngine.Id, KimiEngine.AuthSource, AuthRevision.Known("one")),
+                transport,
+                clients,
+                this@runTest,
+                directory = { "/workspace" },
+                toggles = TestToggles(),
+            )
+        }
+        assertEquals(EngineFailureReason.RequirementsNotMet, assertIs<EngineFailure.Engine>(failure.failure).reason)
+        assertTrue(connection.closed)
     }
 
     @Test
@@ -448,7 +515,11 @@ class KimiRuntimeTest {
         }
         val runtime = runtime(connection, this)
         val session = runtime.create(CreateSessionRequest(target))
-        session.sender().send(prompt("effort").copy(reasoningEffort = "max"))
+        connection.beforeConfigResponse = {
+            connection.update("""{"sessionUpdate":"config_option_update","configOptions":[]}""")
+            connection.update("""{"sessionUpdate":"usage_update","used":1200,"size":262144}""")
+        }
+        withTimeout(1000) { session.sender().send(prompt("effort").copy(reasoningEffort = "max")) }
         assertEquals("kimi-code/kimi-for-coding", connection.configuration["model"])
         assertEquals("default", connection.configuration["mode"])
         assertEquals("max", connection.configuration["thinking"])
@@ -505,6 +576,7 @@ private class FakeConnection : AcpConnection {
     var metadata = JsonObject(emptyMap())
     var content = listOf<JsonObject>()
     var configFailure: Exception? = null
+    var beforeConfigResponse: (suspend () -> Unit)? = null
     val configuration = mutableMapOf<String, String>()
     lateinit var runtime: KimiRuntime
 
@@ -521,6 +593,7 @@ private class FakeConnection : AcpConnection {
     override suspend fun setConfigOption(sessionId: String, optionId: String, value: String) {
         configFailure?.let { throw it }
         configuration[optionId] = value
+        beforeConfigResponse?.invoke()
     }
     override suspend fun cancel(sessionId: String) {
         cancellationBarrier?.await()
