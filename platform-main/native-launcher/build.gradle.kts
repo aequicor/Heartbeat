@@ -117,6 +117,15 @@ kotlin {
         }
     }
     mingwX64 {
+        val jniCompiler = project.extensions.getByType<JavaToolchainService>().compilerFor {
+            languageVersion.set(JavaLanguageVersion.of(17))
+        }
+        compilations.getByName("main").cinterops.create("windowsJvm") {
+            definitionFile.set(project.file("src/nativeInterop/cinterop/windowsJvm.def"))
+            includeDirs(project.file("src/nativeInterop/cinterop"))
+            includeDirs(project.file("src/nativeInterop/cinterop/windows-jni"))
+            includeDirs(jniCompiler.get().metadata.installationPath.dir("include"))
+        }
         compilations.getByName("main").cinterops.create("windowsProcess") {
             definitionFile.set(project.file("src/nativeInterop/cinterop/windowsProcess.def"))
         }
@@ -152,6 +161,7 @@ kotlin {
     }
 
     sourceSets {
+        commonMain { kotlin.srcDir("src/sceneMain/kotlin") }
         nativeMain {
             kotlin.srcDir(generateBootstrapDefaults.map { it.outputs.files.single() })
         }
@@ -300,5 +310,29 @@ run {
             outputBaseName.set(thinVersion.map { "Heartbeat-$it-windows-$thinArch-setup" })
             outputDirectory.set(thinInstallers)
         }
+    }
+}
+
+// Runs the actual Kotlin/Native + JNI + JAWT combination on Windows, using only JDK fixture classes.
+val compileJniSmoke = tasks.register<JavaCompile>("compileJniSmoke") {
+    javaCompiler.set(project.extensions.getByType<JavaToolchainService>().compilerFor {
+        languageVersion.set(JavaLanguageVersion.of(17))
+    })
+    source("src/jniSmoke/java")
+    source(rootProject.file("platform-main/launcher-selector/src/main/java/io/aequicor/heartbeat/selector/EmbeddedHost.java"))
+    classpath = files()
+    destinationDirectory.set(layout.buildDirectory.dir("jni-smoke/classes"))
+    options.release.set(17)
+    options.encoding = "UTF-8"
+}
+tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest>().configureEach {
+    if (name == "mingwX64Test") {
+        dependsOn(compileJniSmoke)
+        val runtime = project.extensions.getByType<JavaToolchainService>().launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(libs.versions.desktop.jdk.get().toInt()))
+            vendor.set(JvmVendorSpec.JETBRAINS)
+        }
+        environment("HEARTBEAT_JNI_SMOKE_RUNTIME", runtime.get().metadata.installationPath.asFile.absolutePath)
+        environment("HEARTBEAT_JNI_SMOKE_CLASSES", compileJniSmoke.flatMap { it.destinationDirectory }.get().asFile.absolutePath)
     }
 }

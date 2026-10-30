@@ -23,7 +23,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.FutureTask
-import javax.swing.JFrame
 
 /**
  * Hides the session and its owned native windows during pixel capture or pointer input.
@@ -31,7 +30,7 @@ import javax.swing.JFrame
  * Java window visibility stays unchanged, preserving Compose composition, window state and capture
  * registration. Restoration neither activates a window nor resurrects a disposed presentation.
  */
-internal class DesktopCapturePresentation(private val window: JFrame, private val overlay: ComputerUseScreenOverlay) :
+internal class DesktopCapturePresentation(private val window: Window, private val overlay: ComputerUseScreenOverlay) :
     ComputerUsePresentation,
     AutoCloseable {
     private val log = Log.tag("DesktopCapturePresentation")
@@ -107,7 +106,7 @@ private fun interface NativeCaptureSuppression {
 }
 
 private fun interface CaptureSuppressor {
-    fun suppress(window: JFrame): NativeCaptureSuppression
+    fun suppress(window: Window): NativeCaptureSuppression
 }
 
 private fun ownedWindowTree(window: Window): List<Window> = buildList {
@@ -148,9 +147,9 @@ private fun <T> restoreEvery(items: List<T>, restore: (T) -> Unit) {
 private class WindowsCaptureSuppressor : CaptureSuppressor {
     private val flush = NativeLibrary.getInstance("dwmapi").getFunction("DwmFlush", Function.ALT_CONVENTION)
 
-    override fun suppress(window: JFrame): NativeCaptureSuppression {
+    override fun suppress(window: Window): NativeCaptureSuppression {
         val snapshots = ownedWindowTree(window).filter(Window::isDisplayable).mapNotNull { owned ->
-            val handle = HWND(Native.getWindowPointer(owned))
+            val handle = User32.INSTANCE.GetAncestor(HWND(Native.getWindowPointer(owned)), WinUser.GA_ROOT)
             if (User32.INSTANCE.IsWindowVisible(handle)) WindowsHiddenWindow(owned, handle) else null
         }
         val lease = NativeCaptureSuppression { isAlive ->
@@ -178,7 +177,7 @@ private class WindowsCaptureSuppressor : CaptureSuppressor {
     private fun isRestorable(saved: WindowsHiddenWindow): Boolean {
         if (!saved.window.isDisplayable || !saved.window.isVisible) return false
         if (!User32.INSTANCE.IsWindow(saved.handle)) return false
-        return Native.getWindowPointer(saved.window) == saved.handle.pointer
+        return User32.INSTANCE.GetAncestor(HWND(Native.getWindowPointer(saved.window)), WinUser.GA_ROOT) == saved.handle
     }
 }
 
@@ -192,7 +191,7 @@ private class MacCaptureSuppressor : CaptureSuppressor {
         "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
     )
 
-    override fun suppress(window: JFrame): NativeCaptureSuppression {
+    override fun suppress(window: Window): NativeCaptureSuppression {
         val snapshots = snapshotWindows(window)
         val lease = NativeCaptureSuppression { isAlive ->
             cocoa.onMainThread {
@@ -230,7 +229,7 @@ private class MacCaptureSuppressor : CaptureSuppressor {
         return lease
     }
 
-    private fun snapshotWindows(window: JFrame): List<MacHiddenWindow> {
+    private fun snapshotWindows(window: Window): List<MacHiddenWindow> {
         var snapshots = emptyList<MacHiddenWindow>()
         cocoa.onMainThread {
             if (window.isDisplayable) {

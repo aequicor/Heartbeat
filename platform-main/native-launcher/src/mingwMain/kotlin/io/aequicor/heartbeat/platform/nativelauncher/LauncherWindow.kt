@@ -20,12 +20,8 @@ import kotlinx.cinterop.toCPointer
 import kotlinx.cinterop.value
 import kotlinx.cinterop.wcstr
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
-import platform.windows.BS_OWNERDRAW
 import platform.windows.CloseHandle
 import platform.windows.CreateSolidBrush
 import platform.windows.CreateWindowExW
@@ -65,15 +61,12 @@ import platform.windows.RECT
 import platform.windows.RegisterClassExW
 import platform.windows.SM_CXSCREEN
 import platform.windows.SM_CYSCREEN
-import platform.windows.SS_LEFT
 import platform.windows.SW_HIDE
 import platform.windows.SW_MAXIMIZE
 import platform.windows.SW_MINIMIZE
 import platform.windows.SW_RESTORE
 import platform.windows.SW_SHOW
-import platform.windows.SendMessageW
 import platform.windows.SetBkMode
-import platform.windows.SetEnvironmentVariableW
 import platform.windows.SetProcessDPIAware
 import platform.windows.SetTextColor
 import platform.windows.SetTimer
@@ -92,14 +85,11 @@ import platform.windows.WM_GETMINMAXINFO
 import platform.windows.WM_NCCALCSIZE
 import platform.windows.WM_NCHITTEST
 import platform.windows.WM_PAINT
-import platform.windows.WM_SETFONT
 import platform.windows.WM_SIZE
 import platform.windows.WM_TIMER
 import platform.windows.WNDCLASSEXW
 import platform.windows.WPARAM
-import platform.windows.WS_CHILD
 import platform.windows.WS_OVERLAPPEDWINDOW
-import platform.windows.WS_VISIBLE
 import platform.windows.WaitForSingleObject
 import kotlin.concurrent.Volatile
 
@@ -116,16 +106,19 @@ class LauncherWindow(
     private val store: ImageStore,
     private val args: List<String> = emptyList(),
 ) {
-    private var cancelButton: HWND? = null
+    private var embeddedMode = false
+    private var embeddedExecutable = ""
+    private var previousJvmPath: String? = null
+    internal var cancelButton: HWND? = null
     internal var retryButton: HWND? = null
-    private var captionText: HWND? = null
+    internal var captionText: HWND? = null
     internal var minimizeButton: HWND? = null
     internal var maximizeButton: HWND? = null
     internal var closeButton: HWND? = null
     internal var hwnd: HWND? = null
     private var provisioningJob: Job? = null
     internal var bodyFont: HFONT? = null
-    private var captionFont: HFONT? = null
+    internal var captionFont: HFONT? = null
     private var backgroundBrush: HBRUSH? = null
     private var sidebarBrush: HBRUSH? = null
     private var handoffShowRequested = false
@@ -146,8 +139,8 @@ class LauncherWindow(
     private var renderer: LauncherFrameRenderer? = null
     internal val controlFrames = LauncherControlFrames()
     private var motion: LauncherMotion? = null
-    private var previousTip: HWND? = null
-    private var nextTip: HWND? = null
+    internal var previousTip: HWND? = null
+    internal var nextTip: HWND? = null
     private var isRussian = true
     private var isDownloadButtonVisible = false
     private var areTipButtonsVisible = false
@@ -227,6 +220,7 @@ class LauncherWindow(
             startProvisioning()
         }
         messageLoop()
+        io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_close_cover()
         renderer?.close()
         controlFrames.close()
         provisioningJob?.cancel()
@@ -261,37 +255,6 @@ class LauncherWindow(
             wndClass.hIconSm = icon
             RegisterClassExW(wndClass.ptr)
         }
-    }
-
-    private fun createControls(window: HWND) {
-        cancelButton = control("BUTTON", "Отмена", window, BS_OWNERDRAW)
-        retryButton = control("BUTTON", "Повторить", window, BS_OWNERDRAW)
-        previousTip = control("BUTTON", "Предыдущая подсказка", window, BS_OWNERDRAW)
-        nextTip = control("BUTTON", "Следующая подсказка", window, BS_OWNERDRAW)
-        listOf(cancelButton, retryButton, previousTip, nextTip).forEach { ShowWindow(it, SW_HIDE) }
-        captionText = control("STATIC", "Heartbeat", window, SS_LEFT)
-        minimizeButton = control("BUTTON", "Свернуть", window, BS_OWNERDRAW)
-        maximizeButton = control("BUTTON", "Развернуть", window, BS_OWNERDRAW)
-        closeButton = control("BUTTON", "Закрыть", window, BS_OWNERDRAW)
-        captionFont?.let { font ->
-            SendMessageW(captionText, WM_SETFONT.toUInt(), font.rawValue.toLong().toULong(), 1L)
-        }
-        layout(window)
-    }
-
-    private fun control(className: String, text: String, parent: HWND, style: Int = 0): HWND? = memScoped {
-        val focusStyle = if (className == "BUTTON") platform.windows.WS_TABSTOP else 0
-        CreateWindowExW(
-            0u,
-            className.wcstr.getPointer(this),
-            text.wcstr.getPointer(this),
-            (WS_CHILD or WS_VISIBLE or style or focusStyle).toUInt(),
-            0, 0, 0, 0,
-            parent,
-            null,
-            GetModuleHandleW(null),
-            null,
-        )?.also { if (className == "BUTTON") suppressControlErase(it) }
     }
 
     // Native interactive child bounds mirror the approved scene coordinates.
@@ -352,17 +315,16 @@ class LauncherWindow(
     private fun startProvisioning() {
         sceneStatus = LauncherSceneStatus()
         handoffStarted = false
-        provisioningJob = CoroutineScope(Dispatchers.Default).launch {
-            try {
-                val image = provisionLauncherImage(config, store, ::updateProgress) { isCancelled }
-                pendingImage.value = image
-                PostMessageW(hwnd, IMAGE_READY_MESSAGE.toUInt(), 0uL, 0L)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                launcherLog.w("Launcher", error) { "Provisioning failed" }
-                showError(error)
-            }
+        provisioningJob = startLauncherProvisioning(
+            config,
+            store,
+            ::updateProgress,
+            ::showError,
+            { isCancelled },
+        ) { image ->
+            launcherLog.i("Launcher") { "pendingImage: provisioning completed" }
+            pendingImage.value = image
+            PostMessageW(hwnd, IMAGE_READY_MESSAGE.toUInt(), 0uL, 0L)
         }
     }
 
@@ -434,24 +396,25 @@ class LauncherWindow(
         handoffPresentation = checkNotNull(writeHandoffPresentation(hwnd, handoffDir, theme, isMoving = isMoving)) {
             "Cannot publish the initial launcher presentation"
         }
-        memScoped {
-            SetEnvironmentVariableW(
-                "HEARTBEAT_HANDOFF_DIR".wcstr.getPointer(this),
-                handoffDir.toString().wcstr.getPointer(this),
-            )
-        }
-        memScoped {
-            check(
-                SetEnvironmentVariableW(
-                    "HEARTBEAT_NATIVE_LAUNCHER".wcstr.getPointer(this),
-                    nativeLauncherExecutable().toString().wcstr.getPointer(this),
-                ) != 0,
-            ) { "Cannot set native launcher path" }
-        }
+        configureLauncherEnvironment(handoffDir)
         val executable = image.directory.resolve(
             BootstrapLayout.forPlatform("windows", config.channel).executable,
         ).toString()
-        val process = launchProcess(executable, args)
+        embeddedExecutable = executable
+        previousJvmPath = launcherEnvironment("PATH")
+        embeddedMode = startEmbeddedJvm(
+            checkNotNull(hwnd),
+            image.directory,
+            executable,
+            config.target,
+            args,
+            systemDpi.toDouble() / DEFAULT_DPI,
+        )
+        val process = if (embeddedMode) {
+            io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_thread()
+        } else {
+            launchProcess(executable, args)
+        }
         childProcess = process
         if (process == null) {
             handoffStarted = false
@@ -483,7 +446,13 @@ class LauncherWindow(
         }
         onImageReady()
         updateButtonHover()
-        animateScene()
+        if (!embeddedMode || !isEmbeddedContentPresented()) animateScene()
+        if (embeddedMode && !isCancelled && embeddedJvmCanFallback()) {
+            childProcess = null
+            embeddedMode = false
+            childProcess = fallbackEmbeddedJvm(embeddedExecutable, args, previousJvmPath)
+        }
+        if (embeddedMode && advanceEmbeddedHost(hwnd)) return
         val process = childProcess
         if (process != null && isChildAlive(process)) publishSnapshot()?.let(::advanceHandoff)
     }
@@ -694,8 +663,13 @@ class LauncherWindow(
     }
 
     internal fun cancel() {
+        if (embeddedMode && io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_is_presented() != 0) {
+            io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_request_close()
+            return
+        }
         if (isCancelled) return
         isCancelled = true
+        if (embeddedMode) io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_request_cancel()
         hwnd?.let { ShowWindow(it, SW_HIDE) }
         provisioningJob?.cancel()
         try {
@@ -707,7 +681,7 @@ class LauncherWindow(
         } catch (error: Exception) {
             launcherLog.w("Launcher", error) { "Cannot request cooperative application cancellation" }
         } finally {
-            DestroyWindow(hwnd)
+            if (!embeddedMode) DestroyWindow(hwnd)
         }
     }
 
@@ -830,21 +804,22 @@ private fun launcherWndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: 
 
             WM_CLOSE -> {
                 window.cancel()
-                null
+                0L
             }
 
-            WM_DESTROY -> {
-                PostQuitMessage(0)
-                null
-            }
-
-            else -> window.onVisualMessage(message, wParam, lParam) ?: launcherAuxiliaryMessage(window, message)
+            else -> handleEmbeddedParentMessage(message, wParam, lParam)
+                ?: window.onVisualMessage(message, wParam, lParam) ?: launcherAuxiliaryMessage(window, message)
         }
     }
     return handled ?: DefWindowProcW(hwnd, message, wParam, lParam)
 }
 
 private fun launcherAuxiliaryMessage(window: LauncherWindow, message: UINT): LRESULT? = when (message.toInt()) {
+    WM_DESTROY -> {
+        PostQuitMessage(0)
+        null
+    }
+
     platform.windows.WM_ENTERSIZEMOVE -> {
         window.beginMove()
         0L

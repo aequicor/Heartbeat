@@ -34,10 +34,22 @@ internal fun DesktopComputerUsePresentation(
     activity: ComputerUseActivity,
     capturePresentation: ComputerUseCapturePresentation,
 ) {
+    val dockable = remember(window, state) { ComposeDockableWindow(window, state) }
+    DesktopWindowComputerUsePresentation(window, activity, capturePresentation, dockable)
+}
+
+/** Both ComposeWindow and the embedded Frame retain the same capture/pointer and session-docking lifecycle. */
+@Composable
+internal fun DesktopWindowComputerUsePresentation(
+    window: java.awt.Window,
+    activity: ComputerUseActivity,
+    capturePresentation: ComputerUseCapturePresentation,
+    dockable: DockableWindow,
+) {
     val overlay = remember(window) { ComputerUseScreenOverlay() }
     val pointer = remember(window) { ComputerUsePointerOverlay() }
     val presentation = remember(window, overlay) { DesktopCapturePresentation(window, overlay) }
-    val dock = remember(window, state) { ComputerUseWindowDock(ComposeDockableWindow(window, state)) }
+    val dock = remember(dockable) { ComputerUseWindowDock(dockable) }
     val dimensions = HbDimensions.Desktop
     val colors = HbColors.forHost(isSystemInDarkTheme(), isDesktop = true)
     val color = colors.computerUseShadow.toArgb()

@@ -56,6 +56,9 @@ private fun launchAndWait(image: ProvisionedImage, args: List<String>, channel: 
 }
 
 internal fun processExitCode(process: HANDLE): Int = memScoped {
+    if (process == io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_thread()) {
+        return@memScoped io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_exit_code()
+    }
     val code = alloc<UIntVar>()
     check(GetExitCodeProcess(process, code.ptr) != 0) { "Cannot read application exit code" }
     code.value.toInt()

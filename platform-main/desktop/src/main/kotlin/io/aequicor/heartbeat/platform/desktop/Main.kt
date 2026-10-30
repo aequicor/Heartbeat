@@ -160,14 +160,24 @@ private fun launchLoggedHeartbeat(
     val graph = runOnUiThread { createHeartbeatGraph(isDevelopment, hasLocalSecrets) }
     LaunchMarks.mark("app.graph-created")
     withFailedDesktopLaunchCleanup(cleanup = { shutdownFailedDesktopLaunch(graph, lifecycle::destroy) }) {
-        launchDesktopApplication(lifecycle, graph, applicationIcons, instance)
+        val embedded = EmbeddedHostConnection.current()
+        if (embedded == null || !launchEmbeddedDesktopApplication(
+                embedded,
+                lifecycle,
+                graph,
+                applicationIcons,
+                instance,
+            )
+        ) {
+            launchDesktopApplication(lifecycle, graph, applicationIcons, instance)
+        }
     }
 }
 
 /** Read by the platform launcher's shutdown hook (`platform-main/launcher`, `LauncherMain`). */
 private const val LAUNCHER_CLEAN_EXIT = "heartbeat.exit.clean"
 
-private fun launcherDarkThemeOverride(): Boolean? = when (System.getenv("HEARTBEAT_LAUNCHER_THEME")) {
+internal fun launcherDarkThemeOverride(): Boolean? = when (System.getenv("HEARTBEAT_LAUNCHER_THEME")) {
     "dark" -> true
     "light" -> false
     else -> null
@@ -237,7 +247,7 @@ private fun launchDesktopApplication(
 }
 
 @Composable
-private fun rememberApplicationQuit(
+internal fun rememberApplicationQuit(
     graph: HeartbeatGraph,
     lifecycle: LifecycleRegistry,
     onExit: () -> Unit,
@@ -263,7 +273,7 @@ private fun rememberApplicationQuit(
 }
 
 @Composable
-private fun HeartbeatApp(
+internal fun HeartbeatApp(
     root: HeartbeatRoot,
     diagrams: PlantUmlDiagramRenderer,
     areDiagramsAvailable: Boolean,
@@ -277,7 +287,7 @@ private fun HeartbeatApp(
 }
 
 /** Creates the root and starts application work once, while the desktop event loop is available. */
-private fun createDesktopRoot(lifecycle: LifecycleRegistry, graph: HeartbeatGraph): HeartbeatRoot = runOnUiThread {
+internal fun createDesktopRoot(lifecycle: LifecycleRegistry, graph: HeartbeatGraph): HeartbeatRoot = runOnUiThread {
     createAppRoot(DefaultComponentContext(lifecycle), graph).also { startAppWork(graph) }
 }
 
@@ -370,7 +380,7 @@ private fun configureDockIcon(icons: List<BufferedImage>) {
  * ⌘, on macOS and Ctrl+, elsewhere open the settings window from anywhere in the window. The platform knows only
  * the link: the settings feature owns the route and decides what the link opens.
  */
-private fun openSettingsOnShortcut(event: KeyEvent, root: HeartbeatRoot): Boolean {
+internal fun openSettingsOnShortcut(event: KeyEvent, root: HeartbeatRoot): Boolean {
     val isAccelerator = if (isMacHost) event.isMetaPressed && !event.isCtrlPressed else event.isCtrlPressed
     if (event.type != KeyEventType.KeyDown || event.key != Key.Comma || !isAccelerator) return false
     Log.tag("Desktop").i { "settings shortcut" }
@@ -405,7 +415,7 @@ private fun checkoutClasses(): Result<Path?> = try {
 }
 private val isMacHost = System.getProperty("os.name").orEmpty().startsWith("Mac", ignoreCase = true)
 
-private fun <T> runOnUiThread(block: () -> T): T {
+internal fun <T> runOnUiThread(block: () -> T): T {
     if (SwingUtilities.isEventDispatchThread()) return block()
     val task = FutureTask(block)
     SwingUtilities.invokeAndWait(task)

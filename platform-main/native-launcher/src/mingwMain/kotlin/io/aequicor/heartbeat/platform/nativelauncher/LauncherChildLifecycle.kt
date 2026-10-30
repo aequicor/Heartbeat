@@ -7,7 +7,11 @@ import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ImageStore
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionProgress
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionedImage
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.windowsHttpTransport
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import okio.FileSystem
 import okio.Path
 import platform.windows.CloseHandle
@@ -38,7 +42,12 @@ private fun cancelLauncherChild(process: HANDLE) {
     launcherLog.w("Launcher", IllegalStateException("Child did not acknowledge cancellation")) {
         "Forcing application exit after cancellation grace period"
     }
-    check(TerminateProcess(process, 1u) != 0 || WaitForSingleObject(process, 0u) == WAIT_OBJECT_0) {
+    val terminated = if (process == io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_thread()) {
+        platform.windows.GetCurrentProcess()
+    } else {
+        process
+    }
+    check(TerminateProcess(terminated, 1u) != 0 || WaitForSingleObject(process, 0u) == WAIT_OBJECT_0) {
         "Cannot stop launcher child"
     }
 }
@@ -67,4 +76,23 @@ internal suspend fun provisionLauncherImage(
                 expectedChannel = config.channel,
             ).provision(onProgress, isCancelled)
         }
+}
+
+/** Owns network work until completion and reports only immutable image/progress snapshots to the window. */
+internal fun startLauncherProvisioning(
+    config: LauncherConfig,
+    store: ImageStore,
+    onProgress: (ProvisionProgress) -> Unit,
+    onError: (Exception) -> Unit,
+    isCancelled: () -> Boolean,
+    onImage: (ProvisionedImage) -> Unit,
+): Job = CoroutineScope(Dispatchers.Default).launch {
+    try {
+        onImage(provisionLauncherImage(config, store, onProgress, isCancelled))
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        launcherLog.w("Launcher", error) { "Provisioning failed" }
+        onError(error)
+    }
 }

@@ -22,3 +22,19 @@ internal actual fun launcherEnvironment(name: String): String? = memScoped {
 }
 
 private const val ENVIRONMENT_CAPACITY = 32768
+
+/** The inner JVM path and the external restart path have distinct ownership and must not be interchanged. */
+internal fun configureLauncherEnvironment(handoffDirectory: okio.Path) = memScoped {
+    check(
+        platform.windows.SetEnvironmentVariableW(
+            "HEARTBEAT_HANDOFF_DIR".wcstr.ptr,
+            handoffDirectory.toString().wcstr.ptr,
+        ) != 0,
+    ) { "Cannot set handoff directory" }
+    check(
+        platform.windows.SetEnvironmentVariableW(
+            "HEARTBEAT_NATIVE_LAUNCHER".wcstr.ptr,
+            nativeLauncherExecutable().toString().wcstr.ptr,
+        ) != 0,
+    ) { "Cannot set native launcher path" }
+}

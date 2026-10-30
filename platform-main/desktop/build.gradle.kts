@@ -29,6 +29,9 @@ plugins {
     alias(libs.plugins.heartbeat.train)
 }
 
+// The native cover and Compose continuation draw the same authored artwork and monotonic timeline.
+kotlin.sourceSets.getByName("main").kotlin.srcDir("../native-launcher/src/sceneMain/kotlin")
+
 dependencies {
     implementation(projects.platformMain.shared)
     // Desktop bundles are discovered at runtime (ServiceLoader), so they only need to be on the runtime class path.

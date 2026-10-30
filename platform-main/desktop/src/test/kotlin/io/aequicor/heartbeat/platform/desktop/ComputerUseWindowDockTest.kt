@@ -20,6 +20,18 @@ import kotlin.test.assertTrue
 
 class ComputerUseWindowDockTest {
     @Test
+    fun `native docking scales requested size without rescaling saved screen coordinates`() = runTest {
+        val window = FakeWindow(NORMAL, WindowPlacement.Floating, coordinateScale = 2.0)
+        val session = launch { ComputerUseWindowDock(window).holdPinned(WIDTH, HEIGHT) }
+        advanceUntilIdle()
+        window.settle()
+        assertEquals(computerUseSessionBounds(window.workArea, WIDTH * 2, HEIGHT * 2), window.bounds)
+        session.cancelAndJoin()
+        window.settle()
+        assertEquals(NORMAL, window.bounds)
+    }
+
+    @Test
     fun `floating window is docked and gets its bounds back`() = runTest {
         val window = FakeWindow(NORMAL, WindowPlacement.Floating)
         val session = launch { ComputerUseWindowDock(window).holdPinned(WIDTH, HEIGHT) }
@@ -165,6 +177,7 @@ class ComputerUseWindowDockTest {
         isMinimized: Boolean = false,
         private val fullscreenTicks: Int = 0,
         private val unzoomTicks: Int = 0,
+        override val coordinateScale: Double = 1.0,
     ) : DockableWindow {
         /** Bounds the window manager gives the window when it is floating. */
         var floatingBounds = Rectangle(floating)
