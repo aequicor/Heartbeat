@@ -24,6 +24,8 @@ internal actual object ProvisioningPlatform {
         free.QuadPart.toLong()
     }
 
+    actual fun applyFileMode(path: Path, unixMode: Int) = Unit // Windows uses ACLs, not Unix mode bits.
+
     actual fun tryLock(path: Path): ProvisionLockHandle? = memScoped {
         okio.FileSystem.SYSTEM.createDirectories(path.parent ?: return@memScoped null)
         val handle = CreateFileW(

@@ -15,6 +15,7 @@ data class ZipEntry(
     val isDirectory: Boolean,
     val isSymlink: Boolean,
     val isEncrypted: Boolean,
+    val unixMode: Int = 0,
 )
 
 /**
@@ -141,6 +142,7 @@ class ZipArchive(private val fs: FileSystem, private val file: Path) {
                     isDirectory = name.endsWith("/"),
                     isSymlink = isSymlink,
                     isEncrypted = directory[offset + 8].toInt() and 1 != 0,
+                    unixMode = if (isMadeByUnix) externalAttrs ushr 16 else 0,
                 )
                 offset += 46 + nameLength + extraLength + commentLength
             }

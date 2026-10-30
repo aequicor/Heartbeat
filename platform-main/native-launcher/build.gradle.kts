@@ -29,11 +29,14 @@ val generateEmbeddedIcon = tasks.register("generateEmbeddedIcon") {
 }
 
 // Только desktop-хосты нативного лончера: общий код bootstrap-протокола, JVM — для тестов и инструментов.
-// Нативные desktop-таргеты (mingwX64, macosX64/macosArm64, linuxX64) добавляются вместе с лончером (Этап 3).
+// Unix-таргеты сначала проверяют общий bootstrap-код; исполняемые входы подключаются отдельно.
 // Это не библиотека «для всех платформ Heartbeat», поэтому heartbeat.kmp.library (android/iOS) не применяется.
 kotlin {
     jvmToolchain(17)
     jvm()
+    macosX64()
+    macosArm64()
+    linuxX64()
     mingwX64 {
         binaries {
             executable {
@@ -45,7 +48,31 @@ kotlin {
         }
     }
 
+    applyHierarchyTemplate {
+        common {
+            withJvm()
+            group("native") {
+                group("mingw") { withMingw() }
+                group("unix") {
+                    group("macos") { withMacos() }
+                    group("linux") { withLinux() }
+                }
+            }
+        }
+    }
+
+    targets.withType<org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget>().configureEach {
+        if (konanTarget.family.isAppleFamily || konanTarget.family == org.jetbrains.kotlin.konan.target.Family.LINUX) {
+            compilations.getByName("main").cinterops.create("provisioning") {
+                definitionFile.set(project.file("src/nativeInterop/cinterop/provisioning.def"))
+            }
+        }
+    }
+
     sourceSets {
+        nativeMain.dependencies {
+            implementation(libs.ionspin.libsodium)
+        }
         mingwMain {
             kotlin.srcDir(generateEmbeddedIcon.map { it.outputs.files.single() })
         }
@@ -61,7 +88,6 @@ kotlin {
             implementation(projects.core.logging)
         }
         mingwMain.dependencies {
-            implementation(libs.ionspin.libsodium)
             implementation(libs.ktor.client.winhttp)
         }
     }

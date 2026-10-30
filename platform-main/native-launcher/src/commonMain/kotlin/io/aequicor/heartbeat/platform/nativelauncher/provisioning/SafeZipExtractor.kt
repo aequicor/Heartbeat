@@ -9,8 +9,16 @@ import okio.buffer
  * файлы отклоняются до записи первого байта. Лимиты числа записей и распакованного объёма действуют до начала
  * распаковки, размер каждой записи проверяется при чтении. Staging не содержит исполняемых для запуска файлов:
  * приложение стартует только после атомарной активации ([ImageStore.activate]).
+ * Custom file systems must supply [applyFileMode]; the default adapter only touches [FileSystem.SYSTEM].
  */
-class SafeZipExtractor(private val fs: FileSystem = FileSystem.SYSTEM, private val limits: ZipLimits = ZipLimits()) {
+class SafeZipExtractor(
+    private val fs: FileSystem = FileSystem.SYSTEM,
+    private val limits: ZipLimits = ZipLimits(),
+    private val applyFileMode: (Path, Int) -> Unit = { path, mode ->
+        require(fs === FileSystem.SYSTEM) { "Custom FileSystem requires its own file-mode adapter" }
+        ProvisioningPlatform.applyFileMode(path, mode)
+    },
+) {
     data class ZipLimits(
         val maxEntries: Int = 10_000,
         val maxEntryBytes: Long = DEFAULT_MAX_ENTRY_BYTES,
@@ -51,6 +59,7 @@ class SafeZipExtractor(private val fs: FileSystem = FileSystem.SYSTEM, private v
                         sink.close()
                     }
                 }
+                applyFileMode(target, entry.unixMode)
             }
         }
     }

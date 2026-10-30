@@ -10,6 +10,9 @@ internal expect object ProvisioningPlatform {
     /** Свободные байты на файловой системе, содержащей [path]. */
     fun freeSpaceBytes(path: Path): Long
 
+    /** Restores only ordinary read/write and executable bits; privileged ZIP mode bits are never applied. */
+    fun applyFileMode(path: Path, unixMode: Int)
+
     /**
      * Берёт эксклюзивную блокировку файла [path] без ожидания или возвращает null, если её держит другой процесс.
      * Блокировка освобождается ОС при смерти владельца: зависший provisioning не блокирует следующие запуски.

@@ -92,6 +92,26 @@ class SafeZipExtractorTest {
     }
 
     @Test
+    fun executableBitsAreRestoredWithoutPrivilegedBits() {
+        if ("posix" !in temp.toNioPath().fileSystem.supportedFileAttributeViews()) return
+        val archive = zipOf("executable.zip", mapOf("bin/heartbeat" to byteArrayOf(1)))
+        val bytes = Files.readAllBytes(archive.toNioPath())
+        val index = bytes.toList().windowed(4).indexOfFirst {
+            it.toByteArray().contentEquals(byteArrayOf(0x50, 0x4b, 0x01, 0x02))
+        }
+        bytes[index + 5] = 3 // Unix host
+        val mode = 0x8fff // regular file with setuid/setgid/sticky and all permission bits
+        bytes[index + 40] = mode.toByte()
+        bytes[index + 41] = (mode ushr 8).toByte()
+        Files.write(archive.toNioPath(), bytes)
+        val staging = temp.resolve("staging-executable")
+        SafeZipExtractor(fs).extract(archive, staging)
+        val executable = staging.resolve("bin/heartbeat").toNioPath()
+        assertTrue(Files.isExecutable(executable))
+        assertEquals(493, (Files.getAttribute(executable, "unix:mode") as Int) and 4095) // 0755 only
+    }
+
+    @Test
     fun encryptedEntryIsRejected() {
         val archive = zipOf("encrypted.zip", mapOf("secret" to byteArrayOf(1)))
         val bytes = Files.readAllBytes(archive.toNioPath())

@@ -6,6 +6,7 @@ import kotlinx.cinterop.Pinned
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.nativeHeap
+import kotlinx.cinterop.pin
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.sizeOf
@@ -19,21 +20,31 @@ import platform.zlib.z_stream
 
 /** Raw-deflate распаковка на zlib: сжатый поток ZIP, без zlib-заголовка (windowBits = -15). */
 internal actual class RawInflater actual constructor() {
-    private val stream = nativeHeap.alloc<z_stream>()
+    private val stream = nativeHeap.alloc<z_stream>().apply {
+        zalloc = null
+        zfree = null
+        opaque = null
+        next_in = null
+        avail_in = 0u
+    }
     private val inputs = mutableListOf<Pinned<ByteArray>>()
     private var isStreamEnd = false
 
     init {
         val state = inflateInit2_(stream.ptr, WINDOW_BITS, platform.zlib.ZLIB_VERSION, sizeOf<z_stream>().toInt())
-        check(state == Z_OK) { "inflateInit2 failed: $state" }
+        if (state != Z_OK) {
+            nativeHeap.free(stream.ptr.rawValue)
+            error("inflateInit2 failed: $state")
+        }
     }
 
     actual fun input(data: ByteArray) {
-        data.usePinned { pinned ->
-            stream.next_in = pinned.addressOf(0).reinterpret()
-            stream.avail_in = data.size.toUInt()
-            inputs += pinned
-        }
+        check(stream.avail_in == 0u) { "Inflater still has unconsumed input" }
+        require(data.isNotEmpty()) { "Empty deflate input" }
+        val pinned = data.pin()
+        stream.next_in = pinned.addressOf(0).reinterpret()
+        stream.avail_in = data.size.toUInt()
+        inputs += pinned
     }
 
     actual fun inflate(output: ByteArray): Int {

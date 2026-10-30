@@ -13,6 +13,25 @@ internal actual object ProvisioningPlatform {
 
     actual fun freeSpaceBytes(path: Path): Long = Files.getFileStore(path.toNioPath()).usableSpace
 
+    actual fun applyFileMode(path: Path, unixMode: Int) {
+        val view = Files.getFileAttributeView(
+            path.toNioPath(),
+            java.nio.file.attribute.PosixFileAttributeView::class.java,
+        )
+        if (view == null) {
+            return
+        }
+        val bits = FILE_READ_WRITE or (unixMode and EXECUTABLE_BITS)
+        val permissions = java.nio.file.attribute.PosixFilePermission.entries.filterIndexed { index, _ ->
+            bits and (1 shl (PERMISSION_BITS - index)) != 0
+        }.toSet()
+        Files.setPosixFilePermissions(path.toNioPath(), permissions)
+    }
+
+    private const val FILE_READ_WRITE = 420 // 0644
+    private const val EXECUTABLE_BITS = 73 // 0111
+    private const val PERMISSION_BITS = 8
+
     actual fun tryLock(path: Path): ProvisionLockHandle? {
         Files.createDirectories(path.toNioPath().parent)
         val channel = FileChannel.open(
