@@ -126,6 +126,33 @@ class AcpConnectionTest {
     }
 
     @Test
+    fun `disconnection notifies the handler exactly once`() = runTest {
+        val harness = AcpTestHarness(this)
+        harness.initialize()
+        harness.transport.input.close()
+        testScheduler.runCurrent()
+        assertEquals(1, harness.handler.disconnects)
+        harness.client.close()
+        assertEquals(1, harness.handler.disconnects)
+    }
+
+    @Test
+    fun `logout requires advertised capability and sends ACP logout`() = runTest {
+        val unsupported = AcpTestHarness(this)
+        unsupported.initialize()
+        assertFailsWith<IllegalStateException> { unsupported.client.logout() }
+        unsupported.client.close()
+        val supported = AcpTestHarness(this)
+        supported.initialize("""{"auth":{"logout":{}}}""")
+        val operation = backgroundScope.async { supported.client.logout() }
+        val request = supported.outgoing("logout")
+        assertTrue(request.obj("params").isEmpty())
+        supported.reply(request, "{}")
+        operation.await()
+        supported.client.close()
+    }
+
+    @Test
     fun `authentication uses only an advertised method`() = runTest {
         val h = AcpTestHarness(this)
         h.initialize()

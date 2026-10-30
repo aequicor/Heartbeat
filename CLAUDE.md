@@ -91,8 +91,9 @@ design/          макеты pen.dev (`.pen`): библиотека токен�
 > `features:ai-engine:kimi:{api,impl}` — Kimi CLI через `kimi acp` (Desktop Windows/macOS/Linux, тогл `ai.kimi`):
 > текстовые сессии, ACP-разрешения и отмена, история наблюдённых событий и возобновление при capability CLI.
 > Использует закреплённый и проверяемый runtime Heartbeat и собственное хранилище авторизации Kimi; приложение
-> Kimi Work и его авторизация не используются. Каталог предлагает `kimi-for-coding`. Встроенный сценарий входа
-> через интерфейс Heartbeat пока не реализован; для упаковки требуется предварительная сборка runtime.
+> Kimi Work и его авторизация не используются. Каталог предлагает `kimi-for-coding`; вход и выход доступны
+> через существующее управление движком, URL входа проверяется до открытия браузера. Релиз собирает runtime
+> для каждой desktop-платформы; локальной упаковке нужна предварительная сборка `native/kimi/build_runtime.py`.
 > ACP v1: `features:ai-engine:acp-interface:{api,impl}` — общий клиент JSON-RPC, сессии, updates, permissions;
 > stdio на Desktop, явный отказ запуска desktop-процессов на мобильных платформах. Конкретные движки подключаются отдельно.
 > `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов

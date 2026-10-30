@@ -75,7 +75,7 @@ public object KimiBindings {
             ),
         ),
         authOwner = KimiEngine.AuthOwner,
-        management = ManagementSpec(login = LoginSupport.Connections),
+        management = ManagementSpec(login = LoginSupport.Cli),
         factory = lazy { backend.value },
         manager = lazy { backend.value },
         modelCatalogRevision = 2,

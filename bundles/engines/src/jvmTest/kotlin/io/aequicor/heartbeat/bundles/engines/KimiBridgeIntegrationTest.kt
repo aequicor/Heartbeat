@@ -2,18 +2,23 @@
 
 package io.aequicor.heartbeat.bundles.engines
 
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientHandler
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpConnection
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpImplementation
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionOutcome
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSessionUpdate
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.impl.data.DefaultAcpConnection
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.impl.di.DefaultAcpClientFactory
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
@@ -22,6 +27,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -32,16 +38,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DesktopAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.KimiRuntime
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.kimiLoginStatus
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.withKimiAuthConnection
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -60,6 +70,118 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class KimiBridgeIntegrationTest {
+    @Test
+    fun `checking login closes ACP without cancelling the profile`() = runBlocking {
+        withTimeout(20_000) {
+            val profile = TestProfile()
+            val wire = TestWire()
+            val factory = object : AcpClientFactory {
+                override fun connect(
+                    transport: AcpTransport,
+                    scope: CoroutineScope,
+                    handler: AcpClientHandler,
+                ): AcpConnection = DefaultAcpConnection(transport, scope, handler)
+            }
+            try {
+                val checking = async {
+                    withKimiAuthConnection(wire, factory, profile.coroutineScope) { connection ->
+                        kimiLoginStatus(connection)
+                    }
+                }
+                wire.reply(wire.next(), """{"protocolVersion":1,"authMethods":[{"id":"login","name":"Login"}]}""")
+                val authentication = wire.next()
+                assertEquals("authenticate", authentication.getValue("method").jsonPrimitive.content)
+                wire.reply(authentication, "{}")
+                assertEquals(LoginState.SignedIn(), checking.await())
+                assertTrue(profile.coroutineScope.coroutineContext[Job]?.isActive == true)
+            } finally {
+                profile.close()
+            }
+        }
+    }
+
+    @Test
+    fun `closing Kimi runtime never cancels the parent profile`() = runBlocking {
+        withTimeout(20_000) {
+            val profile = TestProfile()
+            val wire = TestWire()
+            val factory = object : AcpClientFactory {
+                override fun connect(
+                    transport: AcpTransport,
+                    scope: CoroutineScope,
+                    handler: AcpClientHandler,
+                ): AcpConnection = DefaultAcpConnection(transport, scope, handler)
+            }
+            try {
+                val opening = async {
+                    KimiRuntime.open(
+                        RuntimeIdentity(KimiEngine.Id, KimiEngine.AuthSource, AuthRevision.Known("test")),
+                        wire,
+                        factory,
+                        profile.coroutineScope,
+                        { "/workspace" },
+                        TestToggles(),
+                    )
+                }
+                wire.reply(
+                    wire.next(),
+                    """{"protocolVersion":1,"agentCapabilities":{"_meta":{"heartbeat":{""" +
+                        """"permissionGate":1,"hostedCallBinding":1}}}}""",
+                )
+                val runtime = opening.await()
+                runtime.close()
+                assertTrue(profile.coroutineScope.coroutineContext[Job]?.isActive == true)
+            } finally {
+                profile.close()
+            }
+        }
+    }
+
+    @Test
+    fun `unexpected ACP disconnect closes idle session and leaves profile alive`() = runBlocking {
+        withTimeout(20_000) {
+            val profile = TestProfile()
+            val wire = TestWire()
+            val tools = TestTools()
+            val factory = DefaultAcpClientFactory(object : DispatcherProvider {
+                override val main = Dispatchers.Default
+                override val default = Dispatchers.Default
+                override val io = Dispatchers.IO
+            })
+            try {
+                val opening = async {
+                    KimiRuntime.open(
+                        RuntimeIdentity(KimiEngine.Id, KimiEngine.AuthSource, AuthRevision.Known("test")),
+                        wire,
+                        factory,
+                        profile.coroutineScope,
+                        { "/workspace" },
+                        TestToggles(),
+                        tools = tools,
+                        bridge = DesktopAgentToolBridge(tools, profile),
+                    )
+                }
+                wire.reply(
+                    wire.next(),
+                    """{"protocolVersion":1,"agentCapabilities":{"_meta":{"heartbeat":{""" +
+                        """"permissionGate":1,"hostedCallBinding":1}}}}""",
+                )
+                val runtime = opening.await()
+                val target = EngineTarget(KimiEngine.Id, EngineBindingId("binding"), ModelId("kimi-for-coding"))
+                val creating = async { runtime.create(CreateSessionRequest(target, areDetachedToolsEnabled = true)) }
+                val request = wire.next()
+                wire.reply(request, """{"sessionId":"native"}""")
+                val session = creating.await()
+                wire.input.close()
+                session.state.first { it == ActiveSessionState.Closed }
+                assertTrue(runtime.isClosed)
+                assertTrue(profile.coroutineScope.coroutineContext[Job]?.isActive == true)
+            } finally {
+                profile.close()
+            }
+        }
+    }
+
     @Test
     @Suppress("LongMethod") // The sequence verifies one ACP-to-HTTP round trip and its replays.
     fun `ACP permission admits one call through the desktop MCP bridge`() = runBlocking {

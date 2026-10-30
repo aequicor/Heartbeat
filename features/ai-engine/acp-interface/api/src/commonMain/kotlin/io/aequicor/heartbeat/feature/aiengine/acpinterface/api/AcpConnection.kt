@@ -32,6 +32,9 @@ public interface AcpConnection {
     /** Invokes an advertised authentication method without selecting one implicitly. */
     public suspend fun authenticate(methodId: String)
 
+    /** Signs out when the agent advertises the ACP logout capability. */
+    public suspend fun logout(): Unit = throw UnsupportedOperationException("ACP logout unavailable")
+
     /** Creates a session in an absolute working directory without MCP servers. */
     public suspend fun newSession(cwd: String): AcpSession
 
@@ -98,6 +101,9 @@ public interface AcpConnection {
 
 /** Callbacks installed for the whole connection, including updates sent while loading a session. */
 public interface AcpClientHandler {
+    /** Connection closed or disconnected; return promptly without blocking the ACP reader. */
+    public fun onDisconnected(): Unit = Unit
+
     /**
      * Observes successful submission of a session/prompt frame, before releasing the prompt/cancel admission
      * barrier and before delivering its result to the caller. This confirms local submission, not remote acceptance.

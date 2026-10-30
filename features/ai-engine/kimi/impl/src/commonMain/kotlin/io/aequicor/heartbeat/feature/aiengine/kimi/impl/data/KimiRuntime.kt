@@ -84,6 +84,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -118,6 +119,7 @@ internal class KimiRuntime(
     internal val resources: ResourceResolver = ResourceResolver { null },
     fetchProviderUsage: (suspend () -> ProviderUsageSnapshot?)? = null,
     private val bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    private val ownedScope: Job? = null,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
@@ -135,7 +137,11 @@ internal class KimiRuntime(
 
     @Volatile
     private var isShutdown = false
-    override val isClosed: Boolean get() = isShutdown
+
+    @Volatile
+    private var isDisconnected = false
+    override val isClosed: Boolean
+        get() = isShutdown || isDisconnected || scope.coroutineContext[Job]?.isActive == false
 
     private val usageToggleObserver = scope.launch {
         try {
@@ -348,18 +354,29 @@ internal class KimiRuntime(
                 }
                 detached.forEach { it.disconnected() }
             } finally {
-                withContext(NonCancellable) { connection.close() }
+                withContext(NonCancellable) {
+                    try {
+                        connection.close()
+                    } finally {
+                        ownedScope?.cancel()
+                    }
+                }
             }
         }
     }
 
+    internal fun connectionClosed() {
+        isDisconnected = true
+        sessions.value.values.forEach { it.revokeHosted() }
+    }
+
     internal fun checkActive() {
         scope.coroutineContext.ensureActive()
-        if (isShutdown) throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+        if (isClosed) throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
     }
 
     companion object {
-        @Suppress("LongParameterList") // The factory stitches independent DI-provided profile dependencies.
+        @Suppress("LongParameterList", "ThrowsCount", "LongMethod") // Failures close the owned transport and scope.
         suspend fun open(
             identity: RuntimeIdentity,
             transport: io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport,
@@ -373,22 +390,42 @@ internal class KimiRuntime(
             bridge: AgentToolBridge = UnavailableAgentToolBridge,
         ): KimiRuntime {
             val runtime = MutableStateFlow<KimiRuntime?>(null)
-            val connection = clients.connect(
-                transport,
-                scope,
-                object : AcpClientHandler {
-                    override suspend fun onSessionUpdate(update: AcpSessionUpdate) {
-                        runtime.value?.onSessionUpdate(update)
-                    }
+            val disconnected = MutableStateFlow(false)
+            val runtimeScope = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+            val connection = try {
+                clients.connect(
+                    transport,
+                    runtimeScope,
+                    object : AcpClientHandler {
+                        override fun onDisconnected() {
+                            disconnected.value = true
+                            runtime.value?.let { created ->
+                                created.connectionClosed()
+                                scope.launch { created.close() }
+                            }
+                        }
 
-                    override fun onPromptSubmitted(sessionId: String) {
-                        runtime.value?.onPromptSubmitted(sessionId)
-                    }
+                        override suspend fun onSessionUpdate(update: AcpSessionUpdate) {
+                            runtime.value?.onSessionUpdate(update)
+                        }
 
-                    override suspend fun requestPermission(request: AcpPermissionRequest): AcpPermissionOutcome =
-                        runtime.value?.requestPermission(request) ?: AcpPermissionOutcome.Cancelled
-                },
-            )
+                        override fun onPromptSubmitted(sessionId: String) {
+                            runtime.value?.onPromptSubmitted(sessionId)
+                        }
+
+                        override suspend fun requestPermission(request: AcpPermissionRequest): AcpPermissionOutcome =
+                            runtime.value?.requestPermission(request) ?: AcpPermissionOutcome.Cancelled
+                    },
+                )
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                runtimeScope.coroutineContext[Job]?.cancel()
+                transport.close()
+                throw error
+            } catch (error: Exception) {
+                runtimeScope.coroutineContext[Job]?.cancel()
+                transport.close()
+                throw error
+            }
             var isTransferred = false
             try {
                 val initialization = connection.initialize(AcpImplementation("heartbeat", "1", "Heartbeat"))
@@ -402,7 +439,7 @@ internal class KimiRuntime(
                 return KimiRuntime(
                     identity,
                     connection,
-                    scope,
+                    runtimeScope,
                     initialization,
                     directory,
                     toggles,
@@ -410,12 +447,25 @@ internal class KimiRuntime(
                     resources,
                     fetchProviderUsage,
                     bridge,
-                ).also {
-                    runtime.value = it
+                    runtimeScope.coroutineContext[Job],
+                ).also { created ->
+                    runtime.value = created
+                    if (disconnected.value) {
+                        created.connectionClosed()
+                        scope.launch { created.close() }
+                    }
                     isTransferred = true
                 }
             } finally {
-                if (!isTransferred) withContext(NonCancellable) { connection.close() }
+                if (!isTransferred) {
+                    withContext(NonCancellable) {
+                        try {
+                            connection.close()
+                        } finally {
+                            runtimeScope.coroutineContext[Job]?.cancel()
+                        }
+                    }
+                }
             }
         }
     }

@@ -39,6 +39,7 @@ internal class DefaultAcpConnection(
     private val peer = AcpRpcPeer(
         transport,
         scope,
+        onClosed = { handler.onDisconnected() },
         onNotification = { method, params ->
             if (method == "session/update") {
                 handler.onSessionUpdate(AcpSessionUpdate(params.string("sessionId"), params.obj("update")))
@@ -89,6 +90,15 @@ internal class DefaultAcpConnection(
             require(info.authMethods.any { it.id == methodId }) { "Authentication method was not advertised" }
             log.i { "ACP authenticate" }
             peer.request("authenticate", fields("methodId" to JsonPrimitive(methodId)))
+        }
+    }
+
+    override suspend fun logout() {
+        owned {
+            val auth = ready().agentCapabilities["auth"] as? JsonObject
+            check(auth?.get("logout") is JsonObject) { "ACP logout was not advertised" }
+            log.i { "ACP logout" }
+            peer.request("logout", JsonObject(emptyMap()))
         }
     }
 

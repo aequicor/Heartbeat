@@ -40,6 +40,17 @@ class SourceIntegrityTest(unittest.TestCase):
             build_runtime.prepare(self.source, {"commit": "0" * 40}, "unused")
 
 
+class LoginFlowTest(unittest.TestCase):
+    def test_pinned_login_flow_never_opens_browser_before_host_validation(self):
+        original = ("import { openUrl } from '#/utils/open-url';\n"
+                    "Opening browser for Kimi device login: "
+                    "        try {\n          openUrl(url);\n        } catch {\n"
+                    "          // Best effort only: the manual fallback has already been printed.\n        }")
+        result = build_runtime.patch_login_flow(original)
+        self.assertNotIn("openUrl", result)
+        self.assertIn("Kimi device login URL: ", result)
+
+
 class RuntimeArchTest(unittest.TestCase):
     def test_supported_platform_architectures(self):
         for machine, expected in [("AMD64", "x64"), ("x86_64", "x64"), ("ARM64", "arm64"), ("aarch64", "arm64")]:

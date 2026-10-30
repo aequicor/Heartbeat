@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 NATIVE = ROOT / "native/kimi"
 PATCHED_PATHS = {
     "apps/kimi-code/package.json", "apps/kimi-code/src/cli/sub/acp.ts",
+    "apps/kimi-code/src/cli/sub/login-flow.ts",
     "packages/acp-server/src/server.ts", "packages/acp-server/src/approval.ts",
     "packages/acp-server/src/session.ts", "packages/acp-server/src/interaction-bridge.ts",
     "packages/agent-core-v2/src/features/plan/planService.ts",
@@ -62,6 +63,14 @@ def replace_once(text, before, after):
     return text.replace(before, after, 1)
 
 
+def patch_login_flow(text):
+    code = replace_once(text, "import { openUrl } from '#/utils/open-url';\n", "")
+    code = replace_once(code,
+        "        try {\n          openUrl(url);\n        } catch {\n          // Best effort only: the manual fallback has already been printed.\n        }",
+        "        // Heartbeat validates the URL and opens it only through its sign-in UI.")
+    return replace_once(code, "Opening browser for Kimi device login: ", "Kimi device login URL: ")
+
+
 def prepare(source, lock, version):
     if not source.exists():
         source.mkdir(parents=True)
@@ -84,6 +93,8 @@ def prepare(source, lock, version):
     (source / entry).write_text(replace_once(original(entry),
         "await import('@moonshot-ai/acp-server')", "await import('./heartbeat-acp')"), encoding="utf-8")
     shutil.copyfile(NATIVE / "heartbeat-acp.ts", source / "apps/kimi-code/src/cli/sub/heartbeat-acp.ts")
+    login_flow = "apps/kimi-code/src/cli/sub/login-flow.ts"
+    (source / login_flow).write_text(patch_login_flow(original(login_flow)), encoding="utf-8")
     plan = "packages/agent-core-v2/src/features/plan/planService.ts"
     (source / plan).write_text(replace_once(original(plan),
         "        event.allow();", "        event.pass();"), encoding="utf-8")
