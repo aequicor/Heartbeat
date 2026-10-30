@@ -120,6 +120,35 @@ class FileManagedInstallStoreTest {
         assertFalse(Path.of(staged.candidate.executable).exists())
     }
 
+    @Test
+    fun `pinned versions survive updates and restart for offline adapter rollback`() = runTest {
+        val first = store()
+        val old = first.activate(first.stage(engine, plan("1.0.0").copy(isRetainedForRollback = true)) {})
+        val newer = first.activate(first.stage(engine, plan("2.0.0").copy(isRetainedForRollback = true)) {})
+        val restarted = store()
+        restarted.refresh()
+        assertEquals(newer, restarted.state.value[engine])
+        assertEquals(old, restarted.retained(engine, "1.0.0"))
+        assertEquals("codex 1.0.0", Path.of(old.executable).readText())
+        assertEquals(newer, restarted.retained(engine, "2.0.0"))
+        assertEquals(null, restarted.retained(engine, "3.0.0"))
+        restarted.uninstall(engine)
+        assertFalse(Path.of(old.executable).exists())
+        assertFalse(Path.of(newer.executable).exists())
+        assertEquals(null, restarted.retained(engine, "1.0.0"))
+    }
+
+    @Test
+    fun `same pinned version is immutable when activated twice`() = runTest {
+        val first = store()
+        val original = first.activate(first.stage(engine, plan("1.0.0").copy(isRetainedForRollback = true)) {})
+        val repeated = first.activate(first.stage(engine, plan("1.0.0").copy(isRetainedForRollback = true)) {})
+        assertTrue(original.executable != repeated.executable)
+        first.refresh()
+        assertTrue(Path.of(original.executable).exists())
+        assertTrue(Path.of(repeated.executable).exists())
+    }
+
     private fun canLockFromAnotherProcess(file: Path): Boolean {
         val program = root.resolve("LockProbe.java")
         program.writeText(LOCK_PROBE)
