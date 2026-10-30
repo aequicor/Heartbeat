@@ -23,7 +23,6 @@ import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toCPointer
-import kotlinx.cinterop.toKString
 import kotlinx.cinterop.value
 import kotlinx.cinterop.wcstr
 import kotlinx.coroutines.CancellationException
@@ -413,7 +412,7 @@ class LauncherWindow(
     }
 
     private fun embeddedIconPath(size: Int): okio.Path? {
-        val temp = platform.posix.getenv("TEMP")?.toKString() ?: return null
+        val temp = launcherEnvironment("TEMP") ?: return null
         return "$temp/heartbeat-launcher-icon-v$ICON_FILE_VERSION-$size.ico".toPath()
     }
 

@@ -5,10 +5,8 @@ package io.aequicor.heartbeat.platform.nativelauncher
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.NATIVE_LAUNCHER_VERSION
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ImageStore
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionedImage
-import kotlinx.cinterop.toKString
 import okio.Path
 import okio.Path.Companion.toPath
-import platform.posix.getenv
 import kotlin.native.OsFamily
 import kotlin.native.Platform
 
@@ -75,7 +73,7 @@ data class LauncherConfig(
             return directory.toPath()
         }
 
-        private fun env(name: String): String? = getenv(name)?.toKString()?.takeIf { it.isNotBlank() }
+        private fun env(name: String): String? = launcherEnvironment(name)?.takeIf { it.isNotBlank() }
 
         private const val BITS_PER_BASE64_DIGIT = 6
         private const val BITS_PER_BYTE = 8
@@ -104,3 +102,6 @@ data class LauncherConfig(
 
 /** Runtime architecture can differ from the launcher executable, notably x64 emulation on Windows ARM64. */
 internal expect fun launcherHostTarget(): String
+
+/** Environment strings use the host Unicode API, including UTF-16 user-profile paths on Windows. */
+internal expect fun launcherEnvironment(name: String): String?
