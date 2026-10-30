@@ -16,6 +16,13 @@
 #define LegacyExeName "io.aequicor.exe"
 #define LegacyIconName "io.aequicor.ico"
 
+#ifndef AppIconFile
+  #define AppIconFile AppExeName
+#endif
+#ifndef MinWindowsVersion
+  #define MinWindowsVersion "10.0"
+#endif
+
 [Setup]
 ; Identifies the installation for upgrades and Windows' installed apps list: never change it.
 AppId={{3E163BB7-D455-4010-A650-DC89D500569C}
@@ -34,13 +41,13 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed={#AppArchitecture}
 ArchitecturesInstallIn64BitMode={#AppArchitecture}
-MinVersion=10.0
+MinVersion={#MinWindowsVersion}
 ShowLanguageDialog=auto
 WizardStyle=modern dynamic
 SetupIconFile={#SetupIconFile}
 WizardSmallImageFile={#WizardSmallImageFile}
 UninstallDisplayName={#AppName}
-UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayIcon={app}\{#AppIconFile}
 ; A running Heartbeat is closed before its files are replaced. The Restart Manager first asks it to close, but neither
 ; the app's JVM nor its windowless helpers started from the same launcher (diagram, compiler and build workers, the
 ; Chromium native-messaging host) answer that request: without force they kept Heartbeat.exe locked and the upgrade
@@ -74,8 +81,8 @@ Type: files; Name: "{app}\{#LegacyIconName}"; Check: IsInstalledHere
 Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Comment: "{#AppDescription}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Comment: "{#AppDescription}"; Tasks: desktopicon
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Comment: "{#AppDescription}"; IconFilename: "{app}\{#AppIconFile}"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Comment: "{#AppDescription}"; IconFilename: "{app}\{#AppIconFile}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent

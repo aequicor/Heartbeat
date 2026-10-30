@@ -198,3 +198,107 @@ tasks.register<Exec>("linuxGtkSmokeTest") {
 tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest>().configureEach {
     testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
 }
+
+run {
+    // Native-only installer images are independent of the JVM image retained by :platform-main:desktop for checks.
+    val thinOs = providers.systemProperty("os.name").map {
+        when {
+            it.startsWith("Mac") -> "macos"
+            it.startsWith("Windows") -> "windows"
+            else -> "linux"
+        }
+    }.get()
+    val thinArch = providers.gradleProperty("heartbeat.thinArchitecture").orElse(
+        providers.systemProperty("os.arch").map {
+            if (it == "aarch64" || it == "arm64") "arm64" else "x64"
+        },
+    ).get()
+    val thinVersion = providers.gradleProperty("heartbeat.version")
+    val thinChannel = providers.gradleProperty("heartbeat.channel").orElse("release")
+    val thinFlavor = providers.gradleProperty("heartbeat.flavor").orElse("release")
+    val thinTarget = when (thinOs) {
+        "macos" -> if (thinArch == "arm64") "MacosArm64" else "MacosX64"
+        "windows" -> "MingwX64"
+        else -> "LinuxX64"
+    }
+    val thinBinary = layout.buildDirectory.file(
+        "bin/${thinTarget.replaceFirstChar { it.lowercase() }}/releaseExecutable/heartbeat-launcher." +
+            if (thinOs == "windows") "exe" else "kexe",
+    )
+    val thinPackager = rootProject.layout.projectDirectory.file("scripts/package_thin_installer.py")
+    val thinIcons = rootProject.layout.projectDirectory.dir("platform-main/desktop/icons")
+    val thinImage = layout.buildDirectory.dir(if (thinOs == "macos") "thin/image/Heartbeat.app" else "thin/image/Heartbeat")
+    val thinInstallers = layout.buildDirectory.dir("thin/installers")
+    val thinPython = if (thinOs == "windows") "python" else "python3"
+    val prepareThinImage = tasks.register<Exec>("prepareThinReleaseImage") {
+        group = "distribution"
+        description = "Prepares a native-only release installer image without JVM, libraries or seed."
+        dependsOn("linkReleaseExecutable$thinTarget")
+        inputs.files(thinBinary, thinPackager)
+        inputs.dir(thinIcons)
+        inputs.property("version", thinVersion)
+        inputs.property("target", "$thinOs-$thinArch")
+        inputs.property("channel", thinChannel)
+        inputs.property("flavor", thinFlavor)
+        outputs.dir(thinImage)
+        // Inno recurses through the image: rebuild this small copy so untracked output files cannot be packaged.
+        outputs.upToDateWhen { false }
+        doFirst {
+            check(thinChannel.get() == "release" && thinFlavor.get() != "testing") {
+                "Thin installers currently support only the release channel, never the testing flavor"
+            }
+        }
+        commandLine(thinPython, thinPackager.asFile.absolutePath,
+            "--format", "image", "--os", thinOs, "--arch", thinArch, "--version", thinVersion.get(),
+            "--native-executable", thinBinary.get().asFile.absolutePath, "--icons", thinIcons.asFile.absolutePath,
+            "--destination", thinImage.get().asFile.absolutePath)
+    }
+    if (thinOs == "macos") {
+        tasks.register<Exec>("packageThinReleaseDmg") {
+            group = "distribution"
+            dependsOn(prepareThinImage)
+            val output = thinInstallers.map { it.file("Heartbeat-${thinVersion.get()}-macos-$thinArch.dmg") }
+            inputs.dir(thinImage)
+            inputs.file(thinPackager)
+            inputs.property("version", thinVersion)
+            outputs.file(output)
+            commandLine(thinPython, thinPackager.asFile.absolutePath, "--format", "dmg", "--os", "macos",
+                "--arch", thinArch, "--version", thinVersion.get(), "--image", thinImage.get().asFile.absolutePath,
+                "--destination", output.get().asFile.absolutePath)
+        }
+    } else if (thinOs == "linux") {
+        tasks.register<Exec>("packageThinReleaseDeb") {
+            group = "distribution"
+            dependsOn(prepareThinImage)
+            val output = thinInstallers.map { it.file("Heartbeat-${thinVersion.get()}-linux-x64.deb") }
+            inputs.dir(thinImage)
+            inputs.file(thinPackager)
+            inputs.property("version", thinVersion)
+            outputs.file(output)
+            commandLine(thinPython, thinPackager.asFile.absolutePath, "--format", "deb", "--os", "linux", "--arch", "x64",
+                "--version", thinVersion.get(), "--image", thinImage.get().asFile.absolutePath,
+                "--destination", output.get().asFile.absolutePath)
+        }
+    } else {
+        tasks.register<io.aequicor.heartbeat.buildlogic.PackageInnoSetup>("packageThinReleaseInnoSetup") {
+            group = "distribution"
+            dependsOn(prepareThinImage)
+            script.set(rootProject.layout.projectDirectory.file("platform-main/desktop/packaging/windows/heartbeat.iss"))
+            appImage.set(thinImage)
+            appExecutable.set("Heartbeat.exe")
+            appIconFile.set("Heartbeat.ico")
+            appVersion.set(thinVersion)
+            appPublisher.set("Aequicor")
+            appDescription.set("Heartbeat AI Studio")
+            architecture.set(if (thinArch == "arm64") "arm64" else "x64compatible")
+            // Windows 10 ARM supports x86 only; the x64 bootstrap needs Windows 11 emulation.
+            minimumWindowsVersion.set(if (thinArch == "arm64") "10.0.22000" else "10.0")
+            setupIcon.set(thinIcons.file("heartbeat.ico"))
+            val wizardIcons = rootProject.layout.projectDirectory.dir("platform-main/desktop/src/main/resources/icons")
+            wizardSmallImages.from(listOf(64, 128, 256).map { wizardIcons.file("heartbeat-$it.png") })
+            providers.gradleProperty("heartbeat.innoSetupDir").orNull?.let { innoSetupDirectory.set(file(it)) }
+            outputBaseName.set(thinVersion.map { "Heartbeat-$it-windows-$thinArch-setup" })
+            outputDirectory.set(thinInstallers)
+        }
+    }
+}

@@ -16,6 +16,7 @@ typedef struct {
     unsigned long (*connect)(void *, const char *, void (*)(void), void *, void (*)(void *, void *), int);
     void (*show_all)(void *), (*show)(void *), (*hide)(void *), (*destroy)(void *), (*unref)(void *);
     void (*label_text)(void *, const char *);
+    void (*wmclass)(void *, const char *, const char *);
     void (*fraction)(void *, double), (*pulse)(void *);
     int (*events_pending)(void), (*iteration)(int), (*is_active)(void *), (*window_state)(void *);
     void *(*get_window)(void *), *(*display_default)(void);
@@ -50,6 +51,7 @@ static inline void *hb_gtk_create(const char *icon_path) {
     HB_LOAD(show_all, "gtk_widget_show_all"); HB_LOAD(show, "gtk_widget_show");
     HB_LOAD(hide, "gtk_widget_hide"); HB_LOAD(destroy, "gtk_widget_destroy");
     HB_LOAD(unref, "g_object_unref"); HB_LOAD(label_text, "gtk_label_set_text");
+    HB_LOAD(wmclass, "gtk_window_set_wmclass");
     HB_LOAD(fraction, "gtk_progress_bar_set_fraction"); HB_LOAD(pulse, "gtk_progress_bar_pulse");
     HB_LOAD(events_pending, "gtk_events_pending"); HB_LOAD(iteration, "gtk_main_iteration_do");
     HB_LOAD(is_active, "gtk_window_is_active"); HB_LOAD(get_window, "gtk_widget_get_window");
@@ -67,6 +69,8 @@ static inline void *hb_gtk_create(const char *icon_path) {
     ui->builder = ui->builder_new(xml, -1);
     if (!ui->builder) goto failed;
     ui->window = ui->builder_get(ui->builder, "window");
+    /* Bundled JBR21 XToolkit derives WM_CLASS from the selector main class, replacing dots with hyphens. */
+    ui->wmclass(ui->window, "io-aequicor-heartbeat-selector-SelectorMain", "io-aequicor-heartbeat-selector-SelectorMain");
     ui->stage = ui->builder_get(ui->builder, "stage");
     ui->bytes = ui->builder_get(ui->builder, "bytes");
     ui->progress = ui->builder_get(ui->builder, "progress");
