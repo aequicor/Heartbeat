@@ -72,7 +72,7 @@ class BootstrapProvisionerTest {
         return out.toByteArray()
     }
 
-    private inner class Fixture {
+    private inner class Fixture(os: String = "windows") {
         val store = ImageStore(temp.resolve("root-${System.nanoTime()}"), fs)
         val runtime = zip(mapOf("runtime/bin/java.dll" to byteArrayOf(1, 2, 3, 4)))
         val platform = zip(mapOf("app/Heartbeat.cfg" to "[Application]".encodeToByteArray()))
@@ -80,7 +80,7 @@ class BootstrapProvisionerTest {
         val manifest = BootstrapManifest(
             version = "1.0.0",
             channel = "release",
-            os = "windows",
+            os = os,
             arch = "x64",
             runtime = BootstrapRuntime(
                 "jbr21-windows-x64",
@@ -128,11 +128,23 @@ class BootstrapProvisionerTest {
         assertTrue(fs.exists(image.directory.resolve("app/Heartbeat.cfg")))
         assertTrue(fs.exists(image.directory.resolve("app/resources/seed/manifest.json")))
         assertEquals(image.id, provisioner.currentOfflineImage()?.id)
+        assertEquals("1.0.0", provisioner.currentOfflineImage()?.platformVersion)
         assertEquals(3, transport.downloads.size)
         assertTrue(transport.downloads.all { it.endsWith("@0") })
         val callsBefore = transport.getBytesCalls
         assertNotNull(fixture.provisioner(FakeTransport()).currentOfflineImage())
         assertEquals(callsBefore, transport.getBytesCalls, "offline restart does not touch the network")
+    }
+
+    @Test
+    fun unixSeedUsesPlatformSpecificResourcesDirectory() {
+        for (os in listOf("macos", "linux")) {
+            val fixture = Fixture(os)
+            val image = runBlocking { fixture.provisioner(fixture.transport()).provision() }
+            val seed = BootstrapLayout.forPlatform(os, "release").seed
+            assertTrue(fs.exists(image.directory.resolve(seed).resolve("manifest.json")))
+            assertTrue(!fs.exists(image.directory.resolve("app/resources/seed/manifest.json")))
+        }
     }
 
     @Test

@@ -578,22 +578,40 @@ afterEvaluate {
         })
         timeout.set(Duration.ofMinutes(5))
     }
-    if (piOs != "darwin") {
-        // Этап 2 тонкого установщика: из проверенного полного release-образа вырезаются отдельные артефакты
-        // runtime/platform/seed и подписанный bootstrap-манифест. Сам образ остаётся для packaged-проверок и
-        // fallback. macOS-раскладка (.app/Contents) подключается вместе с платформой (Этап 5).
+    run {
+        // Full images remain available for packaged checks and fallback. Bootstrap archives preserve the
+        // exact jpackage layout, including executable modes and the .app root on macOS.
         val bootstrapOs = when (piOs) {
             "darwin" -> "macos"
             else -> piOs
         }
         val bootstrapTarget = "$bootstrapOs-$piArch"
         val bootstrapDir = layout.buildDirectory.dir("bootstrap")
-        val releaseImageDir = releaseImage.flatMap { image -> image.destinationDir.dir(image.packageName) }
+        val imageName = releaseImage.flatMap { it.packageName }
+        val macBundle = imageName.map { "$it.app" }
+        val releaseImageDir = releaseImage.flatMap { image ->
+            image.destinationDir.dir(image.packageName.map { if (piOs == "darwin") "$it.app" else it })
+        }
+        val runtimePath = when (piOs) {
+            "darwin" -> "Contents/runtime"
+            "linux" -> "lib/runtime"
+            else -> "runtime"
+        }
+        val seedPath = when (piOs) {
+            "darwin" -> "Contents/app/resources/seed"
+            "linux" -> "lib/app/resources/seed"
+            else -> "app/resources/seed"
+        }
         val packageBootstrapRuntime = tasks.register<Zip>("packageBootstrapRuntime") {
             group = "compose desktop"
             description = "Packs the exact runtime of the verified release image as a bootstrap artifact."
             dependsOn(releaseImage)
-            from(releaseImageDir) { include("runtime/**") }
+            useFileSystemPermissions()
+            doFirst { check(!isTestingFlavor) { "Bootstrap packaging requires a release, beta or dev image" } }
+            from(releaseImageDir) {
+                include("$runtimePath/**")
+                if (piOs == "darwin") into(macBundle)
+            }
             destinationDirectory.set(bootstrapDir)
             archiveFileName.set("heartbeat-runtime-$heartbeatApplicationVersion-$bootstrapTarget.zip")
         }
@@ -601,9 +619,12 @@ afterEvaluate {
             group = "compose desktop"
             description = "Packs the release image without runtime and seed as the bootstrap platform artifact."
             dependsOn(releaseImage)
+            useFileSystemPermissions()
+            doFirst { check(!isTestingFlavor) { "Bootstrap packaging requires a release, beta or dev image" } }
             from(releaseImageDir) {
                 include("**")
-                exclude("runtime/**", "app/resources/seed/**")
+                exclude("$runtimePath/**", "$seedPath/**")
+                if (piOs == "darwin") into(macBundle)
             }
             destinationDirectory.set(bootstrapDir)
             archiveFileName.set("heartbeat-platform-$heartbeatApplicationVersion-$bootstrapTarget.zip")
@@ -612,7 +633,9 @@ afterEvaluate {
             group = "compose desktop"
             description = "Packs the seed train of the release image as the bootstrap seed artifact."
             dependsOn(releaseImage)
-            from(releaseImageDir.map { it.dir("app/resources/seed") })
+            useFileSystemPermissions()
+            doFirst { check(!isTestingFlavor) { "Bootstrap packaging requires a release, beta or dev image" } }
+            from(releaseImageDir.map { it.dir(seedPath) })
             destinationDirectory.set(bootstrapDir)
             archiveFileName.set("heartbeat-seed-$heartbeatApplicationVersion-$bootstrapTarget.zip")
         }

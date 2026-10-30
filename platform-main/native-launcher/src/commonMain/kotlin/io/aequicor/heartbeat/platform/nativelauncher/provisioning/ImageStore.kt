@@ -9,7 +9,13 @@ import okio.Path
 private const val TAG = "Provision"
 
 /** Полностью проверенный и активированный image приложения, готовый к запуску без сети. */
-data class ProvisionedImage(val id: String, val directory: okio.Path, val runtimeId: String, val trainId: String)
+data class ProvisionedImage(
+    val id: String,
+    val directory: okio.Path,
+    val runtimeId: String,
+    val trainId: String,
+    val platformVersion: String? = null,
+)
 
 /**
  * Раскладка provisioning в корне [root]:
@@ -43,7 +49,7 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
         return runCatching {
             val record = json.decodeFromString<ImageMarker>(fs.read(marker) { readUtf8() })
             if (record.id != id) return null
-            ProvisionedImage(record.id, dir, record.runtimeId, record.trainId)
+            ProvisionedImage(record.id, dir, record.runtimeId, record.trainId, record.platformVersion)
         }.onFailure { error ->
             launcherLog.w(
                 TAG,
@@ -55,7 +61,7 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
     fun markerFile(imageDir: Path): Path = imageDir.resolve("bootstrap-image.json")
 
     fun writeMarker(dir: Path, image: ProvisionedImage) {
-        val record = ImageMarker(image.id, image.runtimeId, image.trainId)
+        val record = ImageMarker(image.id, image.runtimeId, image.trainId, image.platformVersion)
         fs.write(markerFile(dir)) { writeUtf8(json.encodeToString(ImageMarker.serializer(), record)) }
     }
 
@@ -106,4 +112,9 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
 }
 
 @Serializable
-internal data class ImageMarker(val id: String, val runtimeId: String, val trainId: String)
+internal data class ImageMarker(
+    val id: String,
+    val runtimeId: String,
+    val trainId: String,
+    val platformVersion: String? = null,
+)

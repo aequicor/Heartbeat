@@ -112,13 +112,17 @@ class BootstrapProvisioner(
             checkCancelled(isCancelled)
             extractor.extract(files[1], staging)
             checkCancelled(isCancelled)
-            extractor.extract(files[2], staging.resolve("app/resources/seed"))
+            extractor.extract(
+                files[2],
+                staging.resolve(BootstrapLayout.forPlatform(manifest.os, manifest.channel).seed),
+            )
             checkCancelled(isCancelled)
             val image = ProvisionedImage(
                 imageId,
                 store.imageDir(imageId),
                 manifest.runtime.id,
                 manifest.seed.trainId,
+                manifest.version,
             )
             onProgress(ProvisionProgress(ProvisionStage.ACTIVATE))
             store.activate(image, staging)
