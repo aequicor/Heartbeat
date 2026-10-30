@@ -587,6 +587,7 @@ afterEvaluate {
         }
         val bootstrapTarget = "$bootstrapOs-$piArch"
         val bootstrapDir = layout.buildDirectory.dir("bootstrap")
+        val canPackageBootstrap = !isTestingFlavor
         val imageName = releaseImage.flatMap { it.packageName }
         val macBundle = imageName.map { "$it.app" }
         val releaseImageDir = releaseImage.flatMap { image ->
@@ -607,7 +608,7 @@ afterEvaluate {
             description = "Packs the exact runtime of the verified release image as a bootstrap artifact."
             dependsOn(releaseImage)
             useFileSystemPermissions()
-            doFirst { check(!isTestingFlavor) { "Bootstrap packaging requires a release, beta or dev image" } }
+            doFirst { check(canPackageBootstrap) { "Bootstrap packaging requires a release, beta or dev image" } }
             from(releaseImageDir) {
                 include("$runtimePath/**")
                 if (piOs == "darwin") into(macBundle)
@@ -620,7 +621,7 @@ afterEvaluate {
             description = "Packs the release image without runtime and seed as the bootstrap platform artifact."
             dependsOn(releaseImage)
             useFileSystemPermissions()
-            doFirst { check(!isTestingFlavor) { "Bootstrap packaging requires a release, beta or dev image" } }
+            doFirst { check(canPackageBootstrap) { "Bootstrap packaging requires a release, beta or dev image" } }
             from(releaseImageDir) {
                 include("**")
                 exclude("$runtimePath/**", "$seedPath/**")
@@ -634,7 +635,7 @@ afterEvaluate {
             description = "Packs the seed train of the release image as the bootstrap seed artifact."
             dependsOn(releaseImage)
             useFileSystemPermissions()
-            doFirst { check(!isTestingFlavor) { "Bootstrap packaging requires a release, beta or dev image" } }
+            doFirst { check(canPackageBootstrap) { "Bootstrap packaging requires a release, beta or dev image" } }
             from(releaseImageDir.map { it.dir(seedPath) })
             destinationDirectory.set(bootstrapDir)
             archiveFileName.set("heartbeat-seed-$heartbeatApplicationVersion-$bootstrapTarget.zip")
