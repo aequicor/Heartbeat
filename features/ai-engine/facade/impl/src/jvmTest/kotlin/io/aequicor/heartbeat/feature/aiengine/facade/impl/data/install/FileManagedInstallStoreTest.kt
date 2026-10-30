@@ -195,6 +195,21 @@ class FileManagedInstallStoreTest {
         assertFalse(Path.of(active.executable).exists())
     }
 
+    @Test
+    fun `repair remains preferred after a newer version even when wall clock does not advance`() = runTest {
+        val first = store()
+        val pinned = plan("1.0.0").copy(isRetainedForRollback = true)
+        val broken = first.activate(first.stage(engine, pinned) {})
+        Path.of(broken.executable).writeText("damaged")
+        val repaired = first.activate(first.stage(engine, pinned) {})
+        assertEquals(repaired, first.retained(engine, "1.0.0"))
+        first.activate(first.stage(engine, plan("2.0.0").copy(isRetainedForRollback = true)) {})
+        val restarted = store()
+        restarted.refresh()
+        assertEquals(repaired, restarted.retained(engine, "1.0.0"))
+        assertEquals("codex 1.0.0", Path.of(repaired.executable).readText())
+    }
+
     private fun canLockFromAnotherProcess(file: Path): Boolean {
         val program = root.resolve("LockProbe.java")
         program.writeText(LOCK_PROBE)

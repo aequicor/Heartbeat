@@ -166,8 +166,13 @@ internal class FileManagedInstallStore(
     override suspend fun retained(engine: EngineId, version: String, target: String?): ManagedInstall? =
         locked(engine) { directory ->
             withContext(io) {
+                val active = readRecord(directory)?.directory
                 retainedRecords(directory).filter { it.version == version && it.target == target }
-                    .sortedByDescending { it.installedAt }
+                    .sortedWith(
+                        compareByDescending<ActiveRecord> { it.directory == active }
+                            .thenByDescending { it.generation }
+                            .thenByDescending { it.installedAt },
+                    )
                     .firstNotNullOfOrNull { record -> installed(directory, record) }
             }
         }
@@ -211,12 +216,22 @@ internal class FileManagedInstallStore(
         )}" + if (staged.isRetainedForRollback) "-${staged.token}" else ""
         val target = directory.resolve(VERSIONS).resolve(name)
         val previous = readRecord(directory)
+        val history = retainedRecords(directory)
+        val generation = maxOf(previous?.generation ?: 0L, history.maxOfOrNull { it.generation } ?: 0L) + 1
         val relative = staging.relativize(Path.of(staged.candidate.executable)).joinToString("/")
         if (Files.exists(target)) moveToTrash(directory, target)
         storage { Files.createDirectories(target.parent) }
         storage { Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE) }
         val installedAt = clock.now()
-        val record = ActiveRecord(staged.candidate.version, name, relative, sha256, installedAt, staged.target)
+        val record = ActiveRecord(
+            staged.candidate.version,
+            name,
+            relative,
+            sha256,
+            installedAt,
+            staged.target,
+            generation,
+        )
         if (staged.isRetainedForRollback) writeRecord(directory, record, "$RETAINED/$name.json")
         writeRecord(directory, record)
         // Retained records protect immutable versions from replacement and later sweeps.
@@ -413,6 +428,7 @@ internal class FileManagedInstallStore(
         val sha256: String,
         val installedAt: Instant,
         val target: String? = null,
+        val generation: Long = 0,
     )
 
     private companion object {

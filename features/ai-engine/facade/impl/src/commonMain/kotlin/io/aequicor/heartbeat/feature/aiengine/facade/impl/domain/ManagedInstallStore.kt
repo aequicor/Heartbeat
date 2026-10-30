@@ -34,7 +34,7 @@ interface ManagedInstallStore {
     /** Removes [staged] without activating it. */
     suspend fun discard(staged: StagedInstall)
 
-    /** Removes the active copy of [engine]; nothing happens when there is none. */
+    /** Explicitly removes all active, retained and orphan copies of [engine]; refuses a live staged candidate. */
     suspend fun uninstall(engine: EngineId)
 }
 
