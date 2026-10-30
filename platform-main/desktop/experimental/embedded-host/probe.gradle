@@ -1,0 +1,44 @@
+gradle.projectsEvaluated {
+    def desktop = gradle.rootProject.findProject(':platform-main:desktop')
+    if (desktop != null) {
+        desktop.extensions.findByName('kotlin').sourceSets.getByName('test').kotlin.srcDir(
+            gradle.rootProject.file('platform-main/desktop/experimental/embedded-host/kotlin')
+        )
+        desktop.extensions.findByName('kotlin').sourceSets.getByName('test').kotlin.srcDir(
+            gradle.rootProject.file('platform-main/desktop/experimental/embedded-host/common')
+        )
+        def brand = desktop.tasks.register('copyEmbeddedBrand', Sync) {
+            from(gradle.rootProject.file('platform-main/native-launcher/src/commonMain/kotlin')) {
+                include '**/LauncherBrand.kt'
+            }
+            into desktop.layout.buildDirectory.dir('generated/embedded-brand')
+        }
+        desktop.extensions.findByName('kotlin').sourceSets.getByName('test').kotlin.srcDir(brand)
+        desktop.tasks.register('writeEmbeddedClasspath') {
+            def runtime = desktop.sourceSets.test.runtimeClasspath
+            def destination = gradle.rootProject.layout.buildDirectory.file('embedded-host/classpath.txt')
+            dependsOn desktop.tasks.named('testClasses'), runtime
+            inputs.files(runtime)
+            outputs.file(destination)
+            doLast {
+                def output = destination.get().asFile
+                output.parentFile.mkdirs()
+                output.setText(runtime.asPath, 'UTF-8')
+            }
+        }
+        if (gradle.startParameter.projectProperties['heartbeat.embeddedLintOnly'] == 'true') {
+            desktop.tasks.named('detektTest') {
+                setSource(desktop.fileTree('experimental/embedded-host') { include '**/*.kt' })
+            }
+        }
+    }
+    def launcher = gradle.rootProject.findProject(':platform-main:native-launcher')
+    if (launcher != null) {
+        def kotlin = launcher.extensions.findByName('kotlin')
+        kotlin.sourceSets.getByName('mingwMain').kotlin.srcDir(gradle.rootProject.file('platform-main/desktop/experimental/embedded-host/native'))
+        kotlin.sourceSets.getByName('commonMain').kotlin.srcDir(gradle.rootProject.file('platform-main/desktop/experimental/embedded-host/common'))
+        kotlin.targets.getByName('mingwX64').binaries.sharedLib('embeddedRenderer') {
+            baseName = 'heartbeat-embedded-renderer'
+        }
+    }
+}
