@@ -32,6 +32,10 @@ public interface AcpConnection {
     /** Invokes an advertised authentication method without selecting one implicitly. */
     public suspend fun authenticate(methodId: String)
 
+    /** Sends trusted authentication metadata and returns the complete extension-bearing response. */
+    public suspend fun authenticate(methodId: String, metadata: JsonObject): JsonObject =
+        throw UnsupportedOperationException("ACP authentication metadata unavailable")
+
     /** Signs out when the agent advertises the ACP logout capability. */
     public suspend fun logout(): Unit = throw UnsupportedOperationException("ACP logout unavailable")
 

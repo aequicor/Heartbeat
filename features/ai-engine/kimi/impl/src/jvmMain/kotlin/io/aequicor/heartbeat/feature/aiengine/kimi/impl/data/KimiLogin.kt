@@ -28,6 +28,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.net.URI
 
 /** A short-lived authentication connection owns a child scope, never the profile's scope. */
@@ -59,11 +64,18 @@ internal suspend fun withKimiAuthConnection(
 
 /** ACP checks readiness without reading Kimi's OAuth files or printing its credentials. */
 internal suspend fun kimiLoginStatus(connection: AcpConnection): LoginState = try {
-    connection.authenticate("login")
-    LoginState.SignedIn()
+    val metadata = buildJsonObject { put("heartbeatOAuthStatus", true) }
+    val response = connection.authenticate("login", metadata)
+    val value = (response["_meta"] as? JsonObject)?.get("heartbeatOAuthSignedIn") as? JsonPrimitive
+    val isSignedIn = value?.takeUnless { it.isString }?.booleanOrNull
+    when (isSignedIn) {
+        true -> LoginState.SignedIn()
+        false -> LoginState.SignedOut
+        null -> LoginState.Unknown
+    }
 } catch (error: AcpException.Remote) {
     Log.tag("KimiLogin").w(error.redactedFailure()) { "Kimi login status is unavailable" }
-    if (error.code == AUTH_REQUIRED) LoginState.SignedOut else LoginState.Unknown
+    LoginState.Unknown
 }
 
 /** Run the bundled CLI's device flow; output is bounded and never logged. */
@@ -177,7 +189,6 @@ private fun loginFailure(reason: LoginFailureReason): Nothing =
     throw ManagementException(ManagementFailure.Login(reason))
 
 private const val HTTPS_PORT = 443
-private const val AUTH_REQUIRED = -32000
 private const val MAX_LOGIN_LINE = 16 * 1024
 private const val MAX_LOGIN_OUTPUT = 64 * 1024
 private const val URL_PREFIX = "Kimi device login URL: "

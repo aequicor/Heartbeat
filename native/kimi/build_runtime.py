@@ -358,6 +358,13 @@ def prepare(source, lock, version):
         "const agentCapabilities: AgentCapabilities = {",
         'const agentCapabilities: AgentCapabilities = {\n      _meta: { heartbeat: { permissionGate: 1, hostedCallBinding: 1 } },')
     server_code = replace_once(server_code,
+        "    // Re-check the gate; clients spawn `kimi login` themselves via the",
+        "    if (params._meta?.['heartbeatOAuthStatus'] === true) {\n"
+        "      const status = await this.klient.global.auth.status();\n"
+        "      return { _meta: { heartbeatOAuthSignedIn: status.loggedIn } };\n"
+        "    }\n"
+        "    // Re-check the gate; clients spawn `kimi login` themselves via the")
+    server_code = replace_once(server_code,
         "    if (signal === undefined) {\n      return acpSession.prompt(params.prompt);",
         "    const heartbeatTurn = typeof params._meta?.['heartbeatTurn'] === 'string' ? params._meta['heartbeatTurn'] : undefined;\n"
         "    if (signal === undefined) {\n      return acpSession.prompt(params.prompt, heartbeatTurn);")

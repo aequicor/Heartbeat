@@ -22,6 +22,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
@@ -35,10 +37,12 @@ import kotlin.test.assertTrue
 
 class KimiLoginTest {
     @Test
-    fun `ACP readiness distinguishes signed out from other protocol failures`() = runTest {
-        assertEquals(LoginState.SignedIn(), kimiLoginStatus(StatusConnection()))
-        assertEquals(LoginState.SignedOut, kimiLoginStatus(StatusConnection(-32000)))
-        assertEquals(LoginState.Unknown, kimiLoginStatus(StatusConnection(-32603)))
+    fun `OAuth status is independent of model readiness and unknown responses fail closed`() = runTest {
+        assertEquals(LoginState.SignedIn(), kimiLoginStatus(StatusConnection(signedIn = true)))
+        assertEquals(LoginState.SignedOut, kimiLoginStatus(StatusConnection(signedIn = false)))
+        assertEquals(LoginState.Unknown, kimiLoginStatus(StatusConnection()))
+        assertEquals(LoginState.Unknown, kimiLoginStatus(StatusConnection(malformed = true)))
+        assertEquals(LoginState.Unknown, kimiLoginStatus(StatusConnection(errorCode = -32000)))
     }
 
     @Test
@@ -183,10 +187,23 @@ private class LoginProcess(output: String, private val result: Int = 0) : Proces
     override fun descendants(): Stream<ProcessHandle> = Stream.empty()
 }
 
-private class StatusConnection(private val errorCode: Int? = null) : AcpConnection {
+private class StatusConnection(
+    private val signedIn: Boolean? = null,
+    private val errorCode: Int? = null,
+    private val malformed: Boolean = false,
+) : AcpConnection {
     override suspend fun authenticate(methodId: String) {
         assertEquals("login", methodId)
         errorCode?.let { throw AcpException.Remote(it, "private") }
+    }
+    override suspend fun authenticate(methodId: String, metadata: JsonObject): JsonObject {
+        assertEquals("login", methodId)
+        assertEquals(buildJsonObject { put("heartbeatOAuthStatus", true) }, metadata)
+        errorCode?.let { throw AcpException.Remote(it, "private") }
+        return buildJsonObject {
+            if (signedIn != null) put("_meta", buildJsonObject { put("heartbeatOAuthSignedIn", signedIn) })
+            if (malformed) put("_meta", buildJsonObject { put("heartbeatOAuthSignedIn", "true") })
+        }
     }
     override suspend fun initialize(client: AcpImplementation) = AcpInitialization(1)
     override suspend fun newSession(cwd: String) = AcpSession("session", JsonObject(emptyMap()))

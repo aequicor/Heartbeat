@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
-import { getLiveSessionById, IAgentLifecycleService, IAgentPermissionPolicyService, IAgentSwarmService, IAgentTaskService } from '@moonshot-ai/agent-core-v2';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getLiveSessionById, IAgentLifecycleService, IAgentPermissionPolicyService, IAgentSwarmService, IAgentTaskService, IOAuthService } from '@moonshot-ai/agent-core-v2';
 import { HeartbeatPermissionPolicy, installHeartbeatPermissions } from '../src/heartbeat-acp';
 import { AcpSession } from '../src/session';
 import { createTestClient, type TestClient } from './_helpers/acpClient';
@@ -23,6 +23,22 @@ describe('mandatory Heartbeat permission boundary', () => {
     client = undefined;
     home = undefined;
   });
+
+  it('reports Kimi OAuth status separately from a configured API key', async () => {
+    home = await mkdtemp(join(tmpdir(), 'heartbeat-kimi-oauth-status-'));
+    await writeFakeModelConfig(home);
+    client = await createTestClient({ homeDir: home, disableAuth: false });
+    await client.send('initialize', { protocolVersion: 1, clientCapabilities: {} });
+    await expect(client.send('authenticate', { methodId: 'login' })).resolves.toBeDefined();
+    const result = await client.send('authenticate', { methodId: 'login', _meta: { heartbeatOAuthStatus: true } });
+    expect(result).toEqual({ _meta: { heartbeatOAuthSignedIn: false } });
+    const oauth = client.server.core.accessor.get(IOAuthService);
+    const status = vi.spyOn(oauth, 'status').mockResolvedValueOnce({ loggedIn: true, provider: 'kimi-code' });
+    const loggedIn = await client.send('authenticate', { methodId: 'login', _meta: { heartbeatOAuthStatus: true } });
+    expect(loggedIn).toEqual({ _meta: { heartbeatOAuthSignedIn: true } });
+    expect(status).toHaveBeenCalledWith(undefined);
+    status.mockRestore();
+  }, 30_000);
 
   it.each([
     ['manual', 'allow'], ['auto', 'allow'], ['yolo', 'allow'],

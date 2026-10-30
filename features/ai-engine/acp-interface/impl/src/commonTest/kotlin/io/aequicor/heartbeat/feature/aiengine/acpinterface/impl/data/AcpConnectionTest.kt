@@ -153,6 +153,19 @@ class AcpConnectionTest {
     }
 
     @Test
+    fun `authentication metadata and response are preserved`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize()
+        val metadata = buildJsonObject { put("heartbeatOAuthStatus", true) }
+        val task = backgroundScope.async { h.client.authenticate("login", metadata) }
+        val request = h.outgoing("authenticate")
+        assertEquals(metadata, request.obj("params")["_meta"])
+        h.reply(request, """{"_meta":{"heartbeatOAuthSignedIn":false}}""")
+        assertEquals(false, task.await().obj("_meta")["heartbeatOAuthSignedIn"]?.toString()?.toBooleanStrict())
+        h.client.close()
+    }
+
+    @Test
     fun `authentication uses only an advertised method`() = runTest {
         val h = AcpTestHarness(this)
         h.initialize()

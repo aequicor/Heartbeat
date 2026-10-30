@@ -91,7 +91,7 @@ class KimiBridgeIntegrationTest {
                 wire.reply(wire.next(), """{"protocolVersion":1,"authMethods":[{"id":"login","name":"Login"}]}""")
                 val authentication = wire.next()
                 assertEquals("authenticate", authentication.getValue("method").jsonPrimitive.content)
-                wire.reply(authentication, "{}")
+                wire.reply(authentication, """{"_meta":{"heartbeatOAuthSignedIn":true}}""")
                 assertEquals(LoginState.SignedIn(), checking.await())
                 assertTrue(profile.coroutineScope.coroutineContext[Job]?.isActive == true)
             } finally {

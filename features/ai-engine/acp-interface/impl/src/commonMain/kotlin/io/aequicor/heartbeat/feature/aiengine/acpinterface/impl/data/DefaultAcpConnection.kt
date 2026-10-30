@@ -93,6 +93,13 @@ internal class DefaultAcpConnection(
         }
     }
 
+    override suspend fun authenticate(methodId: String, metadata: JsonObject): JsonObject = owned {
+        val info = ready()
+        require(info.authMethods.any { it.id == methodId }) { "Authentication method was not advertised" }
+        log.i { "ACP authenticate with metadata" }
+        peer.request("authenticate", fields("methodId" to JsonPrimitive(methodId), "_meta" to metadata))
+    }
+
     override suspend fun logout() {
         owned {
             val auth = ready().agentCapabilities["auth"] as? JsonObject
