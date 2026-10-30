@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import java.awt.Window
+import javax.swing.JRootPane
 import javax.swing.RootPaneContainer
 
 private val LocalHbInWindowDialogs = compositionLocalOf<InWindowDialogs?> { null }
@@ -28,12 +29,22 @@ public fun HbInWindowDialogHost(
     modifier: Modifier = Modifier,
     onActiveChange: (Boolean) -> Unit = {},
     content: @Composable () -> Unit,
+) = HbInWindowDialogHost(window, (window as RootPaneContainer).rootPane, modifier, onActiveChange, content)
+
+/** Supplies the Swing portal of a JAWT EmbeddedFrame without requiring the native-owned Frame to be a JFrame. */
+@Composable
+public fun HbInWindowDialogHost(
+    window: Window,
+    rootPane: JRootPane,
+    modifier: Modifier = Modifier,
+    onActiveChange: (Boolean) -> Unit = {},
+    content: @Composable () -> Unit,
 ) {
     val dialogs = remember(window) { InWindowDialogs() }
     val active = dialogs.entries.lastOrNull()
     SideEffect { onActiveChange(active != null) }
-    DisposableEffect(window, active) {
-        val root = (window as RootPaneContainer).rootPane
+    DisposableEffect(window, active, rootPane) {
+        val root = rootPane
         val previous = root.getClientProperty(HbNativeModalOwner.PROPERTY)
         root.putClientProperty(HbNativeModalOwner.PROPERTY, active?.owner)
         onDispose {

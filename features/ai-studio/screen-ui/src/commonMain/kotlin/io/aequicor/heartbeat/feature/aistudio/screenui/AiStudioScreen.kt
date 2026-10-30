@@ -36,7 +36,9 @@ import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbWindowDragArea
+import io.aequicor.heartbeat.ds.components.HbWindowStartupLoading
 import io.aequicor.heartbeat.ds.components.hbAttachmentInput
+import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
@@ -328,9 +330,20 @@ private fun CompactWorkspace(
 
 @Composable
 private fun StudioLoading(modifier: Modifier = Modifier) {
-    HbColumn(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        HbActivityIndicator(size = HbTheme.dimensions.iconLargeSize)
-        HbText(stringResource(Res.string.studio_loading), color = HbTheme.colors.textPrimary)
+    HbWindowStartupLoading()
+    HbBoxWithConstraints(modifier.fillMaxSize()) {
+        val sidebarWidth = if (HbTheme.dimensions.isDesktop && maxWidth >= HbTheme.dimensions.compactBreakpoint) {
+            HbTheme.dimensions.sidebarWidth
+        } else {
+            HbTheme.spacing.none
+        }
+        Box(Modifier.fillMaxHeight().width(sidebarWidth).background(HbTheme.surfaces.sidebar))
+        Box(Modifier.fillMaxSize().padding(start = sidebarWidth), contentAlignment = Alignment.Center) {
+            HbColumn(horizontalAlignment = Alignment.CenterHorizontally) {
+                HbActivityIndicator(size = HbTheme.dimensions.iconLargeSize)
+                HbText(stringResource(Res.string.studio_loading), color = HbTheme.colors.textPrimary)
+            }
+        }
     }
 }
 
