@@ -23,7 +23,12 @@ class KimiLocalApiLiveTest {
             override val io = Dispatchers.IO
         }
         try {
-            val api = JvmKimiLocalApi(client, dispatchers, KimiConfiguration())
+            val api = JvmKimiLocalApi(
+                client,
+                dispatchers,
+                KimiRuntimeSetup(NoManagedKimiRuntime, dispatchers),
+                KimiConfiguration(),
+            )
             val limits = api.modelLimits()
             assertTrue(limits.isNotEmpty(), "Native context capacity catalog is empty")
             assertTrue(limits.values.all { it > 0 })

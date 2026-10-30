@@ -42,6 +42,7 @@ import kotlin.time.Clock
 internal class JvmKimiLocalApi(
     private val client: HttpClient,
     private val dispatchers: DispatcherProvider,
+    private val setup: KimiRuntimeSetup,
     private val configuration: KimiConfiguration = KimiConfiguration(),
 ) {
     private val mutex = Mutex()
@@ -62,9 +63,10 @@ internal class JvmKimiLocalApi(
     private suspend fun read(path: String): JsonObject? = mutex.withLock {
         log.d { "Reading Kimi local telemetry" }
         try {
+            val executable = requireNotNull(setup.locate().path)
             val result = withContext(dispatchers.io) {
                 withTimeoutOrNull(REQUEST_TIMEOUT_MS) {
-                    withKimiWebProcess(dispatchers, ::start) { process, port ->
+                    withKimiWebProcess(dispatchers, { port -> start(executable, port) }) { process, port ->
                         awaitServer(process, port)
                         val token = localToken()
                         readKimiLocalJson(client, port, token, path)
@@ -82,8 +84,8 @@ internal class JvmKimiLocalApi(
         }
     }
 
-    private fun start(port: Int): Process = ProcessBuilder(
-        kimiControlledExecutable(),
+    private fun start(executable: String, port: Int): Process = ProcessBuilder(
+        executable,
         "web",
         "--no-open",
         "--port",

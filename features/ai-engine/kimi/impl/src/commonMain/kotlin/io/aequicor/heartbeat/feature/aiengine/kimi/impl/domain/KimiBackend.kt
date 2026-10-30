@@ -5,7 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 
-/** Platform bridge for Kimi sessions and read-only inspection of the installed system CLI. */
+/** Platform bridge for Kimi sessions and preparation of the pinned host-controlled CLI. */
 public interface KimiBackend :
     EngineFactory,
     EngineManager {

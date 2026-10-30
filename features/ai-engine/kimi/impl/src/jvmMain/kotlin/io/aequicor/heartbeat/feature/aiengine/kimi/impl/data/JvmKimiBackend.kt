@@ -66,6 +66,7 @@ internal class JvmKimiBackend(
     private val bridge: AgentToolBridge,
     private val resources: ResourceResolver,
     private val localApi: JvmKimiLocalApi,
+    private val setup: KimiRuntimeSetup,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: KimiConfiguration = KimiConfiguration(),
 ) : KimiBackend {
@@ -73,21 +74,38 @@ internal class JvmKimiBackend(
     private val mutex = Mutex()
     private var runtime: KimiRuntime? = null
 
+    override val preparation = setup.preparation
+
+    override suspend fun prepareRuntime() = setup.prepare(this)
+
     override suspend fun checkRequirements(): EngineAvailability =
-        if (inspect(LaunchContext()).isRunnable) EngineAvailability.Available else unavailable()
+        if (kimiRuntimeTarget() != null) EngineAvailability.Available else EngineAvailability.UnsupportedPlatform
+
+    override suspend fun resolveRelease(feeds: io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds) =
+        kimiInstallPlan(
+            feeds,
+            kimiRuntimeTarget() ?: kimiInstallFailure(
+                io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason.NoAssetForPlatform,
+            ),
+        )
+
+    override fun compatibility(version: String) = if (version == KIMI_RUNTIME_VERSION) {
+        io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility.Verified
+    } else {
+        io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility.Unknown
+    }
 
     /** The panel inspects the same CLI that sessions start, rather than treating the adapter as built in. */
     override suspend fun inspect(launch: LaunchContext): Installation = withContext(dispatchers.io) {
-        val executable = try {
-            kimiControlledExecutable()
+        val located = try {
+            setup.locate(launch)
         } catch (error: EngineException) {
             log.w(error) { "Controlled Kimi runtime is missing or invalid" }
             return@withContext Installation(source = InstallSource.Missing, isRunnable = false)
         }
-        val isRunnable = probe(executable)
-        Installation(
-            source = if (isRunnable) InstallSource.Bundled else InstallSource.Missing,
-            path = executable.takeIf { isRunnable },
+        val isRunnable = located.path?.let { probe(it) } == true
+        located.copy(
+            source = if (isRunnable) located.source else InstallSource.Missing,
             isRunnable = isRunnable,
         )
     }
@@ -110,27 +128,34 @@ internal class JvmKimiBackend(
     }
 
     override suspend fun loginStatus(launch: LaunchContext): LoginState =
-        withKimiAuth { connection -> kimiLoginStatus(connection) } ?: LoginState.Unknown
+        withKimiAuth(launch) { connection -> kimiLoginStatus(connection) } ?: LoginState.Unknown
 
     override suspend fun logout(launch: LaunchContext): LoginState = mutex.withLock {
         runtime?.close()
         runtime = null
-        withKimiAuth { connection ->
+        withKimiAuth(launch) { connection ->
             connection.logout()
             kimiLoginStatus(connection)
         } ?: LoginState.Unknown
     }
 
     private suspend fun withKimiAuth(
+        launch: LaunchContext,
         action: suspend (io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpConnection) -> LoginState,
     ): LoginState? = withTimeoutOrNull(PROBE_TIMEOUT_MS) {
-        val executable = withContext(dispatchers.io) { kimiControlledExecutable() }
+        val executable = try {
+            requireNotNull(setup.locate(launch).path)
+        } catch (error: EngineException) {
+            log.w(error) { "Kimi sign-in needs runtime preparation" }
+            return@withTimeoutOrNull LoginState.SignedOut
+        }
         val transport = transports.open(AcpCommand(executable, listOf("acp"), configuration.workingDirectory))
         withKimiAuthConnection(transport, clients, profile.coroutineScope, action)
     }
 
     override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState {
-        val executable = withContext(dispatchers.io) { kimiControlledExecutable() }
+        prepareRuntime()
+        val executable = requireNotNull(setup.locate().path)
         val isSucceeded = try {
             runKimiLogin(dispatchers, session, LOGIN_TIMEOUT_MS, kimiTerminalLoginCommand(executable)) {
                 ProcessBuilder(executable, "login")
@@ -169,6 +194,7 @@ internal class JvmKimiBackend(
         if (!accepts(source, context)) {
             throw EngineException(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
         }
+        prepareRuntime()
         val discovery = openRuntime(RuntimeIdentity(context.engine, source.info.id, source.info.revision))
         try {
             val models = discovery.discoverCatalog(context.binding).modelInfo(context.engine, context.binding)
@@ -186,7 +212,7 @@ internal class JvmKimiBackend(
     }
 
     private suspend fun openRuntime(identity: RuntimeIdentity): KimiRuntime {
-        val executable = withContext(dispatchers.io) { kimiControlledExecutable() }
+        val executable = requireNotNull(setup.locate().path)
         val transport = transports.open(
             AcpCommand(
                 executable,
@@ -226,10 +252,6 @@ internal class JvmKimiBackend(
         }
         return configuration.workingDirectory ?: System.getProperty("user.home")
     }
-
-    private fun unavailable() = EngineAvailability.Unavailable(
-        EngineFailure.Engine(EngineFailureReason.RequirementsNotMet),
-    )
 
     private companion object {
         const val ORIGIN = "https://api.kimi.com"
