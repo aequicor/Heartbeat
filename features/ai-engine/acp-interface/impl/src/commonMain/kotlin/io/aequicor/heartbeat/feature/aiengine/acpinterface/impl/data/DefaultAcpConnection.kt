@@ -26,7 +26,7 @@ import kotlinx.serialization.json.booleanOrNull
 internal class DefaultAcpConnection(
     transport: AcpTransport,
     private val scope: CoroutineScope,
-    handler: AcpClientHandler,
+    private val handler: AcpClientHandler,
 ) : AcpConnection {
     private val log = Log.tag("DefaultAcpConnection")
     private val lock = Mutex()
@@ -131,7 +131,18 @@ internal class DefaultAcpConnection(
                 }
                 permissions.begin(sessionId)
                 log.i { "ACP prompt" }
-                peer.submit("session/prompt", promptParams(sessionId, text))
+                peer.submit("session/prompt", promptParams(sessionId, text)).also {
+                    try {
+                        handler.onPromptSubmitted(sessionId)
+                    } catch (error: CancellationException) {
+                        withContext(NonCancellable) { peer.close() }
+                        throw error
+                    } catch (error: Exception) {
+                        log.w(AcpDiagnostic(error)) { "ACP prompt submission observer failed" }
+                        withContext(NonCancellable) { peer.close() }
+                        throw error
+                    }
+                }
             }
             val body = response.await()
             parse { acpJson.decodeFromJsonElement(AcpPromptResult.serializer(), body) }

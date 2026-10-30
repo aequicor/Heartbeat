@@ -94,7 +94,14 @@ internal class FakeTransport : AcpTransport {
 
 internal class RecordingHandler : AcpClientHandler {
     val updates = mutableListOf<AcpSessionUpdate>()
+    val submitted = mutableListOf<String>()
+    var submission: (String) -> Unit = {}
     var permission: suspend (AcpPermissionRequest) -> AcpPermissionOutcome = { AcpPermissionOutcome.Cancelled }
+
+    override fun onPromptSubmitted(sessionId: String) {
+        submitted.add(sessionId)
+        submission(sessionId)
+    }
 
     override suspend fun onSessionUpdate(update: AcpSessionUpdate) {
         updates.add(update)
