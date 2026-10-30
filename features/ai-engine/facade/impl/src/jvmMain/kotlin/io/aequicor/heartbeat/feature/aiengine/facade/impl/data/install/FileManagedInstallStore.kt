@@ -40,7 +40,8 @@ import kotlin.uuid.Uuid
  * the active one (written to a temporary file and moved into place), `staging` and `downloads` hold work in
  * progress, and `trash` holds copies being removed. Operations of one engine are serialized in this process and
  * across Heartbeat processes by a file lock; a refresh sweeps leftovers only of engines it can lock. A replaced copy
- * that a running process still uses (Windows) stays where it is and is swept once nothing uses it. Paths and URLs
+ * that a running process still uses (Windows) stays where it is and is swept once nothing uses it. Pinned copies
+ * have records in `retained` and survive activation and refresh until explicit uninstall. Paths and URLs
  * are never logged, and neither are file system messages, which contain them.
  */
 internal class FileManagedInstallStore(
@@ -105,10 +106,18 @@ internal class FileManagedInstallStore(
             withContext(NonCancellable) { withContext(io) { deleteQuietly(download) } }
             currentCoroutineContext().ensureActive()
             log.i { "release staged engine=${engine.value} version=${plan.version}" }
-            val staged = StagedInstall(engine, candidate, token, plan.sha256) {
-                fileLocks.release(lease)
-                deleteQuietly(staging.resolve(ManagedLock.Candidate.fileName))
-            }
+            val staged = StagedInstall(
+                engine,
+                candidate,
+                token,
+                plan.sha256,
+                release = {
+                    fileLocks.release(lease)
+                    deleteQuietly(staging.resolve(ManagedLock.Candidate.fileName))
+                },
+                isRetainedForRollback = plan.isRetainedForRollback,
+                target = plan.target,
+            )
             isHandedOver = true
             staged
         } finally {
@@ -154,17 +163,34 @@ internal class FileManagedInstallStore(
 
     private suspend fun releaseStaged(staged: StagedInstall) = withContext(io) { staged.release() }
 
+    override suspend fun retained(engine: EngineId, version: String, target: String?): ManagedInstall? =
+        locked(engine) { directory ->
+            withContext(io) {
+                val active = readRecord(directory)?.directory
+                retainedRecords(directory).filter { it.version == version && it.target == target }
+                    .sortedWith(
+                        compareByDescending<ActiveRecord> { it.directory == active }
+                            .thenByDescending { it.generation }
+                            .thenByDescending { it.installedAt },
+                    )
+                    .firstNotNullOfOrNull { record -> installed(directory, record) }
+            }
+        }
+
     override suspend fun uninstall(engine: EngineId) {
         locked(engine) { directory ->
             withContext(NonCancellable + io) {
                 val active = readRecord(directory)
-                if (active != null) {
-                    moveToTrash(directory, directory.resolve(VERSIONS).resolve(active.directory))
-                    withContext(io) {
-                        storage { Files.deleteIfExists(directory.resolve(ACTIVE)) }
-                        sweep(directory)
-                    }
+                val stages = directory.resolve(STAGING).takeIf(Files::isDirectory)?.let(::children).orEmpty()
+                if (stages.any { !isAbandoned(it) }) throw installFailure(InstallFailureReason.FilesInUse)
+                directory.resolve(VERSIONS).takeIf(Files::isDirectory)?.let { versions ->
+                    // An old copy may be used by another profile: refuse before moving the active copy.
+                    val copies = children(versions).sortedBy { it.fileName.toString() == active?.directory }
+                    copies.forEach { moveToTrash(directory, it) }
                 }
+                storage { Files.deleteIfExists(directory.resolve(ACTIVE)) }
+                deleteTree(directory.resolve(RETAINED))
+                sweep(directory)
                 installs.update { it - engine }
                 log.i { "managed copy removed engine=${engine.value} wasInstalled=${active != null}" }
             }
@@ -187,17 +213,30 @@ internal class FileManagedInstallStore(
         val staging = directory.resolve(STAGING).resolve(staged.token)
         val name = "${staged.candidate.version.filter { it.isLetterOrDigit() || it in VersionSymbols }}-${sha256.take(
             8,
-        )}"
+        )}" + if (staged.isRetainedForRollback) "-${staged.token}" else ""
         val target = directory.resolve(VERSIONS).resolve(name)
         val previous = readRecord(directory)
+        val history = retainedRecords(directory)
+        val generation = maxOf(previous?.generation ?: 0L, history.maxOfOrNull { it.generation } ?: 0L) + 1
         val relative = staging.relativize(Path.of(staged.candidate.executable)).joinToString("/")
         if (Files.exists(target)) moveToTrash(directory, target)
         storage { Files.createDirectories(target.parent) }
         storage { Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE) }
         val installedAt = clock.now()
-        writeRecord(directory, ActiveRecord(staged.candidate.version, name, relative, sha256, installedAt))
-        // The new copy is active from here on; the previous one is removed now or, while still in use, later.
-        if (previous != null && previous.directory != name) {
+        val record = ActiveRecord(
+            staged.candidate.version,
+            name,
+            relative,
+            sha256,
+            installedAt,
+            staged.target,
+            generation,
+        )
+        if (staged.isRetainedForRollback) writeRecord(directory, record, "$RETAINED/$name.json")
+        writeRecord(directory, record)
+        // Retained records protect immutable versions from replacement and later sweeps.
+        val retained = retainedRecords(directory).map { it.directory }.toSet()
+        if (previous != null && previous.directory != name && previous.directory !in retained) {
             putAside(directory, directory.resolve(VERSIONS).resolve(previous.directory))
         }
         return ManagedInstall(staged.candidate.version, target.resolve(relative).toString(), installedAt)
@@ -239,8 +278,10 @@ internal class FileManagedInstallStore(
      */
     private fun sweep(directory: Path) {
         val active = readRecord(directory)?.directory
+        val retained = retainedRecords(directory).map { it.directory }.toSet()
         directory.resolve(VERSIONS).takeIf(Files::isDirectory)?.let { versions ->
-            children(versions).filter { it.fileName.toString() != active }.forEach { putAside(directory, it) }
+            children(versions).filter { it.fileName.toString() != active && it.fileName.toString() !in retained }
+                .forEach { putAside(directory, it) }
         }
         listOf(TRASH, DOWNLOADS).map(directory::resolve).filter(Files::isDirectory).forEach { folder ->
             children(folder).forEach(::deleteTree)
@@ -257,6 +298,10 @@ internal class FileManagedInstallStore(
 
     private fun readActive(directory: Path): ManagedInstall? {
         val record = readRecord(directory) ?: return null
+        return installed(directory, record)
+    }
+
+    private fun installed(directory: Path, record: ActiveRecord): ManagedInstall? {
         val version = directory.resolve(VERSIONS).resolve(record.directory).normalize()
         val executable = version.resolve(record.executable).normalize()
         val isInside = version.parent == directory.resolve(VERSIONS).normalize() && executable.startsWith(version)
@@ -267,8 +312,16 @@ internal class FileManagedInstallStore(
         return ManagedInstall(record.version, executable.toString(), record.installedAt)
     }
 
-    private fun readRecord(directory: Path): ActiveRecord? {
-        val file = directory.resolve(ACTIVE)
+    private fun retainedRecords(directory: Path): List<ActiveRecord> {
+        val folder = directory.resolve(RETAINED)
+        if (!Files.isDirectory(folder)) return emptyList()
+        return children(folder).filter { it.fileName.toString().endsWith(".json") }.mapNotNull { file ->
+            readRecord(directory, "$RETAINED/${file.fileName}")
+        }
+    }
+
+    private fun readRecord(directory: Path, name: String = ACTIVE): ActiveRecord? {
+        val file = directory.resolve(name)
         if (!Files.exists(file)) return null
         return try {
             RecordJson.decodeFromString(ActiveRecord.serializer(), Files.readString(file)).also { record ->
@@ -297,13 +350,15 @@ internal class FileManagedInstallStore(
         return installFailure(InstallFailureReason.Storage, error.withoutDetails())
     }
 
-    private fun writeRecord(directory: Path, record: ActiveRecord) {
-        val temporary = directory.resolve("$ACTIVE.${Uuid.random().toHexString()}.tmp")
+    private fun writeRecord(directory: Path, record: ActiveRecord, name: String = ACTIVE) {
+        val destination = directory.resolve(name)
+        val temporary = destination.resolveSibling("${destination.fileName}.${Uuid.random().toHexString()}.tmp")
         storage {
+            Files.createDirectories(destination.parent)
             Files.writeString(temporary, RecordJson.encodeToString(ActiveRecord.serializer(), record))
             Files.move(
                 temporary,
-                directory.resolve(ACTIVE),
+                destination,
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING,
             )
@@ -372,10 +427,13 @@ internal class FileManagedInstallStore(
         val executable: String,
         val sha256: String,
         val installedAt: Instant,
+        val target: String? = null,
+        val generation: Long = 0,
     )
 
     private companion object {
         const val ACTIVE = "active.json"
+        const val RETAINED = "retained"
         const val VERSIONS = "versions"
         const val STAGING = "staging"
         const val DOWNLOADS = "downloads"

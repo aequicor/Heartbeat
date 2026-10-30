@@ -1,0 +1,107 @@
+name: Engine runtimes
+
+# Reusable prerequisite of bundle publication. The catalog is the only engine list; versions already published
+# with identical inputs are reused. All native platforms must pass before a runtime release becomes public.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      engines: ${{ steps.plan.outputs.engines }}
+      pending: ${{ steps.plan.outputs.pending }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Test runtime distribution tools
+        run: python -m unittest discover -s scripts/tests -p 'test_engine_runtimes.py' -v
+      - name: Resolve immutable runtime versions
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python scripts/engine_runtimes.py plan
+
+  build:
+    name: ${{ matrix.engine }} ${{ matrix.target }}
+    needs: plan
+    if: needs.plan.outputs.pending == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Allow long Windows paths
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          architecture: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+      - uses: actions/setup-node@v6
+        if: matrix.node != ''
+        with:
+          node-version: ${{ matrix.node }}
+          architecture: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+      - name: Build and verify the native runtime
+        env:
+          ENGINE: ${{ matrix.engine }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: python scripts/engine_runtimes.py build --engine "$ENGINE" --target "$TARGET"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: runtime-${{ matrix.engine }}-${{ matrix.target }}
+          # Preserve target/ inside each artifact so merging the five hosts cannot overwrite part.json.
+          path: build/runtime-release/${{ matrix.engine }}/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish ${{ matrix.engine }} runtime
+    needs: [plan, build]
+    if: always() && needs.plan.outputs.pending == 'true' && needs.build.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        engine: ${{ fromJSON(needs.plan.outputs.engines) }}
+    concurrency:
+      group: heartbeat-runtime-publish-${{ matrix.engine }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: runtime-${{ matrix.engine }}-*
+          path: build/runtime-release/${{ matrix.engine }}
+          merge-multiple: true
+      - name: Publish immutable archives and manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ENGINE: ${{ matrix.engine }}
+        run: python scripts/engine_runtimes.py publish --engine "$ENGINE" --folder "build/runtime-release/$ENGINE"

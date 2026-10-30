@@ -120,6 +120,96 @@ class FileManagedInstallStoreTest {
         assertFalse(Path.of(staged.candidate.executable).exists())
     }
 
+    @Test
+    fun `pinned versions survive updates and restart for offline adapter rollback`() = runTest {
+        val first = store()
+        val old = first.activate(first.stage(engine, plan("1.0.0").copy(isRetainedForRollback = true)) {})
+        val newer = first.activate(first.stage(engine, plan("2.0.0").copy(isRetainedForRollback = true)) {})
+        val restarted = store()
+        restarted.refresh()
+        assertEquals(newer, restarted.state.value[engine])
+        assertEquals(old, restarted.retained(engine, "1.0.0"))
+        assertEquals("codex 1.0.0", Path.of(old.executable).readText())
+        assertEquals(newer, restarted.retained(engine, "2.0.0"))
+        assertEquals(null, restarted.retained(engine, "3.0.0"))
+        restarted.uninstall(engine)
+        assertFalse(Path.of(old.executable).exists())
+        assertFalse(Path.of(newer.executable).exists())
+        assertEquals(null, restarted.retained(engine, "1.0.0"))
+    }
+
+    @Test
+    fun `same pinned version is immutable when activated twice`() = runTest {
+        val first = store()
+        val original = first.activate(first.stage(engine, plan("1.0.0").copy(isRetainedForRollback = true)) {})
+        val repeated = first.activate(first.stage(engine, plan("1.0.0").copy(isRetainedForRollback = true)) {})
+        assertTrue(original.executable != repeated.executable)
+        first.refresh()
+        assertTrue(Path.of(original.executable).exists())
+        assertTrue(Path.of(repeated.executable).exists())
+    }
+
+    @Test
+    fun `retained copies are selected by native target as well as version`() = runTest {
+        val first = store()
+        val x64Plan = plan("1.0.0").copy(isRetainedForRollback = true, target = "win32-x64")
+        val armPlan = plan("1.0.0").copy(isRetainedForRollback = true, target = "win32-arm64")
+        val x64 = first.activate(first.stage(engine, x64Plan) {})
+        val arm = first.activate(first.stage(engine, armPlan) {})
+        val restarted = store()
+        restarted.refresh()
+        assertEquals(x64, restarted.retained(engine, "1.0.0", "win32-x64"))
+        assertEquals(arm, restarted.retained(engine, "1.0.0", "win32-arm64"))
+        assertEquals(null, restarted.retained(engine, "1.0.0", "linux-x64"))
+    }
+
+    @Test
+    fun `uninstall cannot race a checked candidate into a surprise reinstall`() = runTest {
+        val first = store()
+        val active = first.activate(first.stage(engine, plan("1.0.0")) {})
+        val pending = first.stage(engine, plan("2.0.0")) {}
+        assertInstallFailure(InstallFailureReason.FilesInUse) { first.uninstall(engine) }
+        assertTrue(Path.of(active.executable).exists())
+        assertTrue(Path.of(pending.candidate.executable).exists())
+        first.discard(pending)
+        first.uninstall(engine)
+        assertFalse(Path.of(active.executable).exists())
+    }
+
+    @Test
+    fun `busy retained Windows copy does not remove the active executable on uninstall failure`() = runTest {
+        org.junit.Assume.assumeFalse(isPosix)
+        val first = store()
+        val old = first.activate(first.stage(engine, plan("1.0.0").copy(isRetainedForRollback = true)) {})
+        val active = first.activate(first.stage(engine, plan("2.0.0").copy(isRetainedForRollback = true)) {})
+        FileChannel.open(
+            Path.of(old.executable),
+            StandardOpenOption.READ,
+            com.sun.nio.file.ExtendedOpenOption.NOSHARE_DELETE,
+        ).use {
+            assertInstallFailure(InstallFailureReason.FilesInUse) { first.uninstall(engine) }
+            assertTrue(Path.of(active.executable).exists())
+            assertEquals(active, first.state.value[engine])
+        }
+        first.uninstall(engine)
+        assertFalse(Path.of(active.executable).exists())
+    }
+
+    @Test
+    fun `repair remains preferred after a newer version even when wall clock does not advance`() = runTest {
+        val first = store()
+        val pinned = plan("1.0.0").copy(isRetainedForRollback = true)
+        val broken = first.activate(first.stage(engine, pinned) {})
+        Path.of(broken.executable).writeText("damaged")
+        val repaired = first.activate(first.stage(engine, pinned) {})
+        assertEquals(repaired, first.retained(engine, "1.0.0"))
+        first.activate(first.stage(engine, plan("2.0.0").copy(isRetainedForRollback = true)) {})
+        val restarted = store()
+        restarted.refresh()
+        assertEquals(repaired, restarted.retained(engine, "1.0.0"))
+        assertEquals("codex 1.0.0", Path.of(repaired.executable).readText())
+    }
+
     private fun canLockFromAnotherProcess(file: Path): Boolean {
         val program = root.resolve("LockProbe.java")
         program.writeText(LOCK_PROBE)

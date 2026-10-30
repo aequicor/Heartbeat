@@ -24,7 +24,7 @@ class KimiControlledRuntimeTest {
                 .joinToString("") { "%02x".format(it) }
             runtime.resolve("runtime.properties").writeText(
                 "version=2.4.0-hb7\nsourceCommit=f26e4d91ef8d5d233f6c20b42a150f96924d4f5e\n" +
-                    "permissionGate=1\nsha256=$hash\n",
+                    "permissionGate=1\nsha256=$hash\ntarget=${kimiRuntimeTarget()}\n",
             )
             assertEquals(executable.absolutePath, kimiControlledExecutable(directory.path, isWindows = true))
             executable.appendText("tampered")

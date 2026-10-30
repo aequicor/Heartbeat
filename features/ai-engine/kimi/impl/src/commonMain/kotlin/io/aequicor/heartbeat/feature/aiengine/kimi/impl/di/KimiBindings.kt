@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
@@ -49,7 +50,7 @@ public object KimiBindings {
             EngineFamily.Vendor,
             setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows, EnginePlatform.DesktopLinux),
             KimiEngine.Enabled,
-            requirements = listOf(EngineRequirement("kimi-cli", "Kimi CLI with ACP support", "0.9.0")),
+            requirements = listOf(EngineRequirement("kimi-cli", "Heartbeat-controlled Kimi runtime")),
             connectionMethods = listOf(
                 ConnectionMethod.CliLogin(
                     ConnectionMethodId("cli"),
@@ -75,7 +76,11 @@ public object KimiBindings {
             ),
         ),
         authOwner = KimiEngine.AuthOwner,
-        management = ManagementSpec(login = LoginSupport.Cli),
+        management = ManagementSpec(
+            install = InstallSupport.Managed,
+            login = LoginSupport.Cli,
+            isRuntimePreparedOnLogin = true,
+        ),
         factory = lazy { backend.value },
         manager = lazy { backend.value },
         modelCatalogRevision = 2,

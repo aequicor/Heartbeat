@@ -457,7 +457,7 @@ def main():
     shutil.copy2(source / "LICENSE", output / "LICENSE")
     digest = hashlib.sha256(built.read_bytes()).hexdigest()
     (output / "runtime.properties").write_text(
-        f'version={versions["kimi-runtime"]}\nsourceCommit={lock["commit"]}\npermissionGate={lock["permissionGate"]}\nsha256={digest}\n',
+        f'version={versions["kimi-runtime"]}\nsourceCommit={lock["commit"]}\npermissionGate={lock["permissionGate"]}\nsha256={digest}\ntarget={target}\n',
         encoding="utf-8")
     print(f"Verified Heartbeat Kimi runtime: {output}")
 

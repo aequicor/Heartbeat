@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "engines": [
+    {
+      "id": "kimi",
+      "versionKey": "kimi-runtime",
+      "nodeVersionKey": "kimi-build-node",
+      "toolVersionKeys": [
+        "kimi-build-node",
+        "kimi-build-pnpm"
+      ],
+      "directory": "native/kimi",
+      "sourceLock": "native/kimi/source-lock.json",
+      "inputs": [
+        "native/kimi"
+      ],
+      "build": [
+        "{python}",
+        "native/kimi/ci_toolchain.py",
+        "build"
+      ],
+      "test": [
+        "{python}",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "native/kimi",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "output": "native/kimi/out/{target}",
+      "platforms": [
+        "win32-x64",
+        "win32-arm64",
+        "darwin-x64",
+        "darwin-arm64",
+        "linux-x64"
+      ]
+    }
+  ]
+}
