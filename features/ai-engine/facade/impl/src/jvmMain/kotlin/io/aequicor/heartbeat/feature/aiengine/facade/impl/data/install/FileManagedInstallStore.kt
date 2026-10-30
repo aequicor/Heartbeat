@@ -116,6 +116,7 @@ internal class FileManagedInstallStore(
                     deleteQuietly(staging.resolve(ManagedLock.Candidate.fileName))
                 },
                 isRetainedForRollback = plan.isRetainedForRollback,
+                target = plan.target,
             )
             isHandedOver = true
             staged
@@ -162,20 +163,25 @@ internal class FileManagedInstallStore(
 
     private suspend fun releaseStaged(staged: StagedInstall) = withContext(io) { staged.release() }
 
-    override suspend fun retained(engine: EngineId, version: String): ManagedInstall? = locked(engine) { directory ->
-        withContext(io) {
-            retainedRecords(directory).filter { it.version == version }
-                .sortedByDescending { it.installedAt }
-                .firstNotNullOfOrNull { record -> installed(directory, record) }
+    override suspend fun retained(engine: EngineId, version: String, target: String?): ManagedInstall? =
+        locked(engine) { directory ->
+            withContext(io) {
+                retainedRecords(directory).filter { it.version == version && it.target == target }
+                    .sortedByDescending { it.installedAt }
+                    .firstNotNullOfOrNull { record -> installed(directory, record) }
+            }
         }
-    }
 
     override suspend fun uninstall(engine: EngineId) {
         locked(engine) { directory ->
             withContext(NonCancellable + io) {
                 val active = readRecord(directory)
+                val stages = directory.resolve(STAGING).takeIf(Files::isDirectory)?.let(::children).orEmpty()
+                if (stages.any { !isAbandoned(it) }) throw installFailure(InstallFailureReason.FilesInUse)
                 directory.resolve(VERSIONS).takeIf(Files::isDirectory)?.let { versions ->
-                    children(versions).forEach { moveToTrash(directory, it) }
+                    // An old copy may be used by another profile: refuse before moving the active copy.
+                    val copies = children(versions).sortedBy { it.fileName.toString() == active?.directory }
+                    copies.forEach { moveToTrash(directory, it) }
                 }
                 storage { Files.deleteIfExists(directory.resolve(ACTIVE)) }
                 deleteTree(directory.resolve(RETAINED))
@@ -210,7 +216,7 @@ internal class FileManagedInstallStore(
         storage { Files.createDirectories(target.parent) }
         storage { Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE) }
         val installedAt = clock.now()
-        val record = ActiveRecord(staged.candidate.version, name, relative, sha256, installedAt)
+        val record = ActiveRecord(staged.candidate.version, name, relative, sha256, installedAt, staged.target)
         if (staged.isRetainedForRollback) writeRecord(directory, record, "$RETAINED/$name.json")
         writeRecord(directory, record)
         // Retained records protect immutable versions from replacement and later sweeps.
@@ -406,6 +412,7 @@ internal class FileManagedInstallStore(
         val executable: String,
         val sha256: String,
         val installedAt: Instant,
+        val target: String? = null,
     )
 
     private companion object {

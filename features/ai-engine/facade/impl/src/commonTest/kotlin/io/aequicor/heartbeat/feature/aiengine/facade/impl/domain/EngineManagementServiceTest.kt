@@ -55,6 +55,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubDownloadHosts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubRelease
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.MemoryEnginePreferences
 import kotlinx.coroutines.awaitCancellation
@@ -99,6 +100,41 @@ class EngineManagementServiceTest {
     private val runtimes = FakeRuntimes()
     private val installs = FakeInstalls()
     private var launchContext = LaunchContext()
+
+    @Test
+    fun `CLI preparing its runtime on login can sign in when installation is missing`() = runTest {
+        var logins = 0
+        val preparingManager = object : EngineManager by manager {
+            override suspend fun inspect(launch: LaunchContext): Installation =
+                Installation(InstallSource.Missing, isRunnable = false)
+            override suspend fun loginStatus(launch: LaunchContext): LoginState = LoginState.SignedOut
+            override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState {
+                logins++
+                return LoginState.SignedIn("account")
+            }
+        }
+        val preparingRegistry = EngineRegistry(
+            listOf(
+                registration(id = cliId, owner = AuthOwnerId("cli")).withManagement(
+                    cliSpec.copy(isRuntimePreparedOnLogin = true),
+                    preparingManager,
+                ),
+            ),
+            EnginePlatform.DesktopMacOs,
+        )
+        val service = service(preparingRegistry)
+        runCurrent()
+        service.execute(cliId, EngineCommand.Inspect)
+        runCurrent()
+        assertEquals(InstallSource.Missing, service.state.value.engine(cliId).installation.current?.source)
+        service.execute(cliId, EngineCommand.Start(EngineAction.Login()))
+        runCurrent()
+        assertEquals(1, logins)
+        assertEquals(
+            io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase.Succeeded,
+            service.state.value.engine(cliId).job?.phase,
+        )
+    }
 
     @Test
     fun `editing other launch fields while MCP rollout is off preserves the saved opt-in`() = runTest {

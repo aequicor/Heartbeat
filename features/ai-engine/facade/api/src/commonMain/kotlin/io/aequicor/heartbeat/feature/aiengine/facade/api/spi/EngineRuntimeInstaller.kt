@@ -12,7 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
  */
 public interface EngineRuntimeInstaller {
     /** A retained copy of exactly [version], without changing the active copy or consulting a release feed. */
-    public suspend fun find(engine: EngineId, version: String): ManagedInstall?
+    public suspend fun find(engine: EngineId, version: String, target: String? = null): ManagedInstall?
 
     /**
      * Reuses a validated retained copy, or resolves exactly [version] through [manager], downloads, checks and
@@ -23,6 +23,7 @@ public interface EngineRuntimeInstaller {
         engine: EngineId,
         version: String,
         manager: EngineManager,
+        target: String? = null,
         progress: suspend (EnginePreparation) -> Unit,
     ): ManagedInstall
 }

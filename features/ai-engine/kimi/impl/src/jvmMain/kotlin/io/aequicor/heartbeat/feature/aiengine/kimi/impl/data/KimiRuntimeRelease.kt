@@ -72,6 +72,7 @@ internal suspend fun kimiInstallPlan(feeds: ReleaseFeeds, target: String): Insta
         if (target.startsWith("win32-")) "kimi.exe" else "kimi",
         GitHubDownloadHosts,
         isRetainedForRollback = true,
+        target = target,
     )
 }
 

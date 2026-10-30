@@ -27,6 +27,8 @@ public data class InstallPlan(
     val allowedHosts: Set<String>,
     /** Keep this immutable copy for adapters restored by a bundle rollback, until explicit uninstall. */
     val isRetainedForRollback: Boolean = false,
+    /** Native target identity, kept with retained copies so moving user data cannot select another architecture. */
+    val target: String? = null,
 ) {
     init {
         require(version.isNotBlank() && version.none { it == '/' || it == '\\' }) { "Invalid release version" }

@@ -22,6 +22,10 @@ class KimiFirstConnectionTest {
                 toggles = unused(), tools = unused(), bridge = unused(), resources = unused(),
                 localApi = JvmKimiLocalApi(client, TestKimiDispatchers, setup), setup = setup, profile = unused(),
             )
+            val registration = io.aequicor.heartbeat.feature.aiengine.kimi.impl.di.KimiBindings.registration(
+                lazyOf(backend),
+            )
+            kotlin.test.assertTrue(registration.management.isRuntimePreparedOnLogin)
             // These are the wizard's availability and management inspections before it starts EngineAction.Login.
             assertEquals(EngineAvailability.Available, backend.checkRequirements())
             assertEquals(InstallSource.Missing, backend.inspect(LaunchContext()).source)

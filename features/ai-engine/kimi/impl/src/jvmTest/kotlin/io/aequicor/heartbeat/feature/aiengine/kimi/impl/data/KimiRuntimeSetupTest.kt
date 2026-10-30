@@ -33,17 +33,18 @@ class KimiRuntimeSetupTest {
                 .joinToString("") { "%02x".format(it) }
             root.resolve("runtime.properties").writeText(
                 "version=$KIMI_RUNTIME_VERSION\nsourceCommit=$KIMI_SOURCE_COMMIT\n" +
-                    "permissionGate=$KIMI_PERMISSION_GATE\nsha256=$hash\n",
+                    "permissionGate=$KIMI_PERMISSION_GATE\nsha256=$hash\ntarget=${kimiRuntimeTarget()}\n",
             )
             val installed = ManagedInstall(KIMI_RUNTIME_VERSION, executable.absolutePath, Instant.fromEpochSeconds(0))
             var current: ManagedInstall? = null
             var downloads = 0
             val installer = object : EngineRuntimeInstaller {
-                override suspend fun find(engine: EngineId, version: String): ManagedInstall? = current
+                override suspend fun find(engine: EngineId, version: String, target: String?): ManagedInstall? = current
                 override suspend fun prepare(
                     engine: EngineId,
                     version: String,
                     manager: EngineManager,
+                    target: String?,
                     progress: suspend (EnginePreparation) -> Unit,
                 ): ManagedInstall {
                     downloads++
@@ -63,6 +64,11 @@ class KimiRuntimeSetupTest {
             assertEquals(InstallSource.Managed, setup.locate().source)
             assertEquals(executable.absolutePath, setup.locate().path)
             assertEquals(EnginePreparation.Ready, setup.preparation.value)
+            val stale = installed.copy(executable = root.resolve("removed/kimi").absolutePath)
+            assertEquals(executable.absolutePath, setup.locate(LaunchContext(managed = stale)).path)
+            assertFailsWith<EngineException> {
+                setup.locate(LaunchContext(managed = stale, isInstallCandidate = true))
+            }
             val restarted = KimiRuntimeSetup(installer, TestKimiDispatchers, resourcesDirectory = null)
             restarted.prepare(manager)
             assertEquals(1, downloads, "restart and adapter rollback must work offline")
@@ -82,11 +88,12 @@ internal object TestKimiDispatchers : DispatcherProvider {
 
 /** Live probes may use a packaged seed but never download as a side effect of telemetry. */
 internal object NoManagedKimiRuntime : EngineRuntimeInstaller {
-    override suspend fun find(engine: EngineId, version: String): ManagedInstall? = null
+    override suspend fun find(engine: EngineId, version: String, target: String?): ManagedInstall? = null
     override suspend fun prepare(
         engine: EngineId,
         version: String,
         manager: EngineManager,
+        target: String?,
         progress: suspend (EnginePreparation) -> Unit,
     ): ManagedInstall = error("Live telemetry never downloads")
 }

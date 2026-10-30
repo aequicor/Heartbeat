@@ -168,7 +168,7 @@ internal class JvmKimiBackend(
             throw ManagementException(ManagementFailure.Login(LoginFailureReason.Rejected))
         }
         if (!isSucceeded) rejectLogin()
-        val state = loginStatus(launch)
+        val state = loginStatus(LaunchContext())
         if (state !is LoginState.SignedIn) rejectLogin()
         return state
     }

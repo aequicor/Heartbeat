@@ -31,20 +31,22 @@ internal class ManagedEngineRuntimeInstaller(
 ) : EngineRuntimeInstaller {
     private val mutex = Mutex()
 
-    override suspend fun find(engine: EngineId, version: String): ManagedInstall? = installs.retained(engine, version)
+    override suspend fun find(engine: EngineId, version: String, target: String?): ManagedInstall? =
+        installs.retained(engine, version, target)
 
     override suspend fun prepare(
         engine: EngineId,
         version: String,
         manager: EngineManager,
+        target: String?,
         progress: suspend (EnginePreparation) -> Unit,
     ): ManagedInstall = mutex.withLock {
-        find(engine, version)?.let { retained ->
+        find(engine, version, target)?.let { retained ->
             if (isValid(manager, retained, version)) return@withLock retained
             // A damaged retained copy is never executed; a newly verified immutable copy replaces it.
         }
         val plan = withTimeout(LOOKUP_TIMEOUT_MS) { manager.resolveRelease(feeds) }
-        if (plan.version != version) throw installFailure(InstallFailureReason.VersionMismatch)
+        if (plan.version != version || plan.target != target) throw installFailure(InstallFailureReason.VersionMismatch)
         val staged = installs.stage(engine, plan.copy(isRetainedForRollback = true)) { step ->
             progress(
                 when (step) {
@@ -68,7 +70,9 @@ internal class ManagedEngineRuntimeInstaller(
     }
 
     private suspend fun isValid(manager: EngineManager, candidate: ManagedInstall, version: String): Boolean {
-        val inspected = withTimeout(CHECK_TIMEOUT_MS) { manager.inspect(LaunchContext(managed = candidate)) }
+        val inspected = withTimeout(CHECK_TIMEOUT_MS) {
+            manager.inspect(LaunchContext(managed = candidate, isInstallCandidate = true))
+        }
         return inspected.isRunnable && inspected.source == InstallSource.Managed && inspected.version == version
     }
 

@@ -159,7 +159,7 @@ class EngineJobs(
         try {
             phase(engine, JobPhase.Checking)
             // The copy runs once before activation; a custom executable must not shadow the candidate.
-            val candidate = LaunchContext(settings.copy(executable = null), staged.candidate)
+            val candidate = LaunchContext(settings.copy(executable = null), staged.candidate, isInstallCandidate = true)
             val installation = withTimeoutOrNull(CHECK_TIMEOUT_MILLIS) {
                 withContext(context.io) { manager.inspect(candidate) }
             }

@@ -26,7 +26,7 @@ interface ManagedInstallStore {
     suspend fun stage(engine: EngineId, plan: InstallPlan, progress: suspend (InstallStep) -> Unit): StagedInstall
 
     /** A retained copy of exactly [version], read without changing the active version or using the network. */
-    suspend fun retained(engine: EngineId, version: String): ManagedInstall? = null
+    suspend fun retained(engine: EngineId, version: String, target: String? = null): ManagedInstall? = null
 
     /** Makes [staged] active; copies marked for rollback survive replacement and refresh. */
     suspend fun activate(staged: StagedInstall): ManagedInstall
@@ -47,6 +47,7 @@ data class StagedInstall(
     /** Releases the candidate's cross-process lease, under the engine lock, before moving or discarding it. */
     internal val release: () -> Unit = {},
     internal val isRetainedForRollback: Boolean = false,
+    internal val target: String? = null,
 ) {
     override fun toString(): String = "StagedInstall(engine=${engine.value}, version=${candidate.version})"
 }

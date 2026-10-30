@@ -56,7 +56,7 @@ class ManagedEngineRuntimeInstallerTest {
         val store = Copies()
         val phases = mutableListOf<EnginePreparation>()
         val installer = ManagedEngineRuntimeInstaller(store, feeds)
-        assertEquals(copy, installer.prepare(engine, "1.0", manager(), phases::add))
+        assertEquals(copy, installer.prepare(engine, "1.0", manager(), progress = phases::add))
         assertTrue(store.isActivated)
         assertTrue(store.isRetained)
         assertEquals(listOf<EnginePreparation>(EnginePreparation.Installing, EnginePreparation.Installing), phases)
@@ -109,14 +109,13 @@ class ManagedEngineRuntimeInstallerTest {
         var isDiscarded = false
         var isRetained = false
         override suspend fun refresh() = Unit
-        override suspend fun retained(engine: EngineId, version: String): ManagedInstall? =
+        override suspend fun retained(engine: EngineId, version: String, target: String?): ManagedInstall? =
             saved?.takeIf { it.version == version }
         override suspend fun stage(
             engine: EngineId,
             plan: InstallPlan,
             progress: suspend (InstallStep) -> Unit,
-        ):
-            StagedInstall {
+        ): StagedInstall {
             isStaged = true
             isRetained = plan.isRetainedForRollback
             progress(InstallStep.Unpacking)

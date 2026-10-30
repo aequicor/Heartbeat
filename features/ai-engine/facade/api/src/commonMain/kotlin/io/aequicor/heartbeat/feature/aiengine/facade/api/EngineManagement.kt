@@ -113,6 +113,8 @@ public data class ManagementSpec(
     val hasPackages: Boolean = false,
     /** A desktop application that keeps its own runtime of the engine; null when there is none. */
     val hostApp: HostAppSpec? = null,
+    /** CLI login prepares a missing pinned runtime within the existing sign-in flow. */
+    val isRuntimePreparedOnLogin: Boolean = false,
 )
 
 /**
@@ -565,7 +567,7 @@ private fun ManagedEngine.loginActions(): Set<EngineActionKind> {
     if (login is LoginState.SignedIn) return setOf(EngineActionKind.Logout)
     val current = installation.current
     val hasExecutable = current != null && current.source != InstallSource.Missing && current.isRunnable
-    return if (hasExecutable) setOf(EngineActionKind.Login) else emptySet()
+    return if (hasExecutable || spec.isRuntimePreparedOnLogin) setOf(EngineActionKind.Login) else emptySet()
 }
 
 private fun ManagedEngine.runtimeActions(): Set<EngineActionKind> =

@@ -38,8 +38,12 @@ internal class KimiRuntimeSetup(
 
     /** Read-only resolution: a staged candidate wins; otherwise the retained adapter pin, then the installer seed. */
     suspend fun locate(launch: LaunchContext = LaunchContext()): Installation {
-        val managed = launch.managed?.takeIf { it.version == KIMI_RUNTIME_VERSION }
-            ?: installer.find(KimiEngine.Id, KIMI_RUNTIME_VERSION)
+        val managed = if (launch.isInstallCandidate) {
+            requireNotNull(launch.managed)
+        } else {
+            installer.find(KimiEngine.Id, KIMI_RUNTIME_VERSION, kimiRuntimeTarget())
+                ?: launch.managed?.takeIf { it.version == KIMI_RUNTIME_VERSION }
+        }
         val executable = withContext(dispatchers.io) {
             try {
                 kimiControlledExecutable(resourcesDirectory = resourcesDirectory, managed = managed)
@@ -68,7 +72,12 @@ internal class KimiRuntimeSetup(
                 null
             }
             if (current == null) {
-                installer.prepare(KimiEngine.Id, KIMI_RUNTIME_VERSION, manager) { status.value = it }
+                installer.prepare(
+                    KimiEngine.Id,
+                    KIMI_RUNTIME_VERSION,
+                    manager,
+                    target = kimiRuntimeTarget(),
+                ) { status.value = it }
             }
             status.value = EnginePreparation.Ready
         } catch (error: CancellationException) {

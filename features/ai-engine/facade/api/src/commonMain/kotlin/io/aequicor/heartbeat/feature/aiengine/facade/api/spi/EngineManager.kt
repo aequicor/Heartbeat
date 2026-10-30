@@ -29,6 +29,8 @@ public data class LaunchContext(
     val trust: Map<WorkspaceRef, ProjectTrust> = emptyMap(),
     /** Engine configuration is on: undecided projects get the adapter's restricted project mode. */
     val isConfigured: Boolean = false,
+    /** Inspect exactly the supplied staged copy: adapters must not substitute a retained or bundled runtime. */
+    val isInstallCandidate: Boolean = false,
 ) {
     override fun toString(): String = "LaunchContext(isDefault=${settings.isDefault}, hasManaged=${managed != null}, " +
         "configured=$isConfigured, hasConfig=${!config.isEmpty}, trusted=${trust.size})"

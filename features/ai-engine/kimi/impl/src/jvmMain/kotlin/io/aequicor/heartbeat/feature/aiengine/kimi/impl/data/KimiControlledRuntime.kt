@@ -36,6 +36,7 @@ internal fun kimiControlledExecutable(
         "sha256" to kimiExecutableHash(executable),
     ).all { (key, value) -> properties.getProperty(key) == value }
     if (!isPinned) missingKimiRuntime()
+    if (properties.getProperty("target") != kimiRuntimeTarget()) missingKimiRuntime()
     return executable.absolutePath
 }
 

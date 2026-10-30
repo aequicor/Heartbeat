@@ -149,6 +149,52 @@ class FileManagedInstallStoreTest {
         assertTrue(Path.of(repeated.executable).exists())
     }
 
+    @Test
+    fun `retained copies are selected by native target as well as version`() = runTest {
+        val first = store()
+        val x64Plan = plan("1.0.0").copy(isRetainedForRollback = true, target = "win32-x64")
+        val armPlan = plan("1.0.0").copy(isRetainedForRollback = true, target = "win32-arm64")
+        val x64 = first.activate(first.stage(engine, x64Plan) {})
+        val arm = first.activate(first.stage(engine, armPlan) {})
+        val restarted = store()
+        restarted.refresh()
+        assertEquals(x64, restarted.retained(engine, "1.0.0", "win32-x64"))
+        assertEquals(arm, restarted.retained(engine, "1.0.0", "win32-arm64"))
+        assertEquals(null, restarted.retained(engine, "1.0.0", "linux-x64"))
+    }
+
+    @Test
+    fun `uninstall cannot race a checked candidate into a surprise reinstall`() = runTest {
+        val first = store()
+        val active = first.activate(first.stage(engine, plan("1.0.0")) {})
+        val pending = first.stage(engine, plan("2.0.0")) {}
+        assertInstallFailure(InstallFailureReason.FilesInUse) { first.uninstall(engine) }
+        assertTrue(Path.of(active.executable).exists())
+        assertTrue(Path.of(pending.candidate.executable).exists())
+        first.discard(pending)
+        first.uninstall(engine)
+        assertFalse(Path.of(active.executable).exists())
+    }
+
+    @Test
+    fun `busy retained Windows copy does not remove the active executable on uninstall failure`() = runTest {
+        org.junit.Assume.assumeFalse(isPosix)
+        val first = store()
+        val old = first.activate(first.stage(engine, plan("1.0.0").copy(isRetainedForRollback = true)) {})
+        val active = first.activate(first.stage(engine, plan("2.0.0").copy(isRetainedForRollback = true)) {})
+        FileChannel.open(
+            Path.of(old.executable),
+            StandardOpenOption.READ,
+            com.sun.nio.file.ExtendedOpenOption.NOSHARE_DELETE,
+        ).use {
+            assertInstallFailure(InstallFailureReason.FilesInUse) { first.uninstall(engine) }
+            assertTrue(Path.of(active.executable).exists())
+            assertEquals(active, first.state.value[engine])
+        }
+        first.uninstall(engine)
+        assertFalse(Path.of(active.executable).exists())
+    }
+
     private fun canLockFromAnotherProcess(file: Path): Boolean {
         val program = root.resolve("LockProbe.java")
         program.writeText(LOCK_PROBE)
