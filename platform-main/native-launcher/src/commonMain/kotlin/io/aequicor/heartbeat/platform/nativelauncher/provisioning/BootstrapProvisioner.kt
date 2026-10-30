@@ -9,8 +9,11 @@ import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.isAllowedArtifact
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.sha256Hex
 import io.aequicor.heartbeat.platform.nativelauncher.launcherLog
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import okio.FileSystem
+import okio.IOException
 import okio.Path
 import okio.buffer
 
@@ -19,6 +22,7 @@ private const val TAG = "Provision"
 /** Этап provisioning для отображения в окне лончера. */
 enum class ProvisionStage { MANIFEST, DOWNLOAD, EXTRACT, ACTIVATE }
 
+/** Download bytes cover the entire runtime + platform + seed set, including resumed bytes. */
 data class ProvisionProgress(
     val stage: ProvisionStage,
     val artifact: String? = null,
@@ -121,13 +125,17 @@ class BootstrapProvisioner(
         )
         var completedBytes = 0L
         val files = artifacts.map { artifact ->
-            downloadArtifact(artifact, { progress ->
+            val file = downloadArtifact(artifact, { progress ->
                 onProgress(
                     progress.copy(downloadedBytes = completedBytes + progress.downloadedBytes, totalBytes = totalBytes),
                 )
-            }, isCancelled).also { completedBytes += artifact.info.size }
+            }, isCancelled)
+            completedBytes += artifact.info.size
+            onProgress(ProvisionProgress(ProvisionStage.DOWNLOAD, artifact.name, completedBytes, totalBytes))
+            file
         }
         val staging = store.stagingDir(imageId)
+        val provisioningContext = currentCoroutineContext()
         try {
             if (fs.exists(staging)) fs.deleteRecursively(staging)
             fs.createDirectories(staging)
@@ -153,12 +161,26 @@ class BootstrapProvisioner(
                 manifest.minNativeLauncherVersion,
             )
             onProgress(ProvisionProgress(ProvisionStage.ACTIVATE))
-            store.activate(image, staging)
+            activateImage(image, staging, isCancelled)
             store.prune()
             return checkNotNull(store.currentImage()) { "Activated image is missing" }
-        } catch (error: CancellationException) {
-            cleanupStaging(staging)
-            throw error
+        } finally {
+            if (!provisioningContext.isActive || isCancelled()) cleanupStaging(staging)
+        }
+    }
+
+    /** A freshly extracted executable can briefly be held by Windows scanners; keep the verified staging intact. */
+    private suspend fun activateImage(image: ProvisionedImage, staging: Path, isCancelled: () -> Boolean) {
+        repeat(ACTIVATION_ATTEMPTS) { attempt ->
+            checkCancelled(isCancelled)
+            try {
+                store.activate(image, staging)
+                return
+            } catch (error: IOException) {
+                if (attempt == ACTIVATION_ATTEMPTS - 1 || !fs.exists(staging)) throw error
+                launcherLog.w(TAG, error) { "Image activation temporarily blocked; retrying verified staging" }
+                delay(ACTIVATION_RETRY_MILLIS)
+            }
         }
     }
 
@@ -302,6 +324,8 @@ class BootstrapProvisioner(
 
     companion object {
         private const val HASH_PREFIX = 12
+        private const val ACTIVATION_ATTEMPTS = 5
+        private const val ACTIVATION_RETRY_MILLIS = 250L
         private const val DEFAULT_LOCK_TIMEOUT_MILLIS = 10 * 60 * 1000L
         private const val HTTP_OK = 200
         private const val SAFE_ID_PUNCTUATION = "._-"

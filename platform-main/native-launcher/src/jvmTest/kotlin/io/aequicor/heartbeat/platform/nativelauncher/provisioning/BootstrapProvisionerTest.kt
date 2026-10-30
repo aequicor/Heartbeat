@@ -11,6 +11,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okio.FileSystem
+import okio.ForwardingFileSystem
+import okio.IOException
+import okio.Path
 import okio.Path.Companion.toPath
 import java.nio.file.Files
 import java.security.KeyPairGenerator
@@ -72,8 +75,8 @@ class BootstrapProvisionerTest {
         return out.toByteArray()
     }
 
-    private inner class Fixture(os: String = "windows", minLauncherVersion: Int = 1) {
-        val store = ImageStore(temp.resolve("root-${System.nanoTime()}"), fs)
+    private inner class Fixture(os: String = "windows", minLauncherVersion: Int = 1, storeFs: FileSystem = fs) {
+        val store = ImageStore(temp.resolve("root-${System.nanoTime()}"), storeFs)
         val runtime = zip(mapOf("runtime/bin/java.dll" to byteArrayOf(1, 2, 3, 4)))
         val platform = zip(mapOf("app/Heartbeat.cfg" to "[Application]".encodeToByteArray()))
         val seed = zip(mapOf("manifest.json" to "{\"train\":\"train-1\"}".encodeToByteArray()))
@@ -126,6 +129,36 @@ class BootstrapProvisionerTest {
             lockPollMillis = 20,
             lockTimeoutMillis = 2000,
         )
+    }
+
+    @Test
+    fun transientImageRenameLockRetriesVerifiedStagingWithoutDownloadingAgain() = runBlocking {
+        var attempts = 0
+        val locked = object : ForwardingFileSystem(fs) {
+            override fun atomicMove(source: Path, target: Path) {
+                if (source.parent?.name == "staging" && attempts++ < 2) throw IOException("Sharing violation")
+                super.atomicMove(source, target)
+            }
+        }
+        val fixture = Fixture(storeFs = locked)
+        val transport = fixture.transport()
+        val image = fixture.provisioner(transport).provision()
+        assertEquals(3, attempts)
+        assertEquals(image.id, fixture.store.currentImage()?.id)
+        assertEquals(3, transport.downloads.size)
+    }
+
+    @Test
+    fun downloadProgressAccumulatesAcrossArtifacts() {
+        val fixture = Fixture()
+        val progress = mutableListOf<ProvisionProgress>()
+        runBlocking { fixture.provisioner(fixture.transport()).provision(onProgress = progress::add) }
+        val downloads = progress.filter { it.stage == ProvisionStage.DOWNLOAD }
+        val total = (fixture.runtime.size + fixture.platform.size + fixture.seed.size).toLong()
+        assertTrue(downloads.isNotEmpty())
+        assertTrue(downloads.all { it.totalBytes == total })
+        assertTrue(downloads.zipWithNext().all { (a, b) -> a.downloadedBytes <= b.downloadedBytes })
+        assertEquals(total, downloads.last().downloadedBytes)
     }
 
     @Test
