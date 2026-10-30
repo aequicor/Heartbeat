@@ -79,3 +79,25 @@ private fun requireUniqueOption(
     val expectedValue = if (normalizePath) expected.replace('\\', '/') else expected
     require(normalized == listOf(expectedValue)) { "Missing or ambiguous packaged option: $prefix" }
 }
+
+/**
+ * Constructs JNI options from the packaged configuration. jpackage normally provides its executable path itself;
+ * workers depend on that path, while the external launcher is supplied separately through the environment.
+ */
+internal fun PackagedJvmConfiguration.windowsJvmOptions(innerExecutable: String): List<String> {
+    require(innerExecutable.isNotEmpty() && innerExecutable.none { it == '\u0000' || it == '\r' || it == '\n' }) {
+        "Invalid packaged executable path"
+    }
+    require(classpath.none { path -> path.any { it == ';' || it == '\u0000' || it == '\r' || it == '\n' } }) {
+        "Classpath entry cannot be represented in Windows JVM options"
+    }
+    val hasConflicts = options.any {
+        it == "-Djava.class.path" || it.startsWith("-Djava.class.path=") ||
+            it == "-Djpackage.app-path" || it.startsWith("-Djpackage.app-path=")
+    }
+    require(!hasConflicts) { "Packaged options override launcher-owned JVM properties" }
+    return listOf(
+        "-Djava.class.path=${classpath.joinToString(";")}",
+        "-Djpackage.app-path=$innerExecutable",
+    ) + options
+}

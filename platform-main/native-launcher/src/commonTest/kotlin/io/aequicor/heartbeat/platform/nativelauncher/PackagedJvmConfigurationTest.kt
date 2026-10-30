@@ -74,4 +74,31 @@ class PackagedJvmConfigurationTest {
         val windowsConfig = config.replace("${'$'}APPDIR/", "${'$'}APPDIR\\")
         parsePackagedJvmConfiguration(windowsConfig, "C:\\Пример приложения\\app")
     }
+
+    @Test
+    fun createsWindowsJvmOptionsWithPackagedExecutableForWorkers() {
+        val parsed = parsePackagedJvmConfiguration(config, "C:/Пример приложения/app")
+        val options = parsed.windowsJvmOptions("C:/Пример приложения/HeartbeatJvm.exe")
+        assertEquals(
+            "-Djava.class.path=C:/Пример приложения/app/launcher-selector.jar;C:/Пример приложения/app/example.jar",
+            options[0],
+        )
+        assertEquals("-Djpackage.app-path=C:/Пример приложения/HeartbeatJvm.exe", options[1])
+        assertEquals(parsed.options, options.drop(2))
+    }
+
+    @Test
+    fun rejectsAmbiguousJvmPropertiesAndUnrepresentableClasspath() {
+        val parsed = parsePackagedJvmConfiguration(config, "C:/app")
+        assertFailsWith<IllegalArgumentException> {
+            parsed.copy(options = parsed.options + "-Djpackage.app-path=other").windowsJvmOptions("C:/app.exe")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            parsed.copy(options = parsed.options + "-Djava.class.path=other").windowsJvmOptions("C:/app.exe")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            parsed.copy(classpath = parsed.classpath + "C:/bad;entry.jar").windowsJvmOptions("C:/app.exe")
+        }
+        assertFailsWith<IllegalArgumentException> { parsed.windowsJvmOptions("C:/bad\u0000path.exe") }
+    }
 }
