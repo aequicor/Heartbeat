@@ -127,9 +127,9 @@ class WindowsProcessTest {
         try {
             assertNotNull(
                 launchProcess(
-                nativeLauncherExecutable().toString(),
-                listOf("--ktest_logger=SILENT", "--ktest_filter=*WindowsProcessTest.childProcessProbe*"),
-            )
+                    nativeLauncherExecutable().toString(),
+                    listOf("--ktest_logger=SILENT", "--ktest_filter=*WindowsProcessTest.childProcessProbe*"),
+                ),
             )
         } finally {
             assertTrue(SetEnvironmentVariableW(PROBE_MODE.wcstr.ptr, previous?.wcstr?.getPointer(this)) != 0)
