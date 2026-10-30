@@ -36,10 +36,27 @@ public interface AcpConnection {
     public suspend fun loadSession(sessionId: String, cwd: String): AcpSession
 
     /**
-     * Sends text and waits for the agent's final stop reason; updates and permissions are handled meanwhile.
+     * Sends content blocks and waits for the agent's final stop reason; updates and permissions are handled meanwhile.
      * [AcpClientHandler.onPromptSubmitted] establishes local wire submission before this call returns a result.
      */
-    public suspend fun prompt(sessionId: String, text: String): AcpPromptResult
+    public suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult
+
+    /** Sends one text block through the multimodal prompt contract. */
+    public suspend fun prompt(sessionId: String, text: String): AcpPromptResult = prompt(
+        sessionId,
+        listOf(
+            JsonObject(
+                mapOf(
+                    "type" to kotlinx.serialization.json.JsonPrimitive("text"),
+                    "text" to kotlinx.serialization.json.JsonPrimitive(text),
+                ),
+            ),
+        ),
+    )
+
+    /** Changes an option advertised in the session's configOptions, between prompt turns. */
+    public suspend fun setConfigOption(sessionId: String, optionId: String, value: String): Unit =
+        throw UnsupportedOperationException("ACP session configuration is unavailable")
 
     /** Sends a notification and cancels pending permission decisions; completion still comes from prompt. */
     public suspend fun cancel(sessionId: String)

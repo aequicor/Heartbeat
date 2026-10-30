@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
@@ -19,8 +20,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSource
@@ -28,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.KimiNativeCatalog
 import io.aequicor.heartbeat.feature.aiengine.kimi.impl.domain.KimiBackend
 
 /** Lazy registration: graph construction never probes or starts Kimi CLI. */
@@ -54,11 +58,15 @@ public object KimiBindings {
                 ),
             ),
             isLocalWorkspaceSupported = true,
+            nativeTools = KimiNativeCatalog,
             declaredFeatures = setOf(
+                AppliesTrustLevels.id,
                 CreatesSessions.id,
                 AttachesSessions.id,
                 SendsPrompts.id,
                 SessionHistory.id,
+                SessionContextUsage.id,
+                ReportsProviderUsage.id,
                 ReconcilesSession.id,
                 CancelsTurns.id,
                 RequestsPermissions.id,
@@ -66,6 +74,7 @@ public object KimiBindings {
         ),
         authOwner = KimiEngine.AuthOwner,
         factory = lazy { backend.value },
+        modelCatalogRevision = 1,
         sessionSources = listOf(KimiSessionSource(backend)),
     )
 }

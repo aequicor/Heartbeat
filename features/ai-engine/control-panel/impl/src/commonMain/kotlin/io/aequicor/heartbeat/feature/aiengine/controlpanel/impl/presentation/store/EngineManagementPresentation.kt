@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigOverride
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
@@ -323,6 +324,7 @@ data class EnginePanelUi(
     val actions: ImmutableSet<EngineActionKindUi>,
     /** The engine's host application; null when it has none. */
     val hostApp: HostAppUi? = null,
+    val isBuiltIn: Boolean = false,
 )
 
 /** The panel of [engine] with the local launch [draft] (null: not editing). */
@@ -356,6 +358,7 @@ internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatfo
     return EnginePanelUi(
         id = descriptor.id.value,
         title = descriptor.title,
+        isBuiltIn = descriptor.family == EngineFamily.BuiltIn,
         isEnabled = enablement.isEnabled,
         isUserEnabled = enablement.isUserEnabled,
         isSwitchable = DisabledReason.UnsupportedPlatform !in enablement.reasons,

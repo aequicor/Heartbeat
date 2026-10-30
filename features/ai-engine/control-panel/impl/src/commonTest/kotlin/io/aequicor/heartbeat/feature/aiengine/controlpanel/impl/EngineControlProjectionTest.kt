@@ -48,6 +48,7 @@ class EngineControlProjectionTest {
         )
         assertEquals(listOf("1.0.0", null, "1.0.0"), list.engines.map { it.version })
         assertEquals(listOf(true, false, false), list.engines.map { it.isConfigurable })
+        assertEquals(listOf(false, false, false), list.engines.map { it.isBuiltIn })
         assertEquals(false, list.isLoading)
     }
 
