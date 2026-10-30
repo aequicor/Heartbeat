@@ -4,6 +4,83 @@ package = io.aequicor.heartbeat.platform.nativelauncher.windowsprocess
 #include <windows.h>
 #include <stdlib.h>
 
+/* Top-down 32-bit surfaces allow deterministic area coverage instead of driver-dependent StretchBlt filtering. */
+static inline HBITMAP hb_create_surface(HDC dc, int width, int height, void **pixels) {
+    BITMAPINFO info = {0};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    return CreateDIBSection(dc, &info, DIB_RGB_COLORS, pixels, NULL, 0);
+}
+
+/* Resolve only coverage bounds; solid backgrounds need one sample rather than sixteen. */
+static inline void hb_resolve_region(const void *source, void *destination, int pitch,
+                                     int left, int top, int right, int bottom) {
+    const unsigned char *src = (const unsigned char *)source;
+    unsigned char *dst = (unsigned char *)destination;
+    for (int y = top; y < bottom; y++) {
+        for (int x = left; x < right; x++) {
+            unsigned sums[3] = {0, 0, 0};
+            for (int sy = 0; sy < 4; sy++) {
+                const unsigned char *p = src + ((size_t)(y * 4 + sy) * pitch * 4 + x * 4) * 4;
+                for (int sx = 0; sx < 4; sx++, p += 4) {
+                    sums[0] += p[0]; sums[1] += p[1]; sums[2] += p[2];
+                }
+            }
+            unsigned char *p = dst + ((size_t)y * pitch + x) * 4;
+            p[0] = (unsigned char)((sums[0] + 8) / 16);
+            p[1] = (unsigned char)((sums[1] + 8) / 16);
+            p[2] = (unsigned char)((sums[2] + 8) / 16);
+            p[3] = 0;
+        }
+    }
+}
+
+static inline void hb_copy_surface(const void *source, void *destination, int width, int height, int pitch) {
+    GdiFlush();
+    const DWORD *src = (const DWORD *)source;
+    DWORD *dst = (DWORD *)destination;
+    for (int y = 0; y < height; y++) {
+        const DWORD *row = src + (size_t)y * 16 * pitch;
+        for (int x = 0; x < width; x++) dst[(size_t)y * pitch + x] = row[x * 4];
+    }
+}
+
+static inline void hb_resolve_surface(const void *source, void *destination, int width, int height, int pitch) {
+    GdiFlush();
+    hb_resolve_region(source, destination, pitch, 0, 0, width, height);
+}
+
+/* A continuous diagonal light band; the caller supplies the rounded skeleton mask as the DC clip path. */
+static inline BOOL hb_shimmer_band(HDC dc, int top, int bottom, int center, int halfWidth,
+                                   COLORREF base, COLORREF highlight) {
+    typedef BOOL (WINAPI *GradientProc)(HDC, PTRIVERTEX, ULONG, PVOID, ULONG, ULONG);
+    HMODULE library = LoadLibraryW(L"msimg32.dll");
+    if (!library) return FALSE;
+    GradientProc gradient = (GradientProc)GetProcAddress(library, "GradientFill");
+    BOOL result = FALSE;
+    if (gradient) {
+        TRIVERTEX vertices[6] = {0};
+        for (int i = 0; i < 6; i++) {
+            int band = i / 2;
+            COLORREF color = band == 1 ? highlight : base;
+            vertices[i].x = center + (band - 1) * halfWidth - (i % 2 ? (bottom - top) / 3 : 0);
+            vertices[i].y = i % 2 ? bottom : top;
+            vertices[i].Red = GetRValue(color) << 8;
+            vertices[i].Green = GetGValue(color) << 8;
+            vertices[i].Blue = GetBValue(color) << 8;
+            vertices[i].Alpha = 0xffff;
+        }
+        GRADIENT_TRIANGLE triangles[4] = {{0, 1, 2}, {1, 3, 2}, {2, 3, 4}, {3, 5, 4}};
+        result = gradient(dc, vertices, 6, triangles, 4, GRADIENT_FILL_TRIANGLE);
+    }
+    FreeLibrary(library);
+    return result;
+}
+
 /* Only duplicate standard streams are inherited; no other bootstrap file/lock handle reaches a worker. */
 static inline DWORD hb_start_process(const wchar_t *executable, wchar_t *command, HANDLE *process) {
     STARTUPINFOEXW startup = {0};
@@ -14,6 +91,7 @@ static inline DWORD hb_start_process(const wchar_t *executable, wchar_t *command
     int count = 0;
     DWORD error = 0;
     startup.StartupInfo.cb = sizeof(startup);
+    startup.StartupInfo.dwFlags = STARTF_FORCEOFFFEEDBACK;
     for (int i = 0; i < 3; i++) {
         HANDLE source = GetStdHandle(ids[i]);
         if (source && source != INVALID_HANDLE_VALUE) {
@@ -34,7 +112,7 @@ static inline DWORD hb_start_process(const wchar_t *executable, wchar_t *command
                                        inherited, sizeof(HANDLE) * count, NULL, NULL)) {
             error = GetLastError(); goto cleanup;
         }
-        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startup.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
         startup.StartupInfo.hStdInput = streams[0];
         startup.StartupInfo.hStdOutput = streams[1];
         startup.StartupInfo.hStdError = streams[2];
