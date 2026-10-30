@@ -158,7 +158,7 @@ object EmbeddedStudioProbe {
                                     platformUi = PlatformUi.Fluent,
                                     dimensions = HbDimensions.Desktop,
                                 ) {
-                                    EmbeddedIntroOverlay(isDark, revealedAt)
+                                    EmbeddedIntroOverlay(revealedAt)
                                 }
                             }
                         }

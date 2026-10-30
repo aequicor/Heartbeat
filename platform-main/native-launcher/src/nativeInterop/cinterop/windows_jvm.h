@@ -315,11 +315,13 @@ static DWORD WINAPI hb_jvm_main(void *unused) {
                     if (arg) { (*env)->SetObjectArrayElement(env, args, i, arg); (*env)->DeleteLocalRef(env, arg); }
                 }
                 if (!(*env)->ExceptionCheck(env)) {
-                    InterlockedExchange(&hb_jvm.selector_entered, 1);
                     jclass host = (*env)->FindClass(env, "io/aequicor/heartbeat/selector/EmbeddedHost");
                     jmethodID cleanup = host ? (*env)->GetStaticMethodID(env, host, "installCleanup", "()V") : NULL;
                     if (cleanup) (*env)->CallStaticVoidMethod(env, host, cleanup);
-                    if (!(*env)->ExceptionCheck(env)) (*env)->CallStaticVoidMethod(env, selector, main, args);
+                    if (!(*env)->ExceptionCheck(env)) {
+                        InterlockedExchange(&hb_jvm.selector_entered, 1);
+                        (*env)->CallStaticVoidMethod(env, selector, main, args);
+                    }
                     if (!(*env)->ExceptionCheck(env)) result = 0;
                 }
             }

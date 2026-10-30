@@ -30,7 +30,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.dp
 import com.sun.jna.platform.win32.Kernel32
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -40,7 +39,7 @@ import io.aequicor.heartbeat.platform.nativelauncher.LauncherPoint
 
 /** Opaque matching frame over the live Studio. Only the native reveal acknowledgement starts its continuation. */
 @Composable
-internal fun EmbeddedIntroOverlay(dark: Boolean, revealedAt: Long?, modifier: Modifier = Modifier) {
+internal fun EmbeddedIntroOverlay(revealedAt: Long?, modifier: Modifier = Modifier) {
     var now by remember { mutableLongStateOf(Kernel32.INSTANCE.GetTickCount64()) }
     LaunchedEffect(revealedAt) {
         while (EmbeddedIntroTimeline.continuation(now, revealedAt).opacity > 0) {
@@ -48,24 +47,28 @@ internal fun EmbeddedIntroOverlay(dark: Boolean, revealedAt: Long?, modifier: Mo
         }
     }
     val frame = EmbeddedIntroTimeline.continuation(now, revealedAt)
+    val colors = HbTheme.colors
+    val surfaces = HbTheme.surfaces
+    val headerHeight = HbTheme.dimensions.headerHeight
+    val ink = colors.startupPulseInk
     if (frame.opacity <= 0) return
     Box(
         modifier.fillMaxSize().pointerInput(Unit) {
             awaitPointerEventScope {
                 while (true) {
                     awaitPointerEvent(PointerEventPass.Initial).changes.forEach {
-                        if (it.position.y >= 44.dp.toPx()) it.consume()
+                        if (it.position.y >= headerHeight.toPx()) it.consume()
                     }
                 }
             }
         },
     ) {
         Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = frame.opacity.toFloat() }) {
-            drawEmbeddedBrand(dark, frame.transform.toFloat())
+            drawEmbeddedBrand(colors.background, surfaces.sidebar, ink, frame.transform.toFloat())
         }
         HbRow(
-            Modifier.width(160.dp).height(HbTheme.dimensions.headerHeight)
-                .background(if (dark) Color(0xFF28282B) else Color(0xFFF4F4F5))
+            Modifier.width(HbTheme.dimensions.startupTitleWidth).height(HbTheme.dimensions.headerHeight)
+                .background(surfaces.sidebar)
                 .padding(horizontal = HbTheme.spacing.l),
         ) {
             HbText("Heartbeat", style = HbTheme.typography.label, color = HbTheme.colors.textSecondary, maxLines = 1)
@@ -86,10 +89,8 @@ private fun UInt.color(): Color = Color(
     ((this shr 16) and 255u).toInt(),
 )
 
-private fun DrawScope.drawEmbeddedBrand(dark: Boolean, transform: Float) {
-    // These pigments and coordinates are the native ABI's approved brand frame, not a second UI palette.
-    val background = if (dark) Color(0xFF202022) else Color.White
-    val sidebarColor = if (dark) Color(0xFF28282B) else Color(0xFFF4F4F5)
+private fun DrawScope.drawEmbeddedBrand(background: Color, sidebarColor: Color, ink: Color, transform: Float) {
+    // Coordinates are the approved native brand artwork; surfaces come from the host's design tokens.
     drawRect(background)
     val sidebar = if (size.width / density >= 720) 264 * density else 0f
     drawRect(sidebarColor, size = Size(sidebar, size.height))
@@ -118,10 +119,9 @@ private fun DrawScope.drawEmbeddedBrand(dark: Boolean, transform: Float) {
         )
         (from + (to - from) * transform) * density
     }
-    val ink = if (dark) Color(0xFFBFB3D4) else Color(0xFF938F97)
     drawPath(
         pulse,
-        androidx.compose.ui.graphics.lerp(Color.White, ink, transform),
+        androidx.compose.ui.graphics.lerp(LauncherBrand.WHITE.color(), ink, transform),
         style = Stroke((4 - transform) * density, cap = StrokeCap.Round, join = StrokeJoin.Round),
     )
 }

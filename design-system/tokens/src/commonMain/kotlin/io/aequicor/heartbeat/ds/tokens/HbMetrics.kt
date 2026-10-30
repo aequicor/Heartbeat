@@ -198,6 +198,10 @@ data class HbDimensions(
     val panelGap: Dp = 0.dp,
     /** Height of a window or pane header. */
     val headerHeight: Dp = 56.dp,
+    /** Width reserved for the three native Windows caption controls in the embedded host. */
+    val nativeCaptionControlsWidth: Dp = 144.dp,
+    /** Stable title patch covering the native-to-Compose startup transition. */
+    val startupTitleWidth: Dp = 160.dp,
     /** Reading column of conversations and settings sections. */
     val messageMaxWidth: Dp = 1000.dp,
     val composerMaxWidth: Dp = 1090.dp,

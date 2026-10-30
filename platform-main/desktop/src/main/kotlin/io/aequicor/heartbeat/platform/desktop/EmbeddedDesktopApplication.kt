@@ -13,7 +13,6 @@ import androidx.compose.ui.awt.ComposePanel
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.rememberWindowState
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.resume
@@ -214,7 +213,7 @@ private class EmbeddedDesktopSession(
                 HbWindowChromeProvider(
                     HbWindowChrome(
                         height = HbDimensions.Desktop.headerHeight,
-                        rightInset = EMBEDDED_CAPTION_WIDTH.dp,
+                        rightInset = HbDimensions.Desktop.nativeCaptionControlsWidth,
                     ),
                     onNativeHitTest = host::captionClient,
                 ) {
@@ -226,7 +225,7 @@ private class EmbeddedDesktopSession(
                             platformUi = io.aequicor.heartbeat.ds.adaptive.PlatformUi.Fluent,
                             dimensions = HbDimensions.Desktop,
                         ) {
-                            EmbeddedIntroOverlay(isDark, revealedAt)
+                            EmbeddedIntroOverlay(revealedAt)
                         }
                     }
                 }
@@ -255,7 +254,6 @@ private fun presentEmbeddedFrame(panel: ComposePanel, frame: Frame, host: Embedd
 }
 
 private const val EMBEDDED_POLL_MILLIS = 16
-private const val EMBEDDED_CAPTION_WIDTH = 144
 
 private fun setEmbeddedTopmost(window: HWND, active: Boolean) {
     val order = HWND(Pointer(if (active) WINDOWS_TOPMOST else WINDOWS_NOT_TOPMOST))
