@@ -38,6 +38,13 @@ env:
   FAMILY: ${{ github.event_name == 'push' && 't' || 'o' }}
 
 jobs:
+  runtimes:
+    name: Prepare pinned engine runtimes
+    if: github.ref == 'refs/heads/master'
+    uses: ./.github/workflows/engine-runtimes.yml
+    permissions:
+      contents: write
+
   build:
     name: Build the train
     # The launcher-signing environment is master only: Run workflow from another branch builds nothing.
@@ -163,7 +170,7 @@ jobs:
 
   publish:
     name: Publish the pre-release
-    needs: build
+    needs: [build, runtimes]
     if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
