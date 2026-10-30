@@ -28,7 +28,7 @@ internal class KimiContextUsage : SessionContextUsage {
 
     @HighFrequency
     fun receive(update: JsonObject) {
-        val usage = kimiContextUsage(update, Clock.System.now())
+        val usage = kimiContextUsage(update, Clock.System.now()) ?: return
         log.v { "mutableState: ${mutableState.value.toLogString()} -> ${usage.toLogString()}" }
         mutableState.value = usage
     }
@@ -39,12 +39,29 @@ internal class KimiContextUsage : SessionContextUsage {
     }
 }
 
-internal class KimiProviderUsage(private val isEnabled: suspend () -> Boolean) : ReportsProviderUsage {
+internal class KimiProviderUsage(
+    private val fetch: (suspend () -> ProviderUsageSnapshot?)? = null,
+    private val isEnabled: suspend () -> Boolean,
+) : ReportsProviderUsage {
     private val mutableState = MutableStateFlow(ProviderUsageSnapshot())
     override val state = mutableState.asStateFlow()
 
     override suspend fun refresh(): ProviderUsageSnapshot {
-        if (!isEnabled()) clear()
+        if (!isEnabled()) {
+            clear()
+            return state.value
+        }
+        fetch?.let { load ->
+            val snapshot = load()
+            if (!isEnabled()) {
+                clear()
+            } else {
+                log.v { "mutableState refreshed from Kimi local quota API" }
+                mutableState.value = snapshot ?: state.value.copy(
+                    observation = state.value.observation.copy(isStale = true),
+                )
+            }
+        }
         return state.value
     }
 
@@ -65,6 +82,53 @@ private fun ContextUsage?.toLogString(): String =
     this?.let { usage -> "used=${usage.usedTokens}, capacity=${usage.capacityTokens ?: "unknown"}" } ?: "unknown"
 
 private val log = Log.tag("KimiUsage")
+
+/** Quota from the CLI-owned authenticated local API; never reads provider OAuth credentials. */
+internal fun kimiLocalProviderUsage(envelope: JsonObject, now: Instant): ProviderUsageSnapshot? {
+    val data = envelope["data"] as? JsonObject ?: return null
+    if (data.text("kind") != "ok") return null
+    val quota = data["quota"] as? JsonObject ?: return null
+    val usages = quota["usages"] as? JsonObject ?: return null
+    val windows = usages.mapNotNull { (id, element) -> kimiLocalUsageWindow(id, element as? JsonObject) }
+    return ProviderUsageSnapshot(
+        windows = windows,
+        credits = kimiUsageCredits(quota["extraUsage"] as? JsonObject),
+        observation = Observation(now, isStale = false),
+    )
+}
+
+private fun kimiLocalUsageWindow(id: String, value: JsonObject?): ProviderUsageWindow? {
+    value ?: return null
+    val ratio = value.nonnegativeDouble("usedRatio") ?: return null
+    return ProviderUsageWindow(
+        id = id,
+        title = when (id) {
+            "limit5h" -> "5h"
+            "limit7d" -> "7d"
+            "monthTotal" -> "Monthly total"
+            "monthCode" -> "Monthly coding"
+            else -> id
+        },
+        usedPercent = (ratio * PERCENT).coerceAtMost(PERCENT),
+        resetsAt = value.text("resetAt")?.let(Instant::parseOrNull),
+        windowDurationMinutes = when (id) {
+            "limit5h" -> 5 * MINUTES_PER_HOUR
+            "limit7d" -> MINUTES_PER_WEEK
+            else -> null
+        },
+    )
+}
+
+/** Native catalog capacities, keyed by exact model identity rather than inferred from a display name. */
+internal fun kimiLocalModelLimits(envelope: JsonObject): Map<String, Long> {
+    val data = envelope["data"] as? JsonObject ?: return emptyMap()
+    return (data["items"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { element ->
+        val model = element as? JsonObject ?: return@mapNotNull null
+        val id = model.text("model") ?: return@mapNotNull null
+        val capacity = model.positiveLong("max_context_size") ?: return@mapNotNull null
+        id to capacity
+    }.toMap()
+}
 
 internal fun kimiContextUsage(update: JsonObject, now: Instant): ContextUsage? {
     if (update.text("sessionUpdate") != "usage_update") return null

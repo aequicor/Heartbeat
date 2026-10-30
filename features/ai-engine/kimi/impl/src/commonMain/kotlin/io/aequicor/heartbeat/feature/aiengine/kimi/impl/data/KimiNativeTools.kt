@@ -16,7 +16,8 @@ internal val KimiNativeCatalog = listOf(
 
 internal fun kimiNativeCall(toolCall: JsonObject, workingDirectory: String): NativeToolCall {
     val kind = toolCall["kind"]?.jsonPrimitive?.contentOrNull.orEmpty()
-    val name = when (kind) {
+    val fallbackName = toolCall["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val name = when (kind.ifBlank { fallbackName }) {
         "read" -> "read"
         "edit" -> "edit"
         "execute" -> "execute"
@@ -28,9 +29,16 @@ internal fun kimiNativeCall(toolCall: JsonObject, workingDirectory: String): Nat
         else -> AgentToolAction.Command
     }
     val arguments = toolCall["rawInput"] as? JsonObject
+    val paths = arguments?.let { args ->
+        listOfNotNull(
+            args["path"]?.jsonPrimitive?.contentOrNull,
+            args["file_path"]?.jsonPrimitive?.contentOrNull,
+        )
+    }.orEmpty()
     return NativeToolCall(
         name,
         action,
+        paths = paths,
         command = arguments?.get("command")?.jsonPrimitive?.contentOrNull,
         arguments = arguments,
         workingDirectory = workingDirectory,

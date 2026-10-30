@@ -1,0 +1,20 @@
+name: Build the pinned Kimi runtime
+description: Prepare verified Node and pnpm and build the host-controlled runtime for this runner.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.13'
+        architecture: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+    - name: Read pinned build versions
+      id: versions
+      shell: bash
+      run: python native/kimi/ci_toolchain.py versions
+    - uses: actions/setup-node@v6
+      with:
+        node-version: ${{ steps.versions.outputs.node }}
+        architecture: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+    - name: Build Kimi runtime
+      shell: bash
+      run: python native/kimi/ci_toolchain.py build

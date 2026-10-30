@@ -54,7 +54,7 @@ class KimiProcessProbeTest {
     }
 }
 
-private class ProbeProcess(isFinished: Boolean = false) : Process() {
+internal class ProbeProcess(isFinished: Boolean = false) : Process() {
     val isDestroyed = AtomicBoolean()
     private val finished = CountDownLatch(if (isFinished) 0 else 1)
     override fun getOutputStream() = ByteArrayOutputStream()

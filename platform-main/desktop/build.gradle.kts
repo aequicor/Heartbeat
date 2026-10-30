@@ -19,6 +19,9 @@ import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationT
 import org.jetbrains.compose.desktop.application.tasks.AbstractProguardTask
 import org.jetbrains.compose.reload.gradle.ComposeHotRun
 import java.time.Duration
+import java.security.MessageDigest
+import java.util.Locale
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinJvm)
@@ -414,7 +417,49 @@ tasks.register<JavaExec>("verifyShrunkTrain") {
         }
     }
 }
+// Build native/kimi/build_runtime.py first. Packaging must never silently fall back to an installed CLI.
+val kimiRuntimePlatform = providers.systemProperty("os.name").map {
+    when {
+        it.startsWith("Windows") -> "win32"
+        it.startsWith("Mac") -> "darwin"
+        else -> "linux"
+    }
+}
+val kimiRuntimeArch = providers.systemProperty("os.arch").map {
+    if (it == "aarch64" || it == "arm64") "arm64" else "x64"
+}
+val kimiRuntimeDirectory = rootProject.layout.projectDirectory.dir("native/kimi/out").dir(
+    kimiRuntimePlatform.zip(kimiRuntimeArch) { platform, arch -> "$platform-$arch" }.get(),
+)
+val kimiRuntimeVersion = libs.versions.kimi.runtime.get()
+val validateKimiRuntime = tasks.register("validateKimiRuntime") {
+    val runtimeRoot = kimiRuntimeDirectory.asFile
+    val expectedVersion = kimiRuntimeVersion
+    inputs.dir(runtimeRoot)
+    inputs.property("version", expectedVersion)
+    doLast {
+        val root = runtimeRoot
+        val executable = root.resolve(if (root.name.startsWith("win32")) "kimi.exe" else "kimi")
+        val manifest = root.resolve("runtime.properties")
+        check(executable.isFile && manifest.isFile && root.resolve("LICENSE").isFile) {
+            "Build the pinned Kimi runtime first: python native/kimi/build_runtime.py --node <node> --pnpm-js <pnpm.cjs>"
+        }
+        val properties = Properties().apply { manifest.inputStream().use(::load) }
+        check(properties.getProperty("version") == expectedVersion && properties.getProperty("permissionGate") == "1") {
+            "Kimi runtime does not match the pinned Heartbeat version"
+        }
+        val hash = MessageDigest.getInstance("SHA-256").digest(executable.readBytes())
+            .joinToString("") { "%02x".format(Locale.ROOT, it) }
+        check(properties.getProperty("sha256") == hash) { "Kimi runtime checksum mismatch; rebuild it before packaging" }
+    }
+}
+val prepareKimiRuntime = tasks.register<Sync>("prepareKimiRuntime") {
+    dependsOn(validateKimiRuntime)
+    from(kimiRuntimeDirectory)
+    into(layout.buildDirectory.dir("generated/kimiResources/common/kimi"))
+}
 val collectAppResources = tasks.register<Sync>("collectAppResources") {
+    from(prepareKimiRuntime) { into("common/kimi") }
     from(prepareExtensionMetadata) { into("common") }
     if (publishedSeed != null) {
         from(publishedSeed) { into("common/seed") }
@@ -507,12 +552,11 @@ tasks.withType<ComposeHotRun>().configureEach {
     mainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
     jvmArgs.addAll(jcefJvmArgs)
     // Hot Reload does not pass Compose app resources; attach the bundled Pi runtime the same way run does.
-    preparePiRuntime?.let { task ->
-        dependsOn(task)
-        // A configuration-time path: the Hot Reload argfile task resolves JVM arguments before tasks run.
-        val resourcesDir = piResourcesDir.get().dir("common").asFile.absolutePath
-        systemProperty("compose.application.resources.dir", resourcesDir)
-    }
+    dependsOn(collectDevelopmentAppResources)
+    systemProperty(
+        "compose.application.resources.dir",
+        layout.buildDirectory.dir("generated/developmentAppResources").get().asFile.absolutePath,
+    )
 }
 
 // The default Compose build is development; release tasks use the protected MainKt entry point (TestingMainKt in the

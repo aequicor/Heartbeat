@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
@@ -50,6 +51,25 @@ class EngineControlProjectionTest {
         assertEquals(listOf(true, false, false), list.engines.map { it.isConfigurable })
         assertEquals(listOf(false, false, false), list.engines.map { it.isBuiltIn })
         assertEquals(false, list.isLoading)
+    }
+
+    @Test
+    fun `the list marks only the built-in family engine as built in`() {
+        val observed = EngineControlState.Active(
+            snapshot = ControlSnapshot(
+                EngineManagementState(
+                    isEnabled = true,
+                    engines = listOf(
+                        ControlTestData.managed(EngineId("builtin"), family = EngineFamily.BuiltIn),
+                        ControlTestData.managed(pi, "Pi"),
+                    ),
+                ),
+                ControlTestData.configuration(pi),
+            ),
+        )
+        val list = listState(observed)
+
+        assertEquals(listOf(true, false), list.engines.map { it.isBuiltIn })
     }
 
     @Test

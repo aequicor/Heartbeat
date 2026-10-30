@@ -98,6 +98,7 @@ $RECYCLE.BIN/
 
 # --- Tools ----------------------------------------------------
 node_modules/
+/native/kimi/out/
 *.log
 # Detekt baseline коммитим; отчёты лежат в build/
 .detekt/
