@@ -153,6 +153,9 @@ static LRESULT CALLBACK captionProcedure(HWND window, UINT message, WPARAM w, LP
 }
 
 static LRESULT CALLBACK coverProcedure(HWND window, UINT message, WPARAM w, LPARAM l) {
+    if (message == WM_SETCURSOR && LOWORD(l) == HTCLIENT) {
+        SetCursor(LoadCursorW(nullptr, IDC_ARROW)); return TRUE;
+    }
     if (message == WM_NCHITTEST) {
         POINT point{GET_X_LPARAM(l), GET_Y_LPARAM(l)}; ScreenToClient(window, &point);
         RECT rect; GetClientRect(window, &rect); int edge = scaled(6);
@@ -508,6 +511,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     COLORREF frameColor = background(); DwmSetWindowAttribute(host, 35, &frameColor, sizeof(frameColor));
     WNDCLASSEXW coverType{}; coverType.cbSize = sizeof(coverType); coverType.hInstance = instance;
     coverType.lpfnWndProc = coverProcedure; coverType.lpszClassName = L"HeartbeatEmbeddedCover";
+    coverType.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     RegisterClassExW(&coverType);
     cover = CreateWindowExW(0, coverType.lpszClassName, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
                             0, 0, clientWidth.load(), clientHeight.load(), host, nullptr, instance, nullptr);
@@ -528,6 +532,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     std::fprintf(stderr, "NATIVE_WINDOW_CREATED host=%p pid=%lu\n", host, GetCurrentProcessId()); std::fflush(stderr);
     ShowWindow(host, SW_SHOW); UpdateWindow(host);
     SetForegroundWindow(host);
+    POINT pointer{};
+    if (GetCursorPos(&pointer) && WindowFromPoint(pointer) == cover) SetCursor(LoadCursorW(nullptr, IDC_ARROW));
     SetTimer(host, 1, 16, nullptr);
     worker = CreateThread(nullptr, 4 * 1024 * 1024, startJvm, nullptr, 0, nullptr);
     MSG message;

@@ -35,7 +35,15 @@ private class EmbeddedRenderer(private val density: Double) : AutoCloseable {
                 0,
                 true,
             )
-            text("Heartbeat", 12, 10, 200, theme.textPrimary, 12, platform.windows.DT_LEFT)
+            text(
+                "Heartbeat",
+                12,
+                0,
+                160,
+                theme.textSecondary,
+                alignment = platform.windows.DT_LEFT,
+                isCaptionTitle = true,
+            )
         }
     }
 

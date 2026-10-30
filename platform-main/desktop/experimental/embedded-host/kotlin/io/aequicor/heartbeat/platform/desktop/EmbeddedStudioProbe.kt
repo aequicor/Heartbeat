@@ -70,6 +70,7 @@ object EmbeddedStudioProbe {
         try {
             lease = checkNotNull(DesktopStorageOwner.claim(Path.of(desktopStorageRoot())))
             EventQueue.invokeAndWait {
+                frame.cursor = java.awt.Cursor.getDefaultCursor()
                 val created = Session(frame, host, lease, sink)
                 session = created
                 created.attach()
@@ -108,7 +109,7 @@ object EmbeddedStudioProbe {
         var revealedAt by mutableStateOf<Long?>(null)
         private val lifecycle = LifecycleRegistry()
         private val graph: HeartbeatGraph = createHeartbeatGraph(isDevelopment = true, hasLocalSecrets = true)
-        private val panel = ComposePanel()
+        private val panel = ComposePanel().apply { cursor = java.awt.Cursor.getDefaultCursor() }
         private val nativeHost = HWND(Pointer(host))
         private fun captionHit(client: Boolean) {
             User32.INSTANCE.PostMessage(nativeHost, 0x800E, WPARAM(if (client) 1 else 0), LPARAM(0))

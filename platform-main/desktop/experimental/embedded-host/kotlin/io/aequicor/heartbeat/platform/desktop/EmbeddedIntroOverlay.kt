@@ -4,9 +4,12 @@
 package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,6 +33,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.sun.jna.platform.win32.Kernel32
 import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.platform.nativelauncher.LauncherBrand
 import io.aequicor.heartbeat.platform.nativelauncher.LauncherPoint
@@ -46,7 +50,7 @@ internal fun EmbeddedIntroOverlay(dark: Boolean, revealedAt: Long?, modifier: Mo
     val frame = EmbeddedIntroTimeline.continuation(now, revealedAt)
     if (frame.opacity <= 0) return
     Box(
-        modifier.fillMaxSize().graphicsLayer { alpha = frame.opacity.toFloat() }.pointerInput(Unit) {
+        modifier.fillMaxSize().pointerInput(Unit) {
             awaitPointerEventScope {
                 while (true) {
                     awaitPointerEvent(PointerEventPass.Initial).changes.forEach {
@@ -56,10 +60,16 @@ internal fun EmbeddedIntroOverlay(dark: Boolean, revealedAt: Long?, modifier: Mo
             }
         },
     ) {
-        Canvas(Modifier.fillMaxSize()) {
+        Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = frame.opacity.toFloat() }) {
             drawEmbeddedBrand(dark, frame.transform.toFloat())
         }
-        HbText("Heartbeat", Modifier.padding(start = 12.dp, top = 10.dp), style = HbTheme.typography.caption)
+        HbRow(
+            Modifier.width(160.dp).height(HbTheme.dimensions.headerHeight)
+                .background(if (dark) Color(0xFF28282B) else Color(0xFFF4F4F5))
+                .padding(horizontal = HbTheme.spacing.l),
+        ) {
+            HbText("Heartbeat", style = HbTheme.typography.label, color = HbTheme.colors.textSecondary, maxLines = 1)
+        }
     }
 }
 

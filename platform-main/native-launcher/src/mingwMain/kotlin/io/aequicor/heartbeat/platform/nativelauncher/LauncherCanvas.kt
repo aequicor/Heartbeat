@@ -48,6 +48,7 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
     private val caption = createLauncherFont((14 * density).roundToInt(), platform.windows.FW_NORMAL)
     private val title = createLauncherFont((23 * density).roundToInt(), platform.windows.FW_SEMIBOLD)
     private val welcome = createLauncherFont((28 * density).roundToInt(), platform.windows.FW_MEDIUM)
+    private val header = createLauncherFont((13 * density).roundToInt(), platform.windows.FW_NORMAL)
 
     fun paint(target: HDC, width: Int, height: Int, draw: LauncherCanvas.() -> Unit) {
         if (width <= 0 || height <= 0) return
@@ -177,8 +178,13 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
         size: Int = 13,
         alignment: Int = platform.windows.DT_CENTER,
         multiline: Boolean = false,
+        isCaptionTitle: Boolean = false,
     ) {
         val clips = textClips.toList()
+        val wrapping = if (multiline) platform.windows.DT_WORDBREAK else platform.windows.DT_SINGLELINE
+        val flags = alignment or wrapping or if (isCaptionTitle) platform.windows.DT_VCENTER else 0
+        val lineHeight = if (multiline) MULTILINE_HEIGHT else LINE_HEIGHT
+        val actualHeight = if (isCaptionTitle) HEADER_HEIGHT else lineHeight
         textLayers += { dc ->
             memScoped {
                 val saved = platform.windows.SaveDC(dc)
@@ -193,12 +199,7 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
                 }
                 val previous = platform.windows.SelectObject(
                     dc,
-                    when (size) {
-                        28 -> welcome
-                        23 -> title
-                        12 -> caption
-                        else -> body
-                    },
+                    textFont(size, isCaptionTitle),
                 )
                 platform.windows.SetBkMode(dc, platform.windows.TRANSPARENT)
                 platform.windows.SetTextColor(dc, color)
@@ -206,13 +207,21 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
                 rect.left = pixel(x)
                 rect.right = pixel(x + width)
                 rect.top = pixel(y)
-                rect.bottom = pixel(y + if (multiline) MULTILINE_HEIGHT else LINE_HEIGHT)
-                val wrapping = if (multiline) platform.windows.DT_WORDBREAK else platform.windows.DT_SINGLELINE
-                val flags = alignment or wrapping
+                rect.bottom = pixel(y + actualHeight)
                 platform.windows.DrawTextW(dc, value, -1, rect.ptr, flags.toUInt())
                 platform.windows.SelectObject(dc, previous)
                 platform.windows.RestoreDC(dc, saved)
             }
+        }
+    }
+
+    private fun textFont(size: Int, isCaptionTitle: Boolean): platform.windows.HFONT {
+        if (isCaptionTitle) return header
+        return when (size) {
+            WELCOME_SIZE -> welcome
+            TITLE_SIZE -> title
+            META_SIZE -> caption
+            else -> body
         }
     }
 
@@ -328,7 +337,7 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
 
     override fun close() {
         releaseBuffer()
-        listOf(body, caption, title, welcome).forEach { platform.windows.DeleteObject(it) }
+        listOf(body, caption, title, welcome, header).forEach { platform.windows.DeleteObject(it) }
     }
 
     companion object {
@@ -337,6 +346,10 @@ internal class LauncherCanvas(private val density: Double = 1.0) : AutoCloseable
         private const val BUFFER_STEP = 128
         private const val MULTILINE_HEIGHT = 90
         private const val LINE_HEIGHT = 32
+        private const val HEADER_HEIGHT = 44
+        private const val WELCOME_SIZE = 28
+        private const val TITLE_SIZE = 23
+        private const val META_SIZE = 12
     }
 }
 
