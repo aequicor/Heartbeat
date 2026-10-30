@@ -42,7 +42,7 @@ class AppUpdatesProjectionTest {
         val projection = AppUpdateState.Checking(offered = release).toStage()
         assertEquals(UpdateStageUi.Checking, projection.stage)
         assertEquals("1.5.0", projection.version)
-        assertFalse(AppUpdatesScreenState(stage = projection.stage).canCheck)
+        assertFalse(AppUpdatesScreenState(stage = projection.stage).isCheckEnabled)
         assertEquals(UpdateStageUi.Checking, AppUpdateState.Checking().toStage().stage)
     }
 
@@ -51,12 +51,12 @@ class AppUpdatesProjectionTest {
         val ready = AppUpdateState.Available(release).toStage()
         assertEquals(UpdateStageUi.Available, ready.stage)
         assertEquals("https://example.test/page", ready.pageUrl)
-        assertTrue(AppUpdatesScreenState(stage = ready.stage).canInstall)
+        assertTrue(AppUpdatesScreenState(stage = ready.stage).isInstallEnabled)
 
         val manual = AppUpdateState.Available(release, AppUpdateFailure.ManualInstallRequired).toStage()
         assertEquals(UpdateStageUi.ManualInstall, manual.stage)
-        assertFalse(AppUpdatesScreenState(stage = manual.stage).canInstall)
-        assertTrue(AppUpdatesScreenState(stage = manual.stage).canCheck)
+        assertFalse(AppUpdatesScreenState(stage = manual.stage).isInstallEnabled)
+        assertTrue(AppUpdatesScreenState(stage = manual.stage).isCheckEnabled)
     }
 
     @Test
@@ -71,7 +71,7 @@ class AppUpdatesProjectionTest {
         val downloading = AppUpdateState.Installing(release, InstallProgress.Downloading(25, 100)).toStage()
         assertEquals(UpdateStageUi.Downloading, downloading.stage)
         assertEquals(25, downloading.percent)
-        assertFalse(AppUpdatesScreenState(stage = downloading.stage).canCheck)
+        assertFalse(AppUpdatesScreenState(stage = downloading.stage).isCheckEnabled)
         assertEquals(
             UpdateStageUi.Preparing,
             AppUpdateState.Installing(release, InstallProgress.Preparing).toStage().stage,
@@ -84,7 +84,7 @@ class AppUpdatesProjectionTest {
         assertEquals(UpdateStageUi.UpToDate, AppUpdateState.UpToDate().toStage().stage)
         val required = AppUpdateState.UpToDate(isPlatformUpdateRequired = true).toStage()
         assertEquals(UpdateStageUi.PlatformUpdateRequired, required.stage)
-        assertTrue(AppUpdatesScreenState(stage = required.stage).canCheck)
+        assertTrue(AppUpdatesScreenState(stage = required.stage).isCheckEnabled)
     }
 
     @Test
@@ -92,6 +92,6 @@ class AppUpdatesProjectionTest {
         val projection = AppUpdateState.CheckFailed(AppUpdateFailure.Network).toStage()
         assertEquals(UpdateStageUi.CheckFailed, projection.stage)
         assertEquals(UpdateFailureUi.Network, projection.failure)
-        assertTrue(AppUpdatesScreenState(stage = projection.stage).canCheck)
+        assertTrue(AppUpdatesScreenState(stage = projection.stage).isCheckEnabled)
     }
 }

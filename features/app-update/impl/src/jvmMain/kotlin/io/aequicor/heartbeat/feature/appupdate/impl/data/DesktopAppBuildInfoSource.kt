@@ -58,7 +58,7 @@ internal class DesktopAppBuildInfoSource(
     }
 
     /** The bundles of the running train and whether the launcher marked it as a beta train. */
-    private class RunningTrain(val bundles: List<TrainBundle>, val isBeta: Boolean)
+    private data class RunningTrain(val bundles: List<TrainBundle>, val isBeta: Boolean)
 
     /** The `channel` the launcher keeps in the queued manifest; [parseTrainManifest] has validated the text already. */
     private fun channelOf(text: String): String? =

@@ -11,14 +11,17 @@ import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.InstallationCheck
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.InstallationProbe
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.ReleasePlatform
+import java.nio.file.Files
 import java.nio.file.InvalidPathException
+import java.nio.file.LinkOption
 import java.nio.file.Path
 
 /**
  * What the jpackage launcher states about this launch. Only the release launcher names the update repository
- * (`platform-main/desktop/build.gradle.kts`); `jpackage.app-path` is the installed launcher executable.
+ * (`platform-main/desktop/build.gradle.kts`). Native bootstrap supplies its outer installation path separately;
+ * `jpackage.app-path` always remains the inner JVM executable used by workers.
  */
-internal class LaunchProperties(private val property: (String) -> String? = System::getProperty) {
+internal class LaunchProperties(private val property: (String) -> String? = ::launchProperty) {
     private val log = Log.tag("LaunchProperties")
 
     /** The installed version, or null for a launch without one (`development`). */
@@ -27,16 +30,32 @@ internal class LaunchProperties(private val property: (String) -> String? = Syst
     /** Where updates are published; only release builds have it. */
     val repository: GitHubRepository? get() = property(UPDATE_REPOSITORY)?.let(GitHubRepository::parse)
 
-    /** The launcher executable of the installed app, or null outside an installed app. */
+    /**
+     * The outer installed launcher, or the full JVM installation for legacy packages. A direct launch from an
+     * immutable bootstrap cache without its native parent cannot replace that cache through a full installer.
+     * The jpackage property itself is never modified: workers still run the inner JVM executable.
+     */
     val launcher: Path?
-        get() = property(APP_PATH)?.takeIf { it.isNotBlank() }?.let { path ->
-            try {
-                Path.of(path).toAbsolutePath()
+        get() {
+            val native = property(NATIVE_LAUNCHER)?.takeIf { it.isNotBlank() }
+            val value = native ?: property(APP_PATH)?.takeIf { it.isNotBlank() } ?: return null
+            return try {
+                val path = Path.of(value)
+                if (native != null && !path.isAbsolute) {
+                    log.w { "native launcher path is not absolute" }
+                    null
+                } else {
+                    path.toAbsolutePath().takeUnless { native == null && isCachedImage(it) }
+                }
             } catch (e: InvalidPathException) {
                 log.w(e.withoutPath()) { "launcher path is invalid" }
                 null
             }
         }
+
+    private fun isCachedImage(executable: Path): Boolean = generateSequence(executable.parent) { it.parent }
+        .take(MAX_IMAGE_ANCESTORS)
+        .any { Files.isRegularFile(it.resolve("bootstrap-image.json"), LinkOption.NOFOLLOW_LINKS) }
 
     /** The JVM's architecture name (`aarch64`, `amd64`, `x86_64`). */
     val architecture: String get() = property(OS_ARCH).orEmpty()
@@ -66,6 +85,8 @@ internal class LaunchProperties(private val property: (String) -> String? = Syst
         }
 
     private companion object {
+        const val MAX_IMAGE_ANCESTORS = 4
+        const val NATIVE_LAUNCHER = "heartbeat.native.launcher"
         const val TRAIN = "heartbeat.train"
         const val BAD_TRAINS = "heartbeat.train.bad"
         const val LAUNCHER_ROOT = "heartbeat.launcher.root"
@@ -123,3 +144,10 @@ internal fun releasePlatform(host: HostPlatform, architecture: String): ReleaseP
 }
 
 private fun InvalidPathException.withoutPath(): Throwable = IllegalArgumentException("InvalidPathException")
+
+/** Keep the existing injectable property reader while passing the native parent's path only to update policy. */
+private fun launchProperty(name: String): String? = if (name == "heartbeat.native.launcher") {
+    System.getenv("HEARTBEAT_NATIVE_LAUNCHER")
+} else {
+    System.getProperty(name)
+}

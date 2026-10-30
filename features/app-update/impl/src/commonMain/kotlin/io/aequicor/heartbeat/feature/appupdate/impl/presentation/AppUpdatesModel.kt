@@ -93,7 +93,7 @@ data class AppUpdatesScreenState(
     val pageUrl: String? = null,
 ) : MVIState {
     /** Whether a check can be started now. */
-    val canCheck: Boolean
+    val isCheckEnabled: Boolean
         get() = when (stage) {
             UpdateStageUi.Idle,
             UpdateStageUi.UpToDate,
@@ -103,11 +103,18 @@ data class AppUpdatesScreenState(
             UpdateStageUi.ManualInstall,
             -> true
 
-            else -> false
+            UpdateStageUi.Disabled,
+            UpdateStageUi.NotReleaseBuild,
+            UpdateStageUi.UnsupportedPlatform,
+            UpdateStageUi.Checking,
+            UpdateStageUi.Downloading,
+            UpdateStageUi.Preparing,
+            UpdateStageUi.Restarting,
+            -> false
         }
 
     /** Whether the offered release can be installed now. */
-    val canInstall: Boolean get() = stage == UpdateStageUi.Available
+    val isInstallEnabled: Boolean get() = stage == UpdateStageUi.Available
 }
 
 /** User requests of the page. */
