@@ -80,6 +80,17 @@ internal class DesktopAgentToolBridge(
     override suspend fun attach(
         scope: AgentToolScope,
         context: suspend () -> AgentToolContext?,
+    ): AgentToolBridgeAttachment = attachInternal(scope, false) { _, _ -> context() }
+
+    override suspend fun attachCorrelated(
+        scope: AgentToolScope,
+        context: suspend (call: String, name: String) -> AgentToolContext?,
+    ): AgentToolBridgeAttachment = attachInternal(scope, true, context)
+
+    private fun attachInternal(
+        scope: AgentToolScope,
+        isCorrelated: Boolean,
+        context: suspend (String, String) -> AgentToolContext?,
     ): AgentToolBridgeAttachment {
         check(!profile.isClosed) { "Agent tools profile is closed" }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also(random::nextBytes))
@@ -88,7 +99,7 @@ internal class DesktopAgentToolBridge(
                 profile.coroutineScope.coroutineContext[kotlinx.coroutines.Job],
             ),
         )
-        val capability = Capability(scope, context, lifetime)
+        val capability = Capability(scope, context, lifetime, isCorrelated)
         capabilities[token] = capability
         var isStarted = false
         val running = try {
@@ -157,7 +168,16 @@ internal class DesktopAgentToolBridge(
         var revocation: kotlinx.coroutines.DisposableHandle? = null
         try {
             val isToolCall = !isMcp || (request["method"] as? JsonPrimitive)?.content == "tools/call"
-            val context = if (isToolCall) capability.context() else null
+            val params = if (isMcp) request["params"] as? JsonObject else request
+            val args = params?.get("arguments") as? JsonObject
+            val call = (args?.get("__heartbeat_call") as? JsonPrimitive)?.content.orEmpty()
+            val name = (params?.get("name") as? JsonPrimitive)?.content.orEmpty()
+            val isCorrelationValid = !capability.isCorrelated || (isMcp && call.isNotBlank())
+            val context = if (isToolCall && isCorrelationValid) {
+                capability.context(call, name)
+            } else {
+                null
+            }
             val job = checkNotNull(currentCoroutineContext()[kotlinx.coroutines.Job])
             revocation = context?.lifetime?.invokeOnCompletion { job.cancel() }
             // Leave the HTTP executor free; only the captured context crosses this dispatch boundary.
@@ -264,7 +284,7 @@ internal class DesktopAgentToolBridge(
             }
 
             "tools/call" -> {
-                val call = JsonObject(params + ("callId" to JsonPrimitive("mcp-${request["id"]}")))
+                val call = mcpCallParams(capability, params, request)
                 val output = execute(capability, call, context)
                 buildJsonObject {
                     put("isError", output["success"] != JsonPrimitive(true))
@@ -294,6 +314,13 @@ internal class DesktopAgentToolBridge(
         return mcpResponse(request, "result", result)
     }
 
+    private fun mcpCallParams(capability: Capability, params: JsonObject, request: JsonObject): JsonObject {
+        val args = params["arguments"] as? JsonObject ?: JsonObject(emptyMap())
+        val clean = if (capability.isCorrelated) JsonObject(args - "__heartbeat_call") else args
+        val fields = params + ("arguments" to clean) + ("callId" to JsonPrimitive("mcp-${request["id"]}"))
+        return JsonObject(fields)
+    }
+
     private fun mcpResponse(request: JsonObject, field: String, payload: JsonElement): JsonObject = buildJsonObject {
         put("jsonrpc", "2.0")
         put("id", request["id"] ?: JsonNull)
@@ -315,8 +342,9 @@ internal class DesktopAgentToolBridge(
 
     private data class Capability(
         val toolScope: AgentToolScope,
-        val context: suspend () -> AgentToolContext?,
+        val context: suspend (String, String) -> AgentToolContext?,
         val scope: CoroutineScope,
+        val isCorrelated: Boolean,
     )
 
     private companion object {

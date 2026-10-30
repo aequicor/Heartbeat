@@ -479,6 +479,17 @@ public interface AgentToolBridge {
         scope: AgentToolScope,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment = attach(scope.workspace, context)
+
+    /**
+     * Requires an adapter-issued one-use call identity in each MCP invocation. The bridge removes the reserved
+     * `__heartbeat_call` field before dispatch. A null context rejects the call; implementations must not fall back
+     * to an uncorrelated attachment. The callback must atomically consume the identity and verify its name,
+     * session and originating turn; the bridge does not grant those checks on its own.
+     */
+    public suspend fun attachCorrelated(
+        scope: AgentToolScope,
+        context: suspend (call: String, name: String) -> AgentToolContext?,
+    ): AgentToolBridgeAttachment = throw UnsupportedOperationException("Correlated agent tools are unavailable")
 }
 
 /** Mobile/default bridge rejects local process access. */

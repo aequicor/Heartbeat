@@ -52,6 +52,36 @@ import kotlin.test.assertTrue
 
 class DesktopAgentToolBridgeTest {
     @Test
+    fun `correlated MCP calls consume identity and remove it from tool arguments`() = runBlocking {
+        val profile = BridgeProfile()
+        val tools = CapturingTools(AgentToolResult("ok"))
+        val pending = mutableSetOf("valid")
+        val bridge = DesktopAgentToolBridge(tools, profile)
+        val capability = bridge.attachCorrelated(AgentToolScope(PROJECT)) { call, name ->
+            if (name == "tool" && pending.remove(call)) context() else null
+        }
+        fun rpc(identity: String) = """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+""" +
+            """"name":"tool","arguments":{"__heartbeat_call":"$identity","value":"x"}}}"""
+        try {
+            val endpoint = capability.endpoint
+            assertTrue(post(endpoint.url, rpc("forged"), endpoint.token).body().contains("\"isError\":true"))
+            assertTrue(post(endpoint.url, rpc("valid"), endpoint.token).body().contains("\"isError\":false"))
+            assertTrue(post(endpoint.url, rpc("valid"), endpoint.token).body().contains("\"isError\":true"))
+            pending.add("old")
+            pending.clear() // Turn finished before the old request arrived.
+            pending.add("next")
+            assertTrue(post(endpoint.url, rpc("old"), endpoint.token).body().contains("\"isError\":true"))
+            assertTrue(post(endpoint.url, rpc("next"), endpoint.token).body().contains("\"isError\":false"))
+            assertEquals(2, tools.calls.size)
+            assertEquals(Json.parseToJsonElement("""{"value":"x"}"""), tools.arguments.first())
+        } finally {
+            capability.close()
+            profile.close()
+        }
+    }
+
+    @Test
     fun `MCP handshake uses stored session scope and calls cannot substitute another session`() = runBlocking {
         val profile = BridgeProfile()
         val captured = mutableListOf<AgentToolScope>()
