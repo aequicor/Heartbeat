@@ -6,8 +6,13 @@ internal fun windowsCommandLine(executable: String, arguments: List<String>): St
     return (listOf(executable) + arguments).joinToString(" ", transform = ::quoteWindowsArgument)
 }
 
-private fun quoteWindowsArgument(argument: String): String = buildString {
+private fun quoteWindowsArgument(argument: String): String {
     require('\u0000' !in argument) { "NUL in Windows argument" }
+    if (argument.isNotEmpty() && argument.none { it in " \t\"" }) return argument
+    return quotedWindowsArgument(argument)
+}
+
+private fun quotedWindowsArgument(argument: String): String = buildString {
     append('"')
     var slashes = 0
     for (character in argument) {
