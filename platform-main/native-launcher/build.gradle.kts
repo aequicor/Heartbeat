@@ -117,6 +117,9 @@ kotlin {
         }
     }
     mingwX64 {
+        compilations.getByName("main").cinterops.create("windowsProcess") {
+            definitionFile.set(project.file("src/nativeInterop/cinterop/windowsProcess.def"))
+        }
         binaries {
             executable {
                 baseName = "heartbeat-launcher"

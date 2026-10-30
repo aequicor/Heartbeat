@@ -2,19 +2,18 @@
 
 package io.aequicor.heartbeat.platform.nativelauncher
 
+import io.aequicor.heartbeat.platform.nativelauncher.provisioning.BootstrapLayout
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.BootstrapProvisioner
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ImageStore
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionException
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionProgress
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionStage
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionedImage
-import io.aequicor.heartbeat.platform.nativelauncher.provisioning.WinHttpTransport
+import io.aequicor.heartbeat.platform.nativelauncher.provisioning.windowsHttpTransport
 import kotlinx.cinterop.CFunction
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.IntVar
-import kotlinx.cinterop.UShortVar
 import kotlinx.cinterop.alloc
-import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.invoke
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.plus
@@ -31,7 +30,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import okio.FileSystem
+import okio.Path
 import okio.Path.Companion.toPath
 import platform.windows.BS_OWNERDRAW
 import platform.windows.BeginPaint
@@ -57,17 +59,19 @@ import platform.windows.EndPaint
 import platform.windows.FF_DONTCARE
 import platform.windows.FW_NORMAL
 import platform.windows.FW_SEMIBOLD
-import platform.windows.FindWindowW
 import platform.windows.GetClientRect
+import platform.windows.GetDC
+import platform.windows.GetDeviceCaps
 import platform.windows.GetFileAttributesW
+import platform.windows.GetForegroundWindow
 import platform.windows.GetMessageW
-import platform.windows.GetModuleFileNameW
 import platform.windows.GetModuleHandleW
 import platform.windows.GetMonitorInfoW
 import platform.windows.GetProcAddress
 import platform.windows.GetStockObject
 import platform.windows.GetSystemMetrics
 import platform.windows.GetTickCount64
+import platform.windows.GetWindowPlacement
 import platform.windows.GetWindowRect
 import platform.windows.HANDLE
 import platform.windows.HBRUSH
@@ -85,8 +89,11 @@ import platform.windows.IDC_ARROW
 import platform.windows.IMAGE_ICON
 import platform.windows.INVALID_FILE_ATTRIBUTES
 import platform.windows.InvalidateRect
+import platform.windows.IsIconic
 import platform.windows.IsZoomed
 import platform.windows.KillTimer
+import platform.windows.LOGPIXELSX
+import platform.windows.LOGPIXELSY
 import platform.windows.LPARAM
 import platform.windows.LRESULT
 import platform.windows.LR_LOADFROMFILE
@@ -94,7 +101,6 @@ import platform.windows.LineTo
 import platform.windows.LoadCursorW
 import platform.windows.LoadImageW
 import platform.windows.LoadLibraryW
-import platform.windows.MAX_PATH
 import platform.windows.MINMAXINFO
 import platform.windows.MONITORINFO
 import platform.windows.MONITOR_DEFAULTTONEAREST
@@ -113,6 +119,7 @@ import platform.windows.PostQuitMessage
 import platform.windows.RECT
 import platform.windows.Rectangle
 import platform.windows.RegisterClassExW
+import platform.windows.ReleaseDC
 import platform.windows.RoundRect
 import platform.windows.SM_CXSCREEN
 import platform.windows.SM_CYSCREEN
@@ -135,12 +142,15 @@ import platform.windows.SetTextColor
 import platform.windows.SetTimer
 import platform.windows.SetWindowTextW
 import platform.windows.ShowWindow
+import platform.windows.Sleep
 import platform.windows.TRANSPARENT
 import platform.windows.TerminateProcess
 import platform.windows.TranslateMessage
 import platform.windows.UINT
 import platform.windows.UpdateWindow
 import platform.windows.WAIT_OBJECT_0
+import platform.windows.WINDOWPLACEMENT
+import platform.windows.WM_APP
 import platform.windows.WM_CLOSE
 import platform.windows.WM_COMMAND
 import platform.windows.WM_CTLCOLORSTATIC
@@ -155,11 +165,13 @@ import platform.windows.WM_SIZE
 import platform.windows.WM_TIMER
 import platform.windows.WNDCLASSEXW
 import platform.windows.WPARAM
+import platform.windows.WPF_RESTORETOMAXIMIZED
 import platform.windows.WS_CHILD
 import platform.windows.WS_OVERLAPPEDWINDOW
 import platform.windows.WS_VISIBLE
 import platform.windows.WaitForSingleObject
 import kotlin.concurrent.Volatile
+import kotlin.random.Random
 
 /**
  * Нативное окно лончера (Win32) по макету `design/features/native-launcher/native-launcher.pen`:
@@ -169,7 +181,11 @@ import kotlin.concurrent.Volatile
  * Окно создаётся до старта JVM; сворачивание не останавливает загрузку, закрытие отменяет запуск.
  * Тема — из токенов дизайн-системы ([LauncherTheme]), обновления прогресса — не чаще 100 мс.
  */
-class LauncherWindow(private val config: LauncherConfig, private val store: ImageStore) {
+class LauncherWindow(
+    private val config: LauncherConfig,
+    private val store: ImageStore,
+    private val args: List<String> = emptyList(),
+) {
     private var cancelButton: HWND? = null
     internal var retryButton: HWND? = null
     private var captionIcon: HWND? = null
@@ -199,12 +215,21 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
     @Volatile
     private var childProcess: HANDLE? = null
 
+    private val pendingImage = MutableStateFlow<ProvisionedImage?>(null)
+    private var handoffDirectory: Path? = null
+    private var systemDpi = DEFAULT_DPI
+
     internal val theme = LauncherTheme.current()
 
-    fun run(offline: ProvisionedImage?) {
+    fun run(offline: ProvisionedImage?): Int {
         LauncherWindowRegistry.instance = this
         memScoped {
             SetProcessDPIAware()
+            val screenDc = GetDC(null)
+            systemDpi = GetDeviceCaps(screenDc, LOGPIXELSX).coerceAtLeast(DEFAULT_DPI)
+            ReleaseDC(null, screenDc)
+            val initialWidth = scale(WINDOW_WIDTH).coerceAtMost(GetSystemMetrics(SM_CXSCREEN) * SCREEN_FRACTION / 10)
+            val initialHeight = scale(WINDOW_HEIGHT).coerceAtMost(GetSystemMetrics(SM_CYSCREEN) * SCREEN_FRACTION / 10)
             val instance = GetModuleHandleW(null)
             backgroundBrush = CreateSolidBrush(theme.background)
             titleFont = createFont(TITLE_FONT_SIZE, FW_SEMIBOLD)
@@ -221,10 +246,10 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
                 // Windows сам даёт resize, Aero Snap, анимации, тень и taskbar. Видимую рамку убирает
                 // WM_NCCALCSIZE (вся область окна становится клиентской), перетаскивание — WM_NCHITTEST.
                 WS_OVERLAPPEDWINDOW.toUInt(),
-                (GetSystemMetrics(SM_CXSCREEN) - WINDOW_WIDTH) / 2,
-                (GetSystemMetrics(SM_CYSCREEN) - WINDOW_HEIGHT) / 2,
-                WINDOW_WIDTH,
-                WINDOW_HEIGHT,
+                (GetSystemMetrics(SM_CXSCREEN) - initialWidth) / 2,
+                (GetSystemMetrics(SM_CYSCREEN) - initialHeight) / 2,
+                initialWidth,
+                initialHeight,
                 null,
                 null,
                 instance,
@@ -245,7 +270,17 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         }
         messageLoop()
         provisioningJob?.cancel()
-        childProcess?.let { CloseHandle(it) }
+        while (provisioningJob?.isCompleted == false) Sleep(CLEANUP_POLL_MS)
+        val code = childProcess?.let { process ->
+            try {
+                if (isCancelled) cancelChild(process)
+                waitForProcessExit(process)
+            } finally {
+                CloseHandle(process)
+            }
+        } ?: 0
+        handoffDirectory?.let { FileSystem.SYSTEM.deleteRecursively(it, mustExist = false) }
+        return if (isCancelled) 0 else code
     }
 
     /**
@@ -342,13 +377,14 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
 
     private fun createFont(height: Int, weight: Int): HFONT = memScoped {
         CreateFontW(
-            -height, 0, 0, 0, weight, 0u, 0u, 0u, DEFAULT_CHARSET.toUInt(),
+            -scale(height), 0, 0, 0, weight, 0u, 0u, 0u, DEFAULT_CHARSET.toUInt(),
             OUT_DEFAULT_PRECIS.toUInt(), CLIP_DEFAULT_PRECIS.toUInt(), DEFAULT_QUALITY.toUInt(),
             (DEFAULT_PITCH or FF_DONTCARE).toUInt(), "Segoe UI".wcstr.getPointer(this),
         )
     }!!
 
     private fun loadIcon(size: Int): HICON? {
+        val pixelSize = scale(size)
         val candidates = listOf(
             "icons/heartbeat.ico",
             "icons/dev/heartbeat.ico",
@@ -359,11 +395,11 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         val fromFile = roots.firstNotNullOfOrNull { root ->
             candidates.firstNotNullOfOrNull { candidate ->
                 val path = if (root == ".") candidate else "$root/$candidate"
-                loadIconFrom(path, size)
+                loadIconFrom(path, pixelSize)
             }
         }
         // Файла рядом с exe может не быть (E2E, dev-прогон): тогда иконка — из встроенной копии.
-        return fromFile ?: loadEmbeddedIcon(size)
+        return fromFile ?: loadEmbeddedIcon(pixelSize)
     }
 
     private fun loadEmbeddedIcon(size: Int): HICON? {
@@ -381,13 +417,7 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         return "$temp/heartbeat-launcher-icon-v$ICON_FILE_VERSION-$size.ico".toPath()
     }
 
-    private fun executableDirectory(): String = memScoped {
-        val buffer = allocArray<UShortVar>(MAX_PATH)
-        val length = GetModuleFileNameW(null, buffer, MAX_PATH.toUInt())
-        if (length == 0u) return@memScoped "."
-        val path = buffer.toKString()
-        path.substringBeforeLast('\\', path)
-    }
+    private fun executableDirectory(): String = checkNotNull(nativeLauncherExecutable().parent).toString()
 
     private fun loadIconFrom(path: String, size: Int): HICON? = memScoped {
         if (GetFileAttributesW(path.wcstr.getPointer(this)) == INVALID_FILE_ATTRIBUTES) return@memScoped null
@@ -399,8 +429,8 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         memScoped {
             val rect = alloc<RECT>()
             GetClientRect(window, rect.ptr)
-            val centerX = (rect.right - rect.left) / 2
-            val centerY = (rect.bottom - rect.top) / 2
+            val centerX = (rect.right - rect.left) * DEFAULT_DPI / systemDpi / 2
+            val centerY = (rect.bottom - rect.top) * DEFAULT_DPI / systemDpi / 2
             val buttonsX = centerX - (RETRY_BUTTON_WIDTH + BUTTON_GAP + CANCEL_BUTTON_WIDTH) / 2
             move(iconStatic, centerX - ICON_SIZE / 2, centerY - ICON_TOP_OFFSET, ICON_SIZE, ICON_SIZE)
             move(titleText, centerX - TITLE_WIDTH / 2, centerY - TITLE_TOP_OFFSET, TITLE_WIDTH, TITLE_HEIGHT)
@@ -422,7 +452,7 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
                 BUTTON_HEIGHT,
             )
             // Кастомный caption: иконка + заголовок слева, кнопки управления справа.
-            val clientWidth = rect.right - rect.left
+            val clientWidth = (rect.right - rect.left) * DEFAULT_DPI / systemDpi
             move(
                 captionIcon,
                 CAPTION_PADDING,
@@ -449,8 +479,10 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         }
     }
 
+    internal fun scale(value: Int): Int = value * systemDpi / DEFAULT_DPI
+
     private fun move(control: HWND?, x: Int, y: Int, width: Int, height: Int) {
-        control?.let { MoveWindow(it, x, y, width, height, 1) }
+        control?.let { MoveWindow(it, scale(x), scale(y), scale(width), scale(height), 1) }
     }
 
     private fun messageLoop() {
@@ -470,21 +502,23 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
                 require(config.trustedKeys.isNotEmpty()) {
                     "Bootstrap public key is not configured (HEARTBEAT_BOOTSTRAP_PUBLIC_KEY)"
                 }
-                val provisioner = BootstrapProvisioner(
-                    store = store,
-                    transport = WinHttpTransport(),
-                    manifestUrl = config.manifestUrl,
-                    signatureUrl = config.signatureUrl,
-                    trustedKeys = config.trustedKeys,
-                    expectedVersion = config.version,
-                    expectedTarget = config.target,
-                    expectedChannel = config.channel,
-                )
-                val image = provisioner.provision(
-                    onProgress = { progress -> updateProgress(progress) },
-                    isCancelled = { isCancelled },
-                )
-                startApplication(image)
+                val image = config.currentImage(store) ?: windowsHttpTransport().use { transport ->
+                    BootstrapProvisioner(
+                        store = store,
+                        transport = transport,
+                        manifestUrl = config.manifestUrl,
+                        signatureUrl = config.signatureUrl,
+                        trustedKeys = config.trustedKeys,
+                        expectedVersion = config.version,
+                        expectedTarget = config.target,
+                        expectedChannel = config.channel,
+                    ).provision(
+                        onProgress = { progress -> updateProgress(progress) },
+                        isCancelled = { isCancelled },
+                    )
+                }
+                pendingImage.value = image
+                PostMessageW(hwnd, IMAGE_READY_MESSAGE.toUInt(), 0uL, 0L)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -531,29 +565,54 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
 
             is ProvisionException.CorruptedDownload -> "Загруженный файл повреждён. Нажмите «Повторить»."
 
-            else -> "Ошибка запуска: ${error.message}"
+            else -> "Не удалось запустить приложение. Повторите попытку."
         }
         setText(stageText, text)
         retryButton?.let { ShowWindow(it, SW_SHOW) }
     }
 
+    internal fun onImageReady() {
+        val image = pendingImage.value ?: return
+        pendingImage.value = null
+        launcherLog.i("Launcher") { "Application image ready for native UI launch" }
+        if (!isCancelled) startApplication(image)
+    }
+
     private fun startApplication(image: ProvisionedImage) {
-        if (handoffStarted) return
+        try {
+            startApplicationChecked(image)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            launcherLog.w("Launcher", error) { "Cannot initialize application handoff" }
+            cancel()
+        }
+    }
+
+    private fun startApplicationChecked(image: ProvisionedImage) {
+        if (handoffStarted || isCancelled) return
         handoffStarted = true
         setText(stageText, "Запуск Heartbeat…")
-        val handoffDir = store.root.resolve("handoff")
-        val fs = okio.FileSystem.SYSTEM
-        fs.createDirectories(handoffDir)
-        if (fs.exists(handoffDir.resolve("ready"))) fs.delete(handoffDir.resolve("ready"))
-        if (fs.exists(handoffDir.resolve("hidden"))) fs.delete(handoffDir.resolve("hidden"))
+        handoffDirectory?.let { FileSystem.SYSTEM.deleteRecursively(it, mustExist = false) }
+        val handoffDir = store.root.resolve("handoff-${Random.nextLong()}")
+        handoffDirectory = handoffDir
+        FileSystem.SYSTEM.createDirectories(handoffDir)
         memScoped {
-            SetEnvironmentVariableW(
-                "HEARTBEAT_HANDOFF_DIR".wcstr.getPointer(this),
-                handoffDir.toString().wcstr.getPointer(this),
-            )
+            check(
+                SetEnvironmentVariableW(
+                    "HEARTBEAT_HANDOFF_DIR".wcstr.getPointer(this),
+                    handoffDir.toString().wcstr.getPointer(this),
+                ) != 0,
+            ) { "Cannot set native handoff directory" }
+            check(
+                SetEnvironmentVariableW(
+                    "HEARTBEAT_NATIVE_LAUNCHER".wcstr.getPointer(this),
+                    nativeLauncherExecutable().toString().wcstr.getPointer(this),
+                ) != 0,
+            ) { "Cannot set native launcher path" }
         }
-        val executable = image.directory.resolve("Heartbeat.exe").toString()
-        val process = launchProcess(executable)
+        val executable = image.directory.resolve(BootstrapLayout.forPlatform("windows", config.channel).executable)
+        val process = launchProcess(executable.toString(), args)
         childProcess = process
         if (process == null) {
             handoffStarted = false
@@ -566,37 +625,99 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
     }
 
     internal fun onHandoffTick() {
-        val process = childProcess ?: return
-        if (WaitForSingleObject(process, 0u) == WAIT_OBJECT_0) {
-            KillTimer(hwnd, HANDOFF_TIMER_ID.toULong())
-            val error = ProvisionException.Network("Приложение завершилось до появления окна")
-            launcherLog.w("Launcher", error) { "Application exited before showing a window" }
-            showError(error)
-            return
-        }
-        val handoffDir = store.root.resolve("handoff")
-        val fs = okio.FileSystem.SYSTEM
-        if (fs.exists(handoffDir.resolve("ready"))) {
-            // Приложение нарисовало первый кадр и ждёт `hidden`: уничтожаем окно лончера и только затем
-            // разрешаем ему показаться — видимого второго окна и второй иконки не возникает.
-            KillTimer(hwnd, HANDOFF_TIMER_ID.toULong())
-            DestroyWindow(hwnd)
-            fs.write(handoffDir.resolve("hidden")) { writeUtf8("hidden") }
+        try {
+            onImageReady()
+            checkHandoff()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            launcherLog.w("Launcher", error) { "Application handoff failed" }
+            cancel()
         }
     }
 
-    internal fun cancel() {
-        isCancelled = true
-        provisioningJob?.cancel()
-        childProcess?.let { process ->
-            val appWindow = memScoped { FindWindowW(null, "Heartbeat".wcstr.getPointer(this)) }
-            if (appWindow != null) {
-                PostMessageW(appWindow, WM_CLOSE.toUInt(), 0uL, 0L)
+    private fun checkHandoff() {
+        val process = childProcess ?: return
+        if (WaitForSingleObject(process, 0u) == WAIT_OBJECT_0) {
+            KillTimer(hwnd, HANDOFF_TIMER_ID.toULong())
+            val code = processExitCode(process)
+            if (code == 0) {
+                DestroyWindow(hwnd)
             } else {
-                TerminateProcess(process, 1u)
+                CloseHandle(process)
+                childProcess = null
+                handoffStarted = false
+                val error = IllegalStateException("Application exited before its first window: $code")
+                launcherLog.w("Launcher", error) { "Application exited before showing a window" }
+                showError(error)
             }
+            return
         }
-        DestroyWindow(hwnd)
+        val directory = handoffDirectory ?: return
+        val fs = FileSystem.SYSTEM
+        if (fs.exists(directory.resolve("ready"))) {
+            fs.write(directory.resolve("presentation.properties")) { writeUtf8(presentation().properties()) }
+            KillTimer(hwnd, HANDOFF_TIMER_ID.toULong())
+            DestroyWindow(hwnd)
+            fs.write(directory.resolve("hidden")) { writeUtf8("hidden") }
+        }
+    }
+
+    /** GetDeviceCaps matches the system-DPI-aware process; JVM/AWT uses logical pixels for window bounds. */
+    private fun presentation(): HandoffPresentation = memScoped {
+        val window = checkNotNull(hwnd)
+        val placement = alloc<WINDOWPLACEMENT>()
+        placement.length = sizeOf<WINDOWPLACEMENT>().toUInt()
+        check(GetWindowPlacement(window, placement.ptr) != 0) { "Cannot read native window placement" }
+        val rect = placement.rcNormalPosition
+        val monitor = alloc<MONITORINFO>()
+        monitor.cbSize = sizeOf<MONITORINFO>().toUInt()
+        check(GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST.toUInt()), monitor.ptr) != 0) {
+            "Cannot read native window monitor"
+        }
+        val offsetX = monitor.rcWork.left - monitor.rcMonitor.left
+        val offsetY = monitor.rcWork.top - monitor.rcMonitor.top
+        val dc = GetDC(null)
+        val dpiX = GetDeviceCaps(dc, LOGPIXELSX).coerceAtLeast(DEFAULT_DPI)
+        val dpiY = GetDeviceCaps(dc, LOGPIXELSY).coerceAtLeast(DEFAULT_DPI)
+        ReleaseDC(null, dc)
+        HandoffPresentation(
+            GetForegroundWindow() == window,
+            IsIconic(window) != 0,
+            (rect.left + offsetX) * DEFAULT_DPI / dpiX,
+            (rect.top + offsetY) * DEFAULT_DPI / dpiY,
+            (rect.right - rect.left) * DEFAULT_DPI / dpiX,
+            (rect.bottom - rect.top) * DEFAULT_DPI / dpiY,
+            IsZoomed(window) != 0 || (placement.flags and WPF_RESTORETOMAXIMIZED.toUInt()) != 0u,
+        )
+    }
+
+    internal fun cancel() {
+        if (isCancelled) return
+        isCancelled = true
+        hwnd?.let { ShowWindow(it, SW_HIDE) }
+        provisioningJob?.cancel()
+        try {
+            handoffDirectory?.let { directory ->
+                FileSystem.SYSTEM.write(directory.resolve("cancel")) { writeUtf8("cancel") }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            launcherLog.w("Launcher", error) { "Cannot request cooperative application cancellation" }
+        } finally {
+            DestroyWindow(hwnd)
+        }
+    }
+
+    private fun cancelChild(process: HANDLE) {
+        if (WaitForSingleObject(process, CANCELLATION_GRACE_MS) == WAIT_OBJECT_0) return
+        launcherLog.w("Launcher", IllegalStateException("Child did not acknowledge cancellation")) {
+            "Forcing application exit after cancellation grace period"
+        }
+        check(TerminateProcess(process, 1u) != 0 || WaitForSingleObject(process, 0u) == WAIT_OBJECT_0) {
+            "Cannot stop launcher child"
+        }
     }
 
     /**
@@ -621,7 +742,7 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
             screenX >= rect.left && screenX < rect.right && screenY >= rect.top && screenY < rect.bottom
         }
         if (overButton) return@memScoped HTCLIENT.toLong()
-        if (point.y < 0 || point.y >= CAPTION_HEIGHT) return@memScoped null
+        if (point.y < 0 || point.y >= scale(CAPTION_HEIGHT)) return@memScoped null
         HTCAPTION.toLong()
     }
 
@@ -629,6 +750,8 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
     internal fun onGetMinMaxInfo(lParam: LPARAM) {
         val info = lParam.toCPointer<MINMAXINFO>()?.pointed ?: return
         val window = hwnd ?: return
+        info.ptMinTrackSize.x = scale(MIN_WINDOW_WIDTH)
+        info.ptMinTrackSize.y = scale(MIN_WINDOW_HEIGHT)
         memScoped {
             val monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST.toUInt())
             val monitorInfo = alloc<MONITORINFO>()
@@ -636,8 +759,8 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
             if (GetMonitorInfoW(monitor, monitorInfo.ptr) != 0) {
                 info.ptMaxSize.x = monitorInfo.rcWork.right - monitorInfo.rcWork.left
                 info.ptMaxSize.y = monitorInfo.rcWork.bottom - monitorInfo.rcWork.top
-                info.ptMaxPosition.x = monitorInfo.rcWork.left
-                info.ptMaxPosition.y = monitorInfo.rcWork.top
+                info.ptMaxPosition.x = monitorInfo.rcWork.left - monitorInfo.rcMonitor.left
+                info.ptMaxPosition.y = monitorInfo.rcWork.top - monitorInfo.rcMonitor.top
             }
         }
     }
@@ -682,7 +805,14 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
         private const val MARGINS_INTS = 4
         private const val INT32_BYTES = 4
         private const val HANDOFF_TIMER_ID = 42
-        private const val HANDOFF_INTERVAL_MS = 250
+        internal const val IMAGE_READY_MESSAGE = WM_APP + 1
+        private const val CANCELLATION_GRACE_MS = 30_000u
+        private const val CLEANUP_POLL_MS = 10u
+        private const val DEFAULT_DPI = 96
+        private const val SCREEN_FRACTION = 9
+        private const val MIN_WINDOW_WIDTH = 640
+        private const val MIN_WINDOW_HEIGHT = 480
+        private const val HANDOFF_INTERVAL_MS = 50
         private const val PROGRESS_INTERVAL_MS = 100L
         private const val MB = 1_000_000L
         private const val TITLE_FONT_SIZE = 24
@@ -736,14 +866,14 @@ private fun launcherWndProc(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: 
                 null
             }
 
-            WM_TIMER -> {
+            WM_TIMER, LauncherWindow.IMAGE_READY_MESSAGE -> {
                 window.onHandoffTick()
                 null
             }
 
             WM_CLOSE -> {
                 window.cancel()
-                null
+                0L
             }
 
             WM_DESTROY -> {
@@ -781,7 +911,7 @@ private fun drawButton(window: LauncherWindow, lParam: LPARAM) {
         val previous = SelectObject(dc, background)
         // Без NULL_PEN фигура обводится стоковым чёрным пером.
         val nullPen = SelectObject(dc, GetStockObject(NULL_PEN))
-        val corner = LauncherWindow.BUTTON_CORNER_RADIUS
+        val corner = window.scale(LauncherWindow.BUTTON_CORNER_RADIUS)
         RoundRect(dc, rect.left, rect.top, rect.right, rect.bottom, corner, corner)
         SelectObject(dc, previous)
         SelectObject(dc, nullPen)
@@ -841,7 +971,7 @@ private fun drawCaptionButton(window: LauncherWindow, item: DRAWITEMSTRUCT) = me
     val glyphColor = window.theme.textPrimary
     val cx = (rect.left + rect.right) / 2
     val cy = (rect.top + rect.bottom) / 2
-    val half = LauncherWindow.CAPTION_GLYPH_HALF
+    val half = window.scale(LauncherWindow.CAPTION_GLYPH_HALF)
     when (item.hwndItem) {
         window.minimizeButton -> {
             val brush = CreateSolidBrush(glyphColor)
@@ -854,7 +984,7 @@ private fun drawCaptionButton(window: LauncherWindow, item: DRAWITEMSTRUCT) = me
         }
 
         window.maximizeButton -> {
-            val pen = CreatePen(PS_SOLID.toInt(), CAPTION_PEN_WIDTH, glyphColor)
+            val pen = CreatePen(PS_SOLID.toInt(), window.scale(CAPTION_PEN_WIDTH), glyphColor)
             val oldPen = SelectObject(dc, pen)
             val oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH.toInt()))
             if (window.hwnd?.let { IsZoomed(it) } != 0) {
@@ -870,7 +1000,7 @@ private fun drawCaptionButton(window: LauncherWindow, item: DRAWITEMSTRUCT) = me
         }
 
         window.closeButton -> {
-            val pen = CreatePen(PS_SOLID.toInt(), CAPTION_PEN_WIDTH, glyphColor)
+            val pen = CreatePen(PS_SOLID.toInt(), window.scale(CAPTION_PEN_WIDTH), glyphColor)
             val old = SelectObject(dc, pen)
             MoveToEx(dc, cx - half, cy - half, null)
             LineTo(dc, cx + half, cy + half)

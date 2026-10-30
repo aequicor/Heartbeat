@@ -2,23 +2,27 @@
 
 package io.aequicor.heartbeat.platform.nativelauncher
 
+import io.aequicor.heartbeat.platform.nativelauncher.provisioning.BootstrapLayout
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ImageStore
 import io.aequicor.heartbeat.platform.nativelauncher.provisioning.ProvisionedImage
-import kotlinx.cinterop.addressOf
+import io.aequicor.heartbeat.platform.nativelauncher.windowsprocess.hb_start_process
+import kotlinx.cinterop.UIntVar
+import kotlinx.cinterop.UShortVar
 import kotlinx.cinterop.alloc
+import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
-import kotlinx.cinterop.reinterpret
-import kotlinx.cinterop.sizeOf
-import kotlinx.cinterop.usePinned
+import kotlinx.cinterop.toKString
+import kotlinx.cinterop.value
 import kotlinx.cinterop.wcstr
+import okio.Path
+import okio.Path.Companion.toPath
 import platform.windows.CloseHandle
-import platform.windows.CreateProcessW
 import platform.windows.GetExitCodeProcess
+import platform.windows.GetModuleFileNameW
 import platform.windows.HANDLE
 import platform.windows.INFINITE
-import platform.windows.PROCESS_INFORMATION
-import platform.windows.STARTUPINFOW
+import platform.windows.WAIT_OBJECT_0
 import platform.windows.WaitForSingleObject
 import kotlin.system.exitProcess
 
@@ -33,50 +37,57 @@ fun main(args: Array<String>) {
     val offline = config.currentImage(store)
     if (args.any { it.startsWith("--heartbeat-") }) {
         val image = offline ?: error("No provisioned image for a worker process")
-        exitProcess(launchAndWait(image, args.toList()))
+        exitProcess(launchAndWait(image, args.toList(), config.channel))
     }
-    val window = LauncherWindow(config, store)
+    val window = LauncherWindow(config, store, args.toList())
     LauncherWindowRegistry.instance = window
-    window.run(offline)
+    exitProcess(window.run(offline))
 }
 
 /** Запускает `Heartbeat.exe` из активированного image и ждёт завершения; exit code приложения сохраняется. */
-private fun launchAndWait(image: ProvisionedImage, args: List<String>): Int {
-    val executable = image.directory.resolve("Heartbeat.exe").toString()
+private fun launchAndWait(image: ProvisionedImage, args: List<String>, channel: String): Int {
+    val executable = image.directory.resolve(BootstrapLayout.forPlatform("windows", channel).executable).toString()
     val process = launchProcess(executable, args) ?: return 1
-    WaitForSingleObject(process, INFINITE)
-    val code = memScoped {
-        val bytes = ByteArray(4)
-        bytes.usePinned { pinned ->
-            GetExitCodeProcess(process, pinned.addressOf(0).reinterpret())
-        }
-        bytes[0].toInt() or (bytes[1].toInt() shl 8) or (bytes[2].toInt() shl 16) or (bytes[3].toInt() shl 24)
+    return try {
+        waitForProcessExit(process)
+    } finally {
+        CloseHandle(process)
     }
-    CloseHandle(process)
-    return code
 }
 
-/** CreateProcessW с наследованием консоли; дескриптор процесса остаётся вызывателю, поток закрывается сразу. */
+internal fun processExitCode(process: HANDLE): Int = memScoped {
+    val code = alloc<UIntVar>()
+    check(GetExitCodeProcess(process, code.ptr) != 0) { "Cannot read application exit code" }
+    code.value.toInt()
+}
+
+internal fun waitForProcessExit(process: HANDLE): Int {
+    check(WaitForSingleObject(process, INFINITE) == WAIT_OBJECT_0) { "Cannot wait for application exit" }
+    return processExitCode(process)
+}
+
+/** Absolute Unicode outer path, independent from the immutable JVM image and jpackage.app-path. */
+internal fun nativeLauncherExecutable(): Path = memScoped {
+    val buffer = allocArray<UShortVar>(WINDOWS_PATH_CAPACITY)
+    val length = GetModuleFileNameW(null, buffer, WINDOWS_PATH_CAPACITY.toUInt())
+    check(length > 0u && length < WINDOWS_PATH_CAPACITY.toUInt()) { "Cannot resolve native launcher path" }
+    buffer.toKString().toPath()
+}
+
+private const val WINDOWS_PATH_CAPACITY = 32768
+
+/** CreateProcessW preserves argv and inherits only duplicate stdin/stdout/stderr handles. */
 internal fun launchProcess(executable: String, args: List<String> = emptyList()): HANDLE? = memScoped {
-    val commandLine = buildString {
-        append('"').append(executable).append('"')
-        args.forEach { append(' ').append(it) }
-    }
-    val startup = alloc<STARTUPINFOW>().apply { cb = sizeOf<STARTUPINFOW>().toUInt() }
-    val info = alloc<PROCESS_INFORMATION>()
-    val created = CreateProcessW(
+    val process = alloc<kotlinx.cinterop.COpaquePointerVar>()
+    val result = hb_start_process(
         executable.wcstr.getPointer(this),
-        commandLine.wcstr.getPointer(this),
-        null,
-        null,
-        0,
-        0u,
-        null,
-        null,
-        startup.ptr,
-        info.ptr,
+        windowsCommandLine(executable, args).wcstr.getPointer(this),
+        process.ptr,
     )
-    if (created == 0) return@memScoped null
-    CloseHandle(info.hThread)
-    info.hProcess
+    if (result != 0u) {
+        launcherLog.w("Launcher", IllegalStateException("CreateProcessW error=$result")) { "Cannot start owned child" }
+        null
+    } else {
+        process.value
+    }
 }
