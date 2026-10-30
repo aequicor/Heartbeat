@@ -134,6 +134,8 @@ include(":features:ai-engine:control-panel:api", ":features:ai-engine:control-pa
 include(":features:ai-engine:acp-interface:api", ":features:ai-engine:acp-interface:impl")
 include(":features:ai-engine:claude:api")
 include(":features:ai-engine:claude:impl")
+include(":features:ai-engine:kimi:api")
+include(":features:ai-engine:kimi:impl")
 include(":features:ai-session-engine-transfer:api", ":features:ai-session-engine-transfer:impl")
 include(":features:effort-configuration:api", ":features:effort-configuration:impl")
 include(":features:auto-continue:api", ":features:auto-continue:impl")
