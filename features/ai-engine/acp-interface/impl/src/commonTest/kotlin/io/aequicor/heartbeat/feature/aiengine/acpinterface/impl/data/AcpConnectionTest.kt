@@ -5,7 +5,9 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpImplementation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -37,6 +39,26 @@ class AcpConnectionTest {
         )
         h.reply(load, "{}")
         loading.await()
+        h.client.close()
+    }
+
+    @Test
+    fun `prompt forwards trusted metadata on the wire`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize()
+        h.session()
+        val content = listOf(
+            buildJsonObject {
+                put("type", "text")
+                put("text", "hello")
+            },
+        )
+        val metadata = buildJsonObject { put("heartbeatTurn", "opaque") }
+        val sending = backgroundScope.async { h.client.prompt("session", content, metadata) }
+        val request = h.outgoing("session/prompt")
+        assertEquals(metadata, request.obj("params")["_meta"])
+        h.reply(request, """{"stopReason":"end_turn"}""")
+        sending.await()
         h.client.close()
     }
 

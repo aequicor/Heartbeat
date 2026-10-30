@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpStdioTransport
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -55,6 +56,7 @@ internal class JvmKimiBackend(
     private val dispatchers: DispatcherProvider,
     private val toggles: FeatureToggles,
     private val tools: ProfileAgentTools,
+    private val bridge: AgentToolBridge,
     private val resources: ResourceResolver,
     private val localApi: JvmKimiLocalApi,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
@@ -154,6 +156,7 @@ internal class JvmKimiBackend(
             tools,
             resources,
             localApi::usage,
+            bridge,
         )
     }
 

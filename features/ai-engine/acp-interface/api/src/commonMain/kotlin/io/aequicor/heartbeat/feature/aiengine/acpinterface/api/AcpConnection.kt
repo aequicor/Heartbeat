@@ -23,6 +23,8 @@ public interface AcpClientFactory {
  * Cancelling a caller only abandons its wait: an already submitted operation continues in the owner scope.
  * The client never retries requests, switches credentials, or claims that a local cancellation stopped a turn.
  */
+// ACP lifecycle, session operations and compatibility overloads share one connection.
+@Suppress("TooManyFunctions")
 public interface AcpConnection {
     /** Negotiates v1; unsupported versions close the connection. */
     public suspend fun initialize(client: AcpImplementation): AcpInitialization
@@ -53,6 +55,14 @@ public interface AcpConnection {
      * [AcpClientHandler.onPromptSubmitted] establishes local wire submission before this call returns a result.
      */
     public suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult
+
+    /** Sends trusted extension metadata with a prompt; metadata may contain secrets and is never logged. */
+    public suspend fun prompt(sessionId: String, content: List<JsonObject>, metadata: JsonObject): AcpPromptResult =
+        if (metadata.isEmpty()) {
+            prompt(sessionId, content)
+        } else {
+            throw UnsupportedOperationException("ACP metadata unavailable")
+        }
 
     /** Sends one text block through the multimodal prompt contract. */
     public suspend fun prompt(sessionId: String, text: String): AcpPromptResult = prompt(

@@ -317,7 +317,12 @@ internal class DesktopAgentToolBridge(
     private fun mcpCallParams(capability: Capability, params: JsonObject, request: JsonObject): JsonObject {
         val args = params["arguments"] as? JsonObject ?: JsonObject(emptyMap())
         val clean = if (capability.isCorrelated) JsonObject(args - "__heartbeat_call") else args
-        val fields = params + ("arguments" to clean) + ("callId" to JsonPrimitive("mcp-${request["id"]}"))
+        val id = if (capability.isCorrelated) {
+            (args["__heartbeat_call"] as? JsonPrimitive)?.content.orEmpty()
+        } else {
+            "mcp-${request["id"]}"
+        }
+        val fields = params + ("arguments" to clean) + ("callId" to JsonPrimitive(id))
         return JsonObject(fields)
     }
 

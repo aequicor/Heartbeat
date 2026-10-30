@@ -20,6 +20,7 @@ NATIVE = ROOT / "native/kimi"
 PATCHED_PATHS = {
     "apps/kimi-code/package.json", "apps/kimi-code/src/cli/sub/acp.ts",
     "packages/acp-server/src/server.ts", "packages/acp-server/src/approval.ts",
+    "packages/acp-server/src/session.ts", "packages/acp-server/src/interaction-bridge.ts",
     "packages/agent-core-v2/src/features/plan/planService.ts",
     "packages/agent-core-v2/src/features/externalHooks/externalHooksFeature.ts",
     "packages/agent-core-v2/src/workspace/workspaceMcpConfig/workspaceMcpConfigService.ts",
@@ -27,12 +28,18 @@ PATCHED_PATHS = {
     "packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts",
     "packages/agent-core-v2/src/agent/mcp/tools/mcp.ts",
     "packages/agent-core-v2/src/tool/toolContract.ts",
+    "packages/agent-core-v2/src/agent/tools/agent/agentTool.ts",
+    "packages/agent-core-v2/src/features/swarm/tools/agent-swarm/agentSwarmTool.ts",
+    "packages/agent-core-v2/src/features/swarm/session/sessionSwarmService.ts",
+    "packages/agent-core-v2/src/features/tower/tools/spawn/spawnTool.ts",
 }
 ADDED_PATHS = {
     "apps/kimi-code/src/cli/sub/heartbeat-acp.ts", "packages/acp-server/src/heartbeat-acp.ts",
     "packages/acp-server/test/heartbeat-permissions.test.ts",
     "packages/agent-core-v2/test/features/plan/heartbeat-plan.test.ts",
     "packages/agent-core-v2/test/agent/mcp/heartbeat-binding.test.ts",
+    "packages/agent-core-v2/src/heartbeat/origins.ts",
+    "packages/agent-core-v2/test/heartbeat/heartbeat-origins.test.ts",
 }
 
 
@@ -86,9 +93,14 @@ def prepare(source, lock, version):
     (source / approval_type).write_text(replace_once(original(approval_type),
         "  readonly toolName: string;", "  readonly toolName: string;\n  readonly toolInput?: unknown;\n  readonly heartbeatCall?: string;"), encoding="utf-8")
     approval_service = "packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts"
-    (source / approval_service).write_text(replace_once(original(approval_service),
+    approval_code = replace_once(original(approval_service),
         "      toolName: name,\n      action,\n      display,",
-        "      toolName: name,\n      toolInput: context.args,\n      heartbeatCall: context.execution.heartbeatCall,\n      action,\n      display,"), encoding="utf-8")
+        "      toolName: name,\n      toolInput: context.args,\n      heartbeatCall: context.execution.heartbeatCall,\n      action,\n      display,")
+    approval_code = replace_once(approval_code, "      ...approvalRequest,\n      toolInput: context.args,",
+        "      id: approvalRequest.id, sessionId: approvalRequest.sessionId, agentId: approvalRequest.agentId,\n"
+        "      turnId: approvalRequest.turnId, toolCallId: approvalRequest.toolCallId, toolName: name,\n"
+        "      action, display, toolInput: context.args,")
+    (source / approval_service).write_text(approval_code, encoding="utf-8")
     approval_map = "packages/acp-server/src/approval.ts"
     mapped = replace_once(original(approval_map), "import { acpToolCallId } from './events-map';",
         "import { acpToolCallId, inferToolKind } from './events-map';")
@@ -109,11 +121,148 @@ def prepare(source, lock, version):
         "    resolveExecution: (args) => {\n      const heartbeatCall = options.serverName === 'heartbeat_tools' ? randomUUID() : undefined;\n      const callTool = (activeClient: MCPClient, input: unknown, signal: AbortSignal) =>\n        activeClient.callTool(tool.name, heartbeatCall === undefined ? (input ?? {}) as Record<string, unknown> :\n          { ...((input ?? {}) as Record<string, unknown>), __heartbeat_call: heartbeatCall }, signal);\n      return {\n      heartbeatCall,\n      approvalRule: qualifiedName,")
     mcp_code = replace_once(mcp_code, "      },\n    }),\n  };\n}", "      },\n    };\n    },\n  };\n}")
     (source / mcp_tool).write_text(mcp_code, encoding="utf-8")
+    origin_path = source / "packages/agent-core-v2/src/heartbeat/origins.ts"
+    origin_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(NATIVE / "heartbeat-origins.ts", origin_path)
+    agent_tool = "packages/agent-core-v2/src/agent/tools/agent/agentTool.ts"
+    agent_code = replace_once(original(agent_tool),
+        "import { type CollectionView }", "import { heartbeatOrigins } from '#/heartbeat/origins';\nimport { type CollectionView }")
+    agent_code = replace_once(agent_code, "    toolCallId: string,\n    controller: AbortController,\n  ): Promise<SubagentHandle>",
+        "    toolCallId: string,\n    controller: AbortController,\n    parentTurn: number,\n  ): Promise<SubagentHandle>")
+    agent_code = replace_once(agent_code, "    { toolCallId, signal }: ExecutableToolContext,",
+        "    { toolCallId, signal, turnId }: ExecutableToolContext,")
+    agent_code = replace_once(agent_code, "this.launch(args, toolCallId, controller)",
+        "this.launch(args, toolCallId, controller, turnId)")
+    agent_code = replace_once(agent_code,
+        "    const run = await this.subagents.run(\n      target.accessor.get(IAgentScopeContext).agentContext,\n      { kind: 'prompt', prompt: promptText },\n      { signal: controller.signal },\n    );",
+        "    const sessionId = (await this.sessionMetadata.read()).id;\n"
+        "    const starting = Promise.resolve().then(() => this.subagents.run(\n"
+        "      target.accessor.get(IAgentScopeContext).agentContext,\n"
+        "      { kind: 'prompt', prompt: promptText },\n      { signal: controller.signal },\n    ));\n"
+        "    heartbeatOrigins(sessionId)?.register(agentId, this.callerAgentId, parentTurn, starting);\n"
+        "    const run = await starting;")
+    (source / agent_tool).write_text(agent_code, encoding="utf-8")
+    swarm_tool = "packages/agent-core-v2/src/features/swarm/tools/agent-swarm/agentSwarmTool.ts"
+    swarm_tool_code = "import { withHeartbeatParent } from '#/heartbeat/origins';\n" + original(swarm_tool)
+    swarm_tool_code = replace_once(swarm_tool_code,
+        "const result = await this.runSwarm(args, context.signal, context.toolCallId);",
+        "const result = await withHeartbeatParent(this.callerAgentId, context.turnId, () =>\n"
+        "        this.runSwarm(args, context.signal, context.toolCallId));")
+    (source / swarm_tool).write_text(swarm_tool_code, encoding="utf-8")
+    swarm_service = "packages/agent-core-v2/src/features/swarm/session/sessionSwarmService.ts"
+    swarm_code = "import { heartbeatOrigins, heartbeatParent } from '#/heartbeat/origins';\n" + original(swarm_service)
+    swarm_code = replace_once(swarm_code,
+        "      run = await this.subagents.run(agentContextOf(child), request, {\n        signal: options.signal,\n        onReady: options.onReady,\n      });",
+        "      const parent = heartbeatParent();\n"
+        "      const sessionId = (await this.metadata.read()).id;\n"
+        "      const starting = Promise.resolve().then(() => this.subagents.run(agentContextOf(child), request, {\n"
+        "        signal: options.signal,\n        onReady: options.onReady,\n      }));\n"
+        "      if (parent !== undefined && parent.agent === caller.id) {\n"
+        "        heartbeatOrigins(sessionId)?.register(agentId, parent.agent, parent.turn, starting);\n      }\n"
+        "      run = await starting;")
+    (source / swarm_service).write_text(swarm_code, encoding="utf-8")
+    tower_tool = "packages/agent-core-v2/src/features/tower/tools/spawn/spawnTool.ts"
+    tower_code = "import { heartbeatOrigins } from '#/heartbeat/origins';\n" + original(tower_tool)
+    tower_code = replace_once(tower_code, "    { toolCallId }: ExecutableToolContext,", "    { toolCallId, turnId }: ExecutableToolContext,")
+    tower_code = replace_once(tower_code, "this.launch(prompt, description, toolCallId, controller, binding)",
+        "this.launch(prompt, description, toolCallId, controller, binding, turnId)")
+    tower_code = replace_once(tower_code,
+        "    binding: SubagentBinding | undefined,\n  ): Promise<SubagentHandle>",
+        "    binding: SubagentBinding | undefined,\n    parentTurn: number,\n  ): Promise<SubagentHandle>")
+    tower_code = replace_once(tower_code,
+        "    const run = await this.subagents.run(\n      createdContext,\n      { kind: 'prompt', prompt },\n      { signal: controller.signal },\n    );",
+        "    const starting = Promise.resolve().then(() => this.subagents.run(\n"
+        "      createdContext,\n      { kind: 'prompt', prompt },\n      { signal: controller.signal },\n    ));\n"
+        "    heartbeatOrigins(this.sessionContext.sessionId)?.register(agentId, this.callerAgentId, parentTurn, starting);\n"
+        "    const run = await starting;")
+    (source / tower_tool).write_text(tower_code, encoding="utf-8")
+    acp_session = "packages/acp-server/src/session.ts"
+    session_code = replace_once(original(acp_session),
+        "interface TurnDriver {", "interface TurnDriver {\n  readonly launch: Promise<PromptLaunchResult>;\n  readonly heartbeatTurn?: string;")
+    session_code = replace_once(session_code,
+        "import { AcpInteractionBridge } from './interaction-bridge';",
+        "import { AcpInteractionBridge } from './interaction-bridge';\n"
+        "import { HeartbeatOrigins, installHeartbeatOrigins, removeHeartbeatOrigins } from '@moonshot-ai/agent-core-v2/heartbeat/origins';")
+    session_code = replace_once(session_code,
+        "  private readonly interactionBridge: AcpInteractionBridge;",
+        "  private readonly heartbeatOrigins: HeartbeatOrigins;\n  private readonly interactionBridge: AcpInteractionBridge;")
+    session_code = replace_once(session_code, "    this.interactionBridge = new AcpInteractionBridge",
+        "    this.heartbeatOrigins = new HeartbeatOrigins((turn) => this.acceptsMainApproval(turn));\n"
+        "    installHeartbeatOrigins(sessionId, this.heartbeatOrigins);\n"
+        "    this.interactionBridge = new AcpInteractionBridge")
+    session_code = replace_once(session_code, "    this.interactionBridge.dispose();",
+        "    removeHeartbeatOrigins(this.sessionId, this.heartbeatOrigins);\n    this.interactionBridge.dispose();")
+    session_code = replace_once(session_code,
+        "new AcpInteractionBridge(conn, this.session, sessionId, elicitationForm)",
+        "new AcpInteractionBridge(conn, this.session, sessionId, elicitationForm, (agent, turn) => agent === undefined || turn === undefined ? Promise.resolve(undefined) : this.heartbeatOrigins.resolve(agent, turn))")
+    session_code = replace_once(session_code,
+        "const driver: TurnDriver = { resolve, reject, settled: false, early: [] };",
+        "const driver: TurnDriver = { resolve, reject, settled: false, early: [], launch, heartbeatTurn };")
+    session_code = replace_once(session_code,
+        "  async prompt(blocks: readonly ContentBlock[]): Promise<PromptResponse> {",
+        "  async prompt(blocks: readonly ContentBlock[], heartbeatTurn?: string): Promise<PromptResponse> {")
+    session_code = replace_once(session_code, "this.driveSkillActivation(intent.skillName, intent.args)",
+        "this.driveSkillActivation(intent.skillName, intent.args, heartbeatTurn)")
+    session_code = replace_once(session_code, "return this.driveTurn(content);", "return this.driveTurn(content, heartbeatTurn);")
+    session_code = replace_once(session_code,
+        "private driveSkillActivation(skillName: string, args: string): Promise<PromptResponse>",
+        "private driveSkillActivation(skillName: string, args: string, heartbeatTurn?: string): Promise<PromptResponse>")
+    session_code = replace_once(session_code,
+        "this.agent.activateSkill({ name: skillName, args: args.length > 0 ? args : undefined }),",
+        "() => this.agent.activateSkill({ name: skillName, args: args.length > 0 ? args : undefined }),\n      heartbeatTurn,")
+    session_code = replace_once(session_code, "private driveLaunch(launch: Promise<PromptLaunchResult>): Promise<PromptResponse>",
+        "private driveLaunch(start: () => Promise<PromptLaunchResult>, heartbeatTurn?: string): Promise<PromptResponse>")
+    session_code = replace_once(session_code,
+        "    return new Promise<PromptResponse>((resolve, reject) => {\n      const driver: TurnDriver",
+        "    const launch = Promise.resolve().then(start);\n    return new Promise<PromptResponse>((resolve, reject) => {\n      const driver: TurnDriver")
+    session_code = replace_once(session_code, "this.driveLaunch(this.agent.prompt({ input }))",
+        "this.driveLaunch(() => this.agent.prompt({ input }), heartbeatTurn)")
+    session_code = replace_once(session_code,
+        "  private driveTurn(input: readonly ContentPart[]): Promise<PromptResponse> {",
+        "  private async acceptsMainApproval(turn: number): Promise<string | undefined> {\n"
+        "    const driver = this.driver;\n"
+        "    if (driver === undefined) return undefined;\n"
+        "    try {\n"
+        "      const launched = await driver.launch;\n"
+        "      return this.driver === driver && !driver.settled && launched?.turn_id === turn ? driver.heartbeatTurn : undefined;\n"
+        "    } catch {\n"
+        "      return undefined;\n"
+        "    }\n"
+        "  }\n\n  private driveTurn(input: readonly ContentPart[], heartbeatTurn?: string): Promise<PromptResponse> {")
+    (source / acp_session).write_text(session_code, encoding="utf-8")
+    interaction = "packages/acp-server/src/interaction-bridge.ts"
+    interaction_code = replace_once(original(interaction),
+        "    private readonly elicitationForm = false,\n", "    private readonly elicitationForm = false,\n"
+        "    private readonly acceptsHostedApproval: (agent: string | undefined, turn: number | undefined) => Promise<string | undefined> = async () => undefined,\n")
+    interaction_code = replace_once(interaction_code,
+        "    const toolCall = buildPermissionToolCallUpdate(req);",
+        "    const heartbeatTurn = await this.acceptsHostedApproval(req.agentId, req.turnId);\n"
+        "    if (heartbeatTurn === undefined) return { decision: 'rejected' };\n"
+        "    const original = buildPermissionToolCallUpdate(req);\n"
+        "    const toolCall = { ...original, _meta: { ...original._meta, heartbeatTurn, heartbeatAgent: req.agentId } };")
+    interaction_code = replace_once(interaction_code,
+        "        const result = await this.handleQuestion(interaction.payload as QuestionRequest);",
+        "        const question = interaction.payload as QuestionRequest;\n"
+        "        const agent = interaction.tags?.['agentId'];\n"
+        "        const heartbeatTurn = await this.acceptsHostedApproval(typeof agent === 'string' ? agent : undefined, question.turnId);\n"
+        "        const result = heartbeatTurn === undefined ? null : await this.handleQuestion(question, heartbeatTurn, agent as string);")
+    interaction_code = replace_once(interaction_code,
+        "private async handleQuestion(req: QuestionRequest): Promise<QuestionAnswers | null>",
+        "private async handleQuestion(req: QuestionRequest, heartbeatTurn: string, agent: string): Promise<QuestionAnswers | null>")
+    interaction_code = replace_once(interaction_code,
+        "          title: 'AskUserQuestion',\n", "          title: 'AskUserQuestion',\n          _meta: { heartbeatTurn, heartbeatQuestion: true, heartbeatAgent: agent },\n")
+    (source / interaction).write_text(interaction_code, encoding="utf-8")
     server = "packages/acp-server/src/server.ts"
-    (source / server).write_text(replace_once(original(server),
+    server_code = replace_once(original(server),
         "const agentCapabilities: AgentCapabilities = {",
-        'const agentCapabilities: AgentCapabilities = {\n      _meta: { heartbeat: { permissionGate: 1, hostedCallBinding: 1 } },'),
-        encoding="utf-8")
+        'const agentCapabilities: AgentCapabilities = {\n      _meta: { heartbeat: { permissionGate: 1, hostedCallBinding: 1 } },')
+    server_code = replace_once(server_code,
+        "    if (signal === undefined) {\n      return acpSession.prompt(params.prompt);",
+        "    const heartbeatTurn = typeof params._meta?.['heartbeatTurn'] === 'string' ? params._meta['heartbeatTurn'] : undefined;\n"
+        "    if (signal === undefined) {\n      return acpSession.prompt(params.prompt, heartbeatTurn);")
+    server_code = replace_once(server_code, "return await acpSession.prompt(params.prompt);",
+        "return await acpSession.prompt(params.prompt, heartbeatTurn);")
+    (source / server).write_text(server_code, encoding="utf-8")
     package = "apps/kimi-code/package.json"
     metadata = json.loads(original(package))
     metadata["version"] = version
@@ -123,6 +272,9 @@ def prepare(source, lock, version):
     shutil.copyfile(NATIVE / "heartbeat-acp.ts", source / "packages/acp-server/src/heartbeat-acp.ts")
     shutil.copyfile(NATIVE / "heartbeat-binding.test.ts",
                     source / "packages/agent-core-v2/test/agent/mcp/heartbeat-binding.test.ts")
+    origin_test = source / "packages/agent-core-v2/test/heartbeat/heartbeat-origins.test.ts"
+    origin_test.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(NATIVE / "heartbeat-origins.test.ts", origin_test)
     plan_test = "packages/agent-core-v2/test/features/plan/planGuard.test.ts"
     (source / "packages/agent-core-v2/test/features/plan/heartbeat-plan.test.ts").write_text(
         replace_once(original(plan_test), "  describe('guard', () => {",
@@ -161,7 +313,7 @@ def main():
     run([node, pnpm, "exec", "vitest", "run", "--project", "agent-core-v2",
          "test/features/plan/heartbeat-plan.test.ts", "-t", "Heartbeat mandatory"], source, env)
     run([node, pnpm, "exec", "vitest", "run", "--project", "agent-core-v2",
-         "test/agent/mcp/heartbeat-binding.test.ts"], source, env)
+         "test/agent/mcp/heartbeat-binding.test.ts", "test/heartbeat/heartbeat-origins.test.ts"], source, env)
     run([node, pnpm, "-C", "apps/kimi-code", "run", "build:native:sea"], source, env)
     os_name = {"Windows": "win32", "Darwin": "darwin", "Linux": "linux"}[platform.system()]
     arch = {"AMD64": "x64", "x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]

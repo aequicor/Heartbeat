@@ -129,36 +129,40 @@ internal class DefaultAcpConnection(
         }
     }
 
-    override suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult = owned {
-        var isTurnOwned = false
-        try {
-            val response = admissions.withLock {
-                requireSession(sessionId)
-                lock.withLock {
-                    check(busySessions.add(sessionId)) { "Session is busy" }
-                    isTurnOwned = true
-                }
-                permissions.begin(sessionId)
-                log.i { "ACP prompt" }
-                peer.submit("session/prompt", promptParams(sessionId, content)).also {
-                    try {
-                        handler.onPromptSubmitted(sessionId)
-                    } catch (error: CancellationException) {
-                        withContext(NonCancellable) { peer.close() }
-                        throw error
-                    } catch (error: Exception) {
-                        log.w(AcpDiagnostic(error)) { "ACP prompt submission observer failed" }
-                        withContext(NonCancellable) { peer.close() }
-                        throw error
+    override suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult =
+        prompt(sessionId, content, JsonObject(emptyMap()))
+
+    override suspend fun prompt(sessionId: String, content: List<JsonObject>, metadata: JsonObject): AcpPromptResult =
+        owned {
+            var isTurnOwned = false
+            try {
+                val response = admissions.withLock {
+                    requireSession(sessionId)
+                    lock.withLock {
+                        check(busySessions.add(sessionId)) { "Session is busy" }
+                        isTurnOwned = true
+                    }
+                    permissions.begin(sessionId)
+                    log.i { "ACP prompt" }
+                    peer.submit("session/prompt", promptParams(sessionId, content, metadata)).also {
+                        try {
+                            handler.onPromptSubmitted(sessionId)
+                        } catch (error: CancellationException) {
+                            withContext(NonCancellable) { peer.close() }
+                            throw error
+                        } catch (error: Exception) {
+                            log.w(AcpDiagnostic(error)) { "ACP prompt submission observer failed" }
+                            withContext(NonCancellable) { peer.close() }
+                            throw error
+                        }
                     }
                 }
+                val body = response.await()
+                parse { acpJson.decodeFromJsonElement(AcpPromptResult.serializer(), body) }
+            } finally {
+                if (isTurnOwned) withContext(NonCancellable) { lock.withLock { busySessions.remove(sessionId) } }
             }
-            val body = response.await()
-            parse { acpJson.decodeFromJsonElement(AcpPromptResult.serializer(), body) }
-        } finally {
-            if (isTurnOwned) withContext(NonCancellable) { lock.withLock { busySessions.remove(sessionId) } }
         }
-    }
 
     override suspend fun cancel(sessionId: String) {
         owned {
@@ -190,12 +194,10 @@ internal class DefaultAcpConnection(
         }
     }
 
-    private fun promptParams(sessionId: String, content: List<JsonObject>): JsonObject {
+    private fun promptParams(sessionId: String, content: List<JsonObject>, metadata: JsonObject): JsonObject {
         require(content.isNotEmpty()) { "ACP prompt requires at least one content block" }
-        return fields(
-            sessionId(sessionId),
-            "prompt" to JsonArray(content),
-        )
+        val params = fields(sessionId(sessionId), "prompt" to JsonArray(content))
+        return if (metadata.isEmpty()) params else JsonObject(params + ("_meta" to metadata))
     }
 
     override suspend fun close() {

@@ -74,6 +74,7 @@ class DesktopAgentToolBridgeTest {
             assertTrue(post(endpoint.url, rpc("old"), endpoint.token).body().contains("\"isError\":true"))
             assertTrue(post(endpoint.url, rpc("next"), endpoint.token).body().contains("\"isError\":false"))
             assertEquals(2, tools.calls.size)
+            assertEquals(2, tools.calls.map { it.callId }.distinct().size)
             assertEquals(Json.parseToJsonElement("""{"value":"x"}"""), tools.arguments.first())
         } finally {
             capability.close()

@@ -1,11 +1,13 @@
 /** Runs inside the locked upstream checkout: real ACP/engine, scripted model, temporary home only. */
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getLiveSessionById, IAgentLifecycleService, IAgentPermissionPolicyService } from '@moonshot-ai/agent-core-v2';
 import { HeartbeatPermissionPolicy, installHeartbeatPermissions } from '../src/heartbeat-acp';
+import { AcpSession } from '../src/session';
 import { createTestClient, type TestClient } from './_helpers/acpClient';
 import { writeFakeModelConfig } from './_helpers/fakeModelConfig';
 import { createScriptedProvider } from './_helpers/scriptedProvider';
@@ -65,7 +67,7 @@ describe('mandatory Heartbeat permission boundary', () => {
     for (let i = 0; i < 2; i++) {
       scripted.mockNextResponse({ type: 'function', id: `call_${i}`, name: 'Bash', arguments: '{"command":"echo gated"}' });
       scripted.mockNextText('done');
-      await client.send('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'run echo' }] });
+      await client.send('session/prompt', { sessionId, _meta: { heartbeatTurn: 'native-turn' }, prompt: [{ type: 'text', text: 'run echo' }] });
     }
     expect(approvals).toBe(2);
     expect(executions).toBe(1);
@@ -104,7 +106,7 @@ describe('mandatory Heartbeat permission boundary', () => {
     await client.waitForSessionUpdate('available_commands_update', 10_000);
     scripted.mockNextResponse({ type: 'function', id: 'read', name: 'Read', arguments: JSON.stringify({ path: join(home, 'private.txt') }) });
     scripted.mockNextText('denied');
-    await client.send('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read private' }] });
+    await client.send('session/prompt', { sessionId, _meta: { heartbeatTurn: 'native-turn' }, prompt: [{ type: 'text', text: 'read private' }] });
     expect(approvals).toBe(1);
     expect(reads).toBe(0);
   }, 30_000);
@@ -125,6 +127,117 @@ describe('mandatory Heartbeat permission boundary', () => {
     }
   }, 30_000);
 
+  it('does not attribute delayed approvals to the current main turn', async () => {
+    type Driver = { launch: Promise<{ turn_id: number }>; heartbeatTurn: string; settled: boolean };
+    const guard = Object.create(AcpSession.prototype) as {
+      driver?: Driver;
+      acceptsMainApproval(turn: number): Promise<string | undefined>;
+    };
+    guard.driver = { launch: Promise.resolve({ turn_id: 4 }), heartbeatTurn: 'turn-4', settled: false };
+    expect(await guard.acceptsMainApproval(4)).toBe('turn-4');
+    expect(await guard.acceptsMainApproval(3)).toBeUndefined();
+    let finishLaunch!: (result: { turn_id: number }) => void;
+    const launch = new Promise<{ turn_id: number }>((resolve) => { finishLaunch = resolve; });
+    guard.driver = { launch, heartbeatTurn: 'old', settled: false };
+    const delayed = guard.acceptsMainApproval(3);
+    guard.driver = { launch: Promise.resolve({ turn_id: 4 }), heartbeatTurn: 'new', settled: false };
+    finishLaunch({ turn_id: 3 });
+    expect(await delayed).toBeUndefined();
+  });
+
+  it('forwards questions from the main agent', async () => {
+    const child = false;
+    home = await mkdtemp(join(tmpdir(), 'heartbeat-kimi-question-'));
+    await writeFakeModelConfig(home);
+    const scripted = createScriptedProvider();
+    client = await createTestClient({ homeDir: home, extraSeeds: [scripted.seed] });
+    let questions = 0;
+    const observed: string[] = [];
+    client.onRequest('session/request_permission', (params) => {
+      const call = (params as { toolCall: { title: string; _meta: { heartbeatTurn: string; heartbeatQuestion?: boolean; heartbeatAgent?: string } } }).toolCall;
+      observed.push(`${call.title}:${call._meta.heartbeatAgent}`);
+      expect(call._meta.heartbeatTurn).toBe('question-turn');
+      if (call._meta.heartbeatQuestion === true) {
+        expect(call._meta.heartbeatAgent === 'main').toBe(!child);
+        questions++;
+        return { outcome: { outcome: 'selected', optionId: 'q0_opt_1' } };
+      }
+      return { outcome: { outcome: 'selected', optionId: 'approve_once' } };
+    });
+    await client.send('initialize', { protocolVersion: 1, clientCapabilities: {} });
+    const { sessionId } = await client.send('session/new', { cwd: home, mcpServers: [] }) as { sessionId: string };
+    await client.waitForSessionUpdate('available_commands_update', 10_000);
+    if (child) scripted.mockNextResponse({ type: 'function', id: 'child', name: 'Agent',
+      arguments: JSON.stringify({ description: 'ask', prompt: 'ask a question' }) });
+    scripted.mockNextResponse({ type: 'function', id: 'question', name: 'AskUserQuestion',
+      arguments: JSON.stringify({ questions: [{ question: 'Pick one', header: 'Pick', options: [{ label: 'A' }, { label: 'B' }], multi_select: false }] }) });
+    scripted.mockNextText('done');
+    if (child) scripted.mockNextText('parent done');
+    await client.send('session/prompt', { sessionId, _meta: { heartbeatTurn: 'question-turn' }, prompt: [{ type: 'text', text: 'ask' }] });
+    expect(questions, observed.join(', ')).toBe(1);
+  }, 30_000);
+
+  it.each([false, true])('binds HTTP MCP calls to the originating turn, child=%s', async (child) => {
+    home = await mkdtemp(join(tmpdir(), 'heartbeat-kimi-http-'));
+    await writeFakeModelConfig(home);
+    const scripted = createScriptedProvider();
+    client = await createTestClient({ homeDir: home, extraSeeds: [scripted.seed] });
+    let approvalCall: string | undefined;
+    let receivedCall: unknown;
+    const http = createServer(async (req, res) => {
+      if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      const message = JSON.parse(Buffer.concat(chunks).toString());
+      if (message.id === undefined) { res.writeHead(202).end(); return; }
+      let result: unknown;
+      if (message.method === 'initialize') {
+        result = { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'test', version: '1' } };
+      } else if (message.method === 'tools/list') {
+        result = { tools: [{ name: 'echo', description: 'Echo', inputSchema: { type: 'object', properties: {} } }] };
+      } else if (message.method === 'tools/call') {
+        receivedCall = message.params.arguments.__heartbeat_call;
+        result = { content: [{ type: 'text', text: 'ok' }], isError: false };
+      } else {
+        result = {};
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
+    });
+    await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = http.address();
+      if (address === null || typeof address === 'string') throw new Error('HTTP address unavailable');
+      client.onRequest('session/request_permission', (params) => {
+        const meta = (params as { toolCall: { _meta: { heartbeatCall?: string; heartbeatTurn: string; heartbeatAgent?: string } } }).toolCall._meta;
+        expect(meta.heartbeatTurn).toBe('origin-one');
+        if (meta.heartbeatCall !== undefined) {
+          expect(meta.heartbeatAgent === 'main').toBe(!child);
+          approvalCall = meta.heartbeatCall;
+        }
+        return { outcome: { outcome: 'selected', optionId: 'approve_once' } };
+      });
+      await client.send('initialize', { protocolVersion: 1, clientCapabilities: {} });
+      const { sessionId } = await client.send('session/new', { cwd: home, mcpServers: [
+        { type: 'http', name: 'heartbeat_tools', url: `http://127.0.0.1:${address.port}/mcp`, headers: [] },
+      ] }) as { sessionId: string };
+      await client.waitForSessionUpdate('available_commands_update', 10_000);
+      if (child) {
+        scripted.mockNextResponse({ type: 'function', id: 'child_launch', name: 'Agent',
+          arguments: JSON.stringify({ description: 'child test', prompt: 'use the echo tool' }) });
+      }
+      scripted.mockNextResponse({ type: 'function', id: 'mcp_http', name: 'mcp__heartbeat_tools__echo', arguments: '{"__heartbeat_call":"forged"}' });
+      scripted.mockNextText('done');
+      if (child) scripted.mockNextText('parent done');
+      await client.send('session/prompt', { sessionId, _meta: { heartbeatTurn: 'origin-one' }, prompt: [{ type: 'text', text: 'use echo' }] });
+      expect(approvalCall).toMatch(/^[0-9a-f-]{36}$/);
+      expect(receivedCall).toBe(approvalCall);
+    } finally {
+      http.closeAllConnections();
+      await new Promise<void>((resolve) => http.close(() => resolve()));
+    }
+  }, 30_000);
+
   it('gates tools of MCP servers explicitly provided by Heartbeat', async () => {
     home = await mkdtemp(join(tmpdir(), 'heartbeat-kimi-mcp-'));
     await writeFakeModelConfig(home);
@@ -132,8 +245,9 @@ describe('mandatory Heartbeat permission boundary', () => {
     client = await createTestClient({ homeDir: home, extraSeeds: [scripted.seed] });
     let approvals = 0;
     client.onRequest('session/request_permission', (params) => {
-      const call = (params as { toolCall: { _meta?: { heartbeatCall?: string } } }).toolCall;
+      const call = (params as { toolCall: { _meta?: { heartbeatCall?: string; heartbeatTurn?: string } } }).toolCall;
       expect(call._meta?.heartbeatCall).toMatch(/^[0-9a-f-]{36}$/);
+      expect(call._meta?.heartbeatTurn).toBe("host-turn-1");
       approvals++;
       return { outcome: { outcome: 'selected', optionId: 'reject_once' } };
     });
@@ -145,7 +259,7 @@ describe('mandatory Heartbeat permission boundary', () => {
     await client.waitForSessionUpdate('available_commands_update', 10_000);
     scripted.mockNextResponse({ type: 'function', id: 'mcp_call', name: 'mcp__heartbeat_tools__echo', arguments: '{"text":"gated"}' });
     scripted.mockNextText('denied');
-    await client.send('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'use echo' }] });
+    await client.send('session/prompt', { sessionId, _meta: { heartbeatTurn: 'host-turn-1' }, prompt: [{ type: 'text', text: 'use echo' }] });
     expect(approvals).toBe(1);
   }, 30_000);
 });
