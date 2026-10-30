@@ -87,6 +87,19 @@ class QuestionnaireModelTest {
     }
 
     @Test
+    fun `durable manual preparation uses the existing submitting presentation`() = runTest {
+        val fixture = Fixture(
+            this,
+            QuestionnaireState.Asking(listOf(text), manualPreparations = mapOf(text.id to "attempt")),
+        )
+        val screen = fixture.subscribe()
+        assertTrue(screen.states.value.questions.single().isSubmitting)
+        fixture.machine.state.value = QuestionnaireState.Asking(listOf(text))
+        runCurrent()
+        assertFalse(screen.states.value.questions.single().isSubmitting)
+    }
+
+    @Test
     fun `multi choice draft respects the maximum and submits the selection in choice order`() = runTest {
         val fixture = Fixture(this, QuestionnaireState.Asking(listOf(multi)))
         val screen = fixture.subscribe()

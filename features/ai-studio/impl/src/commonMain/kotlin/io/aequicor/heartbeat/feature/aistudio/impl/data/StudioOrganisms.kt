@@ -90,10 +90,21 @@ internal class StudioOrganisms(
         attachments: List<ResourceRef>,
         submissionId: String,
         onAccepted: suspend () -> Unit,
+    ): RunOutcome? = submit(chat, goal, settings, attachments, submissionId, null, onAccepted)
+
+    /** The host gate is checked after preparation for both conception and follow-up, outside the run coordinator. */
+    suspend fun submit(
+        chat: StudioChatRecord,
+        goal: String,
+        settings: RunSettings,
+        attachments: List<ResourceRef>,
+        submissionId: String,
+        submission: StudioSubmissionGate?,
+        onAccepted: suspend () -> Unit,
     ): RunOutcome? {
         if (chat.organismId == null) return null
         try {
-            return conceiveOrContinue(chat, goal, settings, attachments, onAccepted)
+            return conceiveOrContinue(chat, goal, settings, attachments, submission, onAccepted)
         } finally {
             if (submissionId.isNotEmpty()) harnesses.release(submissionId)
         }
@@ -104,11 +115,13 @@ internal class StudioOrganisms(
         goal: String,
         settings: RunSettings,
         attachments: List<ResourceRef>,
+        submission: StudioSubmissionGate?,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         val machine = living()
         val organisms = (machine.state.value as? OrganicAiState.Living)?.organisms.orEmpty()
         if (OrganismId(chat.id) in organisms) {
+            submission?.begin()
             val result = machine.send(OrganicAiIntent.Public.FollowUp(OrganismId(chat.id), goal, attachments))
             log.i { "organism ${chat.id} follow-up for a studio chat: $result" }
             check(result == SendResult.Accepted) { "The organism cannot accept a follow-up now" }
@@ -127,6 +140,7 @@ internal class StudioOrganisms(
             isolation = isolation(hasProject = workspace != null),
             harnesses = chat.organismHarnesses,
         )
+        submission?.begin()
         val result = machine.send(OrganicAiIntent.Public.Conceive(conception))
         log.i { "organism ${conception.id.value} conception: $result harnesses=${conception.harnesses.size}" }
         check(result == SendResult.Accepted) { "The organism was not conceived" }

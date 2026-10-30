@@ -37,6 +37,62 @@ import kotlin.time.Instant
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioRunCoordinatorTest {
     @Test
+    fun `profile worker settles transferred ownership after its caller stops waiting`() = runTest {
+        val coordinator = StudioRunCoordinator(RunProfile(backgroundScope), RunClock)
+        val events = mutableListOf<String>()
+        val host = RunHost(events)
+        val terminal = CompletableDeferred<RunOutcome>()
+        val submission = StudioRunSubmission()
+        val ownership = StudioRunOwnership { outcome, isUnsubmitted ->
+            assertEquals(RunOutcome.Completed, outcome)
+            assertFalse(isUnsubmitted)
+            events += "settled"
+        }
+        host.execute = { request ->
+            request.submission!!.begin()
+            terminal.await()
+        }
+        val caller = async(ownership) {
+            coordinator.run(host, runRequest("owned").copy(submission = submission))
+        }
+        runCurrent()
+        assertTrue(ownership.isTransferred)
+        caller.cancelAndJoin()
+        assertTrue(coordinator.isBusy("chat"))
+        assertFalse("settled" in events)
+        terminal.complete(RunOutcome.Completed)
+        runCurrent()
+        assertEquals(listOf("started", "execute", "settled", "finished"), events)
+        assertFalse(coordinator.isBusy("chat"))
+    }
+
+    @Test
+    fun `cancelled worker preparation settles as unsubmitted exactly once`() = runTest {
+        val coordinator = StudioRunCoordinator(RunProfile(backgroundScope), RunClock)
+        val host = RunHost(mutableListOf())
+        val preparation = CompletableDeferred<Unit>()
+        var settlements = 0
+        val ownership = StudioRunOwnership { outcome, isUnsubmitted ->
+            assertNull(outcome)
+            assertTrue(isUnsubmitted)
+            settlements++
+        }
+        val caller = async(ownership) {
+            coordinator.run(
+                host,
+                runRequest("preparing").copy(submission = StudioRunSubmission()),
+                beforeExecute = { preparation.await() },
+            )
+        }
+        runCurrent()
+        assertTrue(ownership.isTransferred)
+        caller.cancelAndJoin()
+        runCurrent()
+        assertEquals(1, settlements)
+        assertFalse(coordinator.isBusy("chat"))
+    }
+
+    @Test
     fun `mutation and sending share reservation and recovery precedes preparation`() = runTest {
         val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
         val gate = CompletableDeferred<Unit>()

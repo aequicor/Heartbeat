@@ -1,12 +1,14 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
@@ -15,7 +17,24 @@ import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
+/** Human originals for questionnaire generation only; this snapshot never authorizes tool execution. */
+sealed interface StudioQuestionnaireHumanContext {
+    /** An original human send with its stable identity; never an instruction authorizing a tool. */
+    data class Message(val request: RequestId, val text: String) {
+        override fun toString(): String = "StudioQuestionnaireHumanContext.Message(request=$request)"
+    }
+
+    /** Bounded originals with no known gaps, suitable for generating and rechecking questionnaire answers. */
+    data class Complete(val messages: List<Message>) : StudioQuestionnaireHumanContext {
+        override fun toString(): String = "StudioQuestionnaireHumanContext.Complete(messages=${messages.size})"
+    }
+
+    /** Missing, revoked, conflicting or out-of-bounds originals cannot support automatic questionnaire answers. */
+    data object Incomplete : StudioQuestionnaireHumanContext
+}
+
 /** Storage of studio projects, sessions and transcripts. Every write is visible to observers immediately. */
+@Suppress("TooManyFunctions") // Authority reads belong to this backend and must default safely for every repository.
 interface StudioRepository {
     /** Enabled engine, connection and model choices; ids identify the complete route. */
     fun observeModels(): Flow<List<StudioModel>> = flowOf(StudioModels)
@@ -25,6 +44,39 @@ interface StudioRepository {
 
     /** Transcript of [sessionId] in chronological order; empty for unknown sessions. */
     fun observeMessages(sessionId: String): Flow<List<StudioMessage>>
+
+    /**
+     * Read-only snapshot of original human instructions captured at the host input boundary for this logical chat.
+     * Missing provenance, unsupported backends and revoked authority return [TrustedUserInstructions.Incomplete].
+     * Transcript prompts must never repair this snapshot. Callers must read it again before using a generated answer.
+     */
+    suspend fun userInstructions(sessionId: String): TrustedUserInstructions = TrustedUserInstructions.Incomplete
+
+    /**
+     * Human originals used only to generate questionnaire answers, independently of tool authority revocation.
+     * Automatic answers may preserve this snapshot; manual substantive answers invalidate it. Unsupported backends
+     * return [StudioQuestionnaireHumanContext.Incomplete]. Deliver generated answers only through
+     * [admitQuestionnaireAnswer]; a separate read followed by delivery cannot exclude concurrent changes.
+     */
+    suspend fun questionnaireHumanContext(sessionId: String): StudioQuestionnaireHumanContext =
+        StudioQuestionnaireHumanContext.Incomplete
+
+    /**
+     * Atomically admits a generated questionnaire answer only while the saved human context equals [expected].
+     * Implementations compare the durable snapshot and invoke [admit] under the same mutex as every human-context
+     * mutation, holding it until admission returns. A mismatch or unsupported backend returns false without invoking
+     * [admit]. The result is true only when [admit] returns true; cancellation and failures propagate.
+     *
+     * [admit] may recheck lifecycle and dispatch the prepared answer to the questionnaire machine, whose generation
+     * guards still apply. It must not generate model output, revoke authority, reenter this repository or wait for
+     * answer collection: those operations belong outside the mutex. This guards saved context, not manual answers
+     * in other batches whose invalidation has not yet reached storage.
+     */
+    suspend fun admitQuestionnaireAnswer(
+        sessionId: String,
+        expected: StudioQuestionnaireHumanContext.Complete,
+        admit: suspend () -> Boolean,
+    ): Boolean = false
 
     /** The project new sessions belong to by default. */
     suspend fun defaultProjectId(): String?
@@ -79,6 +131,16 @@ internal interface StudioChatResolver {
     /** Revokes durable originals and the exact live session before returning substantive questionnaire answers. */
     suspend fun invalidateUserInstructions(ref: SessionRef) {
         error("Human authority revocation is unavailable")
+    }
+
+    /**
+     * Host-only revocation for batches containing only automatic answers and skips. Revoke durable tool authority
+     * and the exact live session before returning; preserve only questionnaire context that is still complete
+     * under the record lock. A concurrent manual invalidation must never be undone by an older automatic answer.
+     * Backends without this distinction safely revoke both states through [invalidateUserInstructions].
+     */
+    suspend fun invalidateUserInstructionsForAutomaticQuestionnaire(ref: SessionRef) {
+        invalidateUserInstructions(ref)
     }
 }
 

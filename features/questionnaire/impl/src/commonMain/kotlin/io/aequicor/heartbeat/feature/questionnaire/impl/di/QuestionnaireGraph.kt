@@ -26,7 +26,6 @@ import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
-import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContext
@@ -38,6 +37,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreen
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreens
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
+import io.aequicor.heartbeat.feature.questionnaire.impl.data.QuestionnaireAdmissionEffects
 import io.aequicor.heartbeat.feature.questionnaire.impl.di.scope.QuestionnaireScope
 import io.aequicor.heartbeat.feature.questionnaire.impl.domain.QuestionnaireJournal
 import io.aequicor.heartbeat.feature.questionnaire.impl.domain.QuestionnaireStorage
@@ -45,6 +45,9 @@ import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.component.Q
 import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.remote.RemoteQuestionnaireScreen
 import io.aequicor.heartbeat.feature.questionnaire.impl.ui.QuestionnaireUiComponent
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -70,7 +73,7 @@ interface QuestionnaireGraph {
 
 /**
  * The question queue belongs to the profile, so questions outlive the screens that show them.
- * It has no effects: sources deliver answers themselves. [QuestionnaireJournal] keeps open questions across restarts.
+ * Manual admission revokes source context before output. [QuestionnaireJournal] keeps open questions across restarts.
  */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
@@ -79,9 +82,10 @@ object QuestionnaireBindings {
     @SingleIn(ProfileScope::class)
     internal fun machine(
         launcher: MachineLauncher,
+        effects: QuestionnaireAdmissionEffects,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
     ): Machine<QuestionnaireState, QuestionnaireIntent, QuestionnaireOutput> =
-        launcher.launch(QuestionnaireMachineSpec, scope, EffectHandler.None)
+        launcher.launch(QuestionnaireMachineSpec, scope, effects)
 }
 
 /**
@@ -97,24 +101,34 @@ internal class QuestionnaireStartup(
     private val toggles: FeatureToggles,
     private val dispatchers: DispatcherProvider,
 ) : ProfileStartup {
-    private val log = Log.tag("QuestionnaireStartup")
-
     override fun start() {
         val queue = machine.value
         // Storage IO and saving run off the main thread; the machine accepts intents from any thread.
         // Storage is touched only once the questionnaire is enabled: a disabled one re-asks nothing.
         scope.coroutineScope.launch(dispatchers.io) {
             toggles.observe(QuestionnaireEnabled).first { it }
-            val journal = try {
-                QuestionnaireJournal(storage.value)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.e(e) { "Questionnaire storage is unavailable; open questions are not kept" }
-                return@launch
-            }
-            journal.run(queue)
+            awaitQuestionnaireJournal(storage).run(queue)
         }
+    }
+}
+
+private const val MAX_STORAGE_INITIALIZATION_RETRY_MILLIS = 30_000L
+
+/** Retries transient storage initialization failures before starting the single journal writer. */
+internal suspend fun awaitQuestionnaireJournal(storage: Lazy<QuestionnaireStorage>): QuestionnaireJournal {
+    val log = Log.tag("QuestionnaireStartup")
+    var retryMillis = 1_000L
+    while (true) {
+        currentCoroutineContext().ensureActive()
+        try {
+            return QuestionnaireJournal(storage.value)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "Questionnaire storage is unavailable; retry initialization" }
+        }
+        delay(retryMillis)
+        retryMillis = (retryMillis * 2).coerceAtMost(MAX_STORAGE_INITIALIZATION_RETRY_MILLIS)
     }
 }
 

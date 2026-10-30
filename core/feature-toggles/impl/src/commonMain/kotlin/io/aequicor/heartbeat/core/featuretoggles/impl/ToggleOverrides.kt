@@ -13,6 +13,9 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.ToggleSource
 import io.aequicor.heartbeat.core.featuretoggles.ToggleState
 import io.aequicor.heartbeat.core.logging.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -41,6 +44,7 @@ internal class ToggleOverrides(
     private val log = Log.tag(FT_LOG_TAG)
     private val store by lazy { stores.keyValue(SPEC) }
     private val announceLock = Mutex()
+    private val admissionLock = Mutex()
     private val staleKeys = MutableStateFlow(emptySet<String>())
 
     @Volatile
@@ -61,18 +65,33 @@ internal class ToggleOverrides(
     /** Current state of [toggle]: its override or its default. */
     suspend fun <T : Any> state(toggle: FeatureToggle<T>): ToggleState<T> = toggle.stateOf(get(toggle))
 
-    suspend fun <T : Any> set(toggle: FeatureToggle<T>, value: T) {
+    suspend fun <T : Any> set(toggle: FeatureToggle<T>, value: T) = admissionLock.withLock {
         store.set(toggle.storeKey(), value)
     }
 
-    suspend fun remove(toggle: FeatureToggle<*>) {
+    suspend fun remove(toggle: FeatureToggle<*>) = admissionLock.withLock {
         store.remove(toggle.storeKey())
     }
 
     /** Removes every stored override, including those of toggles that are no longer declared. */
-    suspend fun clear() {
+    suspend fun clear() = admissionLock.withLock {
         store.clear()
     }
+
+    /** Reads without fallback and excludes every override writer through delivery. */
+    suspend fun admitEnabled(flags: Set<FeatureToggle.Flag>, action: suspend () -> Boolean): Boolean =
+        admissionLock.withLock {
+            val isEnabled = try {
+                flags.all { state(it).value }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e) { "Feature toggle admission read failed; action denied" }
+                false
+            }
+            currentCoroutineContext().ensureActive()
+            if (isEnabled) action() else false
+        }
 
     private suspend fun <T : Any> read(toggle: FeatureToggle<T>): T? = toggle.accept(store.get(toggle.storeKey()))
 

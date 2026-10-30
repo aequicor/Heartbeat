@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineEffect
 import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
@@ -21,10 +22,13 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineSpec
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -45,7 +49,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -75,14 +78,14 @@ class AskUserToolsTest {
         assertEquals(listOf("ios", "caller"), asked.map { it.questionnaire.id.value.substringAfterLast("/") })
         assertTrue(asked.all { it.questionnaire.source == "s1" })
 
-        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Confirmed(false)))
-        fixture.queue.outputs.emit(
+        fixture.queue.emitAnswer(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Confirmed(false)))
+        fixture.queue.emitAnswer(
             QuestionnaireOutput.Answered(asked[1].questionnaire, Answer.Selected(listOf("agent"))),
         )
         runCurrent()
         call.join()
 
-        assertEquals(listOf(context.session), fixture.chats.invalidations)
+        assertEquals(listOf(context.session, context.session), fixture.chats.invalidations)
         val answers = fixture.answers()
         assertEquals(false, answers.getValue("ios").jsonObject.getValue("isConfirmed").jsonPrimitive.boolean)
         assertEquals(
@@ -91,7 +94,7 @@ class AskUserToolsTest {
         )
         // Every answer is withdrawn once collected.
         assertEquals(
-            asked.map { QuestionnaireIntent.Public.Withdraw(it.questionnaire.id) },
+            asked.map { QuestionnaireIntent.Public.Withdraw(it.questionnaire.id, it.generation) },
             fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Withdraw>(),
         )
     }
@@ -103,13 +106,13 @@ class AskUserToolsTest {
         runCurrent()
         val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
         assertTrue(asked.all { it.questionnaire.isFreeTextAllowed })
-        fixture.queue.outputs.emit(
+        fixture.queue.emitAnswer(
             QuestionnaireOutput.Answered(
                 asked[0].questionnaire,
                 Answer.Confirmed(false, "After review"),
             ),
         )
-        fixture.queue.outputs.emit(
+        fixture.queue.emitAnswer(
             QuestionnaireOutput.Answered(
                 asked[1].questionnaire,
                 Answer.Selected(listOf("user"), "From the desktop"),
@@ -134,7 +137,7 @@ class AskUserToolsTest {
         val call = launch { fixture.execute(arguments) }
         repeat(ASK_SUBSCRIPTION_ROUNDS) { runCurrent() }
         val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
-        asked.forEach { fixture.queue.outputs.emit(QuestionnaireOutput.Answered(it.questionnaire, Answer.Skipped)) }
+        asked.forEach { fixture.queue.emitAnswer(QuestionnaireOutput.Answered(it.questionnaire, Answer.Skipped)) }
         runCurrent()
         // A fully skipped batch contains no new human restriction.
         assertTrue(fixture.chats.invalidations.isEmpty())
@@ -142,21 +145,67 @@ class AskUserToolsTest {
     }
 
     @Test
+    fun `cancellation before manual admission completes delivers no answer`() = runTest {
+        val fixture = Fixture(this)
+        fixture.chats.revocation = CompletableDeferred()
+        val call = launch { fixture.execute(arguments) }
+        repeat(ASK_SUBSCRIPTION_ROUNDS) { runCurrent() }
+        val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
+        fixture.queue.emitAnswer(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Confirmed(false)))
+        runCurrent()
+        assertEquals(listOf(context.session), fixture.chats.invalidations)
+        assertTrue(fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().isEmpty())
+        call.cancel()
+        runCurrent()
+        assertTrue(call.isCompleted)
+        fixture.chats.revocation.complete(Unit)
+        call.join()
+        assertEquals(
+            asked.map { it.questionnaire.id }.toSet(),
+            fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().map { it.id }.toSet(),
+        )
+    }
+
+    @Test
+    fun `replacement during manual revocation survives withdrawal and cancellation cleanup`() = runTest {
+        val fixture = Fixture(this)
+        fixture.chats.revocation = CompletableDeferred()
+        val call = launch { fixture.execute(arguments) }
+        runCurrent()
+        val original = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>().first()
+        fixture.queue.emitAnswer(QuestionnaireOutput.Answered(original.questionnaire, Answer.Confirmed(false)))
+        runCurrent()
+        assertEquals(listOf(context.session), fixture.chats.invalidations)
+        assertTrue(fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().isEmpty())
+        val replacement = QuestionnaireIntent.Public.Ask(original.questionnaire)
+        fixture.queue.send(replacement)
+        fixture.chats.revocation.complete(Unit)
+        runCurrent()
+        assertFalse(call.isCompleted)
+        assertTrue(fixture.queue.applied.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().isEmpty())
+        call.cancelAndJoin()
+        val remaining = fixture.queue.state.value as QuestionnaireState.Asking
+        assertEquals(listOf(original.questionnaire), remaining.pending)
+        assertEquals(replacement.generation, remaining.generations[original.questionnaire.id])
+        assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
+    }
+
+    @Test
     fun `failed hosted revocation never returns substantive answers to the model`() = runTest {
         val fixture = Fixture(this)
         fixture.chats.revocation = CompletableDeferred()
-        val call = async {
-            assertFailsWith<IllegalStateException> { fixture.execute(arguments) }
-        }
+        val call = launch { fixture.execute(arguments) }
         repeat(ASK_SUBSCRIPTION_ROUNDS) { runCurrent() }
         val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
-        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Confirmed(false)))
-        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[1].questionnaire, Answer.Skipped))
+        fixture.queue.emitAnswer(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Confirmed(false)))
         runCurrent()
         assertEquals(listOf(context.session), fixture.chats.invalidations)
         assertFalse(call.isCompleted)
         fixture.chats.revocation.completeExceptionally(IllegalStateException("Revocation failed"))
-        call.await()
+        runCurrent()
+        assertTrue(fixture.queue.admissionFailure is IllegalStateException)
+        assertFalse(call.isCompleted)
+        call.cancelAndJoin()
     }
 
     @Test
@@ -184,7 +233,7 @@ class AskUserToolsTest {
             Answer.Text("product_dev"),
         )
         asked.zip(replies).forEach { (intent, answer) ->
-            fixture.queue.outputs.emit(QuestionnaireOutput.Answered(intent.questionnaire, answer))
+            fixture.queue.emitAnswer(QuestionnaireOutput.Answered(intent.questionnaire, answer))
         }
         runCurrent()
         call.join()
@@ -217,7 +266,7 @@ class AskUserToolsTest {
             runCurrent()
             val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>().single()
             assertEquals(expected, asked.questionnaire.question)
-            fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked.questionnaire, Answer.Confirmed(false)))
+            fixture.queue.emitAnswer(QuestionnaireOutput.Answered(asked.questionnaire, Answer.Confirmed(false)))
             runCurrent()
             call.join()
             assertFalse(fixture.answers().getValue("q").jsonObject.getValue("isConfirmed").jsonPrimitive.boolean)
@@ -256,7 +305,7 @@ class AskUserToolsTest {
         repeat(ASK_SUBSCRIPTION_ROUNDS) { runCurrent() }
         val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
 
-        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Skipped))
+        fixture.queue.emitAnswer(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Skipped))
         runCurrent()
         call.join()
 
@@ -272,7 +321,7 @@ class AskUserToolsTest {
         repeat(ASK_SUBSCRIPTION_ROUNDS) { runCurrent() }
         val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
 
-        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Confirmed(true)))
+        fixture.queue.emitAnswer(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Confirmed(true)))
         runCurrent()
         call.cancel()
         runCurrent()
@@ -295,7 +344,7 @@ class AskUserToolsTest {
                 } else {
                     Answer.Selected(listOf("user"))
                 }
-                fixture.queue.outputs.emit(QuestionnaireOutput.Answered(intent.questionnaire, answer))
+                fixture.queue.emitAnswer(QuestionnaireOutput.Answered(intent.questionnaire, answer))
             }
         }
 
@@ -323,7 +372,7 @@ class AskUserToolsTest {
         val call = launch { fixture.execute(arguments) }
         runCurrent()
         val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
-        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked.first().questionnaire, Answer.Confirmed(true)))
+        fixture.queue.emitAnswer(QuestionnaireOutput.Answered(asked.first().questionnaire, Answer.Confirmed(true)))
         withdrawing.await()
 
         call.cancelAndJoin()
@@ -359,7 +408,7 @@ class AskUserToolsTest {
             assertEquals(listOf(asked[0].questionnaire.id), withdrawn.map { it.id })
             assertFalse(second.isCompleted)
 
-            fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[1].questionnaire, Answer.Confirmed(false)))
+            fixture.queue.emitAnswer(QuestionnaireOutput.Answered(asked[1].questionnaire, Answer.Confirmed(false)))
             runCurrent()
             assertTrue(second.isCompleted)
             assertEquals(setOf(secondId), fixture.answers().keys)
@@ -425,7 +474,7 @@ class AskUserToolsTest {
         val call = launch { fixture.execute(optional) }
         runCurrent()
         val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
-        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Text("Keep this")))
+        fixture.queue.emitAnswer(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Text("Keep this")))
         runCurrent()
         advanceTimeBy(239_999)
         assertFalse(call.isCompleted)
@@ -503,9 +552,94 @@ class AskUserToolsTest {
         assertTrue(fixture.chats.invalidations.isEmpty())
     }
 
+    @Test
+    fun `stale live output and cleanup cannot consume an identical replacement`() = runTest {
+        val fixture = Fixture(this)
+        val call = launch { fixture.execute(arguments) }
+        runCurrent()
+        val original = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>().first()
+        val replacement = QuestionnaireIntent.Public.Ask(original.questionnaire)
+        fixture.queue.send(replacement)
+        fixture.queue.outputs.emit(
+            QuestionnaireOutput.Answered(
+                original.questionnaire,
+                Answer.Confirmed(true),
+                generation = original.generation,
+            ),
+        )
+        runCurrent()
+        assertFalse(call.isCompleted)
+        assertTrue(fixture.chats.invalidations.isEmpty())
+        call.cancelAndJoin()
+        val remaining = fixture.queue.state.value as QuestionnaireState.Asking
+        assertEquals(listOf(original.questionnaire), remaining.pending)
+        assertEquals(replacement.generation, remaining.generations[original.questionnaire.id])
+    }
+
+    @Test
+    fun `live owner ignores the answer of a changed replacement and preserves it on cancellation`() = runTest {
+        val fixture = Fixture(this)
+        val args = Json.parseToJsonElement(
+            """{"key":"plan","questions":[{"id":"q","title":"Original","kind":"Confirm"}]}""",
+        ).jsonObject
+        val call = launch { fixture.execute(args) }
+        runCurrent()
+        val original = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>().single()
+        val replacement = QuestionnaireIntent.Public.Ask(original.questionnaire.copy(title = "Replacement"))
+        assertTrue(original.generation != replacement.generation)
+        assertEquals(SendResult.Accepted, fixture.queue.send(replacement))
+        fixture.queue.outputs.emit(
+            QuestionnaireOutput.Answered(
+                replacement.questionnaire,
+                Answer.Confirmed(true),
+                generation = replacement.generation,
+            ),
+        )
+        runCurrent()
+
+        assertFalse(call.isCompleted)
+        assertTrue(fixture.chats.invalidations.isEmpty())
+        assertTrue(fixture.queue.sent.none { it is QuestionnaireIntent.Public.Withdraw })
+        val answered = fixture.queue.state.value as QuestionnaireState.Asking
+        assertEquals(listOf(replacement.questionnaire), answered.pending)
+        assertEquals(replacement.generation, answered.generations[original.questionnaire.id])
+
+        call.cancelAndJoin()
+
+        assertEquals(
+            listOf(QuestionnaireIntent.Public.Withdraw(original.questionnaire.id, original.generation)),
+            fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Withdraw>(),
+        )
+        assertEquals(answered, fixture.queue.state.value)
+        assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
+    }
+
+    @Test
+    fun `replacement during live withdrawal survives after the observed human answer revokes context`() = runTest {
+        val fixture = Fixture(this)
+        val call = launch { fixture.execute(arguments) }
+        runCurrent()
+        val original = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>().first()
+        val replacement = QuestionnaireIntent.Public.Ask(original.questionnaire)
+        fixture.queue.onSend = { intent ->
+            if (intent is QuestionnaireIntent.Public.Withdraw) {
+                fixture.queue.onSend = {}
+                fixture.queue.send(replacement)
+            }
+        }
+        fixture.queue.emitAnswer(QuestionnaireOutput.Answered(original.questionnaire, Answer.Confirmed(true)))
+        runCurrent()
+        assertFalse(call.isCompleted)
+        assertEquals(listOf(context.session), fixture.chats.invalidations)
+        call.cancelAndJoin()
+        val remaining = fixture.queue.state.value as QuestionnaireState.Asking
+        assertEquals(listOf(original.questionnaire), remaining.pending)
+        assertEquals(replacement.generation, remaining.generations[original.questionnaire.id])
+    }
+
     private inner class Fixture(scope: TestScope, enabled: Boolean = true) {
-        val queue = AskUserQueue()
         val chats = AskUserChats()
+        val queue = AskUserQueue(scope.backgroundScope) { chats.invalidateUserInstructions(context.session) }
         val tools = AskUserAgentTools(askUserRegistry(queue), lazyOf(chats), AskUserToggles(enabled))
         private val results = mutableListOf<AgentToolResult>()
 
@@ -548,7 +682,8 @@ private class AskUserToggles(private val enabled: Boolean) : FeatureToggles {
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = enabled as T
 }
 
-private class AskUserQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput> {
+private class AskUserQueue(private val scope: CoroutineScope, private val prepareManual: suspend () -> Unit) :
+    MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput> {
     override val name = "questionnaire"
     override val state = MutableStateFlow<QuestionnaireState>(QuestionnaireState.Idle)
     override val outputs = MutableSharedFlow<QuestionnaireOutput>()
@@ -557,10 +692,40 @@ private class AskUserQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.
     var onSend: suspend (QuestionnaireIntent.Public) -> Unit = {}
     var result: (QuestionnaireIntent.Public) -> SendResult = { SendResult.Accepted }
 
+    var admissionFailure: Exception? = null
+
+    suspend fun emitAnswer(output: QuestionnaireOutput.Answered) {
+        val queue = state.value as QuestionnaireState.Asking
+        val admitted = output.copy(generation = queue.generations[output.questionnaire.id])
+        // The real machine persists manual revocation before emitting output. These consumer tests inject
+        // outputs after that source gate; the API and effect tests cover reservation and completion guards.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                if (output.answer != Answer.Skipped) prepareManual()
+                outputs.emit(admitted)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.tag("QuestionnaireTest").w(e) { "Manual admission failed in fake queue" }
+                admissionFailure = e
+            }
+        }
+    }
+
     override suspend fun send(intent: QuestionnaireIntent.Public): SendResult {
         sent += intent
-        onSend(intent)
-        return result(intent).also { if (it == SendResult.Accepted) applied += intent }
+        val result = result(intent)
+        if (result != SendResult.Accepted) return result
+        if (intent !is QuestionnaireIntent.Public.Ask) onSend(intent)
+        val transition = QuestionnaireMachineSpec.resolve(state.value, intent)
+        return if (transition == null) {
+            SendResult.Ignored
+        } else {
+            state.value = transition.to
+            applied += intent
+            if (intent is QuestionnaireIntent.Public.Ask) onSend(intent)
+            SendResult.Accepted
+        }
     }
 }
 

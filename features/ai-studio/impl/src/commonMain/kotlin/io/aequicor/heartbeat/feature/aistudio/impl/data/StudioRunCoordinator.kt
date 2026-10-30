@@ -95,6 +95,7 @@ internal class StudioRunCoordinator(
         } else {
             null
         }
+        val ownership = currentCoroutineContext()[StudioRunOwnership]
         val reserved = submission?.let { request.copy(submission = it) } ?: request
         while (true) {
             awaitAdmission(request.id, waitForIdle, admission)
@@ -112,24 +113,40 @@ internal class StudioRunCoordinator(
                 busy.value += request.id
                 // Install cleanup before an admission/caller cancellation can revoke the reserved request.
                 profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) {
-                    try {
-                        host.prepareRun(request.id)
-                        beforeExecute()
-                        lifecycle.value.observe(reserved) { host.executeRun(reserved) }
-                    } finally {
-                        // An owner/source may cancel preparation itself. Settle its receipt before leaving the job.
-                        // Only the short journal barrier and reservation cleanup survive caller cancellation.
-                        withContext(NonCancellable) {
-                            try {
-                                submission?.cancel()
-                            } finally {
-                                finishRun(host, request.id, submission, onCancelledBeforeSubmission)
-                            }
-                        }
-                    }
+                    executeOwned(host, reserved, beforeExecute, onCancelledBeforeSubmission, ownership)
                 }
             }
             if (job != null) return awaitRun(job, submission)
+        }
+    }
+
+    private suspend fun executeOwned(
+        host: StudioRunHost,
+        request: StudioTurnRequest,
+        beforeExecute: suspend () -> Unit,
+        onCancelledBeforeSubmission: suspend () -> Unit,
+        ownership: StudioRunOwnership?,
+    ): RunOutcome {
+        ownership?.transfer()
+        var outcome: RunOutcome? = null
+        try {
+            host.prepareRun(request.id)
+            beforeExecute()
+            return lifecycle.value.observe(request) { host.executeRun(request) }.also { outcome = it }
+        } finally {
+            // The worker alone settles transferred host delivery. Caller cancellation only revokes a gate that
+            // has not submitted; once submitted, null/Failed/Stopped cannot prove absence of native effects.
+            withContext(NonCancellable) {
+                try {
+                    request.submission?.cancel()
+                } finally {
+                    try {
+                        ownership?.settle(outcome, request.submission?.isCancelled == true)
+                    } finally {
+                        finishRun(host, request.id, request.submission, onCancelledBeforeSubmission)
+                    }
+                }
+            }
         }
     }
 
@@ -275,10 +292,12 @@ internal fun studioTurnRequest(
     environment: StudioChatEnvironment? = null,
     isUserPrompt: Boolean = false,
     userInstruction: String? = null,
+    submission: StudioSubmissionGate? = null,
 ): StudioTurnRequest = StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
     .copy(
         submissionId = submissionId,
         environment = environment,
         isUserPrompt = isUserPrompt,
         userInstruction = userInstruction,
+        submission = submission,
     )

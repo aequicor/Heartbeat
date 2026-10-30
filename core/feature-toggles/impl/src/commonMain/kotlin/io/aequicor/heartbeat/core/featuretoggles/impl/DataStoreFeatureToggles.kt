@@ -65,6 +65,11 @@ internal class DataStoreFeatureToggles(private val registry: ToggleRegistry, pri
         return state.value
     }
 
+    override suspend fun admitEnabled(flags: Set<FeatureToggle.Flag>, action: suspend () -> Boolean): Boolean {
+        flags.forEach { registry.verify(it) }
+        return overrides.admitEnabled(flags, action)
+    }
+
     /** Logs the resolution once per distinct value and source, so repeated reads stay silent. */
     private suspend fun <T : Any> logResolved(
         toggle: FeatureToggle<T>,

@@ -12,8 +12,35 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 
+/**
+ * Non-serializable host provenance for native questionnaire delivery, never an engine/model-controlled flag.
+ * Preserving questionnaire originals does not grant action authority. All existing respond calls are manual/unknown.
+ */
+sealed interface StudioPermissionAnswerOrigin {
+    /** Default for human answers and every caller without native autopilot provenance. */
+    data object ManualOrUnknown : StudioPermissionAnswerOrigin
+
+    /**
+     * Minted only by the host bridge from a verified native autopilot context. The captured request and callbacks
+     * must be checked at delivery before revocation; only operational eligibility is checked after revocation.
+     */
+    class NativeAutomatic internal constructor(
+        internal val permission: StudioPermission,
+        isAuthorityCurrent: suspend () -> Boolean,
+        isCurrent: suspend () -> Boolean,
+    ) : StudioPermissionAnswerOrigin {
+        private val authorityCurrent = isAuthorityCurrent
+        private val current = isCurrent
+
+        internal suspend fun isAuthorityCurrent(): Boolean = authorityCurrent()
+        internal suspend fun isCurrent(): Boolean = current()
+    }
+}
+
 /** Profile service: accepted work and history observation outlive any individual screen. */
-interface StudioRuntime : StudioRuntimeConfiguration {
+interface StudioRuntime :
+    StudioRuntimeConfiguration,
+    StudioPermissionResponder {
     val state: StateFlow<StudioRuntimeState>
 
     /**
@@ -61,6 +88,25 @@ interface StudioRuntime : StudioRuntimeConfiguration {
         return run(sessionId, prompt, settings)
     }
 
+    /**
+     * Prepares a host-generated delivery and asks [admission] immediately before submission. Cancellation of this
+     * caller before admission revokes preparation; admitted native work retains profile ownership. Older runtimes
+     * deliberately refuse this overload instead of silently ignoring the gate or accepting before preparation.
+     */
+    // Preserve existing overloads and their named arguments while gated runtimes opt in explicitly.
+    @Suppress("LongParameterList")
+    suspend fun run(
+        sessionId: String,
+        prompt: String,
+        settings: RunSettings,
+        attachments: List<ResourceRef>,
+        submissionId: String = "",
+        environment: StudioChatEnvironment? = null,
+        userInstruction: String? = null,
+        admission: StudioRunAdmission,
+        onAccepted: suspend () -> Unit,
+    ): RunOutcome = error("Host run admission is unavailable")
+
     /** Revokes durable and live human authority before a generated questionnaire follow-up is submitted. */
     suspend fun invalidateUserInstructions(sessionId: String) {
         error("Human authority revocation is unavailable")
@@ -68,12 +114,29 @@ interface StudioRuntime : StudioRuntimeConfiguration {
 
     /** Requests native interruption; only native terminal state completes the run. */
     suspend fun cancel(sessionId: String)
+}
 
+/** Native permission delivery with optional host-only provenance; command admission alone is not success. */
+interface StudioPermissionResponder {
     /**
      * Sends an exact currently pending permission option and awaits engine acknowledgement of that request.
      * Fails on late delivery failure, terminal turn or lost handle; command admission alone is not success.
      */
     suspend fun respond(sessionId: String, requestId: String, optionId: String, answer: StudioPermissionAnswer? = null)
+
+    /**
+     * Delivers host-proven automatic provenance with a captured native permission. Existing runtimes fail closed
+     * for automatic answers; ordinary callers keep the manual/unknown overload below.
+     */
+    suspend fun respond(
+        permission: StudioPermission,
+        optionId: String,
+        answer: StudioPermissionAnswer?,
+        origin: StudioPermissionAnswerOrigin,
+    ) {
+        check(origin == StudioPermissionAnswerOrigin.ManualOrUnknown) { "Automatic answer provenance is unavailable" }
+        respond(permission, optionId, answer)
+    }
 
     /** Delivers an observed permission only to its captured native turn, refusing a reused request id. */
     suspend fun respond(permission: StudioPermission, optionId: String, answer: StudioPermissionAnswer? = null) {

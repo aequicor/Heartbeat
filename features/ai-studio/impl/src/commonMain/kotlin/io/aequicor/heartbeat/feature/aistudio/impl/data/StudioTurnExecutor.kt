@@ -85,7 +85,7 @@ internal data class StudioTurnRequest(
     val onAccepted: suspend () -> Unit = {},
     /** Host directives for the engine only (a scheduler wake); never shown in the transcript. */
     val directives: List<String> = emptyList(),
-    /** Optional cancellation of scheduled preparation; the native sender calls [StudioSubmissionGate.begin]. */
+    /** Host admission and preparation cancellation; the sender calls [StudioSubmissionGate.begin]. */
     val submission: StudioSubmissionGate? = null,
     /** Graph recovery adopts a matching live/finished turn before considering a continuation. */
     val recoveryRequests: List<RequestId> = emptyList(),

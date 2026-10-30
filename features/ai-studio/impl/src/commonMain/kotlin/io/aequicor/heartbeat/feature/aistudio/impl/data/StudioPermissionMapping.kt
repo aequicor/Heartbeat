@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionInput
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionOption
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPermissionAnswerOrigin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -54,8 +55,14 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     optionId: String,
     answer: StudioPermissionAnswer?,
     expectedTurnId: String? = null,
+    expectedPermission: StudioPermission? = null,
+    origin: StudioPermissionAnswerOrigin = StudioPermissionAnswerOrigin.ManualOrUnknown,
     beforeAnswer: suspend () -> Unit = { error("Human authority revocation is unavailable") },
 ) {
+    // Native input protocols erase answer provenance and may interpret even structured text as an approval.
+    check(origin !is StudioPermissionAnswerOrigin.NativeAutomatic) {
+        "Native automatic answers require protocol provenance support"
+    }
     Log.tag("EngineStudio").i { "Delivering native permission" }
     val active = this ?: rejectPermission("no open native session", requestId, optionId)
     val pending = active.state.value as? ActiveSessionState.AwaitingUserAction
@@ -63,13 +70,27 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     requirePermissionTurn(pending, expectedTurnId)
     val request = pending.requests.firstOrNull { it.id.value == requestId }
         ?: rejectPermission("the request is no longer pending", requestId, optionId)
+    check(expectedPermission == null || request.toStudio(expectedPermission.sessionId) == expectedPermission) {
+        "Permission changed before delivery"
+    }
     val option = request.options.firstOrNull { it.id.value == optionId }
         ?: rejectPermission("the option is not offered", requestId, optionId)
     val decision = PermissionDecision(request.turn, request.id, option.id, answer?.toFacade())
+    currentCoroutineContext().ensureActive()
+    requirePendingPermission(active, request)
     if (!option.isSkip && (answer != null || request.input != null)) beforeAnswer()
     currentCoroutineContext().ensureActive()
+    requirePendingPermission(active, request)
     deliverStudioPermission(active.state, decision) {
         active.features.requireFeature(RequestsPermissions).respond(decision)
+    }
+}
+
+/** Rechecks the full captured request around suspending validation and revocation, including reused identities. */
+private fun requirePendingPermission(active: ActiveSession, request: PermissionRequest) {
+    val pending = active.state.value as? ActiveSessionState.AwaitingUserAction
+    check(pending?.turn?.id == request.turn && pending.requests.any { it == request }) {
+        "Permission changed during authority revocation"
     }
 }
 
@@ -109,10 +130,19 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     permission: StudioPermission,
     optionId: String,
     answer: StudioPermissionAnswer?,
+    origin: StudioPermissionAnswerOrigin = StudioPermissionAnswerOrigin.ManualOrUnknown,
     beforeAnswer: suspend () -> Unit = { error("Human authority revocation is unavailable") },
 ) {
     val turn = requireNotNull(permission.turnId) { "Native permission has no turn identity" }
-    respondStudioPermission(permission.requestId, optionId, answer, expectedTurnId = turn, beforeAnswer = beforeAnswer)
+    respondStudioPermission(
+        permission.requestId,
+        optionId,
+        answer,
+        expectedTurnId = turn,
+        expectedPermission = permission,
+        origin = origin,
+        beforeAnswer = beforeAnswer,
+    )
 }
 
 /** Projects one native handle without losing another session's pending actions or stop state. */

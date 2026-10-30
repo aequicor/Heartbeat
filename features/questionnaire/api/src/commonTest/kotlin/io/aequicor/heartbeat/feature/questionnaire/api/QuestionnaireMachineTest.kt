@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.questionnaire.api
 
 import io.aequicor.heartbeat.core.statemachine.assertIgnored
-import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -26,35 +25,56 @@ class QuestionnaireMachineTest {
     @Test
     fun `accepted answers relay trusted context without storing it in queue state`() {
         val context = object : QuestionnaireAnswerContext { }
-        spec.assertTransition(
+        assertAfterManualAdmission(
             asking,
             QuestionnaireIntent.Public.Answer(pick.id, Answer.Selected(listOf("a")), context),
-            asking.copy(submitting = setOf(pick.id)),
+            asking.copy(submitting = setOf(pick.id), autoBarrier = QuestionnaireAutoBarrier(setOf(pick.source))),
             outputs = listOf(QuestionnaireOutput.Answered(pick, Answer.Selected(listOf("a")), context)),
         )
     }
 
     @Test
     fun `ask from idle starts asking and appends or replaces later questions`() {
-        spec.assertTransition(QuestionnaireState.Idle, QuestionnaireIntent.Public.Ask(pick), asking)
-        spec.assertTransition(
+        val first = QuestionnaireIntent.Public.Ask(pick)
+        assertAfterManualAdmission(
+            QuestionnaireState.Idle,
+            first,
+            asking.copy(
+                generations = mapOf(pick.id to first.generation),
+                publications = QuestionnairePublicationHistory(mapOf(pick.id to first.generation)),
+            ),
+        )
+        val second = QuestionnaireIntent.Public.Ask(confirm)
+        assertAfterManualAdmission(
             asking,
-            QuestionnaireIntent.Public.Ask(confirm),
-            QuestionnaireState.Asking(listOf(pick, confirm)),
+            second,
+            QuestionnaireState.Asking(
+                listOf(pick, confirm),
+                generations = mapOf(confirm.id to second.generation),
+                publications = QuestionnairePublicationHistory(mapOf(confirm.id to second.generation)),
+            ),
         )
         val renamed = pick.copy(title = "Pick again")
-        spec.assertTransition(
+        val replacement = QuestionnaireIntent.Public.Ask(renamed)
+        assertAfterManualAdmission(
             asking.copy(submitting = setOf(pick.id)),
-            QuestionnaireIntent.Public.Ask(renamed),
-            QuestionnaireState.Asking(listOf(renamed)),
+            replacement,
+            QuestionnaireState.Asking(
+                listOf(renamed),
+                generations = mapOf(pick.id to replacement.generation),
+                publications = QuestionnairePublicationHistory(mapOf(pick.id to replacement.generation)),
+            ),
         )
     }
 
     @Test
     fun `valid answer is submitted once and reported to the source`() {
         val answer = Answer.Selected(listOf("b"))
-        val submitting = asking.copy(submitting = setOf(pick.id))
-        spec.assertTransition(
+        val submitting = asking.copy(
+            submitting = setOf(pick.id),
+            autoBarrier = QuestionnaireAutoBarrier(setOf(pick.source)),
+        )
+        assertAfterManualAdmission(
             asking,
             QuestionnaireIntent.Public.Answer(pick.id, answer),
             submitting,
@@ -71,7 +91,7 @@ class QuestionnaireMachineTest {
         spec.assertIgnored(QuestionnaireState.Idle, QuestionnaireIntent.Public.Answer(pick.id, Answer.Skipped))
         val strict = QuestionnaireState.Asking(listOf(confirm))
         spec.assertIgnored(strict, QuestionnaireIntent.Public.Answer(confirm.id, Answer.Skipped))
-        spec.assertTransition(
+        assertAfterManualAdmission(
             asking,
             QuestionnaireIntent.Public.Answer(pick.id, Answer.Skipped),
             asking.copy(submitting = setOf(pick.id)),
@@ -82,20 +102,26 @@ class QuestionnaireMachineTest {
     @Test
     fun `withdraw removes the question and the last one returns to idle`() {
         val both = QuestionnaireState.Asking(listOf(pick, confirm), setOf(pick.id))
-        spec.assertTransition(
+        assertAfterManualAdmission(
             both,
             QuestionnaireIntent.Public.Withdraw(pick.id),
-            QuestionnaireState.Asking(listOf(confirm)),
+            QuestionnaireState.Asking(
+                listOf(confirm),
+                publications = QuestionnairePublicationHistory(mapOf(pick.id to null)),
+            ),
             outputs = listOf(QuestionnaireOutput.Withdrawn(pick.id)),
         )
-        spec.assertTransition(
+        assertAfterManualAdmission(
             asking,
             QuestionnaireIntent.Public.Withdraw(pick.id),
-            QuestionnaireState.Idle,
+            QuestionnaireState.Asking(
+                emptyList(),
+                publications = QuestionnairePublicationHistory(mapOf(pick.id to null)),
+            ),
             outputs = listOf(QuestionnaireOutput.Withdrawn(pick.id)),
         )
-        spec.assertIgnored(asking, QuestionnaireIntent.Public.Withdraw(QuestionnaireId("x")))
-        spec.assertIgnored(QuestionnaireState.Idle, QuestionnaireIntent.Public.Withdraw(pick.id))
+        spec.assertIgnored(asking, QuestionnaireIntent.Public.Withdraw(QuestionnaireId("x"), "stale"))
+        spec.assertIgnored(QuestionnaireState.Idle, QuestionnaireIntent.Public.Withdraw(pick.id, "stale"))
     }
 
     @Test
@@ -105,10 +131,10 @@ class QuestionnaireMachineTest {
         val open = pick.copy(isFreeTextAllowed = true)
         val openState = QuestionnaireState.Asking(listOf(open))
         for (answer in listOf(alternative, comment)) {
-            spec.assertTransition(
+            assertAfterManualAdmission(
                 openState,
                 QuestionnaireIntent.Public.Answer(open.id, answer),
-                openState.copy(submitting = setOf(open.id)),
+                openState.copy(submitting = setOf(open.id), autoBarrier = QuestionnaireAutoBarrier(setOf(open.source))),
                 outputs = listOf(QuestionnaireOutput.Answered(open, answer)),
             )
             spec.assertIgnored(asking, QuestionnaireIntent.Public.Answer(pick.id, answer))

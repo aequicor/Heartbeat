@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionChoice
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionInput
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
@@ -23,6 +24,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPermissionAnswerOrigin
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPermissionResponder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -35,6 +38,24 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class StudioPermissionAuthorityTest {
+    @Test
+    fun `runtime without provenance support rejects automatic answers`() = runTest {
+        val responder = object : StudioPermissionResponder {
+            override suspend fun respond(
+                sessionId: String,
+                requestId: String,
+                optionId: String,
+                answer: StudioPermissionAnswer?,
+            ) = error("Must not fall back to uncaptured delivery")
+        }
+        val permission = PermissionAuthoritySession().request.toStudio("studio")
+        val origin = StudioPermissionAnswerOrigin.NativeAutomatic(permission, { true }, { true })
+        val failure = assertFailsWith<IllegalStateException> {
+            responder.respond(permission, "submit", StudioPermissionAnswer.Text("answer"), origin)
+        }
+        assertEquals("Automatic answer provenance is unavailable", failure.message)
+    }
+
     @Test
     fun `structured native answers wait for authority revocation before delivery`() = runTest {
         val fixture = PermissionAuthoritySession()
@@ -79,6 +100,91 @@ class StudioPermissionAuthorityTest {
     }
 
     @Test
+    fun `native automatic answers never revoke authority or reach the wire`() = runTest {
+        val inputs = listOf(
+            null,
+            PermissionInput.FreeText(),
+            PermissionInput.SingleChoice(listOf(PermissionChoice("yes", "Approve")), true),
+            PermissionInput.MultiChoice(listOf(PermissionChoice("yes", "Approve")), 0, 1),
+        )
+        for (input in inputs) {
+            for (isSkip in listOf(false, true)) {
+                val fixture = PermissionAuthoritySession(input, isSkip)
+                val permission = fixture.request.toStudio("studio")
+                val pending = fixture.state.value
+                val origin = StudioPermissionAnswerOrigin.NativeAutomatic(
+                    permission,
+                    { error("Automatic authority must not be consulted") },
+                    { error("Automatic eligibility must not be consulted") },
+                )
+                val answers = listOf(
+                    null,
+                    StudioPermissionAnswer.Text("yes"),
+                    StudioPermissionAnswer.Selected(listOf("yes")),
+                )
+                for (answer in answers) {
+                    val failure = assertFailsWith<IllegalStateException> {
+                        fixture.respondStudioPermission(permission, "submit", answer, origin) {
+                            error("Automatic answers must not revoke authority")
+                        }
+                    }
+                    assertEquals("Native automatic answers require protocol provenance support", failure.message)
+                    assertTrue(fixture.decisions.isEmpty())
+                    assertEquals(pending, fixture.state.value)
+                }
+                val manualAnswer = when {
+                    isSkip || input == null -> null
+                    input is PermissionInput.FreeText -> StudioPermissionAnswer.Text("human")
+                    else -> StudioPermissionAnswer.Selected(listOf("yes"))
+                }
+                fixture.respondStudioPermission(permission, "submit", manualAnswer) {}
+                assertEquals(manualAnswer?.toFacade(), fixture.decisions.single().answer)
+            }
+        }
+    }
+
+    @Test
+    fun `uncaptured native delivery also rejects automatic origin before the wire`() = runTest {
+        val fixture = PermissionAuthoritySession()
+        val origin = StudioPermissionAnswerOrigin.NativeAutomatic(
+            fixture.request.toStudio("studio"),
+            { true },
+            { true },
+        )
+        val failure = assertFailsWith<IllegalStateException> {
+            fixture.respondStudioPermission("question", "submit", StudioPermissionAnswer.Text("yes"), origin = origin) {
+                error("Automatic answers must not revoke authority")
+            }
+        }
+        assertEquals("Native automatic answers require protocol provenance support", failure.message)
+        assertTrue(fixture.decisions.isEmpty())
+    }
+
+    @Test
+    fun `captured request changed before delivery cannot receive manual answer`() = runTest {
+        val fixture = PermissionAuthoritySession()
+        val captured = fixture.request.toStudio("studio")
+        fixture.replaceRequest()
+        assertFailsWith<IllegalStateException> {
+            fixture.respondStudioPermission(captured, "submit", StudioPermissionAnswer.Text("answer")) {
+                error("Changed request must be rejected before authority revocation")
+            }
+        }
+        assertTrue(fixture.decisions.isEmpty())
+    }
+
+    @Test
+    fun `reused request changed during revoke cannot receive manual answer`() = runTest {
+        val fixture = PermissionAuthoritySession()
+        assertFailsWith<IllegalStateException> {
+            fixture.respondStudioPermission("question", "submit", StudioPermissionAnswer.Text("answer")) {
+                fixture.replaceRequest()
+            }
+        }
+        assertTrue(fixture.decisions.isEmpty())
+    }
+
+    @Test
     fun `ordinary tool approval does not revoke original human authority`() = runTest {
         val fixture = PermissionAuthoritySession(input = null)
         fixture.respondStudioPermission("question", "submit", null) { error("Not a questionnaire answer") }
@@ -107,7 +213,7 @@ private class PermissionAuthoritySession(
     isSkip: Boolean = false,
 ) : ActiveSession {
     private val turn = Turn(TurnId("turn"), null, EngineTarget(EngineId("engine"), EngineBindingId("b"), ModelId("m")))
-    private val request = PermissionRequest(
+    val request = PermissionRequest(
         PermissionRequestId("question"),
         turn.id,
         "Generated title never becomes authority",
@@ -135,6 +241,9 @@ private class PermissionAuthoritySession(
             } else {
                 FeatureAccess.Unsupported
             }
+    }
+    fun replaceRequest() {
+        state.value = ActiveSessionState.AwaitingUserAction(turn, listOf(request.copy(title = "Replacement question")))
     }
     override suspend fun close() = Unit
 }

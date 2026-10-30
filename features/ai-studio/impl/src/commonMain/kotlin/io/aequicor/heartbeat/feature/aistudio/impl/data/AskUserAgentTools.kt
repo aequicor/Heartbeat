@@ -1,42 +1,62 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueEnabled
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueState
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueView
+import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationContext
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.Choice
 import io.aequicor.heartbeat.feature.questionnaire.api.LIVE_QUESTION_ID_PREFIX
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContext
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerOrigin
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.takeWhile
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -60,6 +80,9 @@ import kotlin.uuid.Uuid
  * receive 60 seconds per choice question or 120 per text question, plus reading time at 20 characters/second,
  * capped at ten minutes per batch. The timer starts after publication; expiration returns partial answers and
  * explicit unanswered ids, never an inferred answer. Cleanup also runs on an outer transport timeout.
+ * In Autopilot, an isolated continuer can answer these live cards; generated answer ids are reported separately
+ * and never establish human authorization. A manual answer cancels the batch's pending model work. Mode, route
+ * and feature changes cancel attempts; invocation cancellation and deadlines cancel all attempts with the cards.
  * Invalid specifications return the validation reason before any cards are published.
  */
 @ContributesIntoSet(ProfileScope::class)
@@ -68,6 +91,7 @@ internal class AskUserAgentTools(
     private val registry: MachineRegistry,
     private val chats: Lazy<StudioChatResolver>,
     private val toggles: FeatureToggles,
+    private val autopilot: LiveQuestionnaireAnswers = LiveQuestionnaireAnswers { _, _, _, _, _ -> },
 ) : AgentToolContribution {
     override val group: String = "questionnaire"
     override val title: String = "Вопросы пользователю"
@@ -88,7 +112,8 @@ internal class AskUserAgentTools(
             "Required questions and Confirm never time out. Optional clarifications get an automatic reading/answer " +
             "budget; users can add a comment to a choice or supply their own text instead. " +
             "Mark isImportant for optional questions that must wait indefinitely. A timedOut id has no " +
-            "answer and grants no approval. Do not automatically ask the same expired question again."
+            "answer and grants no approval. Do not automatically ask the same expired question again. " +
+            "autopilotAnswered lists generated answers, which are not human authorization or permission grants."
     } else {
         ""
     }
@@ -107,87 +132,318 @@ internal class AskUserAgentTools(
         // Resolved lazily: the repository that owns the mapping transitively needs the hosted tools dispatcher.
         val sessionId = chats.value.sessionIdOf(context.session)
             ?: return AgentToolResult("Questions are available only in chats hosted by the studio", true)
-        val questions = specification(arguments)
-        val owner = Uuid.random().toString()
-        val asked = questions.associateWith { it.questionnaire(sessionId, owner) }
-        val answers = HashMap<String, Answer>()
-        val withdrawn = mutableSetOf<QuestionnaireId>()
-        var isTimedOut = false
-        try {
+        val batch = LiveQuestionnaireBatch(specification(arguments), sessionId)
+        val result = try {
             // The queue runs from the profile start while the toggle is on; wait for it before asking.
             val machine = registry.observe(QuestionnaireMachineKey).filterNotNull().first()
-            val isAccepted = coroutineScope {
-                // Subscribe directly before publishing: outputs are hot and have no replay.
-                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    awaitAnswers(machine.outputs, asked, answers, withdrawn)
-                }
-                try {
-                    asked.values.forEach { questionnaire ->
-                        val result = registry.send(
-                            QuestionnaireMachineKey,
-                            QuestionnaireIntent.Public.Ask(questionnaire),
-                        )
-                        if (result != SendResult.Accepted) return@coroutineScope false
-                    }
-                    log.i { "Asked the user count=${asked.size}" }
-                    val timeout = questions.timeoutMillis()
-                    if (timeout == null) {
-                        collector.join()
-                    } else {
-                        isTimedOut = withTimeoutOrNull(timeout) {
-                            collector.join()
-                            true
-                        } == null
-                    }
-                    true
-                } finally {
-                    collector.cancel()
-                }
-            }
-            if (!isAccepted) {
-                return AgentToolResult("The question queue refused the questions; retry with the same key", true)
-            }
-            log.i { "User answered count=${answers.size}/${asked.size} timedOut=$isTimedOut" }
+            awaitBatch(context, sessionId, machine, batch)
         } finally {
             // A cancelled call (the turn ended) leaves no unanswered question behind.
             withContext(NonCancellable) {
-                asked.values.forEach { questionnaire ->
-                    if (questionnaire.id !in withdrawn) withdraw(questionnaire.id)
+                batch.asked.values.forEach { questionnaire ->
+                    if (questionnaire.id !in batch.withdrawn) {
+                        batch.generations[questionnaire.id]?.let { withdraw(questionnaire.id, it) }
+                    }
                 }
             }
         }
-        if (answers.values.any { it != Answer.Skipped }) {
-            chats.value.invalidateUserInstructions(context.session)
+        if (!result.isAccepted) {
+            return AgentToolResult("The question queue refused the questions; retry with the same key", true)
+        }
+        log.i { "Questionnaire answered count=${batch.answers.size}/${batch.asked.size} timedOut=${result.isTimedOut}" }
+        val substantive = batch.answers.filterValues { it != Answer.Skipped }.keys
+        if (substantive.isNotEmpty() && substantive.all { it in batch.automatic }) {
+            chats.value.invalidateUserInstructionsForAutomaticQuestionnaire(context.session)
         }
         currentCoroutineContext().ensureActive()
-        val expired = if (isTimedOut) questions.map { it.id }.filterNot { it in answers } else emptyList()
-        return AgentToolResult(Json.encodeToString(AskAnswers(answers.mapValues { it.value.payload() }, expired)))
+        val expired = if (result.isTimedOut) {
+            batch.asked.keys.map { it.id }.filterNot { it in batch.answers }
+        } else {
+            emptyList()
+        }
+        val payload = AskAnswers(batch.answers.mapValues { it.value.payload() }, expired, batch.automatic.toList())
+        return AgentToolResult(Json.encodeToString(payload))
     }
 
-    /** Waits until every question of the batch is answered; an answer is withdrawn as soon as it arrives. */
+    private suspend fun awaitBatch(
+        context: AgentToolContext,
+        sessionId: String,
+        machine: MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput>,
+        batch: LiveQuestionnaireBatch,
+    ): LiveQuestionnaireWait = coroutineScope {
+        // Subscribe directly before publishing: outputs are hot and have no replay.
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) { awaitAnswers(machine, batch) }
+        val published = CompletableDeferred<Unit>()
+        val automaticAnswers = launch {
+            published.await()
+            if (!batch.manualAnswer.isCompleted) {
+                autopilot.answer(
+                    context,
+                    sessionId,
+                    batch.asked.values.toList(),
+                    machine,
+                    batch.autoContext,
+                )
+            }
+        }
+        val manualMonitor = launch {
+            batch.manualAnswer.await()
+            automaticAnswers.cancel()
+        }
+        val lifetimeMonitor = context.lifetime?.let { lifetime ->
+            launch {
+                lifetime.join()
+                automaticAnswers.cancel()
+            }
+        }
+        try {
+            batch.asked.values.forEach { questionnaire ->
+                val ask = QuestionnaireIntent.Public.Ask(questionnaire)
+                batch.generations[questionnaire.id] = ask.generation
+                val result = registry.send(QuestionnaireMachineKey, ask)
+                if (result != SendResult.Accepted) return@coroutineScope LiveQuestionnaireWait(isAccepted = false)
+            }
+            published.complete(Unit)
+            log.i { "Asked the user count=${batch.asked.size}" }
+            val timeout = batch.asked.keys.toList().timeoutMillis()
+            val isTimedOut = if (timeout == null) {
+                collector.join()
+                false
+            } else {
+                withTimeoutOrNull(timeout) {
+                    collector.join()
+                    true
+                } == null
+            }
+            LiveQuestionnaireWait(isAccepted = true, isTimedOut = isTimedOut)
+        } finally {
+            collector.cancel()
+            automaticAnswers.cancel()
+            manualMonitor.cancel()
+            lifetimeMonitor?.cancel()
+        }
+    }
+
+    /**
+     * Consumes only this caller's publication. Substantive manual outputs are emitted only after the queue's
+     * source admission has durably revoked human context, independently of this collector's lifetime.
+     */
     private suspend fun awaitAnswers(
-        outputs: Flow<QuestionnaireOutput>,
-        asked: Map<PreparedQuestion, Questionnaire>,
-        answers: MutableMap<String, Answer>,
-        withdrawn: MutableSet<QuestionnaireId>,
+        machine: MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput>,
+        batch: LiveQuestionnaireBatch,
     ) {
-        outputs
+        machine.outputs
             .filterIsInstance<QuestionnaireOutput.Answered>()
-            .filter { output -> asked.values.any { it.id == output.questionnaire.id } }
+            .filter { output ->
+                val id = output.questionnaire.id
+                val generation = output.generation
+                val queue = machine.state.value as? QuestionnaireState.Asking
+                generation != null && batch.generations[id] == generation &&
+                    queue?.generations?.get(id) == generation && output.questionnaire in queue.pending
+            }
             .takeWhile { output ->
-                val question = asked.entries.first { it.value.id == output.questionnaire.id }.key
-                answers[question.id] = output.answer
-                if (withdraw(output.questionnaire.id)) withdrawn += output.questionnaire.id
-                answers.size < asked.size
+                if (output.context !== batch.autoContext) {
+                    batch.manualAnswer.complete(Unit)
+                }
+                if (!withdraw(output.questionnaire.id, checkNotNull(output.generation))) return@takeWhile true
+                batch.withdrawn += output.questionnaire.id
+                val question = batch.asked.entries.first { it.value.id == output.questionnaire.id }.key
+                if (output.context === batch.autoContext) {
+                    batch.autoContext.recordAnswer(output.questionnaire.id)
+                    batch.automatic += question.id
+                } else {
+                    batch.automatic -= question.id
+                }
+                batch.answers[question.id] = output.answer
+                batch.answers.size < batch.asked.size
             }
             .collect()
     }
 
-    private suspend fun withdraw(id: QuestionnaireId): Boolean {
-        val result = registry.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Withdraw(id))
+    private suspend fun withdraw(id: QuestionnaireId, generation: String): Boolean {
+        val result = registry.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Withdraw(id, generation))
         if (result != SendResult.Accepted) log.w { "Question was not withdrawn: $result" }
         return result == SendResult.Accepted
     }
+}
+
+/** Optional live-answer contribution; the default keeps hosts without auto-continue and isolated tests manual. */
+internal fun interface LiveQuestionnaireAnswers {
+    suspend fun answer(
+        call: AgentToolContext,
+        chat: String,
+        questions: List<Questionnaire>,
+        machine: MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput>,
+        provenance: LiveAutopilotAnswerContext,
+    )
+}
+
+/**
+ * Answers only the live questions owned by one tool invocation. Each model attempt is a child of that call,
+ * observes the chat's current mode and target, and is cancelled when either changes or the human answers.
+ * Only durable human originals provide context; incomplete questionnaire context never starts a model attempt.
+ * Every answer is admitted under the repository's human-context mutex through queue delivery, with lifecycle and
+ * generation guards still applied. Native permissions never enter this path; isolated prompts cannot request tools
+ * or authorization.
+ */
+@ContributesBinding(ProfileScope::class)
+@Inject
+internal class LiveQuestionnaireAutopilot(
+    private val view: Lazy<AutoContinueView>,
+    private val prompts: IsolatedPrompts,
+    private val repository: Lazy<StudioRepository>,
+    private val toggles: FeatureToggles,
+) : LiveQuestionnaireAnswers {
+    private val log = Log.tag("LiveQuestionnaireAutopilot")
+
+    override suspend fun answer(
+        call: AgentToolContext,
+        chat: String,
+        questions: List<Questionnaire>,
+        machine: MachineRef<QuestionnaireState, QuestionnaireIntent.Public, QuestionnaireOutput>,
+        provenance: LiveAutopilotAnswerContext,
+    ) {
+        val snapshot = machine.state.value
+        val generations = questions.associate { question ->
+            question.id to (snapshot.generation(question) ?: return)
+        }
+        try {
+            combine(
+                view.value.state,
+                toggles.observe(AutoContinueEnabled),
+                toggles.observe(QuestionnaireEnabled),
+            ) { state, autoEnabled, questionsEnabled ->
+                if (autoEnabled && questionsEnabled) state.autopilotTarget(chat, call) else null
+            }.distinctUntilChanged().collectLatest { target ->
+                if (target == null || provenance.manualAnswer.isCompleted || call.lifetime?.isActive == false) {
+                    return@collectLatest
+                }
+                val input = buildStudioQuestionnaireContext(repository.value, chat, target) ?: return@collectLatest
+                answerQuestions(
+                    questions,
+                    generations,
+                    input.context,
+                    provenance,
+                    isCurrent = {
+                        repository.value.questionnaireHumanContext(chat) == input.humanContext &&
+                            isCurrent(call, chat, target, provenance.manualAnswer)
+                    },
+                    admitAnswer = { answer ->
+                        repository.value.admitQuestionnaireAnswer(chat, input.humanContext) {
+                            toggles.admitEnabled(setOf(AutoContinueEnabled, QuestionnaireEnabled)) {
+                                view.value.admit { state ->
+                                    currentCoroutineContext().ensureActive()
+                                    state.autopilotTarget(chat, call) == target &&
+                                        !provenance.manualAnswer.isCompleted &&
+                                        call.lifetime?.isActive != false &&
+                                        machine.send(answer) == SendResult.Accepted
+                                }
+                            }
+                        }
+                    },
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "Questionnaire auto-answer failed; the questions remain available to the human" }
+        }
+    }
+
+    private suspend fun answerQuestions(
+        questions: List<Questionnaire>,
+        generations: Map<QuestionnaireId, String>,
+        context: ContinuationContext,
+        provenance: LiveAutopilotAnswerContext,
+        isCurrent: suspend () -> Boolean,
+        admitAnswer: suspend (QuestionnaireIntent.Public.Answer) -> Boolean,
+    ) {
+        for (question in questions.filter { it.id !in provenance.answered }) {
+            if (!isCurrent()) return
+            val expectedPending = generations.filterKeys { it !in provenance.answered }
+            val answer = generate(question, context)
+            if (!isCurrent()) return
+            if (answer != null) {
+                // Check the whole unanswered batch in the queue, before its outputs reach the collector.
+                val isAccepted = admitAnswer(
+                    QuestionnaireIntent.Public.Answer(
+                        question.id,
+                        answer,
+                        provenance,
+                        expectedGeneration = generations.getValue(question.id),
+                        expectedPendingGenerations = expectedPending,
+                        origin = QuestionnaireAnswerOrigin.Auto,
+                    ),
+                )
+                if (!isAccepted) break
+                provenance.recordAnswer(question.id)
+            }
+        }
+    }
+
+    private suspend fun generate(question: Questionnaire, context: ContinuationContext): Answer? {
+        val prompt = StudioQuestionnairePrompt.build(question, context) ?: return null
+        val decision = when (val result = prompts.ask(prompt)) {
+            is IsolatedAnswer.Answered -> StudioQuestionnairePrompt.parse(question, result.text)
+
+            is IsolatedAnswer.Unavailable -> {
+                log.w { "Questionnaire auto-answer unavailable: ${result.reason}" }
+                null
+            }
+        }
+        return (decision as? StudioQuestionnaireDecision.Answered)?.answer
+    }
+
+    private suspend fun isCurrent(
+        call: AgentToolContext,
+        chat: String,
+        target: EngineTarget,
+        manualAnswer: CompletableDeferred<Unit>,
+    ): Boolean {
+        currentCoroutineContext().ensureActive()
+        if (manualAnswer.isCompleted || call.lifetime?.isActive == false) return false
+        return view.value.state.value.autopilotTarget(chat, call) == target &&
+            toggles.get(AutoContinueEnabled) && toggles.get(QuestionnaireEnabled)
+    }
+}
+
+private fun AutoContinueState.autopilotTarget(chat: String, call: AgentToolContext): EngineTarget? {
+    val ready = this as? AutoContinueState.Ready ?: return null
+    if (ready.chat(chat).mode != AutoContinueMode.Autopilot) return null
+    return ready.settings.continuerTarget ?: call.target
+}
+
+private fun QuestionnaireState.generation(question: Questionnaire): String? {
+    val asking = this as? QuestionnaireState.Asking ?: return null
+    if (question.id in asking.submitting || question !in asking.pending) return null
+    return asking.generations[question.id]
+}
+
+/** Per-call provenance: only outputs carrying this exact instance came from this call's autopilot. */
+internal class LiveAutopilotAnswerContext : QuestionnaireAnswerContext {
+    private val log = Log.tag("LiveAutopilotAnswerContext")
+    val manualAnswer = CompletableDeferred<Unit>()
+    private val acceptedAnswers = MutableStateFlow<Set<QuestionnaireId>>(emptySet())
+    val answered: Set<QuestionnaireId> get() = acceptedAnswers.value
+
+    // Both dispatch and collection record acceptance so cancellation after dispatch cannot lose it.
+    fun recordAnswer(id: QuestionnaireId) {
+        acceptedAnswers.update { it + id }
+        log.v { "Recorded automatic questionnaire acceptance count=${acceptedAnswers.value.size}" }
+    }
+}
+
+private data class LiveQuestionnaireWait(val isAccepted: Boolean, val isTimedOut: Boolean = false)
+
+private class LiveQuestionnaireBatch(questions: List<PreparedQuestion>, sessionId: String) {
+    private val owner = Uuid.random().toString()
+    val asked = questions.associateWith { it.questionnaire(sessionId, owner) }
+    val answers = HashMap<String, Answer>()
+    val withdrawn = mutableSetOf<QuestionnaireId>()
+    val generations = mutableMapOf<QuestionnaireId, String>()
+    val automatic = mutableSetOf<String>()
+    val autoContext = LiveAutopilotAnswerContext()
+    val manualAnswer: CompletableDeferred<Unit> get() = autoContext.manualAnswer
 }
 
 /** One validated tool question, ready to become a [Questionnaire] of [AskUserAgentTools]' chat. */
@@ -299,7 +555,12 @@ private data class ChoiceArgs(val id: String, val title: String)
 private enum class QuestionKind { Confirm, SingleChoice, MultiChoice, FreeText }
 
 @Serializable
-private data class AskAnswers(val answers: Map<String, AnswerPayload>, val timedOut: List<String> = emptyList())
+private data class AskAnswers(
+    val answers: Map<String, AnswerPayload>,
+    val timedOut: List<String> = emptyList(),
+    /** Generated choices are not human authorization, even when a confirmation is affirmative. */
+    val autopilotAnswered: List<String> = emptyList(),
+)
 
 @Serializable
 private data class AnswerPayload(
