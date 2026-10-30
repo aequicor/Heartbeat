@@ -15,3 +15,50 @@ static inline int64_t hb_bootstrap_free_space(const char *path) {
     if (statvfs(path, &status) != 0) return -1;
     return (int64_t)status.f_bavail * (int64_t)status.f_frsize;
 }
+
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <signal.h>
+#include <string.h>
+#ifdef __APPLE__
+#include <crt_externs.h>
+#include <mach-o/dyld.h>
+#endif
+
+static inline char **hb_bootstrap_environment(void) {
+#ifdef __APPLE__
+    return *_NSGetEnviron();
+#else
+    extern char **environ;
+    return environ;
+#endif
+}
+
+static inline int hb_bootstrap_spawn(const char *path, char *const argv[], char *const envp[]) {
+    pid_t child;
+    int result = posix_spawn(&child, path, NULL, NULL, argv, envp);
+    return result == 0 ? (int)child : -result;
+}
+
+static inline int hb_bootstrap_wait(int child, int blocking, int *exit_code) {
+    int status;
+    pid_t result = waitpid((pid_t)child, &status, blocking ? 0 : WNOHANG);
+    if (result == 0 || (result < 0 && errno == EINTR)) return 0;
+    if (result < 0) return -errno;
+    *exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    return 1;
+}
+
+static inline int hb_bootstrap_executable(char *buffer, size_t capacity) {
+#ifdef __APPLE__
+    uint32_t size = (uint32_t)capacity;
+    if (_NSGetExecutablePath(buffer, &size) != 0) return -1;
+    return (int)strlen(buffer);
+#else
+    ssize_t size = readlink("/proc/self/exe", buffer, capacity - 1);
+    if (size < 0 || (size_t)size >= capacity - 1) return -1;
+    buffer[size] = '\0';
+    return (int)size;
+#endif
+}

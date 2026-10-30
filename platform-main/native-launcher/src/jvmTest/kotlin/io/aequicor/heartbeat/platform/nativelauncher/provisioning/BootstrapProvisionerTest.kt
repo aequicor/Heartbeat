@@ -72,7 +72,7 @@ class BootstrapProvisionerTest {
         return out.toByteArray()
     }
 
-    private inner class Fixture(os: String = "windows") {
+    private inner class Fixture(os: String = "windows", minLauncherVersion: Int = 1) {
         val store = ImageStore(temp.resolve("root-${System.nanoTime()}"), fs)
         val runtime = zip(mapOf("runtime/bin/java.dll" to byteArrayOf(1, 2, 3, 4)))
         val platform = zip(mapOf("app/Heartbeat.cfg" to "[Application]".encodeToByteArray()))
@@ -82,6 +82,7 @@ class BootstrapProvisionerTest {
             channel = "release",
             os = os,
             arch = "x64",
+            minNativeLauncherVersion = minLauncherVersion,
             runtime = BootstrapRuntime(
                 "jbr21-windows-x64",
                 "$BASE/runtime.zip",
@@ -105,7 +106,13 @@ class BootstrapProvisionerTest {
             transport.responses["$BASE/seed.zip"] = seed
         }
 
-        fun provisioner(transport: HttpTransport, free: Long = Long.MAX_VALUE) = BootstrapProvisioner(
+        fun provisioner(
+            transport: HttpTransport,
+            free: Long = Long.MAX_VALUE,
+            expectedVersion: String? = null,
+            expectedTarget: String? = null,
+            expectedChannel: String? = null,
+        ) = BootstrapProvisioner(
             store = store,
             transport = transport,
             manifestUrl = "$BASE/manifest.json",
@@ -113,6 +120,9 @@ class BootstrapProvisionerTest {
             trustedKeys = listOf(keyPair.public.encoded),
             fs = fs,
             freeSpace = { free },
+            expectedVersion = expectedVersion,
+            expectedTarget = expectedTarget,
+            expectedChannel = expectedChannel,
             lockPollMillis = 20,
             lockTimeoutMillis = 2000,
         )
@@ -145,6 +155,25 @@ class BootstrapProvisionerTest {
             assertTrue(fs.exists(image.directory.resolve(seed).resolve("manifest.json")))
             assertTrue(!fs.exists(image.directory.resolve("app/resources/seed/manifest.json")))
         }
+    }
+
+    @Test
+    fun incompatibleSignedManifestIsRejectedBeforeArtifactDownloads() {
+        val fixture = Fixture()
+        for (provisioner in listOf<(FakeTransport) -> BootstrapProvisioner>(
+            { fixture.provisioner(it, expectedVersion = "2.0.0") },
+            { fixture.provisioner(it, expectedTarget = "windows-arm64") },
+            { fixture.provisioner(it, expectedChannel = "beta") },
+        )) {
+            val transport = fixture.transport()
+            assertFailsWith<IllegalArgumentException> { runBlocking { provisioner(transport).provision() } }
+            assertTrue(transport.downloads.isEmpty())
+            assertNull(fixture.store.currentImage())
+        }
+        val newer = Fixture(minLauncherVersion = 2)
+        val transport = newer.transport()
+        assertFailsWith<IllegalArgumentException> { runBlocking { newer.provisioner(transport).provision() } }
+        assertTrue(transport.downloads.isEmpty())
     }
 
     @Test

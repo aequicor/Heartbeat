@@ -1,3 +1,5 @@
+import java.security.KeyFactory
+import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 
 plugins {
@@ -24,6 +26,36 @@ val generateEmbeddedIcon = tasks.register("generateEmbeddedIcon") {
             /** Base64 от platform-main/desktop/icons/heartbeat.ico; генерируется задачей generateEmbeddedIcon. */
             internal const val EMBEDDED_ICON_BASE64: String = "$encoded"
             """.trimIndent() + "\n",
+        )
+    }
+}
+
+val generateBootstrapDefaults = tasks.register("generateBootstrapDefaults") {
+    val keys = layout.projectDirectory.file("bootstrap-trusted-keys.txt")
+    val version = providers.gradleProperty("heartbeat.version")
+    val channel = providers.gradleProperty("heartbeat.channel").orElse("release")
+    val output = layout.buildDirectory.dir("generated-src/bootstrap")
+    inputs.file(keys)
+    inputs.property("version", version)
+    inputs.property("channel", channel)
+    outputs.dir(output)
+    doLast {
+        val trusted = keys.asFile.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
+        require(trusted.isNotEmpty()) { "Bootstrap release keys are missing" }
+        trusted.forEach { key ->
+            KeyFactory.getInstance("Ed25519").generatePublic(
+                X509EncodedKeySpec(Base64.getDecoder().decode(key)),
+            )
+        }
+        require(version.get().matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+"))) { "Invalid bootstrap version" }
+        require(channel.get() in listOf("release", "beta", "dev")) { "Invalid bootstrap channel" }
+        val dir = output.get().asFile.apply { mkdirs() }
+        dir.resolve("BootstrapDefaults.kt").writeText(
+            "package io.aequicor.heartbeat.platform.nativelauncher\n\n" +
+                "internal const val BOOTSTRAP_VERSION = \"${version.get()}\"\n" +
+                "internal const val BOOTSTRAP_CHANNEL = \"${channel.get()}\"\n" +
+                "internal val BOOTSTRAP_PUBLIC_KEYS = listOf(" +
+                trusted.joinToString(", ") { "\"$it\"" } + ")\n",
         )
     }
 }
@@ -70,6 +102,9 @@ kotlin {
     }
 
     sourceSets {
+        nativeMain {
+            kotlin.srcDir(generateBootstrapDefaults.map { it.outputs.files.single() })
+        }
         nativeMain.dependencies {
             implementation(libs.ionspin.libsodium)
         }

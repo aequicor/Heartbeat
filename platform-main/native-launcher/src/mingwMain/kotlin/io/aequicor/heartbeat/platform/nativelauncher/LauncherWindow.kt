@@ -476,6 +476,9 @@ class LauncherWindow(private val config: LauncherConfig, private val store: Imag
                     manifestUrl = config.manifestUrl,
                     signatureUrl = config.signatureUrl,
                     trustedKeys = config.trustedKeys,
+                    expectedVersion = config.version,
+                    expectedTarget = config.target,
+                    expectedChannel = config.channel,
                 )
                 val image = provisioner.provision(
                     onProgress = { progress -> updateProgress(progress) },

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapArtifact
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapManifest
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapManifestVerifier
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.BootstrapSignature
+import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.NATIVE_LAUNCHER_VERSION
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.isAllowedArtifactUrl
 import io.aequicor.heartbeat.platform.nativelauncher.bootstrap.sha256Hex
 import io.aequicor.heartbeat.platform.nativelauncher.launcherLog
@@ -50,6 +51,9 @@ class BootstrapProvisioner(
     private val trustedKeys: List<ByteArray>,
     private val fs: FileSystem = FileSystem.SYSTEM,
     private val freeSpace: (Path) -> Long = ProvisioningPlatform::freeSpaceBytes,
+    private val expectedVersion: String? = null,
+    private val expectedTarget: String? = null,
+    private val expectedChannel: String? = null,
     private val lockPollMillis: Long = 500,
     private val lockTimeoutMillis: Long = DEFAULT_LOCK_TIMEOUT_MILLIS,
 ) {
@@ -76,13 +80,27 @@ class BootstrapProvisioner(
         isCancelled: () -> Boolean,
     ): ProvisionedImage {
         val current = store.currentImage()
-        if (current != null && current.id != before?.id) {
+        if (current != null && current.id != before?.id && matchesInstalledPlatform(current)) {
             // Владелец блокировки уже собрал image, пока этот экземпляр ждал: дублировать работу не нужно.
             return current
         }
         val manifest = fetchManifest(isCancelled)
+        require(manifest.minNativeLauncherVersion <= NATIVE_LAUNCHER_VERSION) { "A newer native launcher is required" }
+        require(expectedVersion == null || manifest.version == expectedVersion) { "Unexpected bootstrap version" }
+        require(expectedTarget == null || "${manifest.os}-${manifest.arch}" == expectedTarget) {
+            "Unexpected bootstrap OS or architecture"
+        }
+        require(expectedChannel == null || manifest.channel == expectedChannel) { "Unexpected bootstrap channel" }
         val imageId = imageId(manifest)
         return if (current?.id == imageId) current else provisionNewImage(manifest, imageId, onProgress, isCancelled)
+    }
+
+    private fun matchesInstalledPlatform(image: ProvisionedImage): Boolean {
+        if (image.minNativeLauncherVersion > NATIVE_LAUNCHER_VERSION) return false
+        val isVersionMatching = expectedVersion == null || image.platformVersion == expectedVersion
+        val isTargetMatching = expectedTarget == null || image.platformTarget == expectedTarget
+        val isChannelMatching = expectedChannel == null || image.platformChannel == expectedChannel
+        return isVersionMatching && isTargetMatching && isChannelMatching
     }
 
     private suspend fun provisionNewImage(
@@ -123,6 +141,9 @@ class BootstrapProvisioner(
                 manifest.runtime.id,
                 manifest.seed.trainId,
                 manifest.version,
+                "${manifest.os}-${manifest.arch}",
+                manifest.channel,
+                manifest.minNativeLauncherVersion,
             )
             onProgress(ProvisionProgress(ProvisionStage.ACTIVATE))
             store.activate(image, staging)
@@ -137,7 +158,8 @@ class BootstrapProvisioner(
     private data class Artifact(val name: String, val info: BootstrapArtifactInfo)
 
     private fun imageId(manifest: BootstrapManifest): String {
-        val raw = "${manifest.version}-${manifest.seed.trainId}-${manifest.platform.sha256.take(HASH_PREFIX)}"
+        val raw = "${manifest.version}-${manifest.os}-${manifest.arch}-${manifest.channel}-" +
+            "${manifest.seed.trainId}-${manifest.platform.sha256.take(HASH_PREFIX)}-v2"
         return raw.map { if (it.isLetterOrDigit() || it in SAFE_ID_PUNCTUATION) it else '-' }.joinToString("")
     }
 

@@ -53,3 +53,6 @@ data class BootstrapManifest(
         const val SCHEMA = 1
     }
 }
+
+/** Bootstrap protocol compatibility level of this native launcher. */
+internal const val NATIVE_LAUNCHER_VERSION = 1

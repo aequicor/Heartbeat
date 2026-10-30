@@ -30,7 +30,7 @@ import kotlin.system.exitProcess
 fun main(args: Array<String>) {
     val config = LauncherConfig.load()
     val store = ImageStore(config.imageRoot)
-    val offline = store.currentImage()
+    val offline = config.currentImage(store)
     if (args.any { it.startsWith("--heartbeat-") }) {
         val image = offline ?: error("No provisioned image for a worker process")
         exitProcess(launchAndWait(image, args.toList()))

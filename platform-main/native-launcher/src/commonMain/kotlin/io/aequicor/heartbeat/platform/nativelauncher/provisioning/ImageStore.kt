@@ -15,6 +15,9 @@ data class ProvisionedImage(
     val runtimeId: String,
     val trainId: String,
     val platformVersion: String? = null,
+    val platformTarget: String? = null,
+    val platformChannel: String? = null,
+    val minNativeLauncherVersion: Int = 1,
 )
 
 /**
@@ -49,7 +52,16 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
         return runCatching {
             val record = json.decodeFromString<ImageMarker>(fs.read(marker) { readUtf8() })
             if (record.id != id) return null
-            ProvisionedImage(record.id, dir, record.runtimeId, record.trainId, record.platformVersion)
+            ProvisionedImage(
+                record.id,
+                dir,
+                record.runtimeId,
+                record.trainId,
+                record.platformVersion,
+                record.platformTarget,
+                record.platformChannel,
+                record.minNativeLauncherVersion,
+            )
         }.onFailure { error ->
             launcherLog.w(
                 TAG,
@@ -61,7 +73,15 @@ class ImageStore(val root: Path, private val fs: FileSystem = FileSystem.SYSTEM)
     fun markerFile(imageDir: Path): Path = imageDir.resolve("bootstrap-image.json")
 
     fun writeMarker(dir: Path, image: ProvisionedImage) {
-        val record = ImageMarker(image.id, image.runtimeId, image.trainId, image.platformVersion)
+        val record = ImageMarker(
+            image.id,
+            image.runtimeId,
+            image.trainId,
+            image.platformVersion,
+            image.platformTarget,
+            image.platformChannel,
+            image.minNativeLauncherVersion,
+        )
         fs.write(markerFile(dir)) { writeUtf8(json.encodeToString(ImageMarker.serializer(), record)) }
     }
 
@@ -117,4 +137,7 @@ internal data class ImageMarker(
     val runtimeId: String,
     val trainId: String,
     val platformVersion: String? = null,
+    val platformTarget: String? = null,
+    val platformChannel: String? = null,
+    val minNativeLauncherVersion: Int = 1,
 )
