@@ -2,6 +2,7 @@
 paths:
   - "platform-main/launcher/**"
   - "platform-main/launcher-selector/**"
+  - "platform-main/native-launcher/**"
   - "platform-main/desktop/build.gradle.kts"
   - "build-logic/**/LauncherRecord*.kt"
   - "build-logic/**/TrainBaseConventionPlugin.kt"
@@ -63,3 +64,10 @@ paths:
   одноразовые ключи (`scripts/e2e_launcher_slots/Keys.java`), сборка с ними описана в docstring скрипта. Не для релизных ключей.
 - **`platformApi` поезда = 2** (`Launcher.PLATFORM_API`, `INSTALLED_PLATFORM_API` в app-update): лаунчер уровня 1 положил бы
   jar лаунчера в classpath приложения. Новое несовместимое изменение формата поезда — повышай уровень и в манифесте.
+- **Окно-хост embedded-пути** (Windows x64): `WS_EX_COMPOSITED` нужен только сцене лончера (GDI и owner-drawn
+  кнопки). Когда встроенная Studio представила первый кадр, лаунчер снимает стиль (`hb_host_release_composition`):
+  композитное окно собирает дерево через внеэкранный GDI-битмап, и каждая рамка ускоренной поверхности Compose
+  проходит лишнюю копию — интерфейс тормозит всю сессию. Транзитные стили handoff (`WS_EX_LAYERED`) тоже не должны
+  переживать представленную рамку: снятие делается под нативной крышкой, а представленной подтверждается следующая
+  нарисованная рамка. Стили окна ставит нативный бинарь лончера, поэтому такая правка уезжает только с новой
+  сборкой установщика (слоты обновляют лишь `launcher.jar`), а не поездом.

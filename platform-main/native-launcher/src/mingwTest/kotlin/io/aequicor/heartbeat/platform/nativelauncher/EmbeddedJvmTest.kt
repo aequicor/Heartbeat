@@ -2,6 +2,9 @@
 
 package io.aequicor.heartbeat.platform.nativelauncher
 
+import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_host_is_composited
+import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_host_release_count
+import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_host_set_composited
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_exit_code
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_is_presented
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_start
@@ -57,14 +60,26 @@ class EmbeddedJvmTest {
             launcherEnvironment("HEARTBEAT_JNI_SMOKE_RUNTIME"),
             "Windows JNI smoke requires the packaged JBR",
         )
-        val classes = assertNotNull(launcherEnvironment("HEARTBEAT_JNI_SMOKE_CLASSES"))
+        val classes = assertNotNull(
+            launcherEnvironment("HEARTBEAT_JNI_SMOKE_CLASSES"),
+            "Windows JNI smoke requires the compiled fixture classes",
+        )
+        // A plain window, then the production host style: the smoke proves the style is released, not how it is set.
         val window = assertNotNull(
             CreateWindowExW(
                 0u, "STATIC".wcstr.ptr, "Heartbeat JNI test".wcstr.ptr, WS_OVERLAPPEDWINDOW.toUInt(),
                 0, 0, 640, 480, null, null, GetModuleHandleW(null), null,
             ),
+            "Cannot create the embedding host window",
         )
         try {
+            // Composition exists only in a DWM-composed session; a runner without it cannot apply the style at all.
+            val isComposed = hb_host_set_composited(window, 1) == 1
+            if (!isComposed) {
+                launcherLog.i("EmbeddedJvmTest") {
+                    "WS_EX_COMPOSITED is unavailable in this session; the style assertion is skipped"
+                }
+            }
             installEmbeddedCover(window, 1.0)
             val options = allocArray<CPointerVar<ByteVar>>(2)
             options[0] = "-Djava.class.path=$classes".cstr.ptr
@@ -84,6 +99,12 @@ class EmbeddedJvmTest {
             }
             assertEquals(0, hb_jvm_exit_code(), "JNI/JAWT failed or DestroyJavaVM did not finish")
             assertTrue(hb_jvm_is_presented() != 0)
+            // Presented frames release the launcher composition in every session; the style itself is observable
+            // only where composition exists.
+            assertEquals(1, hb_host_release_count(), "Presenting the Studio must release the launcher composition")
+            if (isComposed) {
+                assertEquals(0, hb_host_is_composited(), "The presented Studio kept the launcher composition style")
+            }
         } finally {
             DestroyWindow(window)
         }

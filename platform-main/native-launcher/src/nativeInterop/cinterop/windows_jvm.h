@@ -96,6 +96,41 @@ static void hb_jvm_close_cover(void) {
     if (hb_jvm.cover) DestroyWindow(hb_jvm.cover);
     hb_jvm.cover = NULL; hb_cover_release();
 }
+static int hb_window_is_composited(HWND window) {
+    if (!window) return 0;
+    return (GetWindowLongW(window, GWL_EXSTYLE) & WS_EX_COMPOSITED) != 0;
+}
+static int hb_window_set_composited(HWND window, int compose) {
+    if (!window) return 0;
+    LONG style = GetWindowLongW(window, GWL_EXSTYLE);
+    LONG next = compose ? (style | WS_EX_COMPOSITED) : (style & ~WS_EX_COMPOSITED);
+    if (next != style) {
+        SetLastError(0);
+        if (SetWindowLongW(window, GWL_EXSTYLE, next) == 0 && GetLastError() != 0) return 0;
+        SetWindowPos(window, NULL, 0, 0, 0, 0,
+                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    return hb_window_is_composited(window);
+}
+/* The launcher scene (owner-drawn children included) needs WS_EX_COMPOSITED, but the embedded Studio presents an
+   accelerated Compose surface: a composited window tree commits through one off-screen GDI bitmap, so every Studio
+   frame would be read back into it and scrolling, animations and input would stall for the whole session. The style
+   is dropped while the native cover still hides the window, before its first frame becomes visible. */
+static volatile LONG hb_host_release_calls;
+static void hb_host_release_composition(void) {
+    InterlockedIncrement(&hb_host_release_calls);
+    HWND window = hb_jvm.window;
+    if (!hb_window_is_composited(window)) return;
+    hb_window_set_composited(window, 0);
+    /* Invalidate only: the present call arrives from the AWT thread, so the owning thread repaints on its own pump. */
+    RedrawWindow(window, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+}
+/* Read by the JNI smoke test: presenting the Studio must run the release exactly once, in every session. */
+static int hb_host_release_count(void) { return (int)InterlockedCompareExchange(&hb_host_release_calls, 0, 0); }
+/* Read by the JNI smoke test: the Studio must not keep the launcher's composition style. */
+static int hb_host_is_composited(void) { return hb_window_is_composited(hb_jvm.window); }
+/* Test hook: the smoke test applies the production host style to its own plain window. */
+static int hb_host_set_composited(HWND window, int compose) { return hb_window_set_composited(window, compose); }
 /* Clip the AWT surface while it prepares; the native brand remains visible until the first complete frame. */
 static int hb_host_scale(int pixels) {
     typedef UINT (WINAPI *GetDpi)(HWND);
@@ -193,6 +228,8 @@ static void JNICALL hb_host_present(JNIEnv *env, jclass type) {
     if (!hb_jvm.child || !IsWindow(hb_jvm.child)) {
         hb_jvm_error(env, "Embedded peer was not attached"); return;
     }
+    /* The cover still hides the Studio, so the discarded composition surface repaints invisibly. */
+    hb_host_release_composition();
     InterlockedExchange(&hb_jvm.presented, 1);
     if (hb_jvm.cover) {
         if (!PostMessageW(hb_jvm.cover, WM_APP + 1, 0, 0)) {
