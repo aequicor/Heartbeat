@@ -27,10 +27,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -38,6 +36,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -110,12 +109,12 @@ internal class JvmDeepSeekBackend(
         if (!accepts(source, context)) {
             throw EngineException(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
         }
-        return listOf(
-            ModelInfo(
-                EngineTarget(context.engine, context.binding, ModelId(DEFAULT_MODEL)),
-                "DeepSeek (Harness default)",
-            ),
-        )
+        val discovery = openRuntime(RuntimeIdentity(context.engine, source.info.id, source.info.revision))
+        try {
+            return discovery.discoverCatalog(context.binding).modelInfo(context.engine, context.binding)
+        } finally {
+            withContext(NonCancellable) { discovery.close() }
+        }
     }
 
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
@@ -166,7 +165,6 @@ internal class JvmDeepSeekBackend(
 
     private companion object {
         const val ORIGIN = "https://api.deepseek.com"
-        const val DEFAULT_MODEL = "deepseek-flash"
         const val PROBE_TIMEOUT_MS = 10_000L
     }
 }

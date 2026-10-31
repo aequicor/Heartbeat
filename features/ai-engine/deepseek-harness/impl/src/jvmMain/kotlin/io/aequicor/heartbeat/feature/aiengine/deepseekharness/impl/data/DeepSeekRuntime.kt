@@ -14,11 +14,13 @@ import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
@@ -39,6 +41,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
 import kotlin.concurrent.Volatile
 
 /** One profile-owned ACP connection. Accepted turns outlive individual session handles. */
@@ -72,8 +75,22 @@ internal class DeepSeekRuntime(
         checkActive()
         val cwd = directory(request)
         val native = connection.newSession(cwd)
+        configure(native.sessionId, native.metadata, request.target)
         val created = session(native.sessionId, request.target, request.workspace, cwd)
         return created.lease()
+    }
+
+    /** Lists the native models the agent advertises; the adapter never starts a turn. */
+    suspend fun discoverCatalog(binding: EngineBindingId): List<DeepSeekNativeModel> {
+        val target = EngineTarget(identity.engine, binding, ModelId("catalog"))
+        val native = connection.newSession(directory(CreateSessionRequest(target)))
+        return deepSeekNativeModels(native.metadata)
+    }
+
+    /** Selects the requested model on a freshly created or resumed session; an unsupported model fails the open. */
+    private suspend fun configure(sessionId: String, metadata: JsonObject, target: EngineTarget) {
+        if (!metadata.hasConfigOption("model")) return
+        connection.setConfigOption(sessionId, "model", target.model.value)
     }
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
@@ -97,6 +114,7 @@ internal class DeepSeekRuntime(
         }
         val cwd = directory(CreateSessionRequest(request.target, request.workspace))
         val native = connection.resumeSession(nativeId, cwd)
+        configure(nativeId, native.metadata, request.target)
         session(nativeId, request.target, request.workspace, cwd).lease()
     }
 
