@@ -8,18 +8,26 @@ import com.sun.jna.platform.win32.WinDef.HWND
 import com.sun.jna.platform.win32.WinUser
 import javax.swing.JFrame
 
+private const val WS_EX_TOOLWINDOW = 0x00000080
+private const val WS_EX_APPWINDOW = 0x00040000
+
 /**
  * A preparing window renders but contributes neither visible pixels nor a second taskbar/Alt+Tab entry.
- * Reveal occurs behind the native cover after Studio is ready; normal switcher style returns after its exit.
+ * Reveal occurs behind the native cover after Studio is ready, and the transient style is dropped as soon as the
+ * ready frame is painted: a layered window composes its whole surface through a DWM redirected surface on every
+ * frame, which would cost scrolling, animation and input latency for the rest of the session.
  * All methods run on the AWT event queue; close also reveals the window on a failed handoff.
  */
 internal class WindowsHandoffCover private constructor(private val window: JFrame) : AutoCloseable {
     private val user = User32.INSTANCE
     private val handle = HWND(Native.getWindowPointer(window))
     private val originalStyle = readStyle()
-    private val temporaryStyle = WS_EX_TOOLWINDOW or WS_EX_APPWINDOW or WinUser.WS_EX_LAYERED
     private var isRevealed = false
+    private var isLayeredPresentation = true
     private val isAutoFocusOriginally = window.isAutoRequestFocus
+
+    /** True while the transient layered presentation is still applied and [unlayer] has work to do. */
+    val isLayered: Boolean get() = isLayeredPresentation
 
     private fun hide() {
         window.isAutoRequestFocus = false
@@ -31,6 +39,8 @@ internal class WindowsHandoffCover private constructor(private val window: JFram
 
     fun hidePixels() {
         // Fully transparent pixels do not intercept input while the independent render clock prepares Studio.
+        // After [unlayer] the window is simply the visible surface under the native cover.
+        if (!isLayeredPresentation) return
         check(user.SetLayeredWindowAttributes(handle, 0, PREPARE_ALPHA.toByte(), WinUser.LWA_ALPHA)) {
             "Cannot cover the preparing Compose window"
         }
@@ -62,6 +72,18 @@ internal class WindowsHandoffCover private constructor(private val window: JFram
         return isAlreadyRevealed
     }
 
+    /**
+     * Drops the transient handoff style. Removing `WS_EX_LAYERED` discards DWM's redirected surface, so the host
+     * paints one more frame before acknowledging the presented one; the native cover still hides the window.
+     * Returns false when there is nothing left to drop.
+     */
+    fun unlayer(): Boolean {
+        if (!isLayeredPresentation) return false
+        isLayeredPresentation = false
+        if (user.IsWindow(handle)) writeStyle(restoredHandoffStyle(originalStyle, isRevealed))
+        return true
+    }
+
     override fun close() {
         if (!user.IsWindow(handle)) return
         try {
@@ -74,15 +96,8 @@ internal class WindowsHandoffCover private constructor(private val window: JFram
     private fun restoreStyle() {
         if (!user.IsWindow(handle)) return
         window.isAutoRequestFocus = isAutoFocusOriginally
-        val current = readStyle()
-        // Removing WS_EX_LAYERED discards DWM's redirected surface: the desktop can show for several frames
-        // after the native cover is destroyed. Keep the already painted opaque surface for this HWND's lifetime.
-        val restored = if (isRevealed) {
-            (current and temporaryStyle.inv()) or WS_EX_APPWINDOW or WinUser.WS_EX_LAYERED
-        } else {
-            (current and temporaryStyle.inv()) or (originalStyle and temporaryStyle)
-        }
-        writeStyle(restored)
+        isLayeredPresentation = false
+        writeStyle(restoredHandoffStyle(originalStyle, isRevealed))
         if (isRevealed) WindowsTaskbar.install(window)
     }
 
@@ -97,6 +112,18 @@ internal class WindowsHandoffCover private constructor(private val window: JFram
         Kernel32.INSTANCE.SetLastError(0)
         val previous = user.SetWindowLong(handle, WinUser.GWL_EXSTYLE, style)
         check(previous != 0 || Kernel32.INSTANCE.GetLastError() == 0) { "Cannot set Compose window style" }
+        check(
+            user.SetWindowPos(
+                handle,
+                null,
+                0,
+                0,
+                0,
+                0,
+                WinUser.SWP_FRAMECHANGED or WinUser.SWP_NOMOVE or WinUser.SWP_NOSIZE or
+                    WinUser.SWP_NOZORDER or WinUser.SWP_NOACTIVATE,
+            ),
+        ) { "Cannot apply the Compose window style" }
     }
 
     private fun prepare(): WindowsHandoffCover {
@@ -113,12 +140,19 @@ internal class WindowsHandoffCover private constructor(private val window: JFram
     companion object {
         private const val OPAQUE_ALPHA = 255
         private const val PREPARE_ALPHA = 0
-        private const val WS_EX_TOOLWINDOW = 0x00000080
-        private const val WS_EX_APPWINDOW = 0x00040000
 
         fun create(window: JFrame): WindowsHandoffCover? {
             if (!System.getProperty("os.name").startsWith("Windows")) return null
             return WindowsHandoffCover(window).prepare()
         }
     }
+}
+
+/**
+ * The handoff style is transient, not a property of the Studio window: a revealed window keeps a taskbar entry but
+ * must never keep `WS_EX_LAYERED`, which would make DWM alpha-compose every Studio frame for the whole session.
+ */
+internal fun restoredHandoffStyle(originalStyle: Int, isRevealed: Boolean): Int {
+    val plain = originalStyle and WinUser.WS_EX_LAYERED.inv()
+    return if (isRevealed) plain or WS_EX_APPWINDOW else plain
 }

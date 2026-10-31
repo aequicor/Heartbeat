@@ -412,12 +412,13 @@ private class HandoffFrame(
             }
             val isAligned = WindowsHandoffPresentation.align(window, presentation)
             val isRevealed = isAligned && session.cover?.reveal(presentation.nativeHandle) != false
-            if (isRevealed) {
+            if (isRevealed && session.cover?.unlayer() != true) {
                 WindowsHandoffPresentation.flush()
                 acknowledgeRevision(presentation)
             } else {
-                redrawRevision++
-                window.contentPane.repaint()
+                // The unlayered surface is discarded by DWM, so the painted frame under the native cover is
+                // reproduced once before the launcher may expose it.
+                repaintForAcknowledgement()
             }
         } catch (error: CancellationException) {
             throw error
@@ -428,6 +429,12 @@ private class HandoffFrame(
         } finally {
             pending.set(false)
         }
+    }
+
+    /** The next painted frame is the one the launcher may expose; the pending acknowledgement waits for it. */
+    private fun repaintForAcknowledgement() {
+        redrawRevision++
+        window.contentPane.repaint()
     }
 
     private fun acknowledgeRevision(presentation: HandoffPresentation) {

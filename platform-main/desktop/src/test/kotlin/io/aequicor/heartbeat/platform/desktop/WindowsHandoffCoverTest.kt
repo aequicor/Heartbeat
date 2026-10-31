@@ -46,11 +46,46 @@ class WindowsHandoffCoverTest {
                     cover.close()
                 }
                 val restored = user.GetWindowLong(handle, WinUser.GWL_EXSTYLE)
-                assertEquals((original and TOOLWINDOW.inv()) or APPWINDOW or WinUser.WS_EX_LAYERED, restored)
+                assertEquals(restoredHandoffStyle(original, isRevealed = true), restored)
                 assertEquals(0, restored and TOOLWINDOW)
                 assertTrue(restored and APPWINDOW != 0)
-                assertEquals(255, alpha(handle))
+                // A layered Studio window composes every frame through DWM for the whole session.
+                assertEquals(0, restored and WinUser.WS_EX_LAYERED)
                 assertTrue(window.isAutoRequestFocus)
+            } finally {
+                window.dispose()
+            }
+        }
+    }
+
+    @Test
+    fun presentedFrameDropsTheLayeredPresentationBeforeTheLauncherRevealsIt() {
+        assumeTrue(System.getProperty("os.name").startsWith("Windows"))
+        EventQueue.invokeAndWait {
+            val window = JFrame()
+            try {
+                window.addNotify()
+                val handle = HWND(Native.getWindowPointer(window))
+                val user = User32.INSTANCE
+                val original = user.GetWindowLong(handle, WinUser.GWL_EXSTYLE)
+                val cover = assertNotNull(WindowsHandoffCover.create(window))
+                try {
+                    assertTrue(cover.isLayered)
+                    assertFalse(cover.reveal())
+                    assertTrue(cover.reveal())
+                    assertTrue(cover.unlayer())
+                    assertFalse(cover.isLayered)
+                    val unlayered = user.GetWindowLong(handle, WinUser.GWL_EXSTYLE)
+                    assertEquals(0, unlayered and WinUser.WS_EX_LAYERED)
+                    assertEquals(restoredHandoffStyle(original, isRevealed = true), unlayered)
+                    // Hiding the already unlayered window again is not possible; the ready frame stays visible.
+                    cover.hidePixels()
+                    assertTrue(cover.reveal())
+                    assertFalse(cover.unlayer())
+                } finally {
+                    cover.close()
+                }
+                assertEquals(0, user.GetWindowLong(handle, WinUser.GWL_EXSTYLE) and WinUser.WS_EX_LAYERED)
             } finally {
                 window.dispose()
             }
