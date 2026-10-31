@@ -17,7 +17,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionSafetyEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
@@ -64,15 +63,17 @@ class KimiSecurityIntegrationTest {
     fun `automatic mode reviews an ordinary native command without asking the user`() = runBlocking {
         withTimeout(20_000) {
             val fixture = SecurityFixture(SecurityMode.Automatic)
-            fixture.start()
+            try {
+                fixture.start()
 
-            assertEquals(
-                AcpPermissionOutcome.Selected("allow"),
-                fixture.runtime.requestPermission(fixture.permission()),
-            )
-            assertEquals(1, fixture.reviews.size)
-            assertEquals(emptyList(), fixture.approvals)
-            fixture.finish()
+                assertEquals(
+                    AcpPermissionOutcome.Selected("allow"),
+                    fixture.runtime.requestPermission(fixture.permission()),
+                )
+                assertEquals(1, fixture.reviews.size)
+            } finally {
+                fixture.finish()
+            }
         }
     }
 
@@ -80,21 +81,22 @@ class KimiSecurityIntegrationTest {
     fun `full trust skips both review and manual approval for a native command`() = runBlocking {
         withTimeout(20_000) {
             val fixture = SecurityFixture(SecurityMode.Trust)
-            fixture.start()
+            try {
+                fixture.start()
 
-            assertEquals(
-                AcpPermissionOutcome.Selected("allow"),
-                fixture.runtime.requestPermission(fixture.permission()),
-            )
-            assertEquals(emptyList(), fixture.reviews)
-            assertEquals(emptyList(), fixture.approvals)
-            fixture.finish()
+                assertEquals(
+                    AcpPermissionOutcome.Selected("allow"),
+                    fixture.runtime.requestPermission(fixture.permission()),
+                )
+                assertEquals(emptyList(), fixture.reviews)
+            } finally {
+                fixture.finish()
+            }
         }
     }
 }
 
 private class SecurityFixture(private val mode: SecurityMode) {
-    val approvals = mutableListOf<AgentToolApproval>()
     val reviews = mutableListOf<IsolatedPrompt>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val connection = FakeConnection()

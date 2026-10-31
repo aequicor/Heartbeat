@@ -4,7 +4,7 @@
     <string name="security_level">Уровень подтверждения</string>
     <string name="security_scope">Действует сразу для всех агентов и инструментов профиля, включая фоновую работу и ожидающие подтверждения.</string>
     <string name="security_ask">Спрашивать</string>
-    <string name="security_ask_hint">Запрашивать ваше подтверждение перед действиями, которые вносят изменения.</string>
+    <string name="security_ask_hint">Запрашивать ваше подтверждение перед каждым действием, включая чтение.</string>
     <string name="security_automatic">Автоматически</string>
     <string name="security_automatic_hint">Действия проходят автоматическую проверку безопасности. Неясные и рискованные действия требуют подтверждения.</string>
     <string name="security_trust">Полное доверие</string>

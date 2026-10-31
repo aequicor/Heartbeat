@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeAuthentication
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionSafetyEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
@@ -223,6 +224,8 @@ class ClaudeLiveGraphE2eTest {
     fun `Automatic asks for native writes and an explicit denial prevents the outside write`() = runBlocking {
         withTimeout(SCENARIO_TIMEOUT) {
             val profile = openProfile()
+            // The scenario exercises the manual permission UX; the structural review has its own live E2E.
+            (graphs.last() as TestToggleAccessors).toggleControl.setOverride(ActionSafetyEnabled, false)
             profile.security.save(SecurityMode.Automatic)
             observe("auto: profile open")
             val target = profile.connect()
