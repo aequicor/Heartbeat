@@ -508,10 +508,14 @@ internal class DeepSeekLease(private val session: DeepSeekSession) :
     override suspend fun close() = session.release(this)
 }
 
-/** Metadata-only stored session; resumption is negotiated through the runtime. */
-internal class DeepSeekStoredSession(ref: SessionRef) : EngineSession {
+/** Stored session with an optional read-only native transcript; resumption is negotiated through the runtime. */
+internal class DeepSeekStoredSession(ref: SessionRef, history: SessionHistory? = null) : EngineSession {
     override val summary = MutableStateFlow(SessionSummary(ref))
-    override val features = DeepSeekFeatures()
+    override val features = if (history == null) {
+        DeepSeekFeatures()
+    } else {
+        DeepSeekFeatures(SessionHistory to history)
+    }
 }
 
 @OptIn(ExperimentalUuidApi::class)

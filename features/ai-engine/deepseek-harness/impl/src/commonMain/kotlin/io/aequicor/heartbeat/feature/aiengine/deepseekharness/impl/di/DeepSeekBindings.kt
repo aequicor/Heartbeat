@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
@@ -89,6 +90,6 @@ public object DeepSeekDefaults {
 
 private class DeepSeekSessionSource(private val backend: Lazy<DeepSeekBackend>) : EngineSessionSource {
     override val source = SessionSource(DeepSeekEngine.SessionSource, DeepSeekEngine.Id, "DeepSeek Harness")
-    override val discovery = null
+    override val discovery: ListsSessions? get() = backend.value.nativeDiscovery
     override suspend fun get(ref: SessionRef) = backend.value.session(ref)
 }

@@ -57,6 +57,7 @@ kotlinx-collectionsImmutable = "0.5.2"
 desktop-jdk = "21"
 jbr-api = "1.10.1"
 snakeyaml = "2.3"
+zstd = "1.5.6-9"
 
 [libraries]
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
@@ -83,6 +84,7 @@ koog-ollama = { module = "ai.koog:prompt-executor-ollama-client", version.ref = 
 koog-ktor = { module = "ai.koog:http-client-ktor", version.ref = "koog" }
 jna-platform = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }
 snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
+zstd-jni = { module = "com.github.luben:zstd-jni", version.ref = "zstd" }
 fluent = { module = "io.github.compose-fluent:fluent", version.ref = "fluent" }
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 macos = { module = "dev.nucleusframework:compose-macos-ui", version.ref = "macos" }

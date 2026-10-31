@@ -18,5 +18,6 @@ kotlin {
     }
     sourceSets.jvmMain.dependencies {
         implementation(libs.snakeyaml)
+        implementation(libs.zstd.jni)
     }
 }

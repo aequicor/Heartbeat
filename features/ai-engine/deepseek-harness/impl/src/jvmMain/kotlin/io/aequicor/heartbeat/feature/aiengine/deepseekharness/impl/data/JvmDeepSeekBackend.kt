@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
@@ -60,6 +61,10 @@ internal class JvmDeepSeekBackend(
     private val log = Log.tag("DeepSeekBackend")
     private val mutex = Mutex()
     private var runtime: DeepSeekRuntime? = null
+    private val nativeHistory = DeepSeekNativeHistory(configuration)
+
+    override val nativeDiscovery: ListsSessions
+        get() = nativeHistory
 
     override suspend fun inspect(): DeepSeekLogin = account.inspect(configuration.homeDirectory)
 
@@ -148,7 +153,7 @@ internal class JvmDeepSeekBackend(
                 EngineFailure.Session(io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason.NotFound),
             )
         }
-        return DeepSeekStoredSession(ref)
+        return DeepSeekStoredSession(ref, nativeHistory.stored(ref))
     }
 
     private suspend fun directory(request: CreateSessionRequest): String {
