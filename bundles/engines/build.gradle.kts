@@ -15,6 +15,8 @@ kotlin {
             implementation(projects.features.aiEngine.claude.impl)
             implementation(projects.features.aiEngine.kimi.api)
             implementation(projects.features.aiEngine.kimi.impl)
+            implementation(projects.features.aiEngine.deepseekHarness.api)
+            implementation(projects.features.aiEngine.deepseekHarness.impl)
             implementation(projects.features.aiEngine.codex.api)
             implementation(projects.features.aiEngine.codex.impl)
             implementation(projects.features.aiEngine.pi.api)

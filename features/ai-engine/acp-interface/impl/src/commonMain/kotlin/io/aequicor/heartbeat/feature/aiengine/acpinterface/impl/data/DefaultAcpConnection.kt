@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpImplementation
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpInitialization
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPromptResult
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSession
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSessionList
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSessionUpdate
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
 import kotlinx.coroutines.CancellationException
@@ -22,6 +23,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 
 internal class DefaultAcpConnection(
     transport: AcpTransport,
@@ -143,6 +146,58 @@ internal class DefaultAcpConnection(
             AcpSession(sessionId, result)
         } finally {
             withContext(NonCancellable) { lock.withLock { busySessions.remove(sessionId) } }
+        }
+    }
+
+    override suspend fun resumeSession(sessionId: String, cwd: String): AcpSession = owned {
+        ready()
+        require(sessionId.isNotBlank()) { "Session id is required" }
+        requireAbsolute(cwd)
+        log.i { "ACP resume session" }
+        lock.withLock { check(busySessions.add(sessionId)) { "Session is busy" } }
+        try {
+            val params = JsonObject(sessionParams(cwd, emptyList()) + sessionId(sessionId))
+            val result = peer.request("session/resume", params)
+            lock.withLock { sessions.add(sessionId) }
+            AcpSession(sessionId, result)
+        } finally {
+            withContext(NonCancellable) { lock.withLock { busySessions.remove(sessionId) } }
+        }
+    }
+
+    override suspend fun listSessions(cwd: String?, cursor: String?): AcpSessionList = owned {
+        ready()
+        cwd?.let { requireAbsolute(it) }
+        log.i { "ACP list sessions" }
+        val params = buildJsonObject {
+            cwd?.let { put("cwd", JsonPrimitive(it)) }
+            cursor?.let { put("cursor", JsonPrimitive(it)) }
+        }
+        val result = peer.request("session/list", params)
+        parse {
+            val entries = result["sessions"] as? JsonArray ?: throw AcpException.Protocol()
+            val listed = entries.map { entry ->
+                val obj = entry as? JsonObject ?: throw AcpException.Protocol()
+                val id = (obj["sessionId"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
+                    ?: throw AcpException.Protocol()
+                AcpSession(id, obj)
+            }
+            val next = result["nextCursor"]?.let { cursorElement ->
+                (cursorElement as? JsonPrimitive)?.contentOrNull ?: throw AcpException.Protocol()
+            }
+            AcpSessionList(listed, next)
+        }
+    }
+
+    override suspend fun closeSession(sessionId: String) {
+        owned {
+            admissions.withLock {
+                requireSession(sessionId)
+                lock.withLock { check(sessionId !in busySessions) { "Session is busy" } }
+                log.i { "ACP close session" }
+                peer.request("session/close", fields(sessionId(sessionId)))
+                lock.withLock { sessions.remove(sessionId) }
+            }
         }
     }
 
