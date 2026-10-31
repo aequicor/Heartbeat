@@ -309,8 +309,58 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  platform-tests:
-    name: All platform tests
+  # Kotlin/Native test binaries dominate the release tests: linking them for the iOS simulator alone took about two
+  # thirds of the single macOS test job's 74 minutes, and that job once lost its runner. The suite is split by target
+  # kind, so each job stays well inside the runner's limits and both run in parallel.
+  platform-tests-jvm:
+    name: Platform tests (JVM and host targets)
+    needs: [version, desktop-linux]
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: microsoft
+          java-version: '17'
+      - uses: actions/setup-java@v6
+        with:
+          distribution: jetbrains
+          java-version: '21'
+      - uses: ./.github/actions/gradle-cache
+        with:
+          stage: platform-tests-jvm
+          upstream: desktop-linux
+      - name: Test JVM and host targets
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        # Re-run JVM tests on macOS as well: host-specific Test inputs prevent Linux result reuse.
+        # Native test tasks belong to the native job; excluding a task also keeps its Kotlin/Native link out of
+        # this graph.
+        run: >-
+          ./gradlew -Pheartbeat.version="$VERSION"
+          -Porg.gradle.java.installations.auto-detect=false
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
+          allTests
+          -x iosSimulatorArm64Test -x macosArm64Test -x macosX64Test -x linuxX64Test -x mingwX64Test
+          :platform-main:desktop:test :lint:detekt-rules:test
+          --no-daemon --continue --stacktrace --profile
+
+      - name: Upload Gradle timing and test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gradle-reports-platform-tests-jvm
+          path: |
+            build/reports/profile/
+            **/build/test-results/**/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  platform-tests-native:
+    name: Platform tests (native targets)
     needs: [version, desktop-linux]
     runs-on: macos-15
     timeout-minutes: 150
@@ -328,25 +378,27 @@ jobs:
           java-version: '21'
       - uses: ./.github/actions/gradle-cache
         with:
+          # The stage name keeps the native snapshot lineage of the former single test job.
           stage: platform-tests
           native-outputs: 'true'
           upstream: desktop-linux
-      - name: Test all platform targets
+      - name: Test native targets
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        # Re-run JVM tests on macOS as well: host-specific Test inputs prevent Linux result reuse.
+        # Every Kotlin/Native test task: the iOS simulator suite runs here, and the Linux/Windows/macOS x64 test
+        # binaries are still compiled and linked (their test tasks execute only on their own hosts).
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
-          allTests :platform-main:desktop:test :lint:detekt-rules:test
+          iosSimulatorArm64Test macosArm64Test macosX64Test linuxX64Test mingwX64Test
           --no-daemon --continue --stacktrace --profile
 
       - name: Upload Gradle timing and test reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: gradle-reports-platform-tests
+          name: gradle-reports-platform-tests-native
           path: |
             build/reports/profile/
             **/build/test-results/**/*.xml
@@ -666,7 +718,7 @@ jobs:
 
   publish:
     name: Publish
-    needs: [version, checks, train, installer-size, desktop-linux, desktop, platform-tests, android, ios]
+    needs: [version, checks, train, installer-size, desktop-linux, desktop, platform-tests-jvm, platform-tests-native, android, ios]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
