@@ -15,7 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 @BindingContainer
 @ContributesTo(AppScope::class)
 public object FacadeToggleBindings {
-    /** Shared action policy remains opt-in while its execution adapters are being verified. */
+    /** Shared action policy is on by default; the captured value is fixed for the profile lifetime. */
     @Provides
     @IntoSet
     public fun actionSafetyToggle(): FeatureToggle<*> =

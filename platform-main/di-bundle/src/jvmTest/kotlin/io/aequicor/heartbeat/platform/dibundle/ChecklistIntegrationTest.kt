@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionSafetyEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -95,6 +96,7 @@ class ChecklistIntegrationTest {
 
     @Test
     fun `checklist ready mode persists with automatic wakes disabled`() = runTest {
+        toggles.toggleControl.setOverride(ActionSafetyEnabled, false)
         assertTrue(ChecklistEnabled in toggles.toggleControl.registered)
         assertTrue(ChecklistEnabled.default)
         toggles.toggleControl.setOverride(ChecklistEnabled, true)

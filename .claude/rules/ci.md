@@ -20,7 +20,7 @@ CI проверяет необходимый минимум. Автоматич�
 | `review-approve.yml`, `close-fixed-issues.yml` | `/reviewed`, мерж PR | действия бота, без сборки |
 | `engine-runtimes.yml` | вызов из prerelease перед публикацией поезда; вручную из master | каталог `native/runtimes.json` → переиспользование immutable-релизов или сборка недостающих версий на пяти native-хостах → проверенные архивы и `runtime-manifest.json` в отдельном pre-release `runtime-<engine>-<version>`; без установщиков |
 | `prerelease.yml` | push в `master` (быстрый поезд); расписание 01:00 UTC и Run workflow из `master` (оптимизированный) | только Linux. Push, ≤ 20 мин: `affectedBundles` по diff от последнего быстрого поезда (и изменение `platform-main/launcher` — поезд с новым подписанным лаунчером при тех же бандлах) → `jvmTest` затронутых бандлов (и тесты лаунчера) и `verifyBundleMembership` → `assembleBundle` + `bundleManifest` без ProGuard (`shrink: off`) → `scripts/train_manifest.py` → pre-release `train-t<sha12>` с `train-manifest.json` и только изменившимися jar. Ночь, ≤ 60 мин: то же по diff от последнего оптимизированного поезда, но с `obfuscate`, `verifyShrunkTrain` и маппингами → pre-release `train-o<sha12>`. Запуск без затронутых бандлов ничего не публикует |
-| `release.yml` | вручную из `master`: уровень `patch` / `minor` / `major`; `dry_run` — без публикации, допускает рабочую ветку | версия → JVM-тесты на Linux → Linux DEB и общая Wasm-панель → параллельно Android (APK, подпись ключом окружения `android-signing`) и iOS (неподписанный IPA), остальные desktop-сборки и платформенные тесты → поезд бандлов (сборка оптимизированного поезда коммита или продвижение его ночного `train-o<sha12>`) → гейт `scripts/check_installer_size.py` (≤ 10 МиБ: только native launcher; пять установщиков и подписанные runtime/platform/seed отдельно) → публикация установщиков macOS/Windows/Linux, APK, IPA и поезда; без detekt; тег вычисленной версии и релиз для автообновления |
+| `release.yml` | вручную из `master`: уровень `patch` / `minor` / `major`; `dry_run` — без публикации, допускает рабочую ветку | версия → JVM-тесты на Linux → Linux DEB и общая Wasm-панель → параллельно Android (APK, подпись ключом окружения `android-signing`) и iOS (неподписанный IPA), остальные desktop-сборки и два джоба платформенных тестов на macOS (`platform-tests-jvm` — `allTests` без native-задач, `desktop:test`, тесты detekt-правил; `platform-tests-native` — все Kotlin/Native-тесты, включая линковку iOS-симулятора и нехостовых linux/windows/macos-x64 бинарей) → поезд бандлов (сборка оптимизированного поезда коммита или продвижение его ночного `train-o<sha12>`) → гейт `scripts/check_installer_size.py` (≤ 10 МиБ: только native launcher; пять установщиков и подписанные runtime/platform/seed отдельно) → публикация установщиков macOS/Windows/Linux, APK, IPA и поезда; без detekt; тег вычисленной версии и релиз для автообновления |
 
 Новые workflow, джобы, шаги сборки, платформы, матрицы и триггеры, расширение `paths` — только с согласия
 пользователя. Изменяя или добавляя workflow:
@@ -117,11 +117,14 @@ CI проверяет необходимый минимум. Автоматич�
 - `.github/actions/gradle-cache` разделяет переносимые результаты Gradle и зависимости/инструменты хоста.
   Кэш задач лежит в `.gradle-build-cache` (путь `HEARTBEAT_BUILD_CACHE_DIR`, одинаковый для основной сборки и
   `build-logic`) и передаётся между ОС. Общий снимок сохраняют JVM- и Linux-этапы. Desktop-потребители только читают его;
-  iOS- и тестовый macOS-этапы дополнительно сохраняют свои native-результаты между релизами. Сначала
-  восстанавливается native-снимок, затем поверх него текущий Linux: файлы кэша адресуются хэшем и объединяются.
+  iOS- и native-тестовый macOS-этапы (`stage: ios` и `stage: platform-tests`) дополнительно сохраняют свои
+  native-результаты между релизами. Сначала восстанавливается native-снимок, затем поверх него текущий Linux:
+  файлы кэша адресуются хэшем и объединяются.
   Native-снимок привязан к активным версиям Xcode и SDK macOS/iPhoneOS/iPhoneSimulator, без fallback между ними.
   Зависимости и wrapper Gradle привязаны к ОС, архитектуре, конфигурации сборки и этапу: новый релиз без
-  изменения конфигурации не создаёт очередную копию этих зависимостей.
+  изменения конфигурации не создаёт очередную копию этих зависимостей. У двух тестовых macOS-джобов стадии
+  разные (`platform-tests` и `platform-tests-jvm`): хостовые зависимости у них общие, поэтому квота держит
+  по копии на стадию.
   Распакованные JDK и Kotlin/Native не архивируются: их размер вытесняет полезные кэши сборки из квоты Actions.
 - CI явно выбирает установленные Microsoft JDK 17 (компиляция, включая Windows ARM64) и JBR 21 (desktop);
   случайный JDK из образа runner не меняет ключи задач. Демон требует Java 21 без привязки к вендору,
@@ -130,7 +133,8 @@ CI проверяет необходимый минимум. Автоматич�
 - Kotlin/Native отключает Gradle-кэш для framework: стандартное восстановление теряет симлинки, поэтому
   iOS-релиз линкует framework заново в фазе Gradle Xcode-проекта (она же копирует compose-resources в приложение).
 - JVM-тесты учитывают ОС и архитектуру в ключе задачи: переносимый кэш компиляции не подменяет проверку поведения
-  на другом хосте. Поэтому macOS выполняет JVM-тесты повторно вместе с iOS-тестами.
+  на другом хосте. Поэтому macOS повторяет JVM-тесты в `platform-tests-jvm`, параллельно с `platform-tests-native`,
+  где идут iOS-тесты.
 - Linux один раз собирает оптимизированную Chromium-панель (`prepareChromiumPanelArtifact`). Остальные desktop
   jobs скачивают артефакт `chromium-panel` этого запуска и передают `-Pheartbeat.chromiumPanelDir=.release-panel`.
   При неполном артефакте упаковка завершается ошибкой. Без свойства локальная сборка собирает панель сама.
