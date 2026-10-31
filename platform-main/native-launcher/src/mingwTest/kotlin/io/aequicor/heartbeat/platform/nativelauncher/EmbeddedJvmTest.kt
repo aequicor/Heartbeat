@@ -2,6 +2,7 @@
 
 package io.aequicor.heartbeat.platform.nativelauncher
 
+import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_host_is_composited
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_exit_code
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_is_presented
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_start
@@ -59,8 +60,12 @@ class EmbeddedJvmTest {
         )
         val classes = assertNotNull(launcherEnvironment("HEARTBEAT_JNI_SMOKE_CLASSES"))
         val window = assertNotNull(
+            // The production host is created composited; presenting the Studio must release the style (see below).
             CreateWindowExW(
-                0u, "STATIC".wcstr.ptr, "Heartbeat JNI test".wcstr.ptr, WS_OVERLAPPEDWINDOW.toUInt(),
+                platform.windows.WS_EX_COMPOSITED.toUInt(),
+                "STATIC".wcstr.ptr,
+                "Heartbeat JNI test".wcstr.ptr,
+                WS_OVERLAPPEDWINDOW.toUInt(),
                 0, 0, 640, 480, null, null, GetModuleHandleW(null), null,
             ),
         )
@@ -84,6 +89,9 @@ class EmbeddedJvmTest {
             }
             assertEquals(0, hb_jvm_exit_code(), "JNI/JAWT failed or DestroyJavaVM did not finish")
             assertTrue(hb_jvm_is_presented() != 0)
+            // A composited host commits every Studio frame through an off-screen bitmap; the presented
+            // Studio window must therefore be a plain window from its first frame on.
+            assertEquals(0, hb_host_is_composited(), "The presented Studio kept the launcher composition style")
         } finally {
             DestroyWindow(window)
         }

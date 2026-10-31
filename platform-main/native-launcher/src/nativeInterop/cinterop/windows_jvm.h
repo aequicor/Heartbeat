@@ -96,6 +96,25 @@ static void hb_jvm_close_cover(void) {
     if (hb_jvm.cover) DestroyWindow(hb_jvm.cover);
     hb_jvm.cover = NULL; hb_cover_release();
 }
+/* The launcher scene (owner-drawn children included) needs WS_EX_COMPOSITED, but the embedded Studio presents an
+   accelerated Compose surface: a composited window tree commits through one off-screen GDI bitmap, so every Studio
+   frame would be read back into it and scrolling, animations and input would stall for the whole session. The style
+   is dropped while the native cover still hides the window, before its first frame becomes visible. */
+static void hb_host_release_composition(void) {
+    if (!hb_jvm.window) return;
+    LONG_PTR style = GetWindowLongPtrW(hb_jvm.window, GWL_EXSTYLE);
+    if (!(style & WS_EX_COMPOSITED)) return;
+    SetWindowLongPtrW(hb_jvm.window, GWL_EXSTYLE, style & ~WS_EX_COMPOSITED);
+    SetWindowPos(hb_jvm.window, NULL, 0, 0, 0, 0,
+                 SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    /* Invalidate only: the present call arrives from the AWT thread, so the owning thread repaints on its own pump. */
+    RedrawWindow(hb_jvm.window, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+}
+/* Read by the JNI smoke test: the Studio must not keep the launcher's composition style. */
+static int hb_host_is_composited(void) {
+    if (!hb_jvm.window) return 0;
+    return (GetWindowLongPtrW(hb_jvm.window, GWL_EXSTYLE) & WS_EX_COMPOSITED) != 0;
+}
 /* Clip the AWT surface while it prepares; the native brand remains visible until the first complete frame. */
 static int hb_host_scale(int pixels) {
     typedef UINT (WINAPI *GetDpi)(HWND);
@@ -193,6 +212,8 @@ static void JNICALL hb_host_present(JNIEnv *env, jclass type) {
     if (!hb_jvm.child || !IsWindow(hb_jvm.child)) {
         hb_jvm_error(env, "Embedded peer was not attached"); return;
     }
+    /* The cover still hides the Studio, so the discarded composition surface repaints invisibly. */
+    hb_host_release_composition();
     InterlockedExchange(&hb_jvm.presented, 1);
     if (hb_jvm.cover) {
         if (!PostMessageW(hb_jvm.cover, WM_APP + 1, 0, 0)) {
