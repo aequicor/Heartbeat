@@ -25,7 +25,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.put
 
 internal class DefaultAcpConnection(
     transport: AcpTransport,
@@ -175,15 +174,31 @@ internal class DefaultAcpConnection(
             cursor?.let { put("cursor", JsonPrimitive(it)) }
         }
         val result = peer.request("session/list", params)
-        val listed = parse {
-            (result["sessions"] as? JsonArray).orEmpty().mapNotNull { entry ->
-                val obj = entry as? JsonObject ?: return@mapNotNull null
+        parse {
+            val entries = result["sessions"] as? JsonArray ?: throw AcpException.Protocol()
+            val listed = entries.map { entry ->
+                val obj = entry as? JsonObject ?: throw AcpException.Protocol()
                 val id = (obj["sessionId"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
-                    ?: return@mapNotNull null
+                    ?: throw AcpException.Protocol()
                 AcpSession(id, obj)
             }
+            val next = result["nextCursor"]?.let { cursorElement ->
+                (cursorElement as? JsonPrimitive)?.contentOrNull ?: throw AcpException.Protocol()
+            }
+            AcpSessionList(listed, next)
         }
-        AcpSessionList(listed, (result["nextCursor"] as? JsonPrimitive)?.contentOrNull)
+    }
+
+    override suspend fun closeSession(sessionId: String) {
+        owned {
+            admissions.withLock {
+                requireSession(sessionId)
+                lock.withLock { check(sessionId !in busySessions) { "Session is busy" } }
+                log.i { "ACP close session" }
+                peer.request("session/close", fields(sessionId(sessionId)))
+                lock.withLock { sessions.remove(sessionId) }
+            }
+        }
     }
 
     override suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult =

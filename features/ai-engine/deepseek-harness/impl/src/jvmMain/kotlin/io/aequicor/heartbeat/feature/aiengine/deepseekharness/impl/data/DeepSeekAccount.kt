@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data
 
 import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthCheck
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthCheckBasis
@@ -13,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekLogin
+import kotlinx.coroutines.withContext
 import org.yaml.snakeyaml.Yaml
 import java.io.File
 import java.security.MessageDigest
@@ -21,13 +23,14 @@ import kotlin.time.Clock
 
 /**
  * Read-only detection of the DeepSeek Harness desktop login. It never reads token values (only their presence),
- * never logs them and never imports credentials. The stable revision is the device identity, not the token.
+ * never logs them and never imports credentials. YAML parse errors are logged without the offending content:
+ * parser messages can quote the credentials file. The stable revision is the device identity, not the token.
  */
 @Inject
-internal class DeepSeekAccount(private val clock: Clock) {
+internal class DeepSeekAccount(private val clock: Clock, private val dispatchers: DispatcherProvider) {
     private val log = Log.tag("DeepSeekAccount")
 
-    suspend fun inspect(homeDirectory: String?): DeepSeekLogin {
+    suspend fun inspect(homeDirectory: String?): DeepSeekLogin = withContext(dispatchers.io) {
         val file = credentialsFile(homeDirectory)
         val records = if (file.exists()) readRecords(file) else null
         val account = records?.record(ACCOUNT_RECORD)
@@ -46,7 +49,7 @@ internal class DeepSeekAccount(private val clock: Clock) {
             DeepSeekEngine.AuthOwner,
             DeepSeekEngine.AuthLocation,
         )
-        return DeepSeekLogin(
+        DeepSeekLogin(
             source,
             AuthCheck(
                 source.info.id,
@@ -63,16 +66,22 @@ internal class DeepSeekAccount(private val clock: Clock) {
         File(homeDirectory ?: File(System.getProperty("user.home"), ".dsh").path, ".credentials.yaml")
 
     private fun readRecords(file: File): Map<String, Any?>? {
+        if (file.length() > MAX_CREDENTIALS_BYTES) {
+            log.w { "DeepSeek Harness credentials are too large to read" }
+            return null
+        }
         val root = try {
             Yaml().load<Any?>(file.readText()) as? Map<*, *>
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(error) { "DeepSeek Harness credentials could not be read" }
+            log.w { "DeepSeek Harness credentials could not be read: ${error.javaClass.name}" }
             return null
         } ?: return null
         val records = root["records"] as? Map<*, *> ?: root
-        return records.entries.associate { (key, value) -> key.toString() to value }
+        return records.entries.mapNotNull { (key, value) ->
+            (key as? String)?.let { it to value }
+        }.toMap()
     }
 
     private fun digest(value: String): String {
@@ -84,11 +93,14 @@ internal class DeepSeekAccount(private val clock: Clock) {
         const val ORIGIN = "https://api.deepseek.com"
         const val ACCOUNT_RECORD = "deepseek-account-platform/default"
         const val DEVICE_RECORD = "deepseek-account-platform/device"
+        const val MAX_CREDENTIALS_BYTES = 1024 * 1024L
     }
 }
 
 private fun Map<String, Any?>.record(name: String): Map<String, Any?>? =
-    (this[name] as? Map<*, *>)?.entries?.associate { (key, value) -> key.toString() to value }
+    (this[name] as? Map<*, *>)?.entries?.mapNotNull { (key, value) ->
+        (key as? String)?.let { it to value }
+    }?.toMap()
 
 private fun Map<String, Any?>.payload(): Map<String, Any?>? = this.record("payload")
 

@@ -8,23 +8,29 @@ import kotlin.test.assertEquals
 
 class DeepSeekNativeToolsTest {
     @Test
-    fun `read tools are classified as reads`() {
+    fun `read kind is classified as read`() {
         assertEquals(AgentToolAction.Read, dshNativeCall("read", null, "/ws").action)
-        assertEquals(AgentToolAction.Read, dshNativeCall("web_search", null, "/ws").action)
-        assertEquals(AgentToolAction.Read, dshNativeCall("grep", null, "/ws").action)
     }
 
     @Test
-    fun `edit tools are classified as edits`() {
-        assertEquals(AgentToolAction.Edit, dshNativeCall("write", null, "/ws").action)
-        assertEquals(AgentToolAction.Edit, dshNativeCall("apply_patch", null, "/ws").action)
+    fun `edit kind is classified as edit`() {
+        assertEquals(AgentToolAction.Edit, dshNativeCall("edit", null, "/ws").action)
     }
 
     @Test
-    fun `unknown and shell tools are classified as commands`() {
-        assertEquals(AgentToolAction.Command, dshNativeCall("bash", null, "/ws").action)
-        assertEquals(AgentToolAction.Command, dshNativeCall("pwsh", null, "/ws").action)
-        assertEquals(AgentToolAction.Command, dshNativeCall("unknown_tool", null, "/ws").action)
+    fun `execute and unknown kinds are classified as commands`() {
+        assertEquals(AgentToolAction.Command, dshNativeCall("execute", null, "/ws").action)
+        assertEquals(AgentToolAction.Command, dshNativeCall("fetch", null, "/ws").action)
+        assertEquals(AgentToolAction.Command, dshNativeCall(null, null, "/ws").action)
+    }
+
+    @Test
+    fun `a misleading title cannot relax the classification`() {
+        val args = buildJsonObject { put("command", "rm -rf /") }
+        // DSH reported kind=execute; the permission request title claimed "read". Only kind is consulted.
+        val call = dshNativeCall("execute", args, "/ws")
+        assertEquals(AgentToolAction.Command, call.action)
+        assertEquals("rm -rf /", call.command)
     }
 
     @Test
@@ -33,8 +39,8 @@ class DeepSeekNativeToolsTest {
             put("path", "/ws/a.txt")
             put("command", "echo hi")
         }
-        val call = dshNativeCall("write", args, "/ws")
-        assertEquals("write", call.name)
+        val call = dshNativeCall("edit", args, "/ws")
+        assertEquals("edit", call.name)
         assertEquals(listOf("/ws/a.txt"), call.paths)
         assertEquals("echo hi", call.command)
         assertEquals("/ws", call.workingDirectory)

@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -26,6 +27,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -35,12 +37,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlin.concurrent.Volatile
 
@@ -89,9 +93,18 @@ internal class DeepSeekRuntime(
 
     /** Selects the requested model on a freshly created or resumed session; an unsupported model fails the open. */
     private suspend fun configure(sessionId: String, metadata: JsonObject, target: EngineTarget) {
-        if (!metadata.hasConfigOption("model")) return
-        connection.setConfigOption(sessionId, "model", target.model.value)
+        if (!metadata.hasConfigOption("model")) {
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.UnsupportedCapability))
+        }
+        connection.setConfigOption(sessionId, "model", modelSelector(target.model.value))
     }
+
+    /**
+     * Maps a stored model id onto the opaque `["provider","model"]` selector. Ids persisted before selector values
+     * became opaque are bare model names and resolve through the account route.
+     */
+    private fun modelSelector(value: String): String =
+        if (value.startsWith("[")) value else "[\"$ACCOUNT_ROUTE\",\"$value\"]"
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
         if (ref.engine != DeepSeekEngine.Id || ref.source != DeepSeekEngine.SessionSource) {
@@ -113,9 +126,48 @@ internal class DeepSeekRuntime(
             return@withLock existing.lease()
         }
         val cwd = directory(CreateSessionRequest(request.target, request.workspace))
-        val native = connection.resumeSession(nativeId, cwd)
-        configure(nativeId, native.metadata, request.target)
-        session(nativeId, request.target, request.workspace, cwd).lease()
+        // Register before the RPC: updates and permission requests arriving during resume reach the session.
+        val created = session(nativeId, request.target, request.workspace, cwd)
+        try {
+            // The connection completes an abandoned RPC in its own scope; keep the local bookkeeping aligned.
+            val native = withContext(NonCancellable) { connection.resumeSession(nativeId, cwd) }
+            withContext(NonCancellable) { configure(nativeId, native.metadata, request.target) }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            withContext(NonCancellable) { unregister(created) }
+            throw error
+        }
+        created.lease()
+    }
+
+    /** Retires an idle session: unregisters it, cancels its lifetime and closes the native session. */
+    internal suspend fun releaseSession(session: DeepSeekSession) {
+        val isRemoved = mutex.withLock {
+            if (sessions.value[session.ref.nativeId] !== session) return@withLock false
+            sessions.value = sessions.value - session.ref.nativeId
+            true
+        }
+        if (!isRemoved) return
+        log.i { "DeepSeek Harness session released" }
+        session.revoke()
+        try {
+            connection.closeSession(session.ref.nativeId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error) { "DeepSeek Harness session close failed" }
+        }
+    }
+
+    private suspend fun unregister(session: DeepSeekSession) {
+        log.i { "DeepSeek Harness session unregistered" }
+        mutex.withLock {
+            if (sessions.value[session.ref.nativeId] === session) {
+                sessions.value = sessions.value - session.ref.nativeId
+            }
+        }
+        session.revoke()
     }
 
     @Suppress("LongParameterList")
@@ -185,6 +237,22 @@ internal class DeepSeekRuntime(
     }
 
     companion object {
+        private const val INITIALIZE_TIMEOUT_MS = 30_000L
+        private const val ACCOUNT_ROUTE = "deepseek-account"
+
+        private val log = Log.tag("DeepSeekRuntime")
+
+        private suspend fun initializeConnection(connection: AcpConnection) {
+            try {
+                withTimeout(INITIALIZE_TIMEOUT_MS) {
+                    connection.initialize(AcpImplementation("heartbeat", "1", "Heartbeat"))
+                }
+            } catch (error: TimeoutCancellationException) {
+                log.w(error) { "DeepSeek Harness ACP initialize timed out" }
+                throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
+            }
+        }
+
         @Suppress("LongMethod")
         suspend fun open(
             identity: RuntimeIdentity,
@@ -233,7 +301,7 @@ internal class DeepSeekRuntime(
             }
             var isTransferred = false
             try {
-                connection.initialize(AcpImplementation("heartbeat", "1", "Heartbeat"))
+                initializeConnection(connection)
                 return DeepSeekRuntime(
                     identity,
                     connection,

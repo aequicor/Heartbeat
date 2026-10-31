@@ -86,7 +86,9 @@ internal class DeepSeekSession(
     private val leases = mutableSetOf<DeepSeekLease>()
     private var messageId: ItemId? = null
     private val pending = mutableMapOf<PermissionRequestId, PendingPermission>()
-    private val toolCalls = mutableMapOf<String, Pair<String, JsonObject?>>()
+
+    /** Observed ACP `kind` and arguments per tool call of the current turn; cleared when a new turn starts. */
+    private val toolCalls = mutableMapOf<String, Pair<String?, JsonObject?>>()
     private val mutex = Mutex()
     private val admissions = Mutex()
     private var position = 0L
@@ -106,9 +108,14 @@ internal class DeepSeekSession(
         DeepSeekLease(this).also { leases += it }
     }
 
-    suspend fun release(lease: DeepSeekLease) = mutex.withLock {
-        leases.remove(lease)
-        lease.state.value = ActiveSessionState.Closed
+    suspend fun release(lease: DeepSeekLease) {
+        val isIdle = mutex.withLock {
+            leases.remove(lease)
+            lease.state.value = ActiveSessionState.Closed
+            leases.isEmpty() && (currentTurn == null || currentTurn?.outcome != null)
+        }
+        // An idle session without observers is retired, so its journal and native handle are released.
+        if (isIdle) runtime.releaseSession(this)
     }
 
     private fun checkLease(lease: DeepSeekLease) {
@@ -146,6 +153,7 @@ internal class DeepSeekSession(
         submission.value = submitted
         isInterrupting = false
         messageId = null
+        toolCalls.clear()
         log.i { "DeepSeek Harness turn submitted" }
         setState(ActiveSessionState.Running(turn))
         history.publish { SessionEvent.TurnStarted(it, turn) }
@@ -228,7 +236,7 @@ internal class DeepSeekSession(
         val (turn, prompt, lifetime) = activePermission() ?: return AcpPermissionOutcome.Cancelled
         val toolCallId = request.toolCall["toolCallId"]?.jsonPrimitive?.contentOrNull
             ?: return AcpPermissionOutcome.Cancelled
-        val observed = toolCalls[toolCallId] ?: return AcpPermissionOutcome.Cancelled
+        val observed = mutex.withLock { toolCalls[toolCallId] } ?: return AcpPermissionOutcome.Cancelled
         // Never persist a CLI allow rule that could bypass later modes.
         val option = request.options.firstOrNull { it.kind == "allow_once" }
             ?: return AcpPermissionOutcome.Cancelled
@@ -329,9 +337,10 @@ internal class DeepSeekSession(
             ?: update["kind"]?.jsonPrimitive?.contentOrNull
             ?: previous?.name
             ?: "tool"
+        val kind = update["kind"]?.jsonPrimitive?.contentOrNull
         val rawInput = update["rawInput"]?.takeUnless { it == JsonNull } as? JsonObject
-        if (title != previous?.name || rawInput != null) {
-            toolCalls[id] = title to (rawInput ?: toolCalls[id]?.second)
+        if (kind != null || rawInput != null) {
+            toolCalls[id] = (kind ?: toolCalls[id]?.first) to (rawInput ?: toolCalls[id]?.second)
         }
         val item = SessionItem.ToolCall(
             ItemInfo(

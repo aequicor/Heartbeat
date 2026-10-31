@@ -57,9 +57,19 @@ public interface AcpConnection {
             throw UnsupportedOperationException("ACP MCP unavailable")
         }
 
-    /** Resumes a session the agent advertised through `sessionCapabilities.resume`; no history replay is requested. */
+    /**
+     * Resumes a session the agent advertised through `sessionCapabilities.resume`; no history replay is requested.
+     * [cwd] must be absolute.
+     */
     public suspend fun resumeSession(sessionId: String, cwd: String): AcpSession =
         throw UnsupportedOperationException("ACP resume unavailable")
+
+    /**
+     * Closes a session the agent advertised through `sessionCapabilities.close`, releasing agent-side resources.
+     * Closing is idle-only: the caller must settle or cancel every turn before invoking it.
+     */
+    public suspend fun closeSession(sessionId: String): Unit =
+        throw UnsupportedOperationException("ACP session close unavailable")
 
     /** Lists native sessions, optionally filtered by an absolute cwd; [cursor] continues a previous page. */
     public suspend fun listSessions(cwd: String? = null, cursor: String? = null): AcpSessionList =

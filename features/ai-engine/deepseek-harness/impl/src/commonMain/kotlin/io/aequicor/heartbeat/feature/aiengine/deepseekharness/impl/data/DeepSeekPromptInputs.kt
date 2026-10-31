@@ -22,7 +22,7 @@ internal fun dshPromptInputs(request: PromptRequest): List<JsonObject> {
                 put("text", part.text)
             }
 
-            else -> unsupportedInput(request)
+            is ContentPart.Reasoning, is ContentPart.Image, is ContentPart.Resource -> unsupportedInput(request)
         }
     }
     return blocks

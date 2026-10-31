@@ -60,7 +60,7 @@ internal class JvmDeepSeekBackend(
     private val log = Log.tag("DeepSeekBackend")
     private val mutex = Mutex()
     private var runtime: DeepSeekRuntime? = null
-    private val nativeHistory = DeepSeekNativeHistory(configuration)
+    private val nativeHistory = DeepSeekNativeHistory(configuration, dispatchers)
 
     override val nativeDiscovery: ListsSessions
         get() = nativeHistory
