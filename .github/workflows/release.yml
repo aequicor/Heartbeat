@@ -338,7 +338,7 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         # Re-run JVM tests on macOS as well: host-specific Test inputs prevent Linux result reuse.
         # Native test tasks belong to the native job; excluding a task also keeps its Kotlin/Native link out of
-        # this graph.
+        # this graph. A new Kotlin/Native target goes into this list and into platform-tests-native.
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
@@ -387,6 +387,7 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         # Every Kotlin/Native test task: the iOS simulator suite runs here, and the Linux/Windows/macOS x64 test
         # binaries are still compiled and linked (their test tasks execute only on their own hosts).
+        # A new Kotlin/Native target goes into this list and into the -x list of platform-tests-jvm.
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
