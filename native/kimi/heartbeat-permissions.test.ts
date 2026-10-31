@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { getLiveSessionById, IAgentLifecycleService, IAgentPermissionPolicyService, IAgentSwarmService, IAgentTaskService, IOAuthService } from '@moonshot-ai/agent-core-v2';
 import { HeartbeatPermissionPolicy, installHeartbeatPermissions } from '../src/heartbeat-acp';
 import { AcpSession } from '../src/session';
@@ -15,6 +15,11 @@ import { createScriptedProvider } from './_helpers/scriptedProvider';
 installHeartbeatPermissions();
 
 describe('mandatory Heartbeat permission boundary', () => {
+  // Fixtures prepare configuration before boot and do not exercise hot reload.
+  // Upstream disposes chokidar asynchronously; deleting a watched home immediately
+  // after client.close() otherwise races Windows watchers and raises EPERM.
+  beforeAll(() => vi.stubEnv('KIMI_CODE_WATCH', '0'));
+  afterAll(() => vi.unstubAllEnvs());
   let home: string | undefined;
   let client: TestClient | undefined;
   afterEach(async () => {
