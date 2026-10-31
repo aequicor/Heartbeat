@@ -14,7 +14,6 @@ import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data.DeepSeek
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekBackend
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -29,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 

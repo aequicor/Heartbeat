@@ -37,7 +37,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -75,7 +74,9 @@ internal class JvmDeepSeekBackend(
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .start()
         }
-        if (exit == 0) EngineAvailability.Available else {
+        if (exit == 0) {
+            EngineAvailability.Available
+        } else {
             EngineAvailability.Unavailable(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
     } catch (error: CancellationException) {

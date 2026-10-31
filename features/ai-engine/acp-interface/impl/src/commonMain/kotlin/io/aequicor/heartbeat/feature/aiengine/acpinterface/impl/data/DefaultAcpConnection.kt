@@ -157,7 +157,8 @@ internal class DefaultAcpConnection(
         log.i { "ACP resume session" }
         lock.withLock { check(busySessions.add(sessionId)) { "Session is busy" } }
         try {
-            val result = peer.request("session/resume", JsonObject(sessionParams(cwd, emptyList()) + sessionId(sessionId)))
+            val params = JsonObject(sessionParams(cwd, emptyList()) + sessionId(sessionId))
+            val result = peer.request("session/resume", params)
             lock.withLock { sessions.add(sessionId) }
             AcpSession(sessionId, result)
         } finally {

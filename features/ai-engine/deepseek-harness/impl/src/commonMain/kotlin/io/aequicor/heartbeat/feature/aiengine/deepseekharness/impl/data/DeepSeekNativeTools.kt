@@ -17,13 +17,35 @@ internal val DeepSeekNativeCatalog = listOf(
 
 /** Tool names DSH reports as read-only; everything else is treated as a command for the trust gate. */
 private val READ_TOOLS = setOf(
-    "read", "list", "glob", "grep", "search", "web_search", "web_fetch", "view", "cat", "todo_read",
-    "todo_list", "skill_list", "context_status", "context_recall", "get_graph", "list_graphs", "get_learned_skill",
+    "read",
+    "list",
+    "glob",
+    "grep",
+    "search",
+    "web_search",
+    "web_fetch",
+    "view",
+    "cat",
+    "todo_read",
+    "todo_list",
+    "skill_list",
+    "context_status",
+    "context_recall",
+    "get_graph",
+    "list_graphs",
+    "get_learned_skill",
 )
 
 /** Tool names DSH reports as file edits; writes outside the workspace remain commands. */
 private val EDIT_TOOLS = setOf(
-    "write", "edit", "multi_edit", "apply_patch", "patch", "replace", "update_file", "create_file",
+    "write",
+    "edit",
+    "multi_edit",
+    "apply_patch",
+    "patch",
+    "replace",
+    "update_file",
+    "create_file",
 )
 
 /**

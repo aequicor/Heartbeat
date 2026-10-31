@@ -247,7 +247,8 @@ internal class DeepSeekSession(
             reviewTarget = prompt.reviewTarget,
             userInstruction = prompt.userInstruction,
         )
-        val verdict = runtime.tools.authorizeNative(context, dshNativeCall(observed.first, observed.second, workingDirectory))
+        val nativeCall = dshNativeCall(observed.first, observed.second, workingDirectory)
+        val verdict = runtime.tools.authorizeNative(context, nativeCall)
         val isActive = mutex.withLock {
             currentTurn?.id == turn.id && currentTurn?.outcome == null && lifetime.isActive
         }
@@ -323,12 +324,7 @@ internal class DeepSeekSession(
         val id = update["toolCallId"]?.jsonPrimitive?.contentOrNull ?: return
         val call = ToolCallId(id)
         val previous = history[ItemId("tool-$id")] as? SessionItem.ToolCall
-        val status = when (update["status"]?.jsonPrimitive?.contentOrNull) {
-            "completed" -> ToolCallStatus.Succeeded
-            "failed" -> ToolCallStatus.Failed
-            "in_progress" -> ToolCallStatus.Running
-            else -> previous?.status ?: ToolCallStatus.Pending
-        }
+        val status = toolStatus(update["status"]?.jsonPrimitive?.contentOrNull, previous)
         val title = update["title"]?.jsonPrimitive?.contentOrNull
             ?: update["kind"]?.jsonPrimitive?.contentOrNull
             ?: previous?.name
@@ -350,6 +346,13 @@ internal class DeepSeekSession(
             status,
         )
         upsert(item)
+    }
+
+    private fun toolStatus(status: String?, previous: SessionItem.ToolCall?): ToolCallStatus = when (status) {
+        "completed" -> ToolCallStatus.Succeeded
+        "failed" -> ToolCallStatus.Failed
+        "in_progress" -> ToolCallStatus.Running
+        else -> previous?.status ?: ToolCallStatus.Pending
     }
 
     @HighFrequency

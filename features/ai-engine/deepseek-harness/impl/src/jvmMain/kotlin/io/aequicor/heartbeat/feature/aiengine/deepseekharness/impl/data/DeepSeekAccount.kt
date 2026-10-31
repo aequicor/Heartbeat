@@ -65,6 +65,8 @@ internal class DeepSeekAccount(private val clock: Clock) {
     private fun readRecords(file: File): Map<String, Any?>? {
         val root = try {
             Yaml().load<Any?>(file.readText()) as? Map<*, *>
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
         } catch (error: Exception) {
             log.w(error) { "DeepSeek Harness credentials could not be read" }
             return null

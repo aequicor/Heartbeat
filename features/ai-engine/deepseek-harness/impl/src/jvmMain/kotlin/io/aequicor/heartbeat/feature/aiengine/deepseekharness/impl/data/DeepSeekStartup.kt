@@ -39,7 +39,6 @@ internal fun resolveDeepSeekStartup(
     val configured = configuration.executable.takeIf { it != DEFAULT_COMMAND }
     val found = when {
         configured != null -> FoundDeepSeek(configured, InstallSource.Custom, !configured.isScriptWrapper())
-
         else -> systemDeepSeek(host)
     }
     return DeepSeekStartup(
@@ -91,10 +90,6 @@ private fun pathEntries(host: DeepSeekHost): List<String> =
 private fun String.isScriptWrapper(): Boolean =
     endsWith(".cmd", ignoreCase = true) || endsWith(".bat", ignoreCase = true)
 
-private data class FoundDeepSeek(
-    val executable: String,
-    val source: InstallSource,
-    val isRunnable: Boolean,
-)
+private data class FoundDeepSeek(val executable: String, val source: InstallSource, val isRunnable: Boolean)
 
 private const val DEFAULT_COMMAND = "dsh"
