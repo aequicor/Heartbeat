@@ -3,6 +3,7 @@
 package io.aequicor.heartbeat.platform.nativelauncher
 
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_host_is_composited
+import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_host_set_composited
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_exit_code
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_is_presented
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_start
@@ -58,18 +59,20 @@ class EmbeddedJvmTest {
             launcherEnvironment("HEARTBEAT_JNI_SMOKE_RUNTIME"),
             "Windows JNI smoke requires the packaged JBR",
         )
-        val classes = assertNotNull(launcherEnvironment("HEARTBEAT_JNI_SMOKE_CLASSES"))
+        val classes = assertNotNull(
+            launcherEnvironment("HEARTBEAT_JNI_SMOKE_CLASSES"),
+            "Windows JNI smoke requires the compiled fixture classes",
+        )
+        // A plain window, then the production host style: the smoke proves the style is released, not how it is set.
         val window = assertNotNull(
-            // The production host is created composited; presenting the Studio must release the style (see below).
             CreateWindowExW(
-                platform.windows.WS_EX_COMPOSITED.toUInt(),
-                "STATIC".wcstr.ptr,
-                "Heartbeat JNI test".wcstr.ptr,
-                WS_OVERLAPPEDWINDOW.toUInt(),
+                0u, "STATIC".wcstr.ptr, "Heartbeat JNI test".wcstr.ptr, WS_OVERLAPPEDWINDOW.toUInt(),
                 0, 0, 640, 480, null, null, GetModuleHandleW(null), null,
             ),
+            "Cannot create the embedding host window",
         )
         try {
+            assertEquals(1, hb_host_set_composited(window, 1), "Cannot apply the composited host style")
             installEmbeddedCover(window, 1.0)
             val options = allocArray<CPointerVar<ByteVar>>(2)
             options[0] = "-Djava.class.path=$classes".cstr.ptr

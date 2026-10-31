@@ -104,16 +104,29 @@ static void hb_host_release_composition(void) {
     if (!hb_jvm.window) return;
     LONG_PTR style = GetWindowLongPtrW(hb_jvm.window, GWL_EXSTYLE);
     if (!(style & WS_EX_COMPOSITED)) return;
-    SetWindowLongPtrW(hb_jvm.window, GWL_EXSTYLE, style & ~WS_EX_COMPOSITED);
+    SetWindowLongPtrW(hb_jvm.window, GWL_EXSTYLE, style & ~(LONG_PTR)WS_EX_COMPOSITED);
     SetWindowPos(hb_jvm.window, NULL, 0, 0, 0, 0,
                  SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     /* Invalidate only: the present call arrives from the AWT thread, so the owning thread repaints on its own pump. */
     RedrawWindow(hb_jvm.window, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 /* Read by the JNI smoke test: the Studio must not keep the launcher's composition style. */
-static int hb_host_is_composited(void) {
-    if (!hb_jvm.window) return 0;
-    return (GetWindowLongPtrW(hb_jvm.window, GWL_EXSTYLE) & WS_EX_COMPOSITED) != 0;
+static int hb_window_is_composited(HWND window) {
+    if (!window) return 0;
+    return (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_COMPOSITED) != 0;
+}
+static int hb_host_is_composited(void) { return hb_window_is_composited(hb_jvm.window); }
+/* Test hook: the smoke test applies the production host style to its own plain window. */
+static int hb_host_set_composited(HWND window, int compose) {
+    if (!window) return 0;
+    LONG_PTR style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+    LONG_PTR next = compose ? (style | WS_EX_COMPOSITED) : (style & ~(LONG_PTR)WS_EX_COMPOSITED);
+    if (next != style) {
+        SetWindowLongPtrW(window, GWL_EXSTYLE, next);
+        SetWindowPos(window, NULL, 0, 0, 0, 0,
+                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    return hb_window_is_composited(window);
 }
 /* Clip the AWT surface while it prepares; the native brand remains visible until the first complete frame. */
 static int hb_host_scale(int pixels) {
