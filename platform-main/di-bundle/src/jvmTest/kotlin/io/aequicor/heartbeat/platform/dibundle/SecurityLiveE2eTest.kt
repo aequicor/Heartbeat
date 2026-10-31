@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionSafetyEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -111,6 +112,8 @@ class SecurityLiveE2eTest {
             )) {
                 toggles.setOverride(toggle, true)
             }
+            // The scenarios exercise the manual permission UX; the structural review has its own live E2E.
+            toggles.setOverride(ActionSafetyEnabled, false)
             val services = app.profileSessions.open(ProfileId("security-live")).graph as AiEngineTestAccessors
             phase("${engine.value}: profile ready")
             val target = connect(services, engine, "Synthetic security E2E")

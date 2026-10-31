@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionSafetyEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -99,6 +100,7 @@ class SchedulerIntegrationTest {
 
     @Test
     fun `a wake scheduled by an agent survives reopening the profile`() = runTest {
+        toggles.toggleControl.setOverride(ActionSafetyEnabled, false)
         toggles.toggleControl.setOverride(SchedulerEnabled, true)
         val first = app.profileSessions.open(ProfileId("scheduler"))
         val accessors = first.graph as TestSchedulerAccessors
