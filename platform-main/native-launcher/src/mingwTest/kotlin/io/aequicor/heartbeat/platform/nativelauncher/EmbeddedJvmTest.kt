@@ -3,6 +3,7 @@
 package io.aequicor.heartbeat.platform.nativelauncher
 
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_host_is_composited
+import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_host_release_count
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_host_set_composited
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_exit_code
 import io.aequicor.heartbeat.platform.nativelauncher.windowsjvm.hb_jvm_is_presented
@@ -75,7 +76,9 @@ class EmbeddedJvmTest {
             // Composition exists only in a DWM-composed session; a runner without it cannot apply the style at all.
             val isComposed = hb_host_set_composited(window, 1) == 1
             if (!isComposed) {
-                println("WS_EX_COMPOSITED is unavailable in this session; the release assertion is skipped")
+                launcherLog.i("EmbeddedJvmTest") {
+                    "WS_EX_COMPOSITED is unavailable in this session; the style assertion is skipped"
+                }
             }
             installEmbeddedCover(window, 1.0)
             val options = allocArray<CPointerVar<ByteVar>>(2)
@@ -96,8 +99,9 @@ class EmbeddedJvmTest {
             }
             assertEquals(0, hb_jvm_exit_code(), "JNI/JAWT failed or DestroyJavaVM did not finish")
             assertTrue(hb_jvm_is_presented() != 0)
-            // A composited host commits every Studio frame through an off-screen bitmap; the presented
-            // Studio window must therefore be a plain window from its first frame on.
+            // Presented frames release the launcher composition in every session; the style itself is observable
+            // only where composition exists.
+            assertEquals(1, hb_host_release_count(), "Presenting the Studio must release the launcher composition")
             if (isComposed) {
                 assertEquals(0, hb_host_is_composited(), "The presented Studio kept the launcher composition style")
             }

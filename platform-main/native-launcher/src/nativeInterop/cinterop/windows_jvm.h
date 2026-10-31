@@ -116,13 +116,17 @@ static int hb_window_set_composited(HWND window, int compose) {
    accelerated Compose surface: a composited window tree commits through one off-screen GDI bitmap, so every Studio
    frame would be read back into it and scrolling, animations and input would stall for the whole session. The style
    is dropped while the native cover still hides the window, before its first frame becomes visible. */
+static volatile LONG hb_host_release_calls;
 static void hb_host_release_composition(void) {
+    InterlockedIncrement(&hb_host_release_calls);
     HWND window = hb_jvm.window;
     if (!hb_window_is_composited(window)) return;
     hb_window_set_composited(window, 0);
     /* Invalidate only: the present call arrives from the AWT thread, so the owning thread repaints on its own pump. */
     RedrawWindow(window, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
+/* Read by the JNI smoke test: presenting the Studio must run the release exactly once, in every session. */
+static int hb_host_release_count(void) { return (int)InterlockedCompareExchange(&hb_host_release_calls, 0, 0); }
 /* Read by the JNI smoke test: the Studio must not keep the launcher's composition style. */
 static int hb_host_is_composited(void) { return hb_window_is_composited(hb_jvm.window); }
 /* Test hook: the smoke test applies the production host style to its own plain window. */
