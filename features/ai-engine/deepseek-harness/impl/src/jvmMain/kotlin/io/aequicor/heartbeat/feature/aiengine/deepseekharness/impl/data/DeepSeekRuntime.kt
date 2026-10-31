@@ -14,6 +14,9 @@ import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -49,10 +52,12 @@ internal class DeepSeekRuntime(
     private val ownedScope: Job? = null,
 ) : EngineRuntime,
     CreatesSessions,
+    AttachesSessions,
     AcpClientHandler {
-    override val features = DeepSeekFeatures(CreatesSessions to this)
+    override val features = DeepSeekFeatures(CreatesSessions to this, AttachesSessions to this)
     private val sessions = MutableStateFlow<Map<String, DeepSeekSession>>(emptyMap())
     private val mutex = Mutex()
+    private val loading = Mutex()
     private val log = Log.tag("DeepSeekRuntime")
 
     @Volatile
@@ -70,6 +75,30 @@ internal class DeepSeekRuntime(
         val native = connection.newSession(cwd)
         val created = session(native.sessionId, request.target, request.workspace, cwd)
         return created.lease()
+    }
+
+    override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
+        if (ref.engine != DeepSeekEngine.Id || ref.source != DeepSeekEngine.SessionSource) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
+        }
+        return resume(request, ref.nativeId)
+    }
+
+    /** Resumes a persisted DSH session; ACP replay is deliberately not loaded, so history is partial. */
+    suspend fun resume(request: ResumeSessionRequest, nativeId: String): ActiveSession = loading.withLock {
+        checkActive()
+        val existing = mutex.withLock { sessions.value[nativeId] }
+        if (existing != null) {
+            if (existing.route.binding != request.target.binding || existing.route.workspace != request.workspace ||
+                existing.target != request.target
+            ) {
+                throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
+            }
+            return@withLock existing.lease()
+        }
+        val cwd = directory(CreateSessionRequest(request.target, request.workspace))
+        val native = connection.resumeSession(nativeId, cwd)
+        session(nativeId, request.target, request.workspace, cwd).lease()
     }
 
     @Suppress("LongParameterList")

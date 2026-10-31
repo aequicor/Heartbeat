@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data.DeepSeek
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekBackend
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -61,6 +62,7 @@ public object DeepSeekBindings {
             declaredFeatures = setOf(
                 AppliesTrustLevels.id,
                 CreatesSessions.id,
+                AttachesSessions.id,
                 SendsPrompts.id,
                 SessionHistory.id,
                 ReconcilesSession.id,

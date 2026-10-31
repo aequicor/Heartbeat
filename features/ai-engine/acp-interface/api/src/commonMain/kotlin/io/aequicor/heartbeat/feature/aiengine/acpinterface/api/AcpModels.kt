@@ -23,6 +23,9 @@ public data class AcpInitialization(
 /** Native session identity and the complete response (including optional modes/configuration). */
 public data class AcpSession(val sessionId: String, val metadata: JsonObject)
 
+/** Native session list page; [nextCursor] is an opaque continuation token. */
+public data class AcpSessionList(val sessions: List<AcpSession>, val nextCursor: String? = null)
+
 /** Native completion reason. Kept open for future protocol extensions. */
 @Serializable
 public data class AcpPromptResult(val stopReason: String)
