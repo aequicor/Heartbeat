@@ -6,5 +6,5 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 public val ActionSafetyEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "ai.action_safety",
     "Структурная проверка действий (после перезапуска профиля)",
-    default = false,
+    default = true,
 )
