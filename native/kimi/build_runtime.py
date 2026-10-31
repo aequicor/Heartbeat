@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shlex
 import shutil
 import subprocess
 import tomllib
@@ -409,6 +410,25 @@ def runtime_arch(machine):
     return {"amd64": "x64", "x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}[machine.lower()]
 
 
+def build_environment(node, pnpm, directory, commit):
+    """Expose the verified pnpm to upstream's nested shell commands on every host."""
+    directory.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        # cmd expands percent signs even inside quoted paths.
+        node_path = str(node).replace("%", "%%")
+        pnpm_path = str(pnpm).replace("%", "%%")
+        (directory / "pnpm.cmd").write_text(
+            f'@echo off\n"{node_path}" "{pnpm_path}" %*\n', encoding="utf-8")
+    else:
+        launcher = directory / "pnpm"
+        launcher.write_text(
+            f'#!/bin/sh\nexec {shlex.quote(str(node))} {shlex.quote(str(pnpm))} "$@"\n', encoding="utf-8")
+        launcher.chmod(0o755)
+    env = dict(os.environ, HUSKY="0", KIMI_CODE_COMMIT=commit)
+    env["PATH"] = os.pathsep.join([str(directory), str(node.parent), env.get("PATH", "")])
+    return env
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--node", default=shutil.which("node"))
@@ -432,8 +452,7 @@ def main():
     prepare(source, lock, versions["kimi-runtime"])
     if args.prepare_only:
         return
-    env = dict(os.environ, HUSKY="0", KIMI_CODE_COMMIT=lock["commit"])
-    env["PATH"] = str(node.parent) + os.pathsep + env.get("PATH", "")
+    env = build_environment(node, pnpm, source.parent / "kimi-build-tools", lock["commit"])
     run([node, pnpm, "install", "--frozen-lockfile"], source, env)
     run([node, pnpm, "exec", "vitest", "run", "--project", "acp-server",
          "test/heartbeat-permissions.test.ts"], source, env)

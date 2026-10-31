@@ -1,5 +1,7 @@
 """The pinned builder must reject unexpected source changes before applying or building anything."""
 import subprocess
+import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +58,25 @@ class RuntimeArchTest(unittest.TestCase):
         for machine, expected in [("AMD64", "x64"), ("x86_64", "x64"), ("ARM64", "arm64"), ("aarch64", "arm64")]:
             with self.subTest(machine=machine):
                 self.assertEqual(expected, build_runtime.runtime_arch(machine))
+
+
+class BuildEnvironmentTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node is required for the nested command regression")
+    def test_nested_shell_resolves_verified_pnpm_with_arguments(self):
+        with tempfile.TemporaryDirectory(prefix="kimi tools '") as temporary:
+            directory = Path(temporary)
+            pnpm = directory / "pinned pnpm.cjs"
+            pnpm.write_text("console.log(JSON.stringify(process.argv.slice(2)))", encoding="utf-8")
+            node = Path(shutil.which("node")).resolve()
+            env = build_runtime.build_environment(node, pnpm, directory / "bin", "locked-commit")
+            # Match upstream: Node spawns a shell which resolves pnpm through PATH.
+            result = subprocess.run([node, "-e",
+                "require('node:child_process').execSync('pnpm --filter @moonshot-ai/vis-web exec vite build', {stdio:'inherit'})"],
+                env=env, check=True, capture_output=True, text=True)
+            self.assertEqual('["--filter","@moonshot-ai/vis-web","exec","vite","build"]', result.stdout.strip())
+            self.assertEqual("locked-commit", env["KIMI_CODE_COMMIT"])
+            self.assertEqual("0", env["HUSKY"])
+            self.assertEqual(str(directory / "bin"), env["PATH"].split(os.pathsep)[0])
 
 
 if __name__ == "__main__":
