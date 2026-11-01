@@ -4,8 +4,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 
 /**
- * Durable metadata of a marked helper. An ordinary chat must return null instead. [lastRequest] includes uncertain
- * or in-flight submissions; a recovering lease must reconcile it before sending another request or releasing.
+ * Durable metadata of a marked helper. An ordinary chat must return null instead. [lastRequest] names only uncertain
+ * or in-flight requests proven to belong to [owner], never an unrelated human/creator turn of the same chat.
+ * Unclassified legacy work makes [isRequestOwnershipResolved] false and cannot be adopted from a latest-chat fallback.
  */
 public data class HelperMetadata(
     val id: HelperId,
@@ -13,6 +14,8 @@ public data class HelperMetadata(
     val parent: SessionRef?,
     val session: SessionRef?,
     val lastRequest: RequestId?,
+    /** False requires exact work-journal reconciliation before adopting, submitting or claiming safe release. */
+    val isRequestOwnershipResolved: Boolean = true,
 ) {
     override fun toString(): String = "HelperMetadata(id=$id, owner=$owner, hasRequest=${lastRequest != null})"
 }

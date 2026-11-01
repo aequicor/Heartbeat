@@ -38,6 +38,8 @@ public data class HelperPrompt(
     val handoff: HelperHandoff? = null,
     /** Host text for the agent only, never shown in the transcript; part of the immutable attempt. */
     val directives: List<String> = emptyList(),
+    /** Replaced by the actual lease before host delivery; tool arguments never supply work ownership. */
+    val work: HelperWorkBinding? = null,
 ) {
     override fun toString(): String = "HelperPrompt(request=$request, isRecovery=$isRecovery)"
 }

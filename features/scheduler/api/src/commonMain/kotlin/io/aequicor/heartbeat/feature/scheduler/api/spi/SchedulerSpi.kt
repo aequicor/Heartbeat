@@ -60,6 +60,8 @@ public data class SpawnRequest(
  * resumed turn. Without an owning host the wake fails as unavailable; there is no unattended engine fallback.
  * Used only by `scheduler:impl`, hosts that own sessions and `platform-main:di-bundle`.
  */
+// Native lifecycle and evidence recovery share one owning host; safe defaults preserve existing implementations.
+@Suppress("TooManyFunctions")
 public interface ScheduledSessionHost : ScheduledHelperCatalog {
     /** Higher wins among hosts that own a session. */
     public val priority: Int
@@ -100,6 +102,17 @@ public interface ScheduledSessionHost : ScheduledHelperCatalog {
      */
     public suspend fun promptHelper(helper: HelperId, prompt: HelperPrompt): HelperSubmission =
         throw UnsupportedOperationException("Helper submission is unavailable")
+
+    /**
+     * Reconciles attribution of exactly [request] from the owning producer's durable journal. The host verifies
+     * the helper's owner and preserves any existing phase/native identity; this operation never sends, cancels or
+     * declares terminal native work. Conflicting conversation/work attribution is refused. False proves nothing.
+     */
+    public suspend fun reconcileHelperWork(
+        helper: HelperId,
+        request: RequestId,
+        binding: io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding,
+    ): Boolean = false
 
     /** Terminal result of the exact request, never the latest unrelated turn. */
     public suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? = null

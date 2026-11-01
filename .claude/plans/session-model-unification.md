@@ -333,3 +333,31 @@ CI, мерж и релиз — в границах существующих ра
   Предыдущий общий Python-прогон не зелёный из-за недоступного `openssl`, ограничений MSYS
   в песочнице и платформенных проверок файловых прав/символических ссылок. Лог —
   `build/verification/session-spec/tests.log`; это не регрессионная проверка приложения.
+
+
+### Следующий шаг: владение работой отдельно от прав чата
+
+Подтверждён риск `metadata.lastRequest = attempts.unresolved ?: record.lastRunRequest`:
+восстановленный старый lease может принять независимый human/creator request за свою работу.
+До снятия постоянных helper-ограничений ввести неизменяемую provenance каждой попытки:
+Conversation, OwnedHelperWork с ActionId/снимком helper-policy и непереопределённый legacy.
+Work binding проставляет фактический lease; модель JSON его не получает. Старые попытки
+дополняются только из точных durable журналов владельца, без пересылки и изменения native phase.
+Metadata не выбирает lease новую работу по последнему запросу чата. Неизвестная принадлежность
+блокирует усыновление и ложное подтверждение безопасного освобождения, сохраняя чтение истории.
+
+Контрактный подготовительный шаг: HelperWorkBinding, optional work в HelperPrompt,
+точный request в HelperCapacityRecoveryRecord, isRequestOwnershipResolved в HelperMetadata
+и безопасный SPI reconcileHelperWork (default false, без native действий). Runtime ещё не
+переведён. Проверено: JVM-тесты scheduler API без ошибок; оба режима detekt успешны;
+компилируются scheduler impl, harness impl и DI-граф.
+Лог — `build/verification/helper-work-api-tests.log`.
+
+Архитектурная последовательность: work attribution/lease recovery → совместимое дополнение
+старых доказанных попыток → human capability и backend role gates → request-specific directive
+и reviewer → planning/rollover/switch с generic receipt exclusion → auto-continue по provenance
+→ UI и remote. Профильная security.level остаётся общей: trustCap сейчас compatibility metadata,
+не реальный отдельный запрет. turnEffort уже ставит stored settings выше начального helper seed.
+Для unresolved legacy сохранить явное LegacyInteractiveHelper происхождение отдельно от context;
+unknown/future AgentCreated не получает human fallback. Прямой ответ на subagent permission
+запрещён; mediation через владельца — отдельный точный маршрут, не обход общей human capability.
