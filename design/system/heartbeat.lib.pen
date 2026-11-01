@@ -4916,6 +4916,152 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "GqRKo",
+      "x": 1920,
+      "y": 40,
+      "name": "HbDialog / Confirmation / Desktop",
+      "context": "Визуальный шаблон существующего HbDialog для подтверждения. Desktop: центр окна, surface 536 (dialogMaxWidth 560 минус внешние поля 12), внутренние поля 16, заголовок и блоки с gap12. Фон — colors.scrim отдельным узлом хоста. Действия справа: безопасное первым, destructive последним; initial focus — отмена в подтверждении удаления. Esc/Back/клик вне возвращают без действия; Tab не уходит под модальность. На узком окне — sheet по KDoc HbDialog. Все экземпляры в макетах отсоединяются.",
+      "theme": {
+        "host": "desktop"
+      },
+      "reusable": true,
+      "width": 536,
+      "height": 208,
+      "fill": "$colors.surface",
+      "cornerRadius": "$shapes.large",
+      "stroke": "$surfaces.outline",
+      "strokeWidth": 1,
+      "strokeAlignment": "inner",
+      "effect": {
+        "type": "shadow",
+        "shadowType": "outer",
+        "color": "$colors.popupShadow",
+        "offset": {
+          "x": 0,
+          "y": "$dimensions.popupShadowOffset"
+        },
+        "blur": "$dimensions.popupShadowRadius"
+      },
+      "layout": "none",
+      "children": [
+        {
+          "type": "text",
+          "id": "Dpxn4",
+          "x": 16,
+          "y": 16,
+          "name": "Title",
+          "fill": "$colors.textPrimary",
+          "textGrowth": "fixed-width",
+          "width": 504,
+          "content": "Подтвердить действие?",
+          "lineHeight": "$typography.title.lineHeight",
+          "fontFamily": "$typography.family",
+          "fontSize": "$typography.title.size",
+          "fontWeight": "$typography.title.weight"
+        },
+        {
+          "type": "text",
+          "id": "Q1dGAM",
+          "x": 16,
+          "y": 48,
+          "name": "Summary",
+          "fill": "$colors.textPrimary",
+          "textGrowth": "fixed-width",
+          "width": 504,
+          "content": "Укажите объект и последствия действия.",
+          "lineHeight": "$typography.body.lineHeight",
+          "fontFamily": "$typography.family",
+          "fontSize": "$typography.body.size",
+          "fontWeight": "$typography.body.weight"
+        },
+        {
+          "type": "text",
+          "id": "uhJN4",
+          "x": 16,
+          "y": 80,
+          "name": "Retained data",
+          "fill": "$colors.textPrimary",
+          "textGrowth": "fixed-width",
+          "width": 504,
+          "content": "Сохранённые данные останутся доступными.\nДействие не затронет другие объекты.",
+          "lineHeight": "$typography.body.lineHeight",
+          "fontFamily": "$typography.family",
+          "fontSize": "$typography.body.size",
+          "fontWeight": "$typography.body.weight"
+        },
+        {
+          "type": "text",
+          "id": "tF8qi",
+          "x": 16,
+          "y": 132,
+          "name": "Consequence",
+          "fill": "$colors.textSecondary",
+          "textGrowth": "fixed-width",
+          "width": 504,
+          "content": "Укажите дальнейшее действие после подтверждения.",
+          "lineHeight": "$typography.caption.lineHeight",
+          "fontFamily": "$typography.family",
+          "fontSize": "$typography.caption.size",
+          "fontWeight": "$typography.caption.weight"
+        },
+        {
+          "type": "frame",
+          "id": "NdmCo",
+          "x": 256,
+          "y": 160,
+          "name": "Cancel",
+          "context": "Начальное безопасное действие подтверждения. Кольцо фокуса при клавиатурной навигации.",
+          "width": 76,
+          "height": 32,
+          "fill": "$colors.buttonFill",
+          "cornerRadius": "$dimensions.controlCornerRadius",
+          "layout": "none",
+          "children": [
+            {
+              "type": "text",
+              "id": "NOLUI",
+              "x": 12,
+              "y": 7,
+              "fill": "$colors.textPrimary",
+              "content": "Отмена",
+              "lineHeight": "$typography.label.lineHeight",
+              "fontFamily": "$typography.family",
+              "fontSize": "$typography.label.size",
+              "fontWeight": "500"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "btXnS",
+          "x": 344,
+          "y": 160,
+          "name": "Confirm",
+          "context": "Разрушительное действие только после явной активации. При active operation недоступно с причиной; повторный клик во время выполнения не создаёт вторую операцию.",
+          "width": 176,
+          "height": 32,
+          "fill": "$colors.error",
+          "cornerRadius": "$dimensions.controlCornerRadius",
+          "layout": "none",
+          "children": [
+            {
+              "type": "text",
+              "id": "icjgB",
+              "x": 12,
+              "y": 7,
+              "fill": "$colors.onError",
+              "content": "Подтвердить",
+              "lineHeight": "$typography.label.lineHeight",
+              "fontFamily": "$typography.family",
+              "fontSize": "$typography.label.size",
+              "fontWeight": "500"
+            }
+          ]
+        }
+      ]
     }
   ],
   "themes": {
@@ -4932,8 +5078,18 @@
     "colors.startupPulseInk": {
       "type": "color",
       "value": [
-        {"value": "#938F97", "theme": {"mode": "light"}},
-        {"value": "#BFB3D4", "theme": {"mode": "dark"}}
+        {
+          "value": "#938F97",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#BFB3D4",
+          "theme": {
+            "mode": "dark"
+          }
+        }
       ]
     },
     "typography.family": {
