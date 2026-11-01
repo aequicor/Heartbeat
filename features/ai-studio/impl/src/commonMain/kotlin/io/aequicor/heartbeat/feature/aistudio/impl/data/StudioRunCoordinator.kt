@@ -25,6 +25,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -42,6 +44,7 @@ internal interface StudioRunHost {
 
     suspend fun executeRun(request: StudioTurnRequest): RunOutcome
     suspend fun finishedRun(id: String)
+    suspend fun settledRun(request: StudioTurnRequest, outcome: RunOutcome) = Unit
 }
 
 /**
@@ -59,6 +62,7 @@ internal class StudioRunCoordinator(
     private val log = Log.tag("StudioRunCoordinator")
     private val lock = Mutex()
     private val busy = MutableStateFlow<Set<String>>(emptySet())
+    val occupied: StateFlow<Set<String>> = busy.asStateFlow()
 
     /** Whether a request or mutation of chat [id] runs now. */
     fun isBusy(id: String): Boolean = id in busy.value
@@ -112,15 +116,18 @@ internal class StudioRunCoordinator(
                 busy.value += request.id
                 // Install cleanup before an admission/caller cancellation can revoke the reserved request.
                 profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) {
+                    var outcome = RunOutcome.Failed
                     try {
                         host.prepareRun(request.id)
                         beforeExecute()
-                        lifecycle.value.observe(reserved) { host.executeRun(reserved) }
+                        outcome = lifecycle.value.observe(reserved) { host.executeRun(reserved) }
+                        outcome
                     } finally {
                         // An owner/source may cancel preparation itself. Settle its receipt before leaving the job.
                         // Only the short journal barrier and reservation cleanup survive caller cancellation.
                         withContext(NonCancellable) {
                             try {
+                                host.settledRun(reserved, outcome)
                                 submission?.cancel()
                             } finally {
                                 finishRun(host, request.id, submission, onCancelledBeforeSubmission)
@@ -208,6 +215,7 @@ internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmi
     private val phase = MutableStateFlow(Phase.Preparing)
 
     override val isCancelled: Boolean get() = phase.value in setOf(Phase.Cancelled, Phase.Deferred, Phase.Dropped)
+    override val hasBegun: Boolean get() = phase.value == Phase.Submitted
 
     override suspend fun begin() {
         admission?.first()?.let(::revoke)

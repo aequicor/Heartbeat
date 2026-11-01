@@ -6,6 +6,8 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueAction
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedMessage
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import kotlinx.coroutines.flow.Flow
@@ -13,7 +15,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 
 /** Profile service: accepted work and history observation outlive any individual screen. */
-interface StudioRuntime : StudioRuntimeConfiguration {
+interface StudioRuntime :
+    StudioRuntimeConfiguration,
+    StudioQueueRuntime {
     val state: StateFlow<StudioRuntimeState>
 
     /**
@@ -78,5 +82,23 @@ interface StudioRuntime : StudioRuntimeConfiguration {
     /** Delivers an observed permission only to its captured native turn, refusing a reused request id. */
     suspend fun respond(permission: StudioPermission, optionId: String, answer: StudioPermissionAnswer? = null) {
         error("Captured permission delivery is unavailable")
+    }
+}
+
+/** Optional profile human queue operations; scripted runtimes keep the defaults. */
+interface StudioQueueRuntime {
+    /** Accepts a captured message into the profile-owned FIFO, independently of its screen waiter. */
+    suspend fun enqueue(
+        sessionId: String,
+        message: StudioQueuedMessage,
+        environment: StudioChatEnvironment?,
+        isCorrection: Boolean,
+    ) {
+        error("Message queue is unavailable")
+    }
+
+    /** Edits exactly one queue row or dismisses one notice; never implicitly interrupts a native turn. */
+    suspend fun manageQueue(sessionId: String, action: StudioQueueAction, message: String) {
+        error("Message queue is unavailable")
     }
 }

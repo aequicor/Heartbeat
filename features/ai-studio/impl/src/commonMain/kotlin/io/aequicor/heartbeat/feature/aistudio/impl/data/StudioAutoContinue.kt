@@ -46,6 +46,9 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineKey
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission.Allow
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission.Drop
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDroppedException
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -138,6 +141,7 @@ internal class StudioAutoContinue(
     private val planning: StudioPlanning,
     private val compactions: StudioCompactionPort,
     private val checklists: StudioChecklists,
+    private val humanQueue: StudioQueuePort = NoStudioQueue,
 ) : StudioTurnLifecycle,
     StudioAutopilotMarks,
     StudioAutopilotRequests,
@@ -271,6 +275,7 @@ internal class StudioAutoContinue(
         if (isSkipped) return
         val intent = try {
             when {
+                humanQueue.hasPending(record.id) -> Public.TurnAwaitsHuman(record.id)
                 isService -> settled(record, isAfterService = true)
                 outcome == RunOutcome.Stopped -> Public.TurnFailed(record.id, isStoppedByUser = true)
                 outcome == RunOutcome.Failed -> Public.TurnFailed(record.id, isStoppedByUser = false)
@@ -290,7 +295,8 @@ internal class StudioAutoContinue(
     /** Reports the last turn of [chat] again when it is idle; a running turn reports itself when it ends. */
     override suspend fun resettle(chat: String) {
         val record = record(chat)
-        if (record == null || !isTracked(record) || runs.value.isBusy(chat)) return
+        if (record == null || !isTracked(record)) return
+        if (runs.value.isBusy(chat) || humanQueue.hasPending(chat)) return
         val intent = try {
             settled(record, isAfterService = false)
         } catch (e: CancellationException) {
@@ -301,12 +307,13 @@ internal class StudioAutoContinue(
         }
         // A turn that started meanwhile reports itself, and a chat switched off again or answered meanwhile keeps its
         // state: an older answer must not overtake either.
-        if (runs.value.isBusy(chat) || !isAwaitingResettle(chat)) return
+        if (runs.value.isBusy(chat) || humanQueue.hasPending(chat) || !isAwaitingResettle(chat)) return
         log.i { "auto-continue: last turn of $chat reported again" }
         guarded("resettle") { machines.send(AutoContinueMachineKey, intent) }
     }
 
     override suspend fun deliver(chat: String, text: String): Boolean {
+        if (humanQueue.hasPending(chat)) return false
         val record = record(chat)
         if (record == null || !isTracked(record)) return false
         val accepted = CompletableDeferred<Unit>()
@@ -349,8 +356,25 @@ internal class StudioAutoContinue(
             request,
             waitForIdle = true,
             cancelBeforeSubmission = true,
-            beforeExecute = { if (!isSending(request.id, text)) throw ReplyWithdrawn() },
+            beforeExecute = {
+                if (humanQueue.hasPending(
+                        request.id,
+                    ) || !isSending(request.id, text)
+                ) {
+                    throw ReplyWithdrawn()
+                }
+            },
+            admission = humanQueue.state.map { queue ->
+                if (queue.chat(request.id).messages.isEmpty()) {
+                    Allow
+                } else {
+                    Drop
+                }
+            },
         )
+    } catch (e: ScheduledWakeDroppedException) {
+        log.w(e) { "Human input took priority over an unsubmitted autopilot reply" }
+        throw ReplyWithdrawn()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {

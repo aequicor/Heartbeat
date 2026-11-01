@@ -33,7 +33,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
@@ -53,6 +52,8 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitch
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueAction
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedMessage
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -209,7 +210,8 @@ internal class EngineStudioRepository(
     private val attachmentsCatalog: AttachmentsCatalog,
     private val switchHelpers: StudioEngineSwitchHelpers,
     tools: Lazy<ProfileAgentTools>,
-) : StudioRepository,
+    private val messageQueue: StudioQueuePort = NoStudioQueue,
+) : NativeStudioRepository(),
     StudioRuntime,
     StudioTurnHost,
     StudioRunHost,
@@ -321,6 +323,7 @@ internal class EngineStudioRepository(
             }
         }
         observeStudioRuntime(profile.coroutineScope, toggles, usage, store, mutableState)
+        observeStudioMessageQueue(profile.coroutineScope, messageQueue, toggles, mutableState)
     }
 
     override suspend fun observeUsageTargets(owner: Any, modelIds: Set<String>) {
@@ -365,7 +368,7 @@ internal class EngineStudioRepository(
 
     override suspend fun sessionIdOf(ref: SessionRef): String? {
         log.d { "sessionIdOf engine=${ref.engine.value} source=${ref.source.value}" }
-        return lock.withLock { store.get(ChatsKey).orEmpty().firstOrNull { record -> record.owns(ref) }?.id }
+        return lock.withLock { store.studioChatOf(ref) }
     }
 
     override suspend fun defaults(): RunSettings {
@@ -381,11 +384,6 @@ internal class EngineStudioRepository(
     override suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {
         log.d { "Save start-page preferences revision=${version.revision}" }
         preferences.save(settings, version)
-    }
-
-    override suspend fun defaultProjectId(): String? {
-        log.d { "Read default workspace" }
-        return null
     }
 
     override suspend fun createSession(
@@ -486,6 +484,35 @@ internal class EngineStudioRepository(
         log.i { "Start profile-owned execution" }
         mutableState.update { it.copy(running = it.running + id, runStartedAt = it.runStartedAt + (id to at)) }
     }
+
+    override suspend fun enqueue(
+        sessionId: String,
+        message: StudioQueuedMessage,
+        environment: StudioChatEnvironment?,
+        isCorrection: Boolean,
+    ) {
+        log.d { "Capture human queue input" }
+        validateQueuedInput(sessionId, environment)
+        messageQueue.enqueue(sessionId, message, environment, isCorrection)
+    }
+
+    override suspend fun manageQueue(sessionId: String, action: StudioQueueAction, message: String) =
+        messageQueue.manage(sessionId, action, message).also { log.d { "Manage human queue action=$action" } }
+
+    internal suspend fun validateQueuedInput(chat: String, environment: StudioChatEnvironment?) {
+        log.v { "Validate queued conversation input" }
+        val record = record(chat)
+        check(record.organismId == null && record.helper == null) { "Only ordinary chats accept queued input" }
+        requireBrowserHostSupport(record, environment)
+    }
+
+    internal suspend fun steeringTarget(chat: String): StudioSteeringTarget = handlesLock.withLock {
+        log.v { "Capture exact native steering target" }
+        studioSteeringTarget(checkNotNull(handles.live(chat)) { "No live native turn" }, chat)
+    }
+
+    override suspend fun settledRun(request: StudioTurnRequest, outcome: RunOutcome) =
+        settleStudioQueue(messageQueue, request, outcome).also { log.v { "Settle human queue reservation" } }
 
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
         recoverSwitch(request.id)
@@ -588,16 +615,12 @@ internal class EngineStudioRepository(
         return RunOutcome.Failed
     }
 
-    private suspend fun target(id: String, settings: RunSettings): EngineTarget {
-        val selected = selections.observe().first()
-        val record = record(id)
-        val chosen = record.turnModelId(state.value.configurations[id]?.applied, settings.modelId)
-        val target = requireNotNull(turnTarget(chosen, record.target, selected.defaultTarget)) {
-            "Select a connected model in settings"
-        }
-        check(selected.isEnabled(target)) { "The selected route is no longer enabled" }
-        return target
-    }
+    private suspend fun target(id: String, settings: RunSettings): EngineTarget = studioRunTarget(
+        selections.observe().first(),
+        record(id),
+        state.value.configurations[id]?.applied,
+        settings,
+    )
 
     override suspend fun move(id: String, change: StudioChatRecord.() -> StudioChatRecord) {
         log.i { "Move the conversation into another execution mode" }
@@ -727,24 +750,19 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun cancel(sessionId: String) {
+        messageQueue.pauseForStop(sessionId)
         val active = handlesLock.withLock {
             if (sessionId !in state.value.running) {
                 log.i { "Stop ignored: the conversation is idle" }
-                return
+                null
+            } else {
+                log.i { "Explicit stop requested" }
+                mutableState.update { it.copy(stopFailures = it.stopFailures - sessionId) }
+                stopRequests += sessionId
+                handles[sessionId]
             }
-            log.i { "Explicit stop requested" }
-            mutableState.update { it.copy(stopFailures = it.stopFailures - sessionId) }
-            stopRequests += sessionId
-            handles[sessionId]
         } ?: return
-        if (active.state.value is ActiveSessionState.Unavailable) {
-            active.features.requireFeature(
-                ReconcilesSession,
-            ).synchronize()
-        }
-        val turn = active.state.value.activeTurn() ?: return
-        turn.request?.let { worktrees.cancelBuilds(active.ref, it, turn.id) }
-        active.features.requireFeature(CancelsTurns).cancel(turn.id)
+        cancelStudioNativeTurn(active, worktrees)
     }
 
     override suspend fun respond(
@@ -837,22 +855,6 @@ internal class EngineStudioRepository(
     private suspend fun write(id: String, change: (List<SessionItem>) -> List<SessionItem>) = lock.withLock {
         val stored = transcripts.read(id)
         transcripts.replace(id, change(stored), previousItems = stored)
-    }
-
-    override fun newMessageId(): String = Uuid.random().toString().also { log.d { "Allocate message identity" } }
-    override suspend fun append(sessionId: String, message: StudioMessage) {
-        log.w { "Rejected local transcript append" }
-        error("Native history owns transcript writes")
-    }
-
-    override suspend fun replace(sessionId: String, message: StudioMessage) {
-        log.w { "Rejected local transcript replacement" }
-        error("Native history owns transcript writes")
-    }
-
-    override suspend fun setBranch(sessionId: String, branch: String) {
-        log.w { "Rejected local branch mutation" }
-        error("Native tools own branch metadata")
     }
 }
 
