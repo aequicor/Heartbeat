@@ -163,7 +163,8 @@ class DesktopExtensionInstallerTest {
             }
         }
         return DesktopExtensionInstaller(root.resolve("cache"), cache, dispatchers) {
-            "version=1.2.3\nurl=https://github.com/aequicor/Heartbeat/releases/download/v1.2.3/extension.zip\n" +
+            "version=1.2.3\n" +
+                "url=https://github.com/aequicor/Heartbeat/releases/download/payload-v1.2.3/extension.zip\n" +
                 "sha256=$expectedSha\nsize=${Files.size(archive)}\n"
         }
     }

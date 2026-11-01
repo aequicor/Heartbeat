@@ -210,6 +210,20 @@ class TrainReleasesTest {
     }
 
     @Test
+    fun `a full-installer launch finds its train in the payload release`() = runTest {
+        val (own, ownDocument) = trainRelease("t1", tag = "payload-v1.3.0")
+        val (newer, newerDocument) = trainRelease("t2")
+        val (older, olderDocument) = trainRelease("t0")
+
+        val found = releases(
+            listOf(newer, own, older),
+            mapOf(newerDocument, ownDocument, olderDocument),
+        ).newer(installation(UpdateChannel.Beta, train = null, hasLauncher = true))
+
+        assertEquals("t2", found?.train)
+    }
+
+    @Test
     fun `a full-installer launch is offered nothing when its own release is the newest`() = runTest {
         val (own, ownDocument) = trainRelease("t1", tag = "v1.3.0")
         val (older, olderDocument) = trainRelease("t0")

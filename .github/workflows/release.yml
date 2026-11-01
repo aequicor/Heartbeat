@@ -8,14 +8,15 @@ name: Release
 # JVM tests seed portable task outputs; Linux builds the shared Wasm panel once.
 # Remaining desktop/mobile builds and platform tests fan out from Linux. Host toolchains stay
 # OS/architecture-specific. Linux ships a DEB for Ubuntu 24.04 x64 with Secret Service and X11/XWayland.
-# Installed release builds update themselves from the latest release (features/app-update): the release is
-# created as a draft, gets every installer and SHA256SUMS, and only then becomes public and latest. The asset
-# names are what the app looks for (ReleasePlatform in features/app-update/impl): keep them in sync.
-# The release is also a channel of bundles: it carries the train of its commit (train-manifest.json and the jars
+# Installed release builds update themselves from the latest release (features/app-update). One run prepares two
+# drafts: v<version> receives only the seven installers, payload-v<version> receives SHA256SUMS and every technical
+# asset. The payload is a full release with latest=false and is published first; the app release becomes latest last.
+# Installer names are what the app looks for (ReleasePlatform in features/app-update/impl): keep them in sync.
+# The payload is also a channel of bundles: it carries the train of its commit (train-manifest.json and the jars
 # that changed), optimized by ProGuard: usually built here, promoted from the nightly pre-release train-o<sha12> only
 # when the release commit was the master head of that run. The fast train-t<sha12> of a push is never released. Every
 # installer contains only the native launcher. Signed bootstrap manifests reference runtime/platform/seed archives
-# published beside it; all five thin installers must fit 10 MiB before anything is published.
+# in the payload; all five thin installers must fit 10 MiB before anything is published.
 # dry_run builds and checks everything without creating a tag or publishing:
 #   gh workflow run release.yml --ref <branch> -f release_level=patch -F dry_run=true
 run-name: "Release ${{ inputs.release_level }}${{ inputs.dry_run && ' (dry run)' || '' }}"
@@ -180,7 +181,7 @@ jobs:
         if: steps.promote.outputs.promoted != 'true'
         with:
           train: ${{ steps.promote.outputs.train }}
-          base-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/
+          base-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/payload-${{ needs.version.outputs.tag }}/
           github-token: ${{ github.token }}
           launcher-signing-key: ${{ secrets.HEARTBEAT_LAUNCHER_SIGNING_KEY }}
           launcher-signing-required: ${{ !inputs.dry_run }}
@@ -289,7 +290,7 @@ jobs:
           for component in runtime platform seed; do
             cp "$bootstrap/heartbeat-$component-$VERSION-linux-x64.zip" release/
           done
-          # The installers pin this portable first-use component; publish it in the same release and checksum set.
+          # The installers pin this portable first-use component; publish it in the payload and its checksum set.
           cp "platform-main/desktop/build/release-components/Heartbeat-$VERSION-chromium-extension.zip" release/
       - uses: actions/upload-artifact@v7
         with:
@@ -735,16 +736,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.version.outputs.tag }}
+          PAYLOAD_TAG: payload-${{ needs.version.outputs.tag }}
         run: |
-          # A retry may find its own tag, but must never publish assets for another commit.
-          if git show-ref --verify --quiet "refs/tags/$TAG"; then
-            if [ "$(git rev-parse "refs/tags/$TAG^{commit}")" != "$GITHUB_SHA" ]; then
-              echo "::error::Release tag already points to another commit"
-              exit 1
+          # A retry may find its own tags, but must never publish assets for another commit.
+          for tag in "$TAG" "$PAYLOAD_TAG"; do
+            if git show-ref --verify --quiet "refs/tags/$tag"; then
+              if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$GITHUB_SHA" ]; then
+                echo "::error::Release tag $tag already points to another commit"
+                exit 1
+              fi
+            else
+              gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$tag" -f "sha=$GITHUB_SHA"
             fi
-          else
-            gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA"
-          fi
+          done
       - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
@@ -765,11 +769,29 @@ jobs:
           shopt -s nullglob  # a train may carry no jar of its own
           sha256sum Heartbeat-* heartbeat-*.zip bootstrap-*.json bootstrap-*.json.sig bundle-*.jar train-manifest.json > SHA256SUMS
           cat SHA256SUMS
-      - name: Publish the release
+      - name: Separate installers from the payload
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir installers
+          files=(
+            "Heartbeat-$VERSION-macos-arm64.dmg"
+            "Heartbeat-$VERSION-macos-x64.dmg"
+            "Heartbeat-$VERSION-windows-x64-setup.exe"
+            "Heartbeat-$VERSION-windows-arm64-setup.exe"
+            "Heartbeat-$VERSION-linux-x64.deb"
+            "Heartbeat-$VERSION-android.apk"
+            "Heartbeat-$VERSION-ios.ipa"
+          )
+          for file in "${files[@]}"; do
+            mv "release/$file" installers/
+          done
+      - name: Publish the releases
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.version.outputs.tag }}
+          PAYLOAD_TAG: payload-${{ needs.version.outputs.tag }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           cat > notes.md <<'NOTES'
@@ -793,19 +815,72 @@ jobs:
 
           Desktop: первый запуск скачивает подписанные runtime/platform/seed; после подготовки образа запуск работает офлайн.
           Windows ARM64 использует x64 native launcher под эмуляцией и отдельный ARM64 JVM-процесс.
-
-          `SHA256SUMS` — контрольные суммы всех файлов релиза.
           NOTES
-          # A re-run continues a draft left by a failed run; a published release is never replaced.
+          printf '\n[SHA256SUMS](https://github.com/%s/releases/download/%s/SHA256SUMS) — контрольные суммы установщиков и технических компонентов.\n' \
+            "$GH_REPO" "$PAYLOAD_TAG" >> notes.md
+
+          # A retry resumes a draft or accepts a payload already published by an earlier attempt.
+          payload_draft=true
+          if gh release view "$PAYLOAD_TAG" --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | @tsv' \
+            > payload-state 2>/dev/null; then
+            read -r payload_draft payload_prerelease < payload-state
+            if [ "$payload_draft" = true ]; then
+              gh release upload "$PAYLOAD_TAG" release/* --clobber
+            elif [ "$payload_prerelease" = true ]; then
+              echo "::error::Payload release $PAYLOAD_TAG must not be a prerelease"
+              exit 1
+            fi
+          else
+            gh release create "$PAYLOAD_TAG" release/* --draft --verify-tag \
+              --title "Heartbeat $VERSION — технические компоненты" --latest=false \
+              --notes "Технические компоненты Heartbeat $VERSION. Установочные файлы — в релизе Heartbeat $VERSION."
+          fi
+
+          # A published app release is never replaced; a draft is completed with installers only.
           if gh release view "$TAG" --json isDraft --jq .isDraft > draft 2>/dev/null; then
             if [ "$(cat draft)" != true ]; then
               echo "::error::Release $TAG is already published"
               exit 1
             fi
-            gh release upload "$TAG" release/* --clobber
+            gh release upload "$TAG" installers/* --clobber
           else
-            gh release create "$TAG" release/* --draft --verify-tag --title "Heartbeat $VERSION" \
+            gh release create "$TAG" installers/* --draft --verify-tag --title "Heartbeat $VERSION" \
               --notes-file notes.md --generate-notes
           fi
-          # Public only with every asset: installed apps take the latest release as soon as it appears.
+
+          # The app uses this digest when SHA256SUMS is not an asset of the app release.
+          gh release view "$TAG" --json assets > main-assets.json
+          python3 - "$VERSION" <<'PY'
+          import json
+          import re
+          import sys
+
+          version = sys.argv[1]
+          expected = {
+              f"Heartbeat-{version}-macos-arm64.dmg",
+              f"Heartbeat-{version}-macos-x64.dmg",
+              f"Heartbeat-{version}-windows-x64-setup.exe",
+              f"Heartbeat-{version}-windows-arm64-setup.exe",
+              f"Heartbeat-{version}-linux-x64.deb",
+              f"Heartbeat-{version}-android.apk",
+              f"Heartbeat-{version}-ios.ipa",
+          }
+          with open("main-assets.json", encoding="utf-8") as source:
+              assets = json.load(source)["assets"]
+          names = [asset["name"] for asset in assets]
+          if len(names) != len(expected) or set(names) != expected:
+              raise SystemExit(f"Unexpected app release assets: {sorted(names)}")
+          invalid = [
+              asset["name"] for asset in assets
+              if not re.fullmatch(r"sha256:[0-9a-f]{64}", asset.get("digest") or "")
+          ]
+          if invalid:
+              raise SystemExit("Missing GitHub SHA-256 digest for: " + ", ".join(invalid))
+          print(f"Verified {len(assets)} installer assets and their SHA-256 digests")
+          PY
+
+          # The payload must be downloadable before installed apps discover the new latest release.
+          if [ "$payload_draft" = true ]; then
+            gh release edit "$PAYLOAD_TAG" --draft=false --latest=false
+          fi
           gh release edit "$TAG" --draft=false --latest

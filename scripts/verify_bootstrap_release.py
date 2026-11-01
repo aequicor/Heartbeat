@@ -67,7 +67,7 @@ def verify(directory: Path, version: str, train: str, targets=TARGETS,
             name = f"heartbeat-{component}-{version}-{target}.zip"
             artifact = directory / name
             record = body[component]
-            url = f"https://github.com/aequicor/Heartbeat/releases/download/v{version}/{name}"
+            url = f"https://github.com/aequicor/Heartbeat/releases/download/payload-v{version}/{name}"
             if record.get("url") != url:
                 raise ValueError(f"{target}: {component} URL mismatch")
             if artifact.is_symlink() or not artifact.is_file():
