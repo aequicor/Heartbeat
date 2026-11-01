@@ -86,7 +86,7 @@ internal class DeepSeekRuntime(
         *sessionTreesFeature(),
     )
 
-    /** The read-only tree capability is optional: runtimes without an on-disk store report Unsupported coverage. */
+    /** The read-only tree capability is optional: a runtime created without a store does not expose it. */
     private fun sessionTreesFeature(): Array<Pair<EngineFeatureKey<*>, EngineFeature>> {
         val trees = sessionTrees ?: return emptyArray()
         return arrayOf<Pair<EngineFeatureKey<*>, EngineFeature>>(SessionTrees to trees)

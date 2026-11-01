@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
@@ -18,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -111,9 +113,65 @@ class DeepSeekSessionTreesTest {
         assertEquals(SessionFailureReason.NotFound, (failure.failure as EngineFailure.Session).reason)
     }
 
-    private fun trees(home: File) = DeepSeekSessionTrees(
-        DeepSeekNativeHistory(DeepSeekConfiguration(homeDirectory = home.path), dispatchers),
-    )
+    @Test
+    fun `a corrupt session header is skipped without hiding the family`() = runBlocking {
+        val home = Files.createTempDirectory("dsh-home").toFile()
+        val workspaceDir = File(File(home, "sessions"), "--C-Users-u-proj--")
+        writeSession(workspaceDir, "session-abc", header("session-abc"))
+        writeSession(workspaceDir, "subagent-1", header("subagent-1", parent = "session-abc"))
+        val sessionDir = File(workspaceDir, "broken").apply { mkdirs() }
+        File(sessionDir, "session.v4.jsonl.zstd").writeBytes("not a zstd frame".toByteArray())
+
+        val snapshot = trees(home).snapshot(root("session-abc"), access())
+
+        assertEquals(listOf("subagent-1"), snapshot.descendants().map { it.node.ref.nativeId })
+        assertEquals(SessionTreeCoverage.Partial, snapshot.coverage)
+    }
+
+    @Test
+    fun `the stored root title names the root node`() = runBlocking {
+        val home = Files.createTempDirectory("dsh-home").toFile()
+        val workspaceDir = File(File(home, "sessions"), "--C-Users-u-proj--")
+        writeSession(workspaceDir, "session-abc", header("session-abc", title = "Main chat"))
+
+        val snapshot = trees(home).snapshot(root("session-abc"), access())
+
+        assertEquals("Main chat", snapshot.nodes.single { it.ref == root("session-abc") }.name)
+    }
+
+    @Test
+    fun `a parent cycle terminates and keeps each session once`() = runBlocking {
+        val home = Files.createTempDirectory("dsh-home").toFile()
+        val workspaceDir = File(File(home, "sessions"), "--C-Users-u-proj--")
+        writeSession(workspaceDir, "session-abc", header("session-abc", parent = "subagent-1"))
+        writeSession(workspaceDir, "subagent-1", header("subagent-1", parent = "session-abc"))
+
+        val snapshot = trees(home).snapshot(root("session-abc"), access())
+
+        assertEquals(listOf("subagent-1"), snapshot.descendants().map { it.node.ref.nativeId })
+        assertEquals(SessionTreeCoverage.Partial, snapshot.coverage)
+    }
+
+    @Test
+    fun `an unreadable store is a read failure, not a missing member`() = runBlocking {
+        val home = Files.createTempDirectory("dsh-home").toFile()
+        val unavailable = trees(home, scan = { throw IOException("store unavailable") })
+
+        val snapshot = unavailable.snapshot(root("session-abc"), access())
+        assertEquals(SessionTreeCoverage.Unavailable, snapshot.coverage)
+        assertTrue(snapshot.nodes.isEmpty())
+
+        val failure = assertFailsWith<EngineException> {
+            unavailable.history(root("session-abc"), root("subagent-1"), access())
+        }
+        assertIs<EngineFailure.History>(failure.failure)
+        assertEquals(HistoryFailureReason.Unavailable, (failure.failure as EngineFailure.History).reason)
+    }
+
+    private fun trees(home: File, scan: (suspend () -> Map<String, DeepSeekFamily>)? = null): DeepSeekSessionTrees {
+        val history = DeepSeekNativeHistory(DeepSeekConfiguration(homeDirectory = home.path), dispatchers)
+        return if (scan == null) DeepSeekSessionTrees(history) else DeepSeekSessionTrees(history, scan)
+    }
 
     private fun root(id: String) = SessionRef(DeepSeekEngine.Id, DeepSeekEngine.SessionSource, id)
 

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -24,7 +25,10 @@ import kotlinx.coroutines.flow.flow
  * so the family is authoritative for persisted sessions; activity is not recorded in the header and stays unknown.
  * Missing capability is never reported as a confirmed empty family: an unreadable store is unavailable coverage.
  */
-internal class DeepSeekSessionTrees(private val nativeHistory: DeepSeekNativeHistory) : SessionTrees {
+internal class DeepSeekSessionTrees(
+    private val nativeHistory: DeepSeekNativeHistory,
+    private val scan: suspend () -> Map<String, DeepSeekFamily> = { nativeHistory.families() },
+) : SessionTrees {
     private val log = Log.tag("DeepSeekSessionTrees")
 
     override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {
@@ -36,6 +40,10 @@ internal class DeepSeekSessionTrees(private val nativeHistory: DeepSeekNativeHis
 
     override suspend fun history(root: SessionRef, ref: SessionRef, access: SessionTreeAccess): SessionHistory {
         val family = readSnapshot(root, access)
+        if (ref != root && family.coverage == SessionTreeCoverage.Unavailable) {
+            // An unreadable store cannot prove that a member is absent; report the read failure instead.
+            throw EngineException(EngineFailure.History(HistoryFailureReason.Unavailable))
+        }
         if (ref != root && family.descendants().none { it.node.ref == ref }) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
@@ -67,7 +75,7 @@ internal class DeepSeekSessionTrees(private val nativeHistory: DeepSeekNativeHis
 
     /** Cycle-safe depth-first walk from [root] over the store's `parentSession` links. */
     private suspend fun discover(root: SessionRef): SessionTreeSnapshot {
-        val families = nativeHistory.families()
+        val families = scan()
         val children = families.entries
             .filter { it.value.parent != null }
             .groupBy({ it.value.parent }, { it.key })
@@ -87,9 +95,10 @@ internal class DeepSeekSessionTrees(private val nativeHistory: DeepSeekNativeHis
                 pending.add(id)
             }
         }
+        val rootName = families[root.nativeId]?.name ?: root.nativeId
         return SessionTreeSnapshot(
             root,
-            listOf(SessionTreeNode(root, null, root.nativeId, SessionActivity.Unknown)) + nodes,
+            listOf(SessionTreeNode(root, null, rootName, SessionActivity.Unknown)) + nodes,
             SessionTreeCoverage.Partial,
         )
     }

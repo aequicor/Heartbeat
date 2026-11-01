@@ -111,7 +111,14 @@ internal class DeepSeekNativeHistory(
         for (workspaceDir in listDirs(root)) {
             for (dir in listDirs(workspaceDir)) {
                 currentCoroutineContext().ensureActive()
-                family(File(dir, SESSION_FILE))?.let { (id, header) -> result[id] = header }
+                val entry = try {
+                    family(File(dir, SESSION_FILE))
+                } catch (error: IOException) {
+                    // One truncated or unreadable session must not hide the rest of the family.
+                    log.w(error) { "DeepSeek Harness session header could not be read" }
+                    null
+                }
+                entry?.let { (id, header) -> result[id] = header }
             }
         }
         result

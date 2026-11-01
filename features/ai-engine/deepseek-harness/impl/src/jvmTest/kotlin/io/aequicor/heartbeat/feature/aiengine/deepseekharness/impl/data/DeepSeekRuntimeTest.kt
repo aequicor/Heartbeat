@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpConnection
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpImplementation
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpInitialization
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPromptResult
@@ -9,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -17,7 +20,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -101,18 +116,64 @@ class DeepSeekRuntimeTest {
         assertFalse(runtime.inputSupportFor(officialFlash).accepts("image/png"))
     }
 
+    @Test
+    fun `the pinned multimodal route stays in the image model set`() {
+        assertEquals(DeepSeekAcpPatch.MODEL, DeepSeekImageModelIds.single())
+    }
+
+    @Test
+    fun `a remote refusal fails the turn as an invalid request without retiring the runtime`() = runTest {
+        val connection = FakeAcpConnection(promptFailure = AcpException.Remote(-32602, "Invalid params"))
+        val runtime = runtime(connection)
+        val session = runtime.create(CreateSessionRequest(target(ModelId("deepseek-flash"))))
+        val sends = assertIs<FeatureAccess.Available<SendsPrompts>>(session.features.resolve(SendsPrompts)).feature
+        val request = RequestId("request-1")
+
+        assertFailsWith<EngineException> {
+            sends.send(PromptRequest(request, listOf(ContentPart.Text("hello"))))
+        }
+
+        val ready = assertIs<ActiveSessionState.Ready>(session.state.value)
+        val failed = assertIs<TurnOutcome.Failed>(ready.lastTurn?.outcome)
+        assertEquals(EngineFailure.Request(RequestFailureReason.Invalid, request), failed.failure)
+        assertFalse(runtime.isClosed)
+        assertTrue(connection.closedSessions.isEmpty())
+    }
+
+    @Test
+    fun `the tree capability is exposed only when a store is provided`() {
+        val trees = object : SessionTrees {
+            override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = emptyFlow()
+
+            override suspend fun history(
+                root: SessionRef,
+                ref: SessionRef,
+                access: SessionTreeAccess,
+            ): SessionHistory = throw UnsupportedOperationException("not used")
+        }
+
+        val provided = runtime(FakeAcpConnection(), sessionTrees = trees)
+        assertIs<FeatureAccess.Available<SessionTrees>>(provided.features.resolve(SessionTrees))
+        assertEquals(FeatureAccess.Unsupported, runtime(FakeAcpConnection()).features.resolve(SessionTrees))
+    }
+
     private fun target(model: ModelId) = EngineTarget(
         DeepSeekEngine.Id,
         EngineBindingId("binding"),
         model,
     )
 
-    private fun runtime(connection: AcpConnection, capabilities: JsonObject = JsonObject(emptyMap())) = DeepSeekRuntime(
+    private fun runtime(
+        connection: AcpConnection,
+        capabilities: JsonObject = JsonObject(emptyMap()),
+        sessionTrees: SessionTrees? = null,
+    ) = DeepSeekRuntime(
         RuntimeIdentity(DeepSeekEngine.Id, AuthSourceId("auth"), AuthRevision.Unknown),
         connection,
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()),
         directory = { "C:\\workspace" },
         capabilities = capabilities,
+        sessionTrees = sessionTrees,
     )
 
     private fun json(value: String): JsonObject = Json.parseToJsonElement(value) as JsonObject
@@ -121,6 +182,7 @@ class DeepSeekRuntimeTest {
         private val metadata: JsonObject = Json.parseToJsonElement(
             """{"configOptions":[{"id":"model","category":"model","options":[]}]}""",
         ) as JsonObject,
+        private val promptFailure: Exception? = null,
     ) : AcpConnection {
         val configured = mutableListOf<Pair<String, String>>()
         val closedSessions = mutableListOf<String>()
@@ -145,7 +207,10 @@ class DeepSeekRuntimeTest {
             closedSessions += sessionId
         }
 
-        override suspend fun prompt(sessionId: String, content: List<JsonObject>) = AcpPromptResult("end_turn")
+        override suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult {
+            promptFailure?.let { throw it }
+            return AcpPromptResult("end_turn")
+        }
 
         override suspend fun cancel(sessionId: String) = Unit
 
