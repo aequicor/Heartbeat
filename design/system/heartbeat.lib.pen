@@ -5170,6 +5170,52 @@
           "fontWeight": "$typography.caption.weight"
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "UVjfL",
+      "x": -440,
+      "y": 1740,
+      "name": "HbCheckbox / Unchecked",
+      "context": "Множественный выбор. Checkbox и строка переключают одну модель; Space переключает флажок. Несколько выбранных моделей сохраняются одним действием. Макет: копировать отсоединённую структуру.",
+      "reusable": true,
+      "width": 16,
+      "height": 16,
+      "fill": "$colors.inputFill",
+      "cornerRadius": 3,
+      "stroke": "$colors.textSecondary",
+      "strokeWidth": 1,
+      "layout": "none"
+    },
+    {
+      "type": "frame",
+      "id": "ljckr",
+      "x": -240,
+      "y": 1740,
+      "name": "HbCheckbox / Checked",
+      "context": "Множественный выбор. Checkbox и строка переключают одну модель; Space переключает флажок. Несколько выбранных моделей сохраняются одним действием. Макет: копировать отсоединённую структуру.",
+      "reusable": true,
+      "width": 16,
+      "height": 16,
+      "fill": "$surfaces.accent",
+      "cornerRadius": 3,
+      "stroke": "$surfaces.accent",
+      "strokeWidth": 1,
+      "layout": "none",
+      "children": [
+        {
+          "id": "iDj74",
+          "type": "ref",
+          "ref": "hb-icon-check",
+          "name": "Check",
+          "x": 1,
+          "y": 1,
+          "width": 14,
+          "height": 14,
+          "stroke": "$colors.onPrimary",
+          "strokeWidth": 1.5
+        }
+      ]
     }
   ],
   "themes": {
