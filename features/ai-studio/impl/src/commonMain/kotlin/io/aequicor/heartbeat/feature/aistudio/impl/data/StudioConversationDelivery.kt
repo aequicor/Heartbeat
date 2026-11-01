@@ -86,7 +86,8 @@ internal class StudioConversationDelivery(
             val bound = attempts.bindCauses(helper, message.request, setOf(cause))
             pending.update { it + (child to message.request) }
             log.v { "Added a pending creator message" }
-            profile.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            // A creator receives its journaled acknowledgement before any child execution can block this caller.
+            profile.coroutineScope.launch {
                 execute(record, prompt, bound.causes.orEmpty())
             }
         }
