@@ -1,0 +1,28 @@
+package io.aequicor.heartbeat.feature.aistudio.impl.data
+
+import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostConversationCancellation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
+
+/** User stop addresses the reservation before a native handle exists and retains exact uncertain evidence. */
+@Inject
+internal class StudioConversationStops(
+    private val observations: StudioConversationObservations,
+    private val coordinator: StudioRunCoordinator,
+) {
+    suspend fun cancel(record: StudioChatRecord): Boolean {
+        if (record.helper == null && record.logicalSession?.kind != SessionKind.Subsession) return false
+        val request = coordinator.currentRequest(record.id) ?: if (record.logicalSession == null) {
+            record.lastRunRequest
+        } else {
+            observations.snapshot(record).attempt?.request
+        } ?: return false
+        if (observations.cancel(record, request) is HostConversationCancellation.Unconfirmed) {
+            throw EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request))
+        }
+        return true
+    }
+}

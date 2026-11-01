@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -100,6 +101,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -168,6 +170,8 @@ internal data class StudioChatRecord(
     val identity: StudioSessionIdentity? = null,
     /** Local resolution failure kept separately so unknown or damaged source metadata remains unchanged. */
     val identityIssue: String? = null,
+    /** Durable creator request and original source for idempotent subsession creation. */
+    val subsessionCreation: JsonElement? = null,
 ) {
     /** Whether [session] is this chat's current or an earlier native session. */
     fun owns(session: SessionRef): Boolean = ref == session || session in previousRefs
@@ -208,6 +212,8 @@ internal class EngineStudioRepository(
     private val organisms: StudioOrganisms,
     private val configuredSubmission: StudioConfiguredSubmission,
     private val helperAdmission: StudioHelperAdmission,
+    private val conversationStops: StudioConversationStops,
+    private val chatRecords: StudioChatRecords,
     private val harnesses: StudioHarnessAttach,
     private val toggles: FeatureToggles,
     private val attachmentsCatalog: AttachmentsCatalog,
@@ -224,8 +230,8 @@ internal class EngineStudioRepository(
     StudioChatModes {
     private val log = Log.tag("EngineStudio")
     private val nativeSession = StudioNativeSessionOperations(learning)
-    private val store = stores.keyValue(ChatSpec)
-    private val lock = Mutex()
+    private val store = chatRecords.store
+    private val lock = chatRecords.lock
     private val deliveringActions = mutableSetOf<String>()
 
     /**
@@ -234,8 +240,8 @@ internal class EngineStudioRepository(
      */
     private val transcripts = StudioTranscripts(
         stores.database(StudioTranscriptDatabaseSpec).transcripts(),
-        legacy = { id -> record(id).items },
-        contracted = { id -> updateRecord(id) { copy(items = emptyList()) } },
+        legacy = { id -> chatRecords.record(id).items },
+        contracted = { id -> chatRecords.updateRecord(id) { copy(items = emptyList()) } },
     )
     private val historyMirror = StudioHistoryMirror(
         read = { id -> items(id) },
@@ -252,7 +258,7 @@ internal class EngineStudioRepository(
     private val conversationLocks = StudioConversationLocks(handlesLock)
     private val carry = StudioContextCarry(
         conversationLocks,
-        ::record,
+        chatRecords::record,
         ::items,
         ::write,
         ::update,
@@ -342,7 +348,7 @@ internal class EngineStudioRepository(
 
     /** All subscribers share the same sidebar projection and native-resume probes. */
     private val workspaceFlow = workspaceProjection.observe(
-        store.observe(ChatsKey),
+        store.observe(ChatsKey).map { rows -> rows?.let(::resolvedStudioIdentities) },
         profile.coroutineScope,
         state.map { it.running },
     ) { id -> handlesLock.withLock { handles[id] } }
@@ -430,14 +436,14 @@ internal class EngineStudioRepository(
 
     private suspend fun saveConversation(changed: StudioChatRecord) = lock.withLock {
         val saved = store.get(ChatsKey).orEmpty()
-        store.set(ChatsKey, conversations.updated(saved, changed))
+        store.set(ChatsKey, resolvedStudioIdentities(conversations.updated(saved, changed)))
     }
 
     /** Mark delivery durably before invoking native code; recovery never automatically sends the action again. */
     private suspend fun deliverAction(id: String, action: WorktreeActionRequest) =
         deliverStudioAction(id, action, worktrees, onFailure = { update(id) { copy(hasFailed = true) } }) {
             state.first { id !in it.running }
-            val settings = hostRunSettings(record(id), state.value.configurations[id]?.applied, defaults())
+            val settings = hostRunSettings(chatRecords.record(id), state.value.configurations[id]?.applied, defaults())
             runs.run(
                 this,
                 studioTurnRequest(id, action.prompt, settings, action.kind, RequestId(action.operation)),
@@ -466,8 +472,15 @@ internal class EngineStudioRepository(
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
-        requireBrowserHostSupport(record(sessionId), environment)
-        val organism = organisms.submit(record(sessionId), prompt, settings, attachments, submissionId, onAccepted)
+        requireBrowserHostSupport(chatRecords.record(sessionId), environment)
+        val organism = organisms.submit(
+            chatRecords.record(sessionId),
+            prompt,
+            settings,
+            attachments,
+            submissionId,
+            onAccepted,
+        )
         return organism ?: runs.run(
             this,
             studioTurnRequest(
@@ -519,7 +532,7 @@ internal class EngineStudioRepository(
 
     override suspend fun helperRecord(helper: HelperId): StudioChatRecord {
         log.v { "Read conversation for helper supervision" }
-        return record(helper.value)
+        return chatRecords.record(helper.value)
     }
 
     override suspend fun openHelper(record: StudioChatRecord): ActiveSession {
@@ -543,7 +556,7 @@ internal class EngineStudioRepository(
 
     override suspend fun isWorktree(id: String): Boolean {
         log.d { "Read conversation execution mode" }
-        return record(id).worktreeTaskId != null
+        return chatRecords.record(id).worktreeTaskId != null
     }
 
     override suspend fun openTurn(id: String, settings: RunSettings, preselected: ToolChoices): ActiveSession {
@@ -556,8 +569,8 @@ internal class EngineStudioRepository(
     override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {
         log.i { "Submit the reserved native request" }
         carry.restoreHarnesses(request.id, active, harnesses)
-        val target = checkNotNull(record(request.id).target)
-        checklists.publishGeneration(record(request.id).copy(ref = active.ref))
+        val target = checkNotNull(chatRecords.record(request.id).target)
+        checklists.publishGeneration(chatRecords.record(request.id).copy(ref = active.ref))
         return configuredSubmission.submit(
             this,
             active,
@@ -570,7 +583,7 @@ internal class EngineStudioRepository(
 
     override suspend fun needsCarriedTools(id: String, active: ActiveSession): Boolean {
         log.v { "Check carried native declarations" }
-        return record(id).needsHarnessDeclarations(active.ref, harnesses)
+        return chatRecords.record(id).needsHarnessDeclarations(active.ref, harnesses)
     }
 
     override suspend fun rolloverTurn(request: StudioTurnRequest, active: ActiveSession) {
@@ -594,7 +607,7 @@ internal class EngineStudioRepository(
 
     private suspend fun target(id: String, settings: RunSettings): EngineTarget {
         val selected = selections.observe().first()
-        val record = record(id)
+        val record = chatRecords.record(id)
         val chosen = record.turnModelId(state.value.configurations[id]?.applied, settings.modelId)
         val target = requireNotNull(turnTarget(chosen, record.target, selected.defaultTarget)) {
             "Select a connected model in settings"
@@ -625,7 +638,7 @@ internal class EngineStudioRepository(
         return StudioEngineSwitchContext(
             facade,
             attachmentsCatalog,
-        ).prepare(record(id), incoming, items(id)) { change ->
+        ).prepare(chatRecords.record(id), incoming, items(id)) { change ->
             write(id, change)
         }
     }
@@ -637,7 +650,7 @@ internal class EngineStudioRepository(
 
     override suspend fun configurationRecord(id: String): StudioChatRecord {
         log.v { "Read session configuration id=$id" }
-        val record = record(id)
+        val record = chatRecords.record(id)
         val applied = state.value.configurations[id]?.applied ?: return record
         return record.copy(configuration = applied, target = studioModelTarget(applied.modelId) ?: record.target)
     }
@@ -658,7 +671,7 @@ internal class EngineStudioRepository(
 
     override suspend fun configurationAnchor(id: String): FeedbackAnchor = lock.withLock {
         log.v { "Read configuration transcript anchor" }
-        FeedbackAnchor(record(id).ref, transcripts.read(id).lastOrNull()?.info?.id)
+        FeedbackAnchor(chatRecords.record(id).ref, transcripts.read(id).lastOrNull()?.info?.id)
     }
 
     override suspend fun saveConfiguration(id: String, settings: StudioSessionSettings) {
@@ -731,6 +744,11 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun cancel(sessionId: String) {
+        log.i { "Stop the selected conversation's exact request" }
+        if (!conversationStops.cancel(chatRecords.record(sessionId))) cancelNative(sessionId)
+    }
+
+    private suspend fun cancelNative(sessionId: String) {
         val active = handlesLock.withLock {
             if (sessionId !in state.value.running) {
                 log.i { "Stop ignored: the conversation is idle" }
@@ -741,14 +759,7 @@ internal class EngineStudioRepository(
             stopRequests += sessionId
             handles[sessionId]
         } ?: return
-        if (active.state.value is ActiveSessionState.Unavailable) {
-            active.features.requireFeature(
-                ReconcilesSession,
-            ).synchronize()
-        }
-        val turn = active.state.value.activeTurn() ?: return
-        turn.request?.let { worktrees.cancelBuilds(active.ref, it, turn.id) }
-        active.features.requireFeature(CancelsTurns).cancel(turn.id)
+        nativeSession.cancelCurrent(active, worktrees)
     }
 
     override suspend fun respond(
@@ -810,11 +821,6 @@ internal class EngineStudioRepository(
         log.i { "Released native session of an archived conversation" }
     }
 
-    // Detekt cannot resolve the cross-module generic store.get here; the Kotlin compiler requires suspend.
-    @Suppress("RedundantSuspendModifier")
-    private suspend fun record(id: String): StudioChatRecord =
-        store.get(ChatsKey).orEmpty().firstOrNull { it.id == id } ?: error("Unknown studio conversation")
-
     private suspend fun releaseArchived(id: String) {
         try {
             if (store.get(ChatsKey).orEmpty().firstOrNull { it.id == id }?.isArchived == true) release(id)
@@ -826,12 +832,7 @@ internal class EngineStudioRepository(
     }
 
     private suspend fun update(id: String, change: StudioChatRecord.() -> StudioChatRecord) = lock.withLock {
-        updateRecord(id, change)
-    }
-
-    /** Read-modify-write of the record list; the caller holds [lock]. */
-    private suspend fun updateRecord(id: String, change: StudioChatRecord.() -> StudioChatRecord) {
-        store.set(ChatsKey, store.get(ChatsKey).orEmpty().map { if (it.id == id) it.change() else it })
+        chatRecords.updateRecord(id, change)
     }
 
     /** Stored items of conversation [id], moved out of its record when an earlier version kept them there. */
@@ -863,6 +864,16 @@ internal class EngineStudioRepository(
 /** Native IO reports failures while the repository owns conversation identity and UI state. */
 internal class StudioNativeSessionOperations(private val learning: StudioLearningPrompts) {
     private val log = Log.tag("StudioNativeSessionOperations")
+
+    suspend fun cancelCurrent(active: ActiveSession, worktrees: StudioWorktrees) {
+        log.i { "Cancel the current native turn after reconciliation" }
+        if (active.state.value is ActiveSessionState.Unavailable) {
+            active.features.requireFeature(ReconcilesSession).synchronize()
+        }
+        val turn = active.state.value.activeTurn() ?: return
+        turn.request?.let { worktrees.cancelBuilds(active.ref, it, turn.id) }
+        active.features.requireFeature(CancelsTurns).cancel(turn.id)
+    }
 
     suspend fun outcome(outcome: TurnOutcome?, isStopRequested: Boolean, onFailure: suspend () -> Unit): RunOutcome =
         nativeRunOutcome(outcome, isStopRequested, onFailure)
@@ -979,17 +990,28 @@ internal fun studioCreateRequest(
     target: EngineTarget,
     workspace: WorkspaceRef?,
     preselected: ToolChoices,
+    logicalSession: LogicalSessionContext? = null,
 ): CreateSessionRequest = CreateSessionRequest(
     target,
     workspace,
     areDetachedToolsEnabled = true,
     areSessionHooksEnabled = true,
     preselected = preselected,
+    logicalSession = logicalSession,
 )
 
 /** Resuming another segment retains the same Studio ownership contract. */
-internal fun studioResumeRequest(target: EngineTarget, workspace: WorkspaceRef?): ResumeSessionRequest =
-    ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true, areSessionHooksEnabled = true)
+internal fun studioResumeRequest(
+    target: EngineTarget,
+    workspace: WorkspaceRef?,
+    logicalSession: LogicalSessionContext? = null,
+): ResumeSessionRequest = ResumeSessionRequest(
+    target,
+    workspace,
+    areDetachedToolsEnabled = true,
+    areSessionHooksEnabled = true,
+    logicalSession = logicalSession,
+)
 
 private suspend fun LocalWorkspaces.requireExecutionWorkspace(workspace: WorkspaceRef?, isSupported: Boolean) {
     require(workspace == null || isSupported)

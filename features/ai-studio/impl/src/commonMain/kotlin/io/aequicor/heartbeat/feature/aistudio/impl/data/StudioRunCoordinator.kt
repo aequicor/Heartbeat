@@ -59,9 +59,13 @@ internal class StudioRunCoordinator(
     private val log = Log.tag("StudioRunCoordinator")
     private val lock = Mutex()
     private val busy = MutableStateFlow<Set<String>>(emptySet())
+    private val requests = MutableStateFlow<Map<String, RequestId>>(emptyMap())
 
     /** Whether a request or mutation of chat [id] runs now. */
     fun isBusy(id: String): Boolean = id in busy.value
+
+    /** Exact reserved attempt, available even before the host has prepared its journal or native handle. */
+    fun currentRequest(id: String): RequestId? = requests.value[id]
 
     /** Reserves a non-turn mutation without starting an agent or waiting behind a running request. */
     suspend fun <T> mutate(id: String, body: suspend () -> T): T {
@@ -108,7 +112,7 @@ internal class StudioRunCoordinator(
                 check(!profile.isClosed) { "Profile is closed" }
                 if (waitForIdle && request.id in busy.value) return@withLock null
                 check(request.id !in busy.value) { "Session is busy" }
-                host.startedRun(request.id, clock.now())
+                reserveRequest(host, request)
                 busy.value += request.id
                 // Install cleanup before an admission/caller cancellation can revoke the reserved request.
                 profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) {
@@ -130,6 +134,19 @@ internal class StudioRunCoordinator(
                 }
             }
             if (job != null) return awaitRun(job, submission)
+        }
+    }
+
+    /** Called under [lock], so a failed reservation cannot erase a later request. */
+    private suspend fun reserveRequest(host: StudioRunHost, request: StudioTurnRequest) {
+        requests.value += request.id to request.request
+        log.v { "Recorded the exact chat execution reservation" }
+        var isStarted = false
+        try {
+            host.startedRun(request.id, clock.now())
+            isStarted = true
+        } finally {
+            if (!isStarted) requests.value -= request.id
         }
     }
 
@@ -157,7 +174,10 @@ internal class StudioRunCoordinator(
                     host.finishedRun(id)
                 } finally {
                     withContext(NonCancellable) {
-                        lock.withLock { busy.value -= id }
+                        lock.withLock {
+                            busy.value -= id
+                            requests.value -= id
+                        }
                         log.v { "Released the chat execution reservation" }
                     }
                 }

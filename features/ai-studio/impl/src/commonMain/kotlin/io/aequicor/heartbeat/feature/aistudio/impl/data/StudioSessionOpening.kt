@@ -42,13 +42,15 @@ internal class StudioSessionOpening(
         val hasCarriedHarnesses = record.ref == null && record.isHarnessCarryEnabled(harnesses)
         val active = if (record.ref == null) {
             facade.engines.features(target.engine).requireFeature(CreatesSessions)
-                .create(studioCreateRequest(target, workspace, record.withCarriedHarnesses(chosen)))
+                .create(
+                    studioCreateRequest(target, workspace, record.withCarriedHarnesses(chosen), record.logicalSession),
+                )
         } else {
             check(
                 record.target?.engine == target.engine && record.target.binding == target.binding,
             ) { "The stored session uses another connection" }
             facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
-                .resume(studioResumeRequest(target, workspace))
+                .resume(studioResumeRequest(target, workspace, record.logicalSession))
         }
         // Register before persisting: the stored ref recomputes continuability, which must see the live handle.
         storage.registerHandle(id, active)
