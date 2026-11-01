@@ -1,0 +1,1 @@
+Когда Python unittest запускает shell-шаги или OpenSSL на Windows, не полагайся на System32 bash.exe: это WSL и в managed build он может падать с execvpe(/bin/bash). Выбирай Git Bash через путь к git или %LOCALAPPDATA%\Programs\Git\bin\bash.exe; для openssl добавь %LOCALAPPDATA%\Programs\Git\usr\bin в PATH.

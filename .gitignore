@@ -120,3 +120,6 @@ chromium-plugin/app/
 
 # Codex worktrees
 /.worktrees/
+
+# Heartbeat
+/.heartbeat/tmp

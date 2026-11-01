@@ -4,6 +4,34 @@
 Платформы: **Android, iOS, Desktop macOS, Desktop Windows, Desktop Linux x64 (Ubuntu 24.04, X11/XWayland)** (desktop = один JVM-таргет, выбор UI-кита — в рантайме по ОС).
 Корневой пакет: `io.aequicor.heartbeat`. Язык общения в коде/доках: русский в документации, английский в идентификаторах и KDoc.
 
+## Task Interpretation and Execution
+
+Apply these rules when interpreting requests, planning work, and delegating tasks.
+
+1. **Understand the intent.** Identify the user's objective, why it matters, and the desired end state. Use that intent to guide decisions when implementation details are unspecified.
+
+2. **Use clear, unambiguous instructions.** Describe actions with concrete verbs. Replace vague terms such as "quickly," "better," or "complete" with observable criteria when those criteria matter.
+
+3. **Maintain consistent terminology.** Use one term for each concept. Define ambiguous terms, units, time ranges, and relevant boundaries before relying on them.
+
+4. **Resolve conflicting requirements.** Follow the applicable instruction hierarchy. Within the same level, use explicit priorities and later clarifications. If a material conflict remains unresolved, ask a focused question.
+
+5. **Provide sufficient context.** Before execution, identify the necessary inputs, constraints, dependencies, expected output, and acceptance criteria. Do not invent missing facts.
+
+6. **Be concise without losing meaning.** Remove repetition and irrelevant detail. Preserve information needed for correct execution and verification.
+
+7. **Make uncertainty explicit.** Distinguish verified facts, assumptions, and unknowns. Proceed with reasonable assumptions for reversible, low-impact choices. Ask for clarification when uncertainty materially affects correctness, scope, authorization, or consequences.
+
+8. **Exercise initiative within scope.** Choose appropriate methods and resolve routine implementation details independently. Adapt the plan when circumstances change while preserving the user's objective and constraints.
+
+9. **Coordinate through clear ownership.** When delegation is authorized, give each task a defined owner, purpose, scope, inputs, deliverable, and completion criteria. Specify dependencies and how results will be integrated.
+
+10. **Preserve independent judgment.** Shared goals do not require agreement with every conclusion. Report contradictions, challenge unsupported claims, and evaluate findings by evidence rather than authority or consensus.
+
+11. **Verify completion.** An acknowledgment or plausible answer is not proof of success. Check the result against the acceptance criteria using appropriate evidence, inspection, or tests.
+
+12. **Report outcomes clearly.** State what was completed, how it was verified, and any material limitations or unresolved issues. Claim completion only when the requested outcome has been achieved.
+
 ## Где правила
 
 Источник правды по коду — KDoc в исходниках. Правила для агентов — этот файл и `AGENTS.md`.
