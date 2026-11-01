@@ -20,7 +20,7 @@ CI проверяет необходимый минимум. Автоматич�
 | `review-approve.yml`, `close-fixed-issues.yml` | `/reviewed`, мерж PR | действия бота, без сборки |
 | `engine-runtimes.yml` | вызов из prerelease перед публикацией поезда; вручную из master | каталог `native/runtimes.json` → переиспользование immutable-релизов или сборка недостающих версий на пяти native-хостах → проверенные архивы и `runtime-manifest.json` в отдельном pre-release `runtime-<engine>-<version>`; без установщиков |
 | `prerelease.yml` | push в `master` (быстрый поезд); расписание 01:00 UTC и Run workflow из `master` (оптимизированный) | только Linux. Push, ≤ 20 мин: `affectedBundles` по diff от последнего быстрого поезда (и изменение `platform-main/launcher` — поезд с новым подписанным лаунчером при тех же бандлах) → `jvmTest` затронутых бандлов (и тесты лаунчера) и `verifyBundleMembership` → `assembleBundle` + `bundleManifest` без ProGuard (`shrink: off`) → `scripts/train_manifest.py` → pre-release `train-t<sha12>` с `train-manifest.json` и только изменившимися jar. Ночь, ≤ 60 мин: то же по diff от последнего оптимизированного поезда, но с `obfuscate`, `verifyShrunkTrain` и маппингами → pre-release `train-o<sha12>`. Запуск без затронутых бандлов ничего не публикует |
-| `release.yml` | вручную из `master`: уровень `patch` / `minor` / `major`; `dry_run` — без публикации, допускает рабочую ветку | версия → JVM-тесты на Linux → Linux DEB и общая Wasm-панель → параллельно Android (APK, подпись ключом окружения `android-signing`) и iOS (неподписанный IPA), остальные desktop-сборки и два джоба платформенных тестов на macOS (`platform-tests-jvm` — `allTests` без native-задач, `desktop:test`, тесты detekt-правил; `platform-tests-native` — все Kotlin/Native-тесты, включая линковку iOS-симулятора и нехостовых linux/windows/macos-x64 бинарей) → поезд бандлов (сборка оптимизированного поезда коммита или продвижение его ночного `train-o<sha12>`) → гейт `scripts/check_installer_size.py` (≤ 10 МиБ: только native launcher; пять установщиков и подписанные runtime/platform/seed отдельно) → публикация установщиков macOS/Windows/Linux, APK, IPA и поезда; без detekt; тег вычисленной версии и релиз для автообновления |
+| `release.yml` | вручную из `master`: уровень `patch` / `minor` / `major`; `dry_run` — без публикации, допускает рабочую ветку | версия → JVM-тесты на Linux → Linux DEB и общая Wasm-панель → параллельно Android (APK, подпись ключом окружения `android-signing`) и iOS (неподписанный IPA), остальные desktop-сборки и два джоба платформенных тестов на macOS (`platform-tests-jvm` — `allTests` без native-задач, `desktop:test`, тесты detekt-правил; `platform-tests-native` — все Kotlin/Native-тесты, включая линковку iOS-симулятора и нехостовых linux/windows/macos-x64 бинарей) → поезд бандлов (сборка оптимизированного поезда коммита или продвижение его ночного `train-o<sha12>`) → гейт `scripts/check_installer_size.py` (≤ 10 МиБ: только native launcher; пять установщиков и подписанные runtime/platform/seed отдельно) → один запуск публикует `payload-v*` с поездом и техническими компонентами (`latest=false`) перед `v*` только с семью установщиками (`Latest`); без detekt |
 
 Новые workflow, джобы, шаги сборки, платформы, матрицы и триггеры, расширение `paths` — только с согласия
 пользователя. Изменяя или добавляя workflow:
@@ -77,7 +77,7 @@ CI проверяет необходимый минимум. Автоматич�
   `-Pheartbeat.bundleVersion=<train>`, затем `scripts/train_manifest.py`. Поезд несёт только jar, чей SHA-256
   изменился относительно предыдущего поезда своей семьи; неизменный бандл сохраняет прежние версию, имя jar и поле `url`
   (абсолютный https-адрес jar в релизе, который его впервые опубликовал: по нему качает лаунчер при первом запуске,
-  `missingDownloads` в app-update находит jar в более раннем релизе). Поэтому пре-релизы `train-*` не удаляются.
+  `missingDownloads` в app-update находит jar в более раннем релизе). Поэтому релизы `train-*` и `payload-v*` не удаляются.
   Смена `platformApi` публикует всё заново. База `affectedBundles` — коммит последнего опубликованного поезда семьи.
 - **Подпись лаунчера** (`.claude/rules/launcher.md`). Поезд несёт jar лаунчера записью `kind=launcher`, подписанной Ed25519.
   Приватный ключ — секрет `HEARTBEAT_LAUNCHER_SIGNING_KEY` окружения GitHub `launcher-signing` (политика веток — только
@@ -97,13 +97,16 @@ CI проверяет необходимый минимум. Автоматич�
   установщик: ключи зашиты в селектор, а не в поезд.
 - Идентификатор поезда — `t<sha12>` (быстрый) или `o<sha12>` (оптимизированный), тег — `train-<id>`; поле `train`
   и ассет `train-manifest.json` — контракт с app-update и лаунчером. Меняя формат, правь `scripts/train_manifest.py`, его тест и `TrainManifest.kt` вместе.
-- `release.yml` прикладывает к полному релизу оптимизированный поезд своего коммита: обычно собирает его сам
+- `release.yml` публикует оптимизированный поезд своего коммита в техническом `payload-v*`: обычно собирает его сам
   с `obfuscate` (джоба `train`, ≤ 60 мин), а ассеты `train-o<sha12>` скачивает, только если коммит был `HEAD` ночного
-  прогона; быстрый `t`-поезд в релиз не попадает. Размер установщиков — гейт `scripts/check_installer_size.py`
-  перед публикацией. Установщик — платформа (JRE, селектор `SelectorMain` как `-javaagent`, встроенный лаунчер файлом
-  `launcher-embedded.seed`, сторонние библиотеки своей ОС без proguard) и seed: полный опубликованный поезд коммита. Джоба `train` собирает seed (`scripts/train_seed.py`: jar
-  поезда плюс недостающие по `url`, с проверкой SHA-256, как `<jar>.seed`) и выгружает артефакт `train-seed`; desktop-джобы
-  передают его как `-Pheartbeat.seedDir=.release-seed`. Состав платформы задаёт упаковка `platform-main/desktop`.
+  прогона; быстрый `t`-поезд в релиз не попадает. Туда же попадают bootstrap-манифесты, runtime/platform/seed,
+  Chromium extension, маппинги и общий `SHA256SUMS`; пользовательский `v*` содержит только семь установщиков и получает
+  SHA-256 каждого из GitHub asset digest. Payload публикуется как полный релиз с `latest=false` перед `v*` (`Latest`).
+  Размер установщиков — гейт `scripts/check_installer_size.py` перед публикацией. Установщик — платформа (JRE,
+  селектор `SelectorMain` как `-javaagent`, встроенный лаунчер файлом `launcher-embedded.seed`, сторонние библиотеки
+  своей ОС без proguard) и seed: полный опубликованный поезд коммита. Джоба `train` собирает seed (`scripts/train_seed.py`:
+  jar поезда плюс недостающие по `url`, с проверкой SHA-256, как `<jar>.seed`) и выгружает артефакт `train-seed`;
+  desktop-джобы передают его как `-Pheartbeat.seedDir=.release-seed`. Состав платформы задаёт упаковка `platform-main/desktop`.
 - **Переход пользователей.** 1) Последний монолитный релиз выходит вместе с новой платформой (лаунчер + загрузчик,
   `platformApi` ≥ 1; с селектором слотов лаунчера — `platformApi` 2, поезда с записью лаунчера старые установки не берут): его обновление ставится как раньше, полным установщиком. 2) Дальше стабильный канал получает
   полные релизы только при смене платформы (JRE, лаунчер, `platformApi`, схема БД); остальное идёт поездами.
@@ -146,7 +149,7 @@ CI проверяет необходимый минимум. Автоматич�
   пре-релиза коммита нет; вход `shrink`, по умолчанию `obfuscate`, у быстрого поезда `prerelease.yml` — `off`; правила и режимы —
   `.claude/rules/bundles.md`): `assembleBundle` идёт с `-Pheartbeat.trainShrink`, затем `:platform-main:desktop:verifyShrunkTrain`
   под xvfb (все бандлы `Healthy`, иначе поезд не пишется), затем `scripts/train_manifest.py --mappings`: маппинг каждого jar
-  (`mapping-bundle-<id>-<версия>.txt`) публикуется ассетом того пре-релиза `train-*`, который первым опубликовал jar
+  (`mapping-bundle-<id>-<версия>.txt`) публикуется ассетом того `train-*` или `payload-v*`, который первым опубликовал jar
   (контракты не обрабатываются и маппинга не имеют; неизменный jar маппинг не повторяет), по нему `scripts/retrace.py`
   восстанавливает стек-трейсы из лога с `Launch: train=<id>`. ProGuard требует JBR 21 с `jmods` (по расчёту его даёт `setup-java`
   `jetbrains`; на CI не проверено) и до 2 ГБ кучи; ночной прогон `prerelease.yml` ограничен 60 минутами — при превышении

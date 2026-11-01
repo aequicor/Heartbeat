@@ -8,7 +8,7 @@ import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.ReleasePlatform
 
-/** Name of the checksum list the release workflow attaches to every release. */
+/** Name of the checksum list used by app releases published before the payload split. */
 internal const val CHECKSUMS_ASSET = "SHA256SUMS"
 
 /** The version of this release when it is an app release newer than [installed]; other tags are never newer. */

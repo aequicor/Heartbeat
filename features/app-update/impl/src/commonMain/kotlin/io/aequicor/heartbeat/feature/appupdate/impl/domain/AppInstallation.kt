@@ -8,7 +8,7 @@ internal enum class UpdateChannel {
     /** Full releases only: drafts and pre-releases are ignored. */
     Stable,
 
-    /** Opt-in: also the newest bundle train, a pre-release with `train-manifest.json`. */
+    /** Opt-in: also the newest bundle train, a pre-release or payload release with `train-manifest.json`. */
     Beta,
 }
 

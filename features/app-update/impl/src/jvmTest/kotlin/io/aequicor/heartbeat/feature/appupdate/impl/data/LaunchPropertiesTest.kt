@@ -110,7 +110,7 @@ class LaunchPropertiesTest {
     @Test
     fun `native installation is updated while workers retain the JVM path`() {
         val inner = "/cache/images/one/Heartbeat.app/Contents/MacOS/Heartbeat"
-        val outer = "/Applications/Heartbeat.app/Contents/MacOS/Heartbeat"
+        val outer = Path.of("/Applications/Heartbeat.app/Contents/MacOS/Heartbeat").toAbsolutePath().toString()
         val properties = release + mapOf("jpackage.app-path" to inner, "heartbeat.native.launcher" to outer)
         assertEquals(Path.of(outer).toAbsolutePath(), LaunchProperties(properties::get).launcher)
         assertEquals(inner, properties["jpackage.app-path"])

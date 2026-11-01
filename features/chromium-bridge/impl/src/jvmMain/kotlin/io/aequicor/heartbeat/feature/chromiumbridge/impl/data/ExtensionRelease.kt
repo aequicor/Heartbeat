@@ -20,10 +20,13 @@ internal data class ExtensionRelease(val version: String, val artifact: ReleaseA
             }
             require(sha256 != null && sha256.matches(Regex("[a-f0-9]{64}"))) { "Invalid extension checksum" }
             require(size != null && size in 1..MAX_ARCHIVE_BYTES) { "Invalid extension archive size" }
+            val releasePath = url.rawPath.substringBeforeLast('/')
+            val isLegacyRelease = releasePath == "/aequicor/Heartbeat/releases/download/v$version"
+            val isPayloadRelease = releasePath == "/aequicor/Heartbeat/releases/download/payload-v$version"
             require(
                 url.scheme == "https" && url.host == "github.com" && url.port == -1 &&
                     url.rawUserInfo == null && url.rawQuery == null && url.rawFragment == null &&
-                    url.rawPath.substringBeforeLast('/') == "/aequicor/Heartbeat/releases/download/v$version" &&
+                    (isLegacyRelease || isPayloadRelease) &&
                     url.rawPath.substringAfterLast('/').matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]*\\.zip")),
             ) { "Invalid extension publisher URL" }
             return ExtensionRelease(
