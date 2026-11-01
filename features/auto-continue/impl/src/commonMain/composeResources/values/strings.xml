@@ -19,4 +19,27 @@
     <string name="auto_continue_countdown_value">%1$d s</string>
     <string name="auto_continue_section_suggestions">Suggestions</string>
     <string name="auto_continue_options">Replies offered after a turn</string>
+    <string name="auto_prompt">System prompt</string>
+    <string name="auto_prompt_hint">Instructions the autopilot follows when deciding and replying to the agent.</string>
+    <string name="auto_history">History size</string>
+    <string name="auto_history_count">Last %1$d messages</string>
+    <string name="auto_history_hint">The initial task and latest instructions are kept at every history size.</string>
+    <string name="auto_context">What to include in context</string>
+    <string name="auto_more">More settings</string>
+    <string name="auto_required">The task and active request are always included.</string>
+    <string name="auto_done">Done</string>
+    <string name="auto_source_history">Conversation history</string>
+    <string name="auto_source_history_hint">User messages and agent replies.</string>
+    <string name="auto_source_plan">Current plan</string>
+    <string name="auto_source_plan_hint">Steps, status and plan content.</string>
+    <string name="auto_source_tools">Tool results</string>
+    <string name="auto_source_tools_hint">Results and execution errors.</string>
+    <string name="auto_source_arguments">Tool arguments</string>
+    <string name="auto_source_arguments_hint">Parameters of completed tool calls.</string>
+    <string name="auto_source_checklist">Checklist</string>
+    <string name="auto_source_checklist_hint">Tasks and their completion status.</string>
+    <string name="auto_source_questions">Completed questionnaires</string>
+    <string name="auto_source_questions_hint">Earlier questions and submitted answers.</string>
+    <string name="auto_source_background">Background task results</string>
+    <string name="auto_source_background_hint">Completed tasks and received results.</string>
 </resources>
