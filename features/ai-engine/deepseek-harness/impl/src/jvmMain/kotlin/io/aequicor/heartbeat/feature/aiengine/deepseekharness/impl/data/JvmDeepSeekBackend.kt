@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -53,6 +54,7 @@ internal class JvmDeepSeekBackend(
     private val workspaces: LocalWorkspaces,
     private val dispatchers: DispatcherProvider,
     private val tools: ProfileAgentTools,
+    private val resources: ResourceResolver,
     private val account: DeepSeekAccount,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: DeepSeekConfiguration = DeepSeekConfiguration(),
@@ -131,7 +133,7 @@ internal class JvmDeepSeekBackend(
         val transport = transports.open(
             AcpCommand(
                 startup.executable,
-                listOf("--profile", "acp"),
+                DeepSeekAcpPatch.arguments(),
                 configuration.workingDirectory,
                 dshEnvironment(startup.homeDirectory),
             ),
@@ -143,6 +145,7 @@ internal class JvmDeepSeekBackend(
             profile.coroutineScope,
             ::directory,
             tools,
+            resources,
         )
     }
 

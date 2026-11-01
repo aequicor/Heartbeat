@@ -25,7 +25,7 @@ class AcpSessionListTest {
     }
 
     @Test
-    fun `malformed session list is a protocol violation, not an empty page`() = runTest {
+    fun `malformed session list is a protocol violation not an empty page`() = runTest {
         val h = AcpTestHarness(this)
         h.initialize()
         val listing = backgroundScope.async {

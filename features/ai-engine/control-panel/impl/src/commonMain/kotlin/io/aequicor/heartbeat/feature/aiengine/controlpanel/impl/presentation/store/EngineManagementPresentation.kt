@@ -39,7 +39,7 @@ data class DisabledReasonUi(val kind: Kind, val flag: String? = null) {
 }
 
 /** How an engine reaches the device. */
-enum class InstallSupportUi { BuiltIn, Managed, Bundled }
+enum class InstallSupportUi { BuiltIn, Managed, Bundled, External }
 
 /** Where the executable an engine runs comes from. */
 enum class InstallSourceUi { BuiltIn, Bundled, Managed, System, HostApp, Custom, Missing }

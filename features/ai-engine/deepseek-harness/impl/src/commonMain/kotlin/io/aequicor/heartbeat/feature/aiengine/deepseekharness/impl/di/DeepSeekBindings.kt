@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data.DeepSeekNativeCatalog
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekBackend
+import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekEngineManager
+import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
@@ -39,7 +41,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 public object DeepSeekBindings {
     @Provides
     @IntoSet
-    internal fun registration(backend: Lazy<DeepSeekBackend>): EngineRegistration = EngineRegistration(
+    internal fun registration(
+        backend: Lazy<DeepSeekBackend>,
+        manager: Lazy<DeepSeekEngineManager>,
+    ): EngineRegistration = EngineRegistration(
         descriptor = EngineDescriptor(
             DeepSeekEngine.Id,
             "DeepSeek Harness",
@@ -73,7 +78,9 @@ public object DeepSeekBindings {
         ),
         authOwner = DeepSeekEngine.AuthOwner,
         factory = lazy { backend.value },
-        modelCatalogRevision = 1,
+        management = DeepSeekManagementSpec,
+        manager = lazy { manager.value },
+        modelCatalogRevision = 2,
         sessionSources = listOf(DeepSeekSessionSource(backend)),
     )
 }

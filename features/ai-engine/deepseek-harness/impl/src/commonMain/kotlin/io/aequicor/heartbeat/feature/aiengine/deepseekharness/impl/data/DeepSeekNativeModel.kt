@@ -5,13 +5,27 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 
 /** A native DeepSeek model: an opaque selector value (the config-option wire form) and its display title. */
 internal data class DeepSeekNativeModel(val value: String, val title: String)
+
+/**
+ * Native models plus the prompt support negotiated by the ACP connection. DSH advertises image prompts for the
+ * connection's configured route; [imageModelId] is the native model id that route confirms, so other models keep
+ * an empty support set.
+ */
+internal data class DeepSeekModelCatalog(
+    val models: List<DeepSeekNativeModel>,
+    val inputSupport: PromptInputSupport,
+    val imageModelId: String?,
+)
 
 /**
  * Models from the `model` config option of a `session/new` response. DSH nests them as `options` → groups → options,
@@ -30,8 +44,50 @@ internal fun deepSeekNativeModels(metadata: JsonObject): List<DeepSeekNativeMode
         .toList()
 }
 
-internal fun List<DeepSeekNativeModel>.modelInfo(engine: EngineId, binding: EngineBindingId): List<ModelInfo> =
-    map { model -> ModelInfo(EngineTarget(engine, binding, ModelId(model.value)), model.title) }
+/** Models and the capability the ACP bridge advertised during `initialize` for [imageModelId]. */
+internal fun deepSeekNativeCatalog(
+    metadata: JsonObject,
+    capabilities: JsonObject,
+    imageModelId: String?,
+): DeepSeekModelCatalog = DeepSeekModelCatalog(
+    models = deepSeekNativeModels(metadata),
+    inputSupport = deepSeekPromptInputSupport(capabilities),
+    imageModelId = imageModelId,
+)
+
+/**
+ * Reads `agentCapabilities.promptCapabilities.image` from the ACP `initialize` result. The flag is connection-wide:
+ * DSH derives it from the provider/model configured for the `acp` profile and re-validates the exact session route
+ * before accepting an image, while ACP exposes no per-model capability. The installed bridge never advertises
+ * `embeddedContext`, so document blocks stay unsupported.
+ */
+internal fun deepSeekPromptInputSupport(capabilities: JsonObject): PromptInputSupport {
+    val prompt = capabilities["promptCapabilities"] as? JsonObject
+    val acceptsImages = (prompt?.get("image") as? JsonPrimitive)?.booleanOrNull == true
+    return PromptInputSupport(
+        imageMediaTypes = if (acceptsImages) DeepSeekImageMediaTypes else emptySet(),
+    )
+}
+
+/** Raster formats the DSH attachment store and ACP image blocks both accept. */
+internal val DeepSeekImageMediaTypes = setOf("image/png", "image/jpeg", "image/webp", "image/gif")
+
+internal fun DeepSeekModelCatalog.modelInfo(engine: EngineId, binding: EngineBindingId): List<ModelInfo> =
+    models.map { model ->
+        val isImageModel = dshSelectedModel(model.value) == imageModelId
+        ModelInfo(
+            EngineTarget(engine, binding, ModelId(model.value)),
+            model.title,
+            inputSupport = if (isImageModel) inputSupport else PromptInputSupport(),
+        )
+    }
+
+/** Model id of an opaque `["provider","model"]` selector; a bare legacy id is already a model id. */
+internal fun dshSelectedModel(value: String): String {
+    if (!value.startsWith("[")) return value
+    val selector = Json.parseToJsonElement(value) as? JsonArray ?: return value
+    return (selector.lastOrNull() as? JsonPrimitive)?.contentOrNull ?: value
+}
 
 /** Whether the session advertises a config option the adapter may select. */
 internal fun JsonObject.hasConfigOption(id: String): Boolean = array("configOptions").any { entry ->

@@ -172,6 +172,12 @@ public enum class InstallSupport {
 
     /** Ships with Heartbeat; a newer verified copy may replace the bundled one and be removed again. */
     Bundled,
+
+    /**
+     * An external CLI the user installs and updates on their own; Heartbeat only discovers and runs it, so there is
+     * nothing to install, update or remove.
+     */
+    External,
 }
 
 /** How an engine signs in. */
@@ -553,7 +559,7 @@ public fun ManagedEngine.actions(): Set<EngineActionKind> {
 
 private fun ManagedEngine.installActions(): Set<EngineActionKind> = buildSet {
     add(EngineActionKind.Inspect)
-    if (spec.install == InstallSupport.BuiltIn) return@buildSet
+    if (spec.install == InstallSupport.BuiltIn || spec.install == InstallSupport.External) return@buildSet
     add(EngineActionKind.CheckForUpdates)
     val managed = installation.managed
     if (spec.install == InstallSupport.Managed && managed == null) add(EngineActionKind.Install)

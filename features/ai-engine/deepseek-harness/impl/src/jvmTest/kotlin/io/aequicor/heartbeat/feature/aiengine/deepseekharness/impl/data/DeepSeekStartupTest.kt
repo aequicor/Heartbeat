@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -43,5 +44,37 @@ class DeepSeekStartupTest {
         val startup = resolveDeepSeekStartup(DeepSeekConfiguration(), windows)
         assertEquals(exe.path, startup.executable)
         assertTrue(startup.isRunnable)
+    }
+
+    @Test
+    fun `mac os finds the CLI inside the user's DeepSeek Harness app`() {
+        val home = Files.createTempDirectory("dsh-mac-home").toFile()
+        val bin = home.resolve("Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin")
+        bin.mkdirs()
+        val exe = Files.createFile(bin.toPath().resolve("dsh")).toFile()
+        val mac = DeepSeekHost(
+            osName = "Mac OS X",
+            path = "",
+            userHome = home.path,
+            isExecutable = { it.path == exe.path },
+        )
+        val startup = resolveDeepSeekStartup(DeepSeekConfiguration(), mac)
+        assertEquals(exe.path, startup.executable)
+        assertEquals(InstallSource.System, startup.source)
+        assertTrue(startup.isRunnable)
+    }
+
+    @Test
+    fun `mac os without an app or a CLI reports a missing installation`() {
+        val home = Files.createTempDirectory("dsh-mac-empty").toFile()
+        val mac = DeepSeekHost(
+            osName = "Mac OS X",
+            path = "",
+            userHome = home.path,
+            isExecutable = { false },
+        )
+        val startup = resolveDeepSeekStartup(DeepSeekConfiguration(), mac)
+        assertEquals(InstallSource.Missing, startup.source)
+        assertFalse(startup.isRunnable)
     }
 }

@@ -167,6 +167,7 @@ class EngineRegistrationTest {
         listOf(
             ManagementSpec(install = InstallSupport.Managed),
             ManagementSpec(install = InstallSupport.Bundled),
+            ManagementSpec(install = InstallSupport.External),
             ManagementSpec(login = LoginSupport.Cli),
             ManagementSpec(login = LoginSupport.CliWithDeviceCode),
         ).forEach { spec ->
