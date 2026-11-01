@@ -81,7 +81,7 @@ internal class StudioConversationDelivery(
         }
         val record = beforePrepare(previous == null)
         val prompt = creatorPrompt(message, record)
-        val prepared = attempts.prepare(helper, prompt)
+        val prepared = attempts.prepareConversation(helper, prompt)
         if (prepared.isNew) {
             val bound = attempts.bindCauses(helper, message.request, setOf(cause))
             pending.update { it + (child to message.request) }

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
@@ -47,7 +48,16 @@ internal class StudioHelperAttempts(
     private val lock = Mutex()
     private val chats = stores.keyValue(ChatSpec)
     suspend fun prepare(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
-        prepare(helper, prompt, isRedelivery = false)
+        prepare(helper, prompt, isRedelivery = false, policy = null)
+
+    suspend fun prepareConversation(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
+        prepare(helper, prompt, isRedelivery = false, policy = StudioAttemptPolicy.Conversation)
+
+    suspend fun prepareWork(
+        helper: HelperId,
+        prompt: HelperPrompt,
+        policy: StudioAttemptPolicy.OwnedHelperWork,
+    ): StudioHelperPreparation = prepare(helper, prompt, isRedelivery = false, policy = policy)
 
     /**
      * Prepares a host delivery whose stable request may arrive again after its previous preparation ended before
@@ -59,26 +69,29 @@ internal class StudioHelperAttempts(
      * Submitting and later phases are never prepared again and keep their text immutable.
      */
     suspend fun prepareDelivery(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
-        prepare(helper, prompt, isRedelivery = true)
+        prepare(helper, prompt, isRedelivery = true, policy = StudioAttemptPolicy.Conversation)
 
     private suspend fun prepare(
         helper: HelperId,
         prompt: HelperPrompt,
         isRedelivery: Boolean,
+        policy: StudioAttemptPolicy?,
     ): StudioHelperPreparation = routes.withLock(helper) {
-        prepareLocked(helper, prompt, isRedelivery)
+        prepareLocked(helper, prompt, isRedelivery, policy)
     }
 
     private suspend fun prepareLocked(
         helper: HelperId,
         prompt: HelperPrompt,
         isRedelivery: Boolean,
+        policy: StudioAttemptPolicy?,
     ): StudioHelperPreparation = lock.withLock {
         val records = read(helper)
         requireRecordedHistory(helper, records)
         val fingerprint = prompt.fingerprint()
         val existing = records[prompt.request.value]
-        val isRedelivered = isRedelivery && existing?.isRedeliveryOf(prompt) == true
+        check(existing?.policy == null || existing.policy.hasSameOrigin(policy)) { "Request attribution cannot change" }
+        val isRedelivered = isRedelivery && existing?.policy == policy && existing?.isRedeliveryOf(prompt) == true
         if (existing != null && !isRedelivered) {
             check(
                 existing.fingerprint == null ||
@@ -100,6 +113,7 @@ internal class StudioHelperAttempts(
             fingerprint,
             handoff = prompt.handoff,
             isNativeEntryTracked = true,
+            policy = policy,
         )
         write(helper, records + (prompt.request.value to receipt))
         log.v { "Journaled helper preparation redelivered=$isRedelivered" }
@@ -295,6 +309,52 @@ internal class StudioHelperAttempts(
         val pending = read(helper).values.filter { it.isUnresolved }
         check(pending.size <= 1) { "Contradictory helper request receipts" }
         pending.singleOrNull()?.request
+    }
+
+    /** Unclassified/missing old evidence is visible but can never choose a lease's work request. */
+    suspend fun workOwnership(helper: HelperId, owner: ActionId, lastKnown: RequestId?): StudioWorkOwnership =
+        lock.withLock {
+            log.v { "Read exact helper work attribution" }
+            val records = read(helper)
+            val pending = records.values.filter { it.isUnresolved }
+            check(pending.size <= 1) { "Contradictory conversation attempts" }
+            val owned = pending.singleOrNull()?.policy as? StudioAttemptPolicy.OwnedHelperWork
+            val isResolved = pending.all { it.policy != null } &&
+                (lastKnown == null || lastKnown.value in records) &&
+                (owned == null || owned.binding.owner == owner)
+            StudioWorkOwnership(pending.singleOrNull()?.request?.takeIf { owned?.binding?.owner == owner }, isResolved)
+        }
+
+    /** A trusted producer's exact journal may classify legacy evidence, without changing native execution state. */
+    suspend fun reconcileWork(
+        helper: HelperId,
+        request: RequestId,
+        policy: StudioAttemptPolicy.OwnedHelperWork,
+        isNeverStarted: Boolean = false,
+    ): Boolean = lock.withLock {
+        log.v { "Reconcile work attribution from its exact producer journal" }
+        val records = read(helper)
+        val existing = records[request.value]
+        val prior = existing?.policy
+        if (prior == StudioAttemptPolicy.Conversation) return@withLock false
+        if (prior is StudioAttemptPolicy.OwnedHelperWork) {
+            val old = prior.binding
+            val incoming = policy.binding
+            return@withLock old.owner == incoming.owner &&
+                (incoming.reservation == null || old.reservation == null || old.reservation == incoming.reservation)
+        }
+        val receipt = existing?.copy(policy = policy) ?: if (isNeverStarted) {
+            StudioHelperReceipt(request, StudioHelperPhase.NotSubmitted, null, isFinal = true, policy = policy)
+        } else {
+            StudioHelperReceipt(
+                request,
+                StudioHelperPhase.Submitting,
+                "legacy-work:${policy.binding.owner.value}:${request.value}",
+                policy = policy,
+            )
+        }
+        write(helper, records + (request.value to receipt))
+        true
     }
 
     suspend fun awaitSubmissionBoundary(helper: HelperId, request: RequestId): StudioHelperPhase =

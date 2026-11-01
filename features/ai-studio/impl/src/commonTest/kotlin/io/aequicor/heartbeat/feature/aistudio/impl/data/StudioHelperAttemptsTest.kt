@@ -242,7 +242,7 @@ class StudioHelperAttemptsTest {
         journal.cancelBeforeSubmission(helper, prompt.request, isFinal = false)
         assertTrue(journal.prepareDelivery(helper, prompt).isNew)
         assertEquals(StudioHelperPhase.Preparing, journal.receipt(helper, prompt.request)?.phase)
-        assertFalse(journal.prepare(helper, prompt).isNew)
+        assertFalse(journal.prepareConversation(helper, prompt).isNew)
         journal.begin(helper, prompt.request, "sender")
         assertFalse(journal.prepareDelivery(helper, prompt).isNew)
         assertFailsWith<IllegalStateException> { journal.prepareDelivery(helper, prompt.copy(text = "changed")) }

@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -59,14 +60,33 @@ internal class EngineStudioHelperChats(
     private val pending = mutableMapOf<Pair<HelperId, RequestId>, CompletableDeferred<HelperSubmission>>()
 
     suspend fun prompt(helper: HelperId, prompt: HelperPrompt): HelperSubmission {
-        checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
+        val metadata = checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
+        val binding = checkNotNull(prompt.work) { "A helper work request needs its actual lease binding" }
+        check(binding.owner == metadata.owner) { "Helper work owner does not match" }
         val accepted = preparations.withLock(helper.value) {
             check(!profile.isClosed) { "Profile is closed" }
             if (attempts.receipt(helper, prompt.request) == null) runs.value.prepareHelperRoute(helper)
-            val prepared = attempts.prepare(helper, prompt)
+            val prepared = attempts.prepareWork(
+                helper,
+                prompt,
+                StudioAttemptPolicy.OwnedHelperWork(binding, records.helperModel(helper)),
+            )
             acceptedSubmission(helper, prompt, prepared)
         }
         return accepted.await()
+    }
+
+    suspend fun reconcileWork(helper: HelperId, request: RequestId, binding: HelperWorkBinding): Boolean {
+        log.v { "Reconcile exact helper work attribution" }
+        if (records.helperMetadata(helper)?.owner != binding.owner) return false
+        return preparations.withLock(helper.value) {
+            attempts.reconcileWork(
+                helper,
+                request,
+                StudioAttemptPolicy.OwnedHelperWork(binding, records.helperModel(helper)),
+                isNeverStarted = records.helperHasNeverStarted(helper),
+            )
+        }
     }
 
     private suspend fun acceptedSubmission(
@@ -135,6 +155,8 @@ internal class EngineStudioHelperChats(
         val actual = runs.value.virtualResultRequest(helper, request) ?: return null
         val receipt = attempts.receipt(helper, request)
         val result = when {
+            receipt?.policy == StudioAttemptPolicy.Conversation -> null
+
             actual != request -> continuedResult(helper, request, actual)
 
             receipt?.terminal != null -> receipt.terminal.result(request)
@@ -160,6 +182,7 @@ internal class EngineStudioHelperChats(
 
     private suspend fun continuedResult(helper: HelperId, request: RequestId, actual: RequestId): HelperResult? {
         val receipt = attempts.receipt(helper, actual)
+        if (receipt?.policy == StudioAttemptPolicy.Conversation) return null
         val terminal = receipt?.terminal ?: runs.value.helperTerminal(helper, actual)?.also {
             attempts.accepted(helper, actual, it.session, it.turn, isVirtualContinuation = true)
             attempts.terminal(helper, actual, it)
@@ -197,7 +220,15 @@ internal class EngineStudioHelperChats(
         shouldStopNative: Boolean,
         native: suspend () -> HelperCancellation,
     ): HelperCancellation {
-        checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
+        val metadata = checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
+        val previous = attempts.receipt(helper, request)
+        val policy = previous?.policy
+        if (policy == StudioAttemptPolicy.Conversation || (previous?.isUnresolved == true && policy == null)) {
+            return HelperCancellation.Unconfirmed(request)
+        }
+        check(policy !is StudioAttemptPolicy.OwnedHelperWork || policy.binding.owner == metadata.owner) {
+            "Helper request belongs to another work owner"
+        }
         val receipt = if (shouldStopNative) {
             attempts.requestStop(
                 helper,
@@ -216,7 +247,8 @@ internal class EngineStudioHelperChats(
     suspend fun progress(helper: HelperId, request: RequestId): HelperProgress? {
         val metadata = checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
         val receipt = attempts.receipt(helper, request) ?: return null
-        if (receipt.phase != StudioHelperPhase.Accepted) return null
+        val policy = receipt.policy as? StudioAttemptPolicy.OwnedHelperWork ?: return null
+        if (receipt.phase != StudioHelperPhase.Accepted || policy.binding.owner != metadata.owner) return null
         return runs.value.helperProgress(helper, request)?.also {
             check(it.request == request && it.session == receipt.session && it.session == metadata.session) {
                 "Helper progress does not match its accepted receipt"

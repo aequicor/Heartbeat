@@ -11,10 +11,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
 import kotlinx.coroutines.CompletableDeferred
@@ -105,7 +107,7 @@ class EngineStudioHelperChatsTest {
     @Test
     fun `restored accepted request reconciles native terminal answer without resending`() = runTest {
         val fixture = HelperFixture(backgroundScope)
-        fixture.attempts.prepare(HelperChat, HelperInput)
+        fixture.attempts.prepareWork(HelperChat, HelperInput, HelperPolicy)
         fixture.attempts.begin(HelperChat, HelperInput.request)
         fixture.attempts.accepted(HelperChat, HelperInput.request, HelperSession, TurnId("R"))
         fixture.result = fixture.terminal(HelperInput.request)
@@ -236,7 +238,7 @@ class EngineStudioHelperChatsTest {
         val observed = HelperProgress(HelperInput.request, HelperSession, TurnId(HelperInput.request.value))
         fixture.progress = observed
         assertNull(fixture.host.progress(HelperChat, HelperInput.request))
-        fixture.attempts.prepare(HelperChat, HelperInput)
+        fixture.attempts.prepareWork(HelperChat, HelperInput, HelperPolicy)
         fixture.attempts.begin(HelperChat, HelperInput.request)
         assertNull(fixture.host.progress(HelperChat, HelperInput.request))
         assertEquals(0, fixture.progressReads)
@@ -281,9 +283,10 @@ class EngineStudioHelperChatsTest {
     @Test
     fun `external cancellation of a scheduled delivery is never prepared again`() = runTest {
         val fixture = HelperFixture(backgroundScope)
-        assertTrue(fixture.attempts.prepareDelivery(HelperChat, HelperInput).isNew)
+        assertTrue(fixture.attempts.prepareWork(HelperChat, HelperInput, HelperPolicy).isNew)
         assertIs<HelperCancellation.NotSubmitted>(fixture.host.cancel(HelperChat, HelperInput.request))
-        assertFalse(fixture.attempts.prepareDelivery(HelperChat, HelperInput).isNew)
+        assertFalse(fixture.attempts.prepareWork(HelperChat, HelperInput, HelperPolicy).isNew)
+        assertFailsWith<IllegalStateException> { fixture.attempts.prepareDelivery(HelperChat, HelperInput) }
         assertFalse(fixture.attempts.begin(HelperChat, HelperInput.request))
         assertEquals(0, fixture.sends)
     }
@@ -303,8 +306,13 @@ class EngineStudioHelperChatsTest {
 }
 
 private val HelperChat = HelperId("helper")
-private val HelperInput = HelperPrompt(RequestId("R"), "private prompt")
+private val HelperInput = HelperPrompt(
+    RequestId("R"),
+    "private prompt",
+    work = HelperWorkBinding(ActionId("wf_owner")),
+)
 private val HelperSession = SessionRef(EngineId("test"), SessionSourceId("local"), "native")
+private val HelperPolicy = StudioAttemptPolicy.OwnedHelperWork(checkNotNull(HelperInput.work), HelperModelOptions())
 
 private class HelperFixture(private val scope: CoroutineScope) :
     StudioHelperRuns,
@@ -380,6 +388,7 @@ private class HelperFixture(private val scope: CoroutineScope) :
     }
 
     override suspend fun createHelper(request: HelperCreateRequest): HelperId = error("Unused")
+    override suspend fun helperModel(helper: HelperId): HelperModelOptions = HelperModelOptions()
     override suspend fun helperMetadata(helper: HelperId) = HelperMetadata(
         helper,
         ActionId("wf_owner"),

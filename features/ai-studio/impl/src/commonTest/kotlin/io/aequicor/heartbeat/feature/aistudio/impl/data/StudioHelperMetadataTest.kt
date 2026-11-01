@@ -16,7 +16,9 @@ import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -48,7 +50,8 @@ class StudioHelperMetadataTest {
         assertEquals(session, restored.helperMetadata(session)?.session)
         assertEquals(next, restored.helperMetadata(id)?.session)
         assertEquals(owner, restored.helperMetadata(session)?.owner)
-        assertEquals(RequestId("completed"), restored.helperMetadata(session)?.lastRequest)
+        assertNull(restored.helperMetadata(session)?.lastRequest)
+        assertFalse(restored.helperMetadata(session)?.isRequestOwnershipResolved == true)
         assertEquals(id, restored.helperMetadata(session)?.id)
     }
 
@@ -56,8 +59,9 @@ class StudioHelperMetadataTest {
     fun `durable ref and unresolved request are visible before native acceptance and after reopen`() = runTest {
         val fixture = HelperMetadataFixture()
         val id = fixture.records.createHelper(input())
-        val pending = HelperPrompt(RequestId("first"), "Private")
-        fixture.attempts.prepare(id, pending)
+        val binding = HelperWorkBinding(owner)
+        val pending = HelperPrompt(RequestId("first"), "Private", work = binding)
+        fixture.attempts.prepareWork(id, pending, StudioAttemptPolicy.OwnedHelperWork(binding, HelperModelOptions()))
         fixture.store.set(ChatsKey, fixture.store.get(ChatsKey).orEmpty().map { it.copy(ref = session) })
         val restored = fixture.records()
         val metadata = restored.helperMetadata(session)
@@ -101,7 +105,8 @@ class StudioHelperMetadataTest {
         assertEquals(128, first.size)
         assertEquals(listOf("128", "129"), next.map { it.id.value })
         assertEquals(130, (first + next).map { it.id }.distinct().size)
-        assertEquals(RequestId("completed"), first.first().lastRequest)
+        assertNull(first.first().lastRequest)
+        assertFalse(first.first().isRequestOwnershipResolved)
         assertFailsWith<IllegalArgumentException> { fixture.records.ownedHelpers(owner, limit = 129) }
     }
 
@@ -168,7 +173,7 @@ class StudioHelperMetadataTest {
     private fun input() = HelperCreateRequest(owner, null, null, null, "Private title", TrustLevel.Ask)
 }
 
-private class HelperMetadataFixture {
+internal class HelperMetadataFixture {
     private val stores = ChecklistTestStores()
     val store = stores.keyValue(ChatSpec)
     val attempts = StudioHelperAttempts(stores)

@@ -71,6 +71,8 @@ internal data class StudioHelperReceipt(
     val isStopRequested: Boolean = false,
     /** Trusted causal requests captured before submission by conversation control. */
     val causes: Set<RequestInitiator>? = null,
+    /** Immutable before begin; null is an unclassified older attempt, never an implicit work assignment. */
+    val policy: StudioAttemptPolicy? = null,
 ) {
     init {
         require(!isFinal || phase == StudioHelperPhase.NotSubmitted)

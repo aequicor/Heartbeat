@@ -49,6 +49,6 @@ internal class StoredHarnessSpawnJournal(
 internal class HarnessSpawnCapacityRecovery(private val journal: Lazy<HarnessSpawnJournal>) :
     HelperCapacityRecoverySource {
     override suspend fun reservations(): List<HelperCapacityRecoveryRecord> = journal.value.pending().map {
-        HelperCapacityRecoveryRecord(it.reservation, it.action, it.parent, it.helper)
+        HelperCapacityRecoveryRecord(it.reservation, it.action, it.parent, it.helper, it.request)
     }
 }

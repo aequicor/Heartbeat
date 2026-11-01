@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
@@ -117,6 +118,12 @@ internal class StudioScheduledSessionHost(
 
     override suspend fun promptHelper(helper: HelperId, prompt: HelperPrompt): HelperSubmission =
         helpers.value.prompt(helper, prompt)
+
+    override suspend fun reconcileHelperWork(
+        helper: HelperId,
+        request: RequestId,
+        binding: HelperWorkBinding,
+    ): Boolean = helpers.value.reconcileWork(helper, request, binding)
 
     override suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? =
         helpers.value.result(helper, request)

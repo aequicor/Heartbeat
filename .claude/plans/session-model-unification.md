@@ -361,3 +361,56 @@ Metadata не выбирает lease новую работу по последн
 Для unresolved legacy сохранить явное LegacyInteractiveHelper происхождение отдельно от context;
 unknown/future AgentCreated не получает human fallback. Прямой ответ на subagent permission
 запрещён; mediation через владельца — отдельный точный маршрут, не обход общей human capability.
+
+
+Runtime work attribution выполнен следующим шагом после `3159272b4`: Conversation
+и OwnedHelperWork в receipt, явная policy до begin, host-stamped owner/reservation,
+work-only metadata без latest-chat fallback, точное восстановление из producer journal.
+Conversation и unclassified unresolved защищены от work-only cancel/progress; обычный
+пользовательский stop остаётся отдельным путём. При отсутствии receipt authoritative
+пустой никогда не запускавшийся helper получает final NotSubmitted fence; открывавшийся
+или иначе неизвестный target остаётся legacy Submitting без нового native запуска.
+Совпадение request в metadata не отменяет обязательную сверку reservation у хоста.
+Архитектурное ревью — APPROVE. JVM Studio 920/920; scheduler 228/228
+после корректировки тестовых счётчиков дополнительного чтения identity. Проверенные
+harness-сценарии spawn/workflow/recovery: 52/52. Логи —
+`build/verification/helper-work-runtime-tests.log`, `build/verification/helper-work-runtime-final.log`
+(в последнем оставались два исправленных тестовых счётчика) и
+`build/verification/helper-work-scheduler-final.log`. Обычный и typed-detekt успешны с
+указанными ограничениями анализа, DI-граф компилируется. Роли чатов, user capability,
+request-specific directive/reviewer и UI этим шагом ещё не переключены.
+
+Typed-detekt дополнительно диагностирован для scheduler/harness. Scheduler: 4 сообщения
+из unchanged ActionJournal (generated ActionRecord.serializer + inference). Harness:
+15 generated serializer/inference сообщений из unchanged HarnessOwnedContext,
+HarnessConfigCodec, HarnessScriptProcesses и 6 сообщений модели KMP expect/actual из
+unchanged HarnessFailure common/JVM. Новые work-binding файлы их причиной не являются.
+Обе диагностические задачи успешны, но полнота типового анализа этих участков не заявляется.
+Лог — `build/verification/typed-detekt-work-debug.log`; источники/config/baseline не менялись.
+
+Для P7 до включения флага дополнить Conversation provenance явным логическим creator/task
+owner и исходным tool-call/history-turn/native-segment binding, записанным ДО запуска.
+RequestInitiator переносит ограничения и НЕ является доказательством владения. Рекомендуется
+StudioCreatorOrigin(creator logical id, exact RequestInitiator, callId, historyTurn, sourceSegment).
+При создании исходный origin сохраняется вместе с StudioSubsessionCreation до initial send;
+повтор после потерянного ACK использует прежний origin, не текущий caller segment. Для send
+origin передаётся в StudioConversationDispatch и сохраняется в receipt. Work provenance уже
+отделена. Совместимый null origin не угадывается из текста, имён или timestamps.
+Это даёт живой background overlay исходного tool call после конца родительского хода и при
+замене native segment, без изменения нативных checkpoint/revision. Общий shared transcript
+projection объединяет native history с durable hosted task observations; job existence и ACK
+не являются terminal proof. Не вычислять frozen segment по индексу previousRefs: contextSegment
+может иметь пропуски; исходную точную привязку нужно сохранять явно.
+
+
+Для P7 отдельно проверить durable payload ожидающего creator-send: существующий receipt
+пока хранит fingerprint/causes, а не полный недоставленный текст. До включения runtime
+восстановление не должно терять принятую доставку или пересылать непроверенный payload.
+Рекомендуется ограниченный pending payload до native acceptance с проверкой fingerprint,
+сохранение исходного CreatorOrigin до запуска и его удаление/перенос только после durable
+native acceptance. Если полной исходной записи нет, явный Unknown вместо угадывания.
+Также проверить фактическое поведение send в занятом чате: общий admission сейчас отказывает
+при другой unresolved попытке; текст API/инструкций должен точно описывать обычные queue,
+steering или stop возможности и не обещать неподдержанную очередь. Параллельный native turn
+запрещён. Если добавляется durable очередь, queued receipt отделяется от native unresolved,
+активируется под общим coordinator и отменяется точным request до native entry.

@@ -105,8 +105,9 @@ public interface ScheduledSessionHost : ScheduledHelperCatalog {
 
     /**
      * Reconciles attribution of exactly [request] from the owning producer's durable journal. The host verifies
-     * the helper's owner and preserves any existing phase/native identity; this operation never sends, cancels or
-     * declares terminal native work. Conflicting conversation/work attribution is refused. False proves nothing.
+     * the helper's owner and preserves existing phase/native identity. It never sends or interrupts native work.
+     * An authoritative never-started target may receive a durable NotSubmitted fence. Conflicting attribution is
+     * refused. False proves nothing.
      */
     public suspend fun reconcileHelperWork(
         helper: HelperId,

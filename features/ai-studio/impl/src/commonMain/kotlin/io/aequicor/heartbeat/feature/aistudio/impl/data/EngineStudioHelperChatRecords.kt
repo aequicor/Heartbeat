@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadataLimits
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
 import kotlin.time.Clock
@@ -55,6 +56,19 @@ internal class EngineStudioHelperChatRecords(
         return matches.singleOrNull()?.metadata()
     }
 
+    override suspend fun helperModel(helper: HelperId): HelperModelOptions {
+        log.v { "Read persisted helper model policy" }
+        return checkNotNull(store.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value }?.helper).model
+    }
+
+    override suspend fun helperHasNeverStarted(helper: HelperId): Boolean {
+        log.v { "Read authoritative empty helper state" }
+        val record = checkNotNull(store.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value })
+        checkNotNull(record.helper)
+        val hasNativeIdentity = record.ref != null || record.previousRefs.isNotEmpty() || record.contextSegment != 0
+        return !hasNativeIdentity && record.lastRunRequest == null
+    }
+
     @HighFrequency
     override suspend fun helperMetadata(session: SessionRef): HelperMetadata? {
         log.v { "Read durable helper session identity" }
@@ -78,12 +92,14 @@ internal class EngineStudioHelperChatRecords(
         log.v { "Project persisted helper metadata" }
         val identity = helper ?: return null
         val helperId = HelperId(id)
+        val work = attempts.workOwnership(helperId, identity.owner, lastRunRequest)
         return HelperMetadata(
             helperId,
             identity.owner,
             identity.parentSession,
             ref,
-            attempts.unresolved(helperId) ?: lastRunRequest,
+            work.request,
+            isRequestOwnershipResolved = work.isResolved,
         )
     }
 
