@@ -211,6 +211,27 @@ class EngineControlPanelModelTest {
     }
 
     @Test
+    fun `settings tabs retain drafts and page back returns to settings`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Settings))
+        model.store.intent(ConfigIntent.EditField("retries", FieldInputUi.Number("3")))
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Overview))
+        runCurrent()
+        assertEquals(EnginePanelTabUi.Overview, screen.states.value.openTab)
+        assertEquals(true, screen.states.value.config?.isDirty)
+
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Settings))
+        model.store.intent(ConfigIntent.OpenPage("network"))
+        model.store.intent(EngineControlPanelIntent.Back)
+        runCurrent()
+        assertEquals(EnginePanelTabUi.Settings, screen.states.value.openTab)
+        assertEquals(null, screen.states.value.openPage)
+        assertEquals(true, screen.states.value.config?.isDirty)
+    }
+
+    @Test
     fun `an edited configuration is saved against the revision it was read at`() = runTest {
         machine.state.value = configured(ConfigRevision(2))
         val model = model()

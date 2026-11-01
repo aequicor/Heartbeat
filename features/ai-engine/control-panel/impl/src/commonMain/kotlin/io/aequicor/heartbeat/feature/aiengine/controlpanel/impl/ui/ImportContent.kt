@@ -46,7 +46,7 @@ import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
-/** The overview's entry to an import of the engine's own configuration. */
+/** The settings tab's entry to an import declared by the engine's capabilities. */
 @Composable
 internal fun ImportSection(isEnabled: Boolean, onIntent: (ImportIntent) -> Unit, modifier: Modifier = Modifier) {
     HbSettingsSection(stringResource(Res.string.control_import_title), modifier.testTag("engine-control-import")) {

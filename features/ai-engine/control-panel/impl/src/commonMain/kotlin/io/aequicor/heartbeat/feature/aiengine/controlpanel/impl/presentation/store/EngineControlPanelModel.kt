@@ -37,6 +37,9 @@ data class EngineControlTarget(val engine: EngineId?)
 @Immutable
 data class PageItemUi(val id: String, val title: TextUi)
 
+/** Top-level content of one engine; project data has no tab in this panel. */
+enum class EnginePanelTabUi { Overview, Settings }
+
 /**
  * One engine's panel: its management ([panel], null while engine management is off), the local input of the
  * management block and the pages of its configuration. [isConfigurationOff] while engine configuration is off,
@@ -60,7 +63,9 @@ data class EngineControlPanelState(
     /** The failure of the last operation, until dismissed. */
     val failure: FailureUi? = null,
     val pages: ImmutableList<PageItemUi> = persistentListOf(),
-    /** The page shown instead of the overview, or null. */
+    /** The selected top-level tab while no configuration page or saved project is open. */
+    val openTab: EnginePanelTabUi = EnginePanelTabUi.Overview,
+    /** The page shown instead of the selected tab, or null. */
     val openPage: String? = null,
     /** The selected scope's saved resource inventory, never the local form draft. */
     val resources: ResourceInventoryUi? = null,
@@ -70,9 +75,9 @@ data class EngineControlPanelState(
     val config: ConfigFormUi? = null,
     /** Unsaved changes of the profile configuration. */
     val configDraft: ConfigDraft? = null,
-    /** Saved projects whose files the panel edits. */
+    /** Saved projects retained for project-scoped operations; they are not shown as a panel tab. */
     val projects: ImmutableList<ProjectItemUi> = persistentListOf(),
-    /** The project shown instead of the overview, and the file of it shown as a whole. */
+    /** The saved project shown instead of the selected tab, and the file of it shown as a whole. */
     val openProject: String? = null,
     val projectFile: String? = null,
     /** The open project's configuration once its files are read. */
@@ -104,9 +109,12 @@ sealed interface EngineControlPanelIntent : MVIIntent {
     /** Hides the failure of the last operation. */
     data object DismissError : EngineControlPanelIntent
 
+    /** Shows overview or dynamic engine settings without discarding either tab's drafts. */
+    data class SelectTab(val tab: EnginePanelTabUi) : EngineControlPanelIntent
+
     /**
-     * Steps back: from a file to its project, from a project or a page to the overview, from the overview out of the
-     * panel. Unsaved changes of what is left ask first.
+     * Steps back: from a file to its project, from a project or a page to its tab, from a tab out of the panel.
+     * Unsaved changes of what is left ask first.
      */
     data object Back : EngineControlPanelIntent
 
@@ -159,27 +167,25 @@ class EngineControlPanelModel(
     private suspend fun PanelContext.handle(intent: EngineControlPanelIntent) {
         when (intent) {
             EngineControlPanelIntent.RetryLoad -> sendTo(machine, EngineControlIntent.Public.RetryLoad)
-
             EngineControlPanelIntent.DismissError -> sendTo(machine, EngineControlIntent.Public.DismissError)
-
             EngineControlPanelIntent.RefreshResources -> refreshResources()
-
+            is EngineControlPanelIntent.SelectTab -> updateState { copy(openTab = intent.tab) }
             EngineControlPanelIntent.Back -> back()
-
             EngineControlPanelIntent.DiscardAndLeave -> leave()
-
             EngineControlPanelIntent.KeepEditing -> updateState { copy(isLeaving = false) }
-
-            // Only a launch draft changes the panel (its errors); other input is local text or a flag.
-            is EngineManagementIntent.EngineInput -> updateState { managementInput(intent) }
-
-            is EngineManagementIntent.EngineRequest -> request(intent)
-
+            is EngineManagementIntent -> manage(intent)
             is ConfigIntent -> configure(intent)
-
             is ProjectIntent -> with(projects) { handle(intent) }
-
             is ImportIntent -> with(imports) { handle(intent) }
+        }
+    }
+
+    // PipelineContext is FlowMVI's coroutine receiver, not an independently launched scope.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.manage(intent: EngineManagementIntent) {
+        when (intent) {
+            is EngineManagementIntent.EngineInput -> updateState { managementInput(intent) }
+            is EngineManagementIntent.EngineRequest -> request(intent)
         }
     }
 

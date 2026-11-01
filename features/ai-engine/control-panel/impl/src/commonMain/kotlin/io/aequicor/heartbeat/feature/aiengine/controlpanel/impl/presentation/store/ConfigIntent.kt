@@ -5,7 +5,7 @@ sealed interface ConfigIntent : EngineControlPanelIntent {
     /** Shows the configuration page [page]. */
     data class OpenPage(val page: String) : ConfigIntent
 
-    /** Returns from a page to the panel overview. */
+    /** Returns from a page to engine settings. */
     data object ClosePage : ConfigIntent
 
     /** Changes the value of [field] in the draft. */

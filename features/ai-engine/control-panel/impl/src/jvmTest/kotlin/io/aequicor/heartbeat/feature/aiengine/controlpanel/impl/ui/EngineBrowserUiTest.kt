@@ -17,12 +17,17 @@ import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.CodexId
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineActionUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineConnectionStatusUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlListState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineItemUi
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineStatusUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EnginePanelTabUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedCodexWithCopy
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedSnapshot
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.reflect
+import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineEnablement
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import java.io.File
@@ -39,9 +44,9 @@ class EngineBrowserUiTest {
     private val originalLocale = Locale.getDefault()
     private val loaded = EngineControlListState(
         engines = persistentListOf(
-            EngineItemUi("codex", "Codex", EngineStatusUi.On, null, false, isConnected = true),
-            EngineItemUi("claude", "Claude Code", EngineStatusUi.On, null, false),
-            EngineItemUi("koog", "Koog", EngineStatusUi.On, null, false, isBuiltIn = true),
+            EngineItemUi("codex", "Codex", EngineConnectionStatusUi.Connected),
+            EngineItemUi("claude", "Claude Code", EngineConnectionStatusUi.Off),
+            EngineItemUi("koog", "Koog", EngineConnectionStatusUi.NotConnected),
         ),
         isLoading = false,
     )
@@ -72,9 +77,13 @@ class EngineBrowserUiTest {
             onNodeWithTag("engine-control:codex").assertIsSelected()
             onNodeWithText("Connected").assertExists()
             onNodeWithText("Not connected").assertExists()
-            onNodeWithText("Built-in engine").assertExists()
-            onNodeWithText("No connection required").assertExists()
-            onNodeWithText("Koog").assertDoesNotExist()
+            onNodeWithText("Off").assertExists()
+            onNodeWithText("Koog").assertExists()
+            onNodeWithText("Built-in engine").assertDoesNotExist()
+            onNodeWithText("No connection required").assertDoesNotExist()
+            onNodeWithTag("engine-status-check:codex", useUnmergedTree = true).assertExists()
+            onNodeWithTag("engine-status-check:claude", useUnmergedTree = true).assertDoesNotExist()
+            onNodeWithTag("engine-status-check:koog", useUnmergedTree = true).assertDoesNotExist()
             onNodeWithTag("engine-control:claude").performClick().assertIsSelected()
             onNodeWithText("Selected: claude").assertExists()
             onNodeWithTag("engine-control:codex").assertExists()
@@ -89,7 +98,7 @@ class EngineBrowserUiTest {
     fun `short browser list scrolls to and selects its last engine`() =
         runSkikoComposeUiTest(size = Size(1016f, 180f)) {
             val engines = (0..20).map { index ->
-                EngineItemUi("engine-$index", "Engine $index", EngineStatusUi.On, null, false)
+                EngineItemUi("engine-$index", "Engine $index", EngineConnectionStatusUi.NotConnected)
             }.toPersistentList()
             val state = loaded.copy(engines = engines)
             var selected by mutableStateOf<String?>(null)
@@ -147,6 +156,34 @@ class EngineBrowserUiTest {
                     "png",
                     File(directory, "browser-${if (dark) "dark" else "light"}.png"),
                 )
+            }
+        }
+    }
+
+    @Test
+    fun `disabled overview settings and removal render in both themes`() {
+        val installed = managedCodexWithCopy()
+        val ready = EngineControlPanelState(CodexId.value).reflect(CodexId, managedSnapshot(installed))
+        val disabled = installed.copy(
+            enablement = EngineEnablement(false, setOf(DisabledReason.DisabledByUser)),
+        )
+        val variants = listOf(
+            "disabled" to EngineControlPanelState(CodexId.value).reflect(CodexId, managedSnapshot(disabled)),
+            "settings" to ready.copy(openTab = EnginePanelTabUi.Settings),
+            "removal" to ready.copy(confirmAction = EngineActionUi.Uninstall),
+        )
+        listOf(false, true).forEach { dark ->
+            variants.forEach { (name, panel) ->
+                runSkikoComposeUiTest(size = Size(1016f, 800f)) {
+                    setContent {
+                        HbTheme(dimensions = HbDimensions.Desktop, darkTheme = dark) {
+                            EngineControlPanelContent(panel, {}, isEmbedded = true)
+                        }
+                    }
+                    onNodeWithTag("engine-control-panel").assertExists()
+                    val directory = File("build/reports/ui/engine-mcp").apply { mkdirs() }
+                    check(ImageIO.write(captureToImage().toAwtImage(), "png", File(directory, "$name-$dark.png")))
+                }
             }
         }
     }

@@ -9,12 +9,15 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigFieldUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigFileUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigFormUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigPageUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigSectionUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EnginePanelTabUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FieldEditorUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FieldInputUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.PageItemUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ProjectFormUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ProjectIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ProjectItemUi
@@ -62,11 +65,19 @@ class ProjectUiTest {
     private val project = ProjectFormUi("web", "Web", ProjectTrustUi.Content, form)
 
     @Test
-    fun `a project opens from the overview`() = runSkikoComposeUiTest {
+    fun `settings show declared pages without a projects tab or rows`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
-        setContent { HbTheme { EngineControlPanelContent(overview, { intents += it }) } }
-        onNodeWithTag("engine-control-project:web").performClick()
-        runOnIdle { assertEquals(listOf<EngineControlPanelIntent>(ProjectIntent.Open("web")), intents) }
+        val state = overview.copy(
+            openTab = EnginePanelTabUi.Settings,
+            pages = persistentListOf(PageItemUi("main", text("Main"))),
+            config = form,
+        )
+        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }) } }
+
+        onNodeWithTag("engine-control-projects").assertDoesNotExist()
+        onNodeWithTag("engine-control-project:web").assertDoesNotExist()
+        onNodeWithTag("engine-control-page:main").performClick()
+        runOnIdle { assertEquals(listOf<EngineControlPanelIntent>(ConfigIntent.OpenPage("main")), intents) }
     }
 
     @Test

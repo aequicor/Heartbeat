@@ -11,7 +11,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
@@ -21,7 +20,6 @@ import io.aequicor.heartbeat.ds.components.HbMenuItem
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbText
-import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigIntent
@@ -29,11 +27,8 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ProjectFormUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ProjectIntent
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ProjectItemUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ProjectTrustUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_projects
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_projects_description
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_project_files
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_project_loading
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_project_trust
@@ -41,47 +36,13 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.contro
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_trust_content
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_trust_trusted
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_trust_undecided
-import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
-/** The saved projects of the overview, each opening the configuration in its files once no operation runs. */
-@Composable
-internal fun ProjectsSection(
-    projects: ImmutableList<ProjectItemUi>,
-    isEnabled: Boolean,
-    onIntent: (EngineControlPanelIntent) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    HbSettingsSection(
-        stringResource(Res.string.control_panel_projects),
-        modifier.testTag("engine-control-projects"),
-        description = stringResource(Res.string.control_panel_projects_description),
-    ) {
-        projects.forEachIndexed { index, project ->
-            if (index > 0) HbDivider()
-            HbSettingsRow(
-                project.title,
-                Modifier.testTag("engine-control-project:${project.id}"),
-                onClick = { onIntent(ProjectIntent.Open(project.id)) },
-                enabled = isEnabled,
-            ) {
-                if (project.trust != ProjectTrustUi.Undecided) {
-                    HbBadge(
-                        stringResource(project.trust.label()),
-                        tone = if (project.trust == ProjectTrustUi.Trusted) HbTone.Success else HbTone.Neutral,
-                    )
-                }
-                HbIcon(HbIcons.ChevronRight, contentDescription = null)
-            }
-        }
-    }
-}
-
 /**
- * An open project in place of the overview: its trust, the fields of its files with the profile values as defaults
- * and its files; an open file replaces the project. Back returns to the project, then to the overview.
+ * A saved project opened by a project-scoped operation: its trust, fields with profile values as defaults and files.
+ * An open file replaces the project. Back returns to the project, then to the selected engine tab.
  */
 @Composable
 internal fun ProjectScreen(

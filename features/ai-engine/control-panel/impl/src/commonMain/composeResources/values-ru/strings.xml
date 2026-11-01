@@ -15,6 +15,8 @@
     <string name="control_version">Версия %1$s</string>
     <string name="control_version_unknown">Версия неизвестна</string>
     <string name="control_panel_missing">Этот движок больше недоступен.</string>
+    <string name="control_panel_overview">Обзор</string>
+    <string name="control_panel_tab_settings">Настройки</string>
     <string name="control_panel_settings">Настройки движка</string>
     <string name="control_panel_settings_description">Что делает сам движок: его настройки, инструкции, расширения и серверы инструментов.</string>
     <string name="control_panel_configuration_off">Настройка движков выключена. Включите флаг ai.engine_configuration, чтобы настраивать движки здесь.</string>
@@ -22,6 +24,10 @@
     <string name="engine_section">Движок</string>
     <string name="engine_enabled">Использовать движок</string>
     <string name="engine_enabled_hint">Его используют сессии, подключения и выбор модели в этом профиле.</string>
+    <string name="engine_enable">Включить</string>
+    <string name="engine_switch_label">Включить движок %1$s</string>
+    <string name="engine_disabled_profile">Движок выключен в профиле. Новые запросы через %1$s недоступны. История остаётся на месте.</string>
+    <string name="engine_uninstall_blocked">Удаление недоступно, пока идёт ход движка или управляемая копия Heartbeat отсутствует.</string>
     <string name="engine_reason_platform">Недоступен на этом устройстве.</string>
     <string name="engine_reason_catalog">Все движки выключены флагом разработки %1$s.</string>
     <string name="engine_reason_flag">Выключен флагом разработки %1$s.</string>
@@ -43,7 +49,7 @@
     <string name="engine_check_updates">Проверить обновления</string>
     <string name="engine_install">Установить</string>
     <string name="engine_update">Обновить</string>
-    <string name="engine_uninstall">Удалить копию Heartbeat</string>
+    <string name="engine_uninstall">Удалить установку</string>
     <string name="engine_revert">Вернуть встроенную версию</string>
     <string name="engine_runtime">Процесс движка</string>
     <string name="engine_runtime_stopped">Не запущен</string>
@@ -95,8 +101,8 @@
     <string name="engine_login_failure_terminal">Этот CLI входит только из терминала.</string>
     <string name="engine_login_failure_untrusted">CLI предложил страницу входа вне сайтов поставщика, поэтому она не открыта.</string>
     <string name="engine_login_failure_unsupported">У этого движка нет входа через CLI.</string>
-    <string name="engine_confirm_uninstall_title">Удалить копию Heartbeat?</string>
-    <string name="engine_confirm_uninstall_body">Новые сессии будут использовать системную установку, если она есть.</string>
+    <string name="engine_confirm_uninstall_title">Удалить установку %1$s?</string>
+    <string name="engine_confirm_uninstall_body">Будет удалена установка %1$s, загруженная для Heartbeat.&#10;&#10;Подключения, настройки и история чатов сохранятся. Установленный вами движок не будет затронут.&#10;Для новых запросов потребуется снова установить движок.</string>
     <string name="engine_confirm_revert_title">Вернуть встроенную версию?</string>
     <string name="engine_confirm_revert_body">Новая копия будет удалена, и снова будет использоваться версия, поставляемая с Heartbeat.</string>
     <string name="engine_confirm_update_title">Установить версию, не проверенную с Heartbeat?</string>
@@ -155,7 +161,7 @@
     <string name="engine_path_copy">Скопировать путь</string>
     <string name="engine_path_copied">Путь скопирован</string>
     <string name="engine_copy_failed">Не удалось скопировать</string>
-    <string name="engine_confirm_uninstall">Удалить</string>
+    <string name="engine_confirm_uninstall">Удалить установку</string>
     <string name="engine_confirm_revert">Вернуть</string>
     <string name="engine_confirm_update">Всё равно установить</string>
     <string name="engine_confirm_logout">Выйти</string>
@@ -320,8 +326,8 @@
     <string name="engine_host_app_path_copy">Скопировать путь к приложению %1$s</string>
     <string name="engine_mcp_title">Использовать MCP движка</string>
     <string name="engine_mcp_description">Инструменты MCP-серверов из конфигурации движка. По умолчанию выключено; изменение применяется после перезапуска. Вызовы выполняет движок с его настройками разрешений.</string>
-    <string name="control_engine_connected">Подключен</string>
-    <string name="control_engine_disconnected">Не подключен</string>
+    <string name="control_engine_connected">Подключён</string>
+    <string name="control_engine_disconnected">Не подключён</string>
     <string name="control_engine_builtin">Встроенный движок</string>
     <string name="control_engine_builtin_status">Не требует подключения</string>
     <string name="control_engine_select">Выберите движок в списке слева.</string>

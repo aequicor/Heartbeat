@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LaunchDraftUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LaunchProblemReasonUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedCodex
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedCodexWithCopy
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedSnapshot
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
@@ -124,28 +125,49 @@ class EngineManagementUiTest {
     }
 
     @Test
-    fun `a missing engine is installed from the panel and a switched-off one keeps no connections`() =
-        runSkikoComposeUiTest {
-            val intents = mutableListOf<EngineManagementIntent>()
-            val codex = managedCodex(
-                EngineEnablement(isUserEnabled = false, reasons = setOf(DisabledReason.DisabledByUser)),
-                installation = InstallationState(Installation(InstallSource.Missing), latest = "0.2.0"),
-            )
-            setContent { Host(selected(codex)) { intents += it } }
+    fun `a missing engine is installed from the panel`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<EngineManagementIntent>()
+        val codex = managedCodex(
+            installation = InstallationState(Installation(InstallSource.Missing), latest = "0.2.0"),
+        )
+        setContent { Host(selected(codex)) { intents += it } }
 
-            onNodeWithTag("engine-panel").assertExists()
-            onNodeWithTag("engine-install").performClick()
-            onNodeWithTag("engine-enabled").performClick()
-            runOnIdle {
-                assertEquals(
-                    listOf<EngineManagementIntent>(
-                        EngineManagementIntent.RequestEngineAction(EngineActionUi.Install),
-                        EngineManagementIntent.SetEngineEnabled(true),
-                    ),
-                    intents,
-                )
-            }
+        onNodeWithTag("engine-panel").assertExists()
+        onNodeWithTag("engine-install").performClick()
+        runOnIdle {
+            assertEquals(
+                listOf<EngineManagementIntent>(EngineManagementIntent.RequestEngineAction(EngineActionUi.Install)),
+                intents,
+            )
         }
+    }
+
+    @Test
+    fun `a disabled overview keeps only enabling and an applicable managed-copy removal`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<EngineManagementIntent>()
+        val codex = managedCodexWithCopy(
+            EngineEnablement(isUserEnabled = false, reasons = setOf(DisabledReason.DisabledByUser)),
+        )
+        setContent { Host(selected(codex)) { intents += it } }
+
+        onNodeWithTag("engine-panel").assertExists()
+        onNodeWithTag("engine-enabled").assertIsOff()
+        onNodeWithTag("engine-install").assertDoesNotExist()
+        onNodeWithTag("engine-check-updates").assertDoesNotExist()
+        onNodeWithTag("engine-mcp-enabled").assertDoesNotExist()
+        onNodeWithTag("engine-launch-edit").assertDoesNotExist()
+        onNodeWithTag("engine-enable").performClick()
+        onNodeWithTag("engine-uninstall").performClick()
+        runOnIdle {
+            assertEquals(
+                listOf<EngineManagementIntent>(
+                    EngineManagementIntent.SetEngineEnabled(true),
+                    EngineManagementIntent.RequestEngineAction(EngineActionUi.Uninstall),
+                ),
+                intents,
+            )
+        }
+    }
 
     @Test
     fun `a running download shows its progress and can only be cancelled`() = runSkikoComposeUiTest {
@@ -206,7 +228,7 @@ class EngineManagementUiTest {
     @Test
     fun `a removal is confirmed first`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineManagementIntent>()
-        val state = selected(managedCodex()).copy(confirmAction = EngineActionUi.Uninstall)
+        val state = selected(managedCodexWithCopy()).copy(confirmAction = EngineActionUi.Uninstall)
         setContent { Host(state) { intents += it } }
 
         onNodeWithTag("engine-action-confirm").performClick()
@@ -215,6 +237,20 @@ class EngineManagementUiTest {
                 listOf<EngineManagementIntent>(EngineManagementIntent.ConfirmEngineAction),
                 intents,
             )
+        }
+    }
+
+    @Test
+    fun `an active turn blocks removal confirmation but leaves cancellation available`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<EngineManagementIntent>()
+        val codex = managedCodexWithCopy().copy(runtime = RuntimeSummary(activeTurns = 1))
+        val state = selected(codex).copy(confirmAction = EngineActionUi.Uninstall)
+        setContent { Host(state) { intents += it } }
+
+        onNodeWithTag("engine-action-confirm").assertIsNotEnabled()
+        onNodeWithTag("engine-action-cancel").assertIsEnabled().performClick()
+        runOnIdle {
+            assertEquals(listOf<EngineManagementIntent>(EngineManagementIntent.DismissEngineAction), intents)
         }
     }
 
