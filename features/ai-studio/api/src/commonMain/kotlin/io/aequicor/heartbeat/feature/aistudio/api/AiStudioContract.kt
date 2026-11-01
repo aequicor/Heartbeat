@@ -102,6 +102,9 @@ public sealed interface AiStudioState : MachineState {
         val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
         val isEngineSwitchingAvailable: Boolean = false,
         val engineSwitches: Map<String, StudioEngineSwitchState> = emptyMap(),
+        val messageQueues: StudioMessageQueues = StudioMessageQueues(),
+        val queueNotices: Map<String, StudioQueueNotice> = emptyMap(),
+        val isMessageQueueEnabled: Boolean = false,
         /** Next creation token; never reused while Ready survives, even when pane ids are reused. */
         val nextCreateRequestId: Long = 0,
         val settingsVersion: StudioSettingsVersion = StudioSettingsVersion(),
@@ -187,7 +190,13 @@ public sealed interface AiStudioIntent : MachineIntent {
             val userInstruction: String? = null,
             /** Draft-scoped auto-continue choice, attached before the first turn. */
             val autoContinue: AutoContinueChoice? = null,
+            /** Ctrl+Enter targets the current turn instead of waiting for its completion. */
+            val isCorrection: Boolean = false,
         ) : Public
+
+        /** Acts on one accepted queue row, or dismisses a transient notice by [message]. */
+        public data class ManageQueue(val sessionId: String, val action: StudioQueueAction, val message: String = "") :
+            Public
 
         /** Asks the running agent of [sessionId] to stop. */
         public data class Stop(val sessionId: String) : Public
@@ -221,6 +230,15 @@ public sealed interface AiStudioIntent : MachineIntent {
 
     /** Results produced by the studio effects. */
     public sealed interface Internal : AiStudioIntent {
+        /** The profile durably accepted the captured composer input into its FIFO. */
+        public data class QueueAccepted(val paneId: Int, val submissionId: String, val sessionId: String) : Internal
+
+        /** Queue admission failed without changing the already active turn. */
+        public data class QueueRejected(val paneId: Int, val submissionId: String, val sessionId: String) : Internal
+
+        /** Queue management failed without changing the active turn. */
+        public data class QueueActionFailed(val sessionId: String) : Internal
+
         /** The workspace toggle and defaults are resolved. */
         public data class Loaded(val isEnabled: Boolean, val defaults: StudioDefaults) : Internal
 
@@ -302,6 +320,22 @@ public sealed interface AiStudioIntent : MachineIntent {
 
 /** IO commands of the studio, executed by the feature's effect handler. */
 public sealed interface AiStudioEffect : MachineEffect {
+    /** Profile-owned message queue operations, independent of native turn execution. */
+    public sealed interface MessageQueue : AiStudioEffect
+
+    /** Durably capture a composer snapshot; success clears only that snapshot. */
+    public data class QueueMessage(
+        val paneId: Int,
+        val sessionId: String,
+        val message: StudioQueuedMessage,
+        val environment: StudioChatEnvironment?,
+        val isCorrection: Boolean,
+    ) : MessageQueue
+
+    /** Act on a queued message without resubmitting any other row. */
+    public data class ManageQueue(val sessionId: String, val action: StudioQueueAction, val message: String) :
+        MessageQueue
+
     /** Resolves the workspace toggle and defaults. */
     public data object Load : AiStudioEffect
 
@@ -416,6 +450,12 @@ public sealed interface AiStudioEffect : MachineEffect {
 
 /** One-shot events of the studio. */
 public sealed interface AiStudioOutput : MachineOutput {
+    /** A composer snapshot is stored in the profile FIFO, but has not yet been sent to the native engine. */
+    public data class SubmitQueued(val paneId: Int, val submissionId: String, val sessionId: String) : AiStudioOutput
+
+    /** A queue action was refused; no native turn was created or implicitly cancelled. */
+    public data class QueueActionFailed(val sessionId: String) : AiStudioOutput
+
     /** Restore [prompt] only while [paneId] still owns [requestId], without replacing newer input. */
     public data class SubmitFailed(
         val paneId: Int,

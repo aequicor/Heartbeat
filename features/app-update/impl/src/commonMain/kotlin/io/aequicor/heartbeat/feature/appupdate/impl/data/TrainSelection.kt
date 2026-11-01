@@ -15,8 +15,8 @@ internal fun GitHubRelease.trainManifestAsset(): GitHubAsset? = takeUnless { isD
     ?.takeIf { isTrustedReleaseUrl(it.url, GitHubDownloadHosts) }
 
 /**
- * The trains of [releases] (newest first, as GitHub lists them): each release with its manifest asset. Pre-releases
- * count, that is what trains are.
+ * The trains of [releases] (newest first, as GitHub lists them): each release with its manifest asset, whether it is
+ * a train pre-release or a full payload release.
  */
 internal fun trains(releases: List<GitHubRelease>): List<Pair<GitHubRelease, GitHubAsset>> =
     releases.mapNotNull { release -> release.trainManifestAsset()?.let { release to it } }

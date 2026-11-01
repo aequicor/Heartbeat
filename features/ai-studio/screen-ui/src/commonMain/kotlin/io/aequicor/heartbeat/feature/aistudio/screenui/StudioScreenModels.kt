@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ChatQueueUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerCaretRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerSuggestionsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
@@ -25,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectTrustNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.QueueNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.RenameUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
@@ -140,6 +142,9 @@ data class PaneContent(
     val engineSwitch: EngineSwitchUi? = null,
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val isAttachmentsEnabled: Boolean = false,
+    val isMessageQueueEnabled: Boolean = false,
+    val queue: ChatQueueUi = ChatQueueUi(),
+    val queueNotice: QueueNoticeUi? = null,
     val isRememberEnabled: Boolean = false,
     val isCompactEnabled: Boolean = false,
     /** The chat's context is being compacted now: the indicator animates. */
@@ -298,7 +303,7 @@ private fun AiStudioScreenState.projectPaneContent(
     isSandboxAvailable = isSandboxAvailable && isWorktreeOffered(pane),
     worktree = worktreeFor(pane.sessionId),
     worktreeJournal = worktreeJournal,
-).withChatModes(this, session, organism)
+).withChatModes(this, session, organism).withMessageQueue(this, session)
 
 /** Planning and auto-continue of the pane's chat; auto-continue is offered for ordinary chats while it is on. */
 private fun PaneContent.withChatModes(screen: AiStudioScreenState, session: SessionUi?, organism: OrganismUi?) = copy(
@@ -471,3 +476,10 @@ fun AiStudioScreenState.paneContent(pane: PaneUi, host: StudioHostCapabilities):
 
 private fun AiStudioScreenState.worktreeFor(session: String?): WorktreeUi? =
     session?.let { worktrees[it] ?: worktrees["organism.$it.${subSessions[it] ?: PRIMARY_SUB_SESSION}"] }
+
+/** Profile input stays attached to its logical chat while pane selection changes. */
+private fun PaneContent.withMessageQueue(screen: AiStudioScreenState, session: SessionUi?) = copy(
+    isMessageQueueEnabled = screen.isMessageQueueEnabled && session?.isHelper != true && session?.isOrganism != true,
+    queue = screen.messageQueues[pane.sessionId] ?: ChatQueueUi(),
+    queueNotice = screen.queueNotices[pane.sessionId],
+)

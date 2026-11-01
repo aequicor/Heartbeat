@@ -77,4 +77,21 @@ class StudioAttachmentsMachineTest {
             outputs = listOf(AiStudioOutput.SubmitRejected(0, "submit", "created")),
         )
     }
+
+    @Test
+    fun `failed queue admission never clears an unrelated running turn`() {
+        val ready = AiStudioState.Ready(
+            listOf(StudioPane(0, sessionId = "chat")),
+            0,
+            settings,
+            running = setOf("chat"),
+            isMessageQueueEnabled = true,
+        )
+        AiStudioMachineSpec.assertTransition(
+            ready,
+            AiStudioIntent.Internal.QueueRejected(0, "queue", "chat"),
+            ready,
+            outputs = listOf(AiStudioOutput.SubmitRejected(0, "queue", "chat")),
+        )
+    }
 }

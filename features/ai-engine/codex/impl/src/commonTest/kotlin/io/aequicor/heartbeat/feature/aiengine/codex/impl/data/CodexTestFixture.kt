@@ -36,6 +36,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptResourceHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -168,6 +169,7 @@ internal class Fixture(
     turns: CodexTurnRecords = MemoryCodexTurnRecords(),
     launch: PreparedCodexLaunch? = null,
     hostedDrains: CodexHostedDrains = CodexHostedDrains(),
+    resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
 ) {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -244,6 +246,7 @@ internal class Fixture(
         turns = turns,
         hostedDrains = hostedDrains,
         resources = ResourceResolver { resources.resolve(it) },
+        resourceHistory = resourceHistory,
     )
     val runtime = CodexRuntime(
         RuntimeIdentity(CodexEngine.Id, AuthSourceId("codex.local"), AuthRevision.Unknown),

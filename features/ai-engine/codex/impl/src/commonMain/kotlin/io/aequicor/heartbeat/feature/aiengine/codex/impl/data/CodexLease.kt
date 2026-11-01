@@ -23,6 +23,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SteeringRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SteersTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.Flow
@@ -39,6 +41,7 @@ import kotlinx.coroutines.withContext
 internal class CodexLease(private val session: CodexSession) :
     ActiveSession,
     SendsPrompts,
+    SteersTurns,
     CancelsTurns,
     RequestsPermissions,
     AppliesTrustLevels,
@@ -89,6 +92,9 @@ internal class CodexLease(private val session: CodexSession) :
     }
 
     override suspend fun send(request: PromptRequest): TurnId = command { session.send(request) }
+    override suspend fun steer(turn: TurnId, request: SteeringRequest) = command {
+        session.steering.send(turn, request)
+    }
     override suspend fun cancel(turn: TurnId) = command { session.cancel(turn) }
 
     /**

@@ -15,4 +15,6 @@ data class StudioHostCapabilities(
     val isOrganismLaunchingAvailable: Boolean = true,
     val isAppUpdateAvailable: Boolean = true,
     val onAttachPage: ((Int) -> Unit)? = null,
+    /** A browser host queues ordinary input but cannot inject into an active native turn. */
+    val isTurnSteeringAvailable: Boolean = true,
 )

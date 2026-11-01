@@ -47,7 +47,10 @@ class AiStudioEffects(
         when (effect) {
             is AiStudioEffect.Usage -> Unit
 
-            is AiStudioEffect.Configuration -> configure(effect)
+            is AiStudioEffect.Configuration, is AiStudioEffect.MessageQueue -> {
+                require(effect is AiStudioEffect.Configuration) { "Message queue is unavailable in demo" }
+                configure(effect)
+            }
 
             AiStudioEffect.ObserveRuntime -> activeRuns.collect {
                 machine.send(

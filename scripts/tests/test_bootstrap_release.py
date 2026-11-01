@@ -97,7 +97,7 @@ class BootstrapReleaseTest(unittest.TestCase):
                 path = self.root / name
                 with zipfile.ZipFile(path, "w") as archive:
                     archive.writestr("manifest.json", '{"train":"otest"}')
-                body[component] = dict(url=f"https://github.com/aequicor/Heartbeat/releases/download/v1.2.3/{name}",
+                body[component] = dict(url=f"https://github.com/aequicor/Heartbeat/releases/download/payload-v1.2.3/{name}",
                                        size=path.stat().st_size, sha256=hashlib.sha256(path.read_bytes()).hexdigest())
             body["seed"]["trainId"] = "otest"
             (self.root / f"bootstrap-{target}.json").write_text(json.dumps(body))
