@@ -44,7 +44,25 @@ class AutoContinueDialogTest {
                 DialogEntry(DialogAuthor.Autopilot, "Продолжай"),
                 DialogEntry(DialogAuthor.Agent, "Шаг 2 готов"),
             ),
-            dialogOf(items.reversed(), autopilotItems = setOf(ItemId("u2"))),
+            dialogOf(items, autopilotItems = setOf(ItemId("u2"))),
+        )
+    }
+
+    @Test
+    fun `resume positions cannot move new human instructions before the old task`() {
+        val oldTask = message("old-task", MessageRole.User, ContentPart.Text("Ask a question"))
+        val oldReply = message("old-reply", MessageRole.Assistant, ContentPart.Text("Old task complete"))
+        position = 0
+        val newTask = message("new-task", MessageRole.User, ContentPart.Text("Ask another question now"))
+        val newReply = message("new-reply", MessageRole.Assistant, ContentPart.Text("New task complete"))
+        assertEquals(
+            listOf(
+                DialogEntry(DialogAuthor.Human, "Ask a question"),
+                DialogEntry(DialogAuthor.Agent, "Old task complete"),
+                DialogEntry(DialogAuthor.Human, "Ask another question now"),
+                DialogEntry(DialogAuthor.Agent, "New task complete"),
+            ),
+            dialogOf(listOf(oldTask, oldReply, newTask, newReply)),
         )
     }
 

@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostedToolName
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
@@ -9,6 +11,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutopilotContextSettings
 import io.aequicor.heartbeat.feature.autocontinue.api.ChatAuto
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationContext
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationRequest
+import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationToolActivity
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogAuthor
 import io.aequicor.heartbeat.feature.autocontinue.api.Phase
 import io.aequicor.heartbeat.feature.autocontinue.api.dialogOf
@@ -103,7 +106,25 @@ internal fun continuationContext(
         planNote(plan).takeIf { settings.plan },
         request,
         extraContext(items, settings),
+        toolActivity(items),
     )
+}
+
+/** Always retain payload-free execution facts, even when detailed tool context is disabled. */
+private fun toolActivity(items: List<SessionItem>): List<ContinuationToolActivity> {
+    val turn = items.lastOrNull { it.info.turn != null }?.info?.turn ?: return emptyList()
+    val results = items.filterIsInstance<SessionItem.ToolResult>().associateBy { it.call }
+    return items.filterIsInstance<SessionItem.ToolCall>().filter { it.info.turn == turn }
+        .takeLast(MAX_CONTEXT_RESULTS).map { call ->
+            val result = results[call.call]?.takeIf { it.info.turn == turn }
+            val status = when {
+                result?.failure != null -> ToolCallStatus.Failed
+                call.status == ToolCallStatus.Failed || call.status == ToolCallStatus.Cancelled -> call.status
+                result != null -> ToolCallStatus.Succeeded
+                else -> call.status
+            }
+            ContinuationToolActivity(hostedToolName(call.name), status)
+        }
 }
 
 /** The plan for the continuer: mode, status and text; null outside the planning mode. */
@@ -135,10 +156,11 @@ private fun toolContext(
     result: SessionItem.ToolResult,
     settings: AutopilotContextSettings,
 ): String? {
-    val isIncluded = settings.includesResult(call.name)
+    val name = hostedToolName(call.name)
+    val isIncluded = settings.includesResult(name)
     if (!isIncluded && !settings.toolArguments) return null
     return buildString {
-        appendLine("Tool: ${call.name}")
+        appendLine("Tool: $name")
         if (settings.toolArguments) appendLine("Arguments: ${call.arguments.take(CONTEXT_ARGUMENT_CHARS)}")
         if (isIncluded) {
             appendLine(

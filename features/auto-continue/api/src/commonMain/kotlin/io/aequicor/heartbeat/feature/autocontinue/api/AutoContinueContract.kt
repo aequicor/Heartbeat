@@ -100,6 +100,8 @@ public data class ContinuationContext(
     val planNote: String? = null,
     val request: ContinuationRequest? = null,
     val extraContext: String? = null,
+    /** Execution metadata of the latest observed turn; never arguments, results or authorization. */
+    val toolActivity: List<ContinuationToolActivity> = emptyList(),
 ) {
     override fun toString(): String = "ContinuationContext(route=$route, entries=${dialog.size})"
 }
