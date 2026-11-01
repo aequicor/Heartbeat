@@ -5062,6 +5062,114 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "xRLtl",
+      "x": 1920,
+      "y": 300,
+      "name": "HbBadge / Engine status / not-connected",
+      "context": "Компактный статус движка: постоянная текстовая подпись без иконки. Галочка есть только у подключённого движка. Tooltip и доступное имя: Движок не подключён. Это не кнопка. Выключен имеет приоритет над готовностью; подключён означает доступный совместимый runtime и хотя бы один проверенный маршрут к модели. Отсутствие подтверждения не удаляет установку, подключение или историю. Ограничения текущего проекта показываются отдельно.",
+      "theme": {
+        "host": "desktop"
+      },
+      "reusable": true,
+      "width": 152,
+      "height": 18,
+      "layout": "none",
+      "children": [
+        {
+          "type": "text",
+          "id": "UHofG",
+          "x": 0,
+          "y": 1,
+          "name": "Status label",
+          "fill": "$colors.textSecondary",
+          "textGrowth": "fixed-width",
+          "width": 152,
+          "content": "Не подключён",
+          "lineHeight": "$typography.caption.lineHeight",
+          "fontFamily": "$typography.family",
+          "fontSize": "$typography.caption.size",
+          "fontWeight": "$typography.caption.weight"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "MueQv",
+      "x": 1920,
+      "y": 342,
+      "name": "HbBadge / Engine status / disabled",
+      "context": "Компактный статус движка: постоянная текстовая подпись без иконки. Галочка есть только у подключённого движка. Tooltip и доступное имя: Движок выключен. Это не кнопка. Выключен имеет приоритет над готовностью; подключён означает доступный совместимый runtime и хотя бы один проверенный маршрут к модели. Отсутствие подтверждения не удаляет установку, подключение или историю. Ограничения текущего проекта показываются отдельно.",
+      "theme": {
+        "host": "desktop"
+      },
+      "reusable": true,
+      "width": 152,
+      "height": 18,
+      "layout": "none",
+      "children": [
+        {
+          "type": "text",
+          "id": "Nxc2C",
+          "x": 0,
+          "y": 1,
+          "name": "Status label",
+          "fill": "$colors.textSecondary",
+          "textGrowth": "fixed-width",
+          "width": 152,
+          "content": "Выключен",
+          "lineHeight": "$typography.caption.lineHeight",
+          "fontFamily": "$typography.family",
+          "fontSize": "$typography.caption.size",
+          "fontWeight": "$typography.caption.weight"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "Z2vajT",
+      "x": 1920,
+      "y": 384,
+      "name": "HbBadge / Engine status / connected",
+      "context": "Компактный статус движка: иконка и постоянная текстовая подпись, не только цвет. Tooltip и доступное имя: Движок подключён. Это не кнопка. Выключен имеет приоритет над готовностью; подключён означает доступный совместимый runtime и хотя бы один проверенный маршрут к модели. Отсутствие подтверждения не удаляет установку, подключение или историю. Ограничения текущего проекта показываются отдельно.",
+      "theme": {
+        "host": "desktop"
+      },
+      "reusable": true,
+      "width": 152,
+      "height": 18,
+      "layout": "none",
+      "children": [
+        {
+          "id": "IcVxn",
+          "type": "ref",
+          "ref": "hb-icon-check",
+          "name": "Status icon",
+          "x": 0,
+          "y": 0,
+          "width": 18,
+          "height": 18,
+          "stroke": "$surfaces.success",
+          "strokeWidth": 1.26
+        },
+        {
+          "type": "text",
+          "id": "AVmQR",
+          "x": 24,
+          "y": 1,
+          "name": "Status label",
+          "fill": "$colors.textSecondary",
+          "textGrowth": "fixed-width",
+          "width": 128,
+          "content": "Подключён",
+          "lineHeight": "$typography.caption.lineHeight",
+          "fontFamily": "$typography.family",
+          "fontSize": "$typography.caption.size",
+          "fontWeight": "$typography.caption.weight"
+        }
+      ]
     }
   ],
   "themes": {
