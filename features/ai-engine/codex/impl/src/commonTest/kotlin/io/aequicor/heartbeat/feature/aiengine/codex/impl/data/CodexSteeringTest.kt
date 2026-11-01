@@ -19,6 +19,27 @@ import kotlin.test.assertIs
 
 class CodexSteeringTest {
     @Test
+    fun `unknown steering blocks further corrections in the same turn`() = runTest {
+        val fixture = Fixture(this)
+        val previous = fixture.wire.handler
+        fixture.wire.handler = { message ->
+            if (message.text("method") == "turn/steer") {
+                fixture.wire.reply(message, json("turnId" to "unexpected-turn".json()))
+            } else {
+                previous(message)
+            }
+        }
+        val session = fixture.open()
+        val turn = session.feature(SendsPrompts).send(Prompt)
+        val correction = SteeringRequest(RequestId("unknown"), listOf(ContentPart.Text("Original correction")))
+        assertFailsWith<EngineException> { session.feature(SteersTurns).steer(turn, correction) }
+        assertFailsWith<EngineException> {
+            session.feature(SteersTurns).steer(turn, correction.copy(id = RequestId("later")))
+        }
+        assertEquals(1, fixture.wire.written.count { it.text("method") == "turn/steer" })
+    }
+
+    @Test
     fun `steering requires the expected native turn without starting another one`() = runTest {
         val fixture = Fixture(this)
         val previous = fixture.wire.handler
