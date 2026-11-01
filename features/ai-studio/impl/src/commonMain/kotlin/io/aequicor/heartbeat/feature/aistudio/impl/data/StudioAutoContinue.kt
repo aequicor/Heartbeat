@@ -14,11 +14,15 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.decision
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.questionnaireId
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueEnabled
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueHost
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
@@ -26,8 +30,18 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMachineKey
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueState
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueView
+import io.aequicor.heartbeat.feature.autocontinue.api.AutopilotContextSettings
 import io.aequicor.heartbeat.feature.autocontinue.api.ChatAuto
+import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationAnswer
+import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationContext
+import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationRequest
 import io.aequicor.heartbeat.feature.autocontinue.api.Phase
+import io.aequicor.heartbeat.feature.checklist.api.Checklist
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistMachineKey
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistState
+import io.aequicor.heartbeat.feature.questionnaire.api.Answer
+import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineKey
@@ -35,11 +49,15 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
@@ -48,6 +66,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlin.uuid.Uuid
 
 /** Learns about every turn the run coordinator executes. */
@@ -100,6 +122,7 @@ internal suspend fun StudioTurnLifecycle.observe(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioTurnLifecycle>())
 @ContributesIntoSet(ProfileScope::class, binding = binding<AutoContinueHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioAutopilotMarks>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioAutopilotRequests>())
 @Inject
 internal class StudioAutoContinue(
     @ForScope(ProfileScope::class) stores: DataStores,
@@ -117,6 +140,7 @@ internal class StudioAutoContinue(
     private val checklists: StudioChecklists,
 ) : StudioTurnLifecycle,
     StudioAutopilotMarks,
+    StudioAutopilotRequests,
     AutoContinueHost {
     private val log = Log.tag("StudioAutoContinue")
     private val chats by lazy { stores.keyValue(ChatSpec) }
@@ -129,6 +153,90 @@ internal class StudioAutoContinue(
     /** Read-only view of the transcripts the repository writes; the repository moves legacy carriers itself. */
     private val transcripts by lazy {
         StudioTranscripts(stores.database(StudioTranscriptDatabaseSpec).transcripts(), { emptyList() }, {})
+    }
+
+    /** Observes live tools and native permissions while their agent turn is still waiting for an answer. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override suspend fun observeQuestions() {
+        combine(
+            machines.observe(QuestionnaireMachineKey).flatMapLatest { it?.state ?: flowOf(QuestionnaireState.Idle) },
+            view.value.state,
+            runtime.value.state.map { it.permissions }.distinctUntilChanged(),
+        ) { _, state, _ -> state }.collect { state ->
+            val ready = state as? AutoContinueState.Ready ?: return@collect
+            for ((chat, auto) in ready.chats) {
+                if (auto.mode != AutoContinueMode.Autopilot || auto.phase is Phase.Suspended) continue
+                guarded("pending request") { updateRequest(chat, auto, ready) }
+            }
+        }
+    }
+
+    private suspend fun updateRequest(chat: String, auto: ChatAuto, ready: AutoContinueState.Ready) {
+        val asking = machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking
+        val question = asking?.pending?.firstOrNull { it.source == chat && it.id !in asking.submitting }
+        val old = auto.context?.request
+        if (old != null && (question == null || request(question) != old)) {
+            machines.send(AutoContinueMachineKey, Public.RequestClosed(chat, old.id))
+        }
+        if (question != null && request(question) != old) {
+            val record = record(chat)?.takeIf { isTracked(it) } ?: return
+            val context = contextFor(record, ready.settings.contextSettings, request(question)) ?: return
+            machines.send(AutoContinueMachineKey, Public.RequestOpened(chat, context))
+        }
+    }
+
+    override suspend fun answer(chat: String, request: ContinuationRequest, answer: ContinuationAnswer): Boolean {
+        if (!toggles.get(AutoContinueEnabled)) return false
+        val auto = autoChat(chat) ?: return false
+        if (auto.mode != AutoContinueMode.Autopilot || auto.phase !is Phase.Delivering ||
+            auto.context?.request != request
+        ) {
+            return false
+        }
+        val asking = machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking ?: return false
+        val question = asking.pending.firstOrNull {
+            it.source == chat && it.id.value == request.id && it.id !in asking.submitting
+        } ?: return false
+        val permission = runtime.value.state.value.permissions.firstOrNull { it.questionnaireId() == question.id }
+        if (request(question, permission) != request) return false
+        val resolved = question.autopilotAnswer(answer) ?: return false
+        if (!isSafeAnswer(question, resolved, permission)) return false
+        return machines.send(
+            QuestionnaireMachineKey,
+            QuestionnaireIntent.Public.Answer(
+                question.id,
+                resolved,
+                AutopilotQuestionContext(permission),
+                expectedQuestionnaire = question,
+            ),
+        ) == SendResult.Accepted
+    }
+
+    private fun isSafeAnswer(question: Questionnaire, resolved: Answer, permission: StudioPermission?): Boolean {
+        if (permission == null) return !question.id.value.startsWith("studio/")
+        val option = permission.decision(resolved)?.optionId ?: return false
+        return permission.options.any { it.id == option && it.isOneTime }
+    }
+
+    private fun request(
+        question: Questionnaire,
+        permission: StudioPermission? = runtime.value.state.value.permissions.firstOrNull {
+            it.questionnaireId() ==
+                question.id
+        },
+    ): ContinuationRequest {
+        val metadata = permission?.options.orEmpty().map { option ->
+            buildJsonObject {
+                put("id", JsonPrimitive(option.id))
+                put("isOneTime", JsonPrimitive(option.isOneTime))
+                put("isSkip", JsonPrimitive(option.isSkip))
+            }
+        }
+        val payload = buildJsonObject {
+            put("question", Json.encodeToJsonElement(Questionnaire.serializer(), question))
+            put("permissionOptions", JsonArray(metadata))
+        }
+        return ContinuationRequest(question.id.value, payload.toString())
     }
 
     override suspend fun started(request: StudioTurnRequest) = guarded("start") {
@@ -270,10 +378,56 @@ internal class StudioAutoContinue(
             hasQuestions = (machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking)
                 ?.pending.orEmpty().any { it.source == record.id },
         )
-        if (end.isAwaitingHuman) return Public.TurnAwaitsHuman(record.id)
+        val settings = (view.value.state.value as? AutoContinueState.Ready)?.settings?.contextSettings
+            ?: AutopilotContextSettings()
+        return when {
+            end.hasQuestions -> currentQuestionIntent(record.id)
+
+            end.hasWakes -> Public.TurnAwaitsEvent(record.id)
+
+            end.isAwaitingHuman -> Public.TurnAwaitsHuman(record.id)
+
+            else -> contextFor(record, settings)?.let { Public.TurnSettled(record.id, it) }
+                ?: Public.TurnAwaitsHuman(record.id)
+        }
+    }
+
+    /** Keep the profile observer's exact request instead of cancelling its current generation at turn end. */
+    private fun currentQuestionIntent(chat: String): Public {
+        val context = autoChat(chat)?.context
+        return if (context?.request != null) Public.RequestOpened(chat, context) else Public.TurnAwaitsHuman(chat)
+    }
+
+    /** Every response path applies the same current source settings, including structured requests. */
+    private suspend fun contextFor(
+        record: StudioChatRecord,
+        settings: AutopilotContextSettings,
+        request: ContinuationRequest? = null,
+    ): ContinuationContext? {
         val items = transcriptsLock.withLock { transcripts.read(record.id) }
-        val context = continuationContext(record, items, autopilotTurns(record.id), plan)
-        return if (context == null) Public.TurnAwaitsHuman(record.id) else Public.TurnSettled(record.id, context)
+        val context = continuationContext(
+            record,
+            items,
+            autopilotTurns(record.id),
+            planning.plans.first()[record.id],
+            settings,
+            request,
+        )
+            ?: return null
+        val checklist = if (settings.checklist) checklistContext(record) else null
+        return context.copy(
+            extraContext = listOfNotNull(context.extraContext, checklist).joinToString("\n").ifBlank { null },
+        )
+    }
+
+    private fun checklistContext(record: StudioChatRecord): String? {
+        val state = machines.find(ChecklistMachineKey)?.state?.value
+            as? ChecklistState.Ready
+        return state?.journal?.cards.orEmpty().filter { it.session == record.ref }.takeLast(MAX_CHECKLISTS)
+            .joinToString(
+                "\n",
+            ) { Json.encodeToString(Checklist.serializer(), it) }
+            .ifBlank { null }
     }
 
     private suspend fun record(chat: String): StudioChatRecord? =
@@ -327,6 +481,7 @@ internal class StudioAutoContinue(
     private companion object {
         const val AUTOPILOT_PREFIX = "autopilot-"
         const val MAX_MARKS = 200
+        const val MAX_CHECKLISTS = 10
         val MarkSpec = KeyValueSpec("ai_studio_autopilot")
         val MarksKey = jsonKey(
             "turns",

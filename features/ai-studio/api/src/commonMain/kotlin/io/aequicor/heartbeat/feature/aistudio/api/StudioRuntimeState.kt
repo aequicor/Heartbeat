@@ -45,7 +45,12 @@ public sealed interface StudioPermissionAnswer {
 }
 
 /** Opaque decision id and user-visible title supplied by the engine; [isSkip] declines an input without answer. */
-public data class StudioPermissionOption(val id: String, val title: String, val isSkip: Boolean = false)
+public data class StudioPermissionOption(
+    val id: String,
+    val title: String,
+    val isSkip: Boolean = false,
+    val isOneTime: Boolean = false,
+)
 
 /**
  * Profile-owned executions observed by the feature without owning their lifetime.

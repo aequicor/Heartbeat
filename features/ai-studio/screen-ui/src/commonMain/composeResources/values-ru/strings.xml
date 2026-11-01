@@ -104,7 +104,7 @@
     <string name="approval_safety">Автоматически</string>
     <string name="approval_edits">Разрешать правки файлов</string>
     <string name="approval_auto">Подтверждать за меня</string>
-    <string name="model_menu">Модель и рассуждение</string>
+    <string name="model_menu">Движок · Модель · Подключение</string>
     <string name="effort_low">Быстро</string>
     <string name="effort_default">Авто</string>
     <string name="effort_medium">Стандартно</string>

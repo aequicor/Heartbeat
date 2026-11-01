@@ -35,4 +35,14 @@
     <string name="auto_continue_notice_user_stopped">Автопилот остановлен</string>
     <string name="auto_continue_notice_took_over">Автопилот остановлен: вы взяли управление</string>
     <string name="auto_continue_notice_restarted">Автопилот остановлен перезапуском</string>
+    <string name="auto_enable_title">Включить автопилот</string>
+    <string name="auto_enable_hint">Выберите модель для ответов в этом чате</string>
+    <string name="auto_current">Выбрать текущую</string>
+    <string name="auto_other">Выбрать другую</string>
+    <string name="auto_models_header">Движок · Модель · Подключение</string>
+    <string name="auto_waiting_event">Ожидание события · автопилот включён</string>
+    <string name="auto_agent_working">Агент работает · автопилот включён</string>
+    <string name="auto_enabled">Автопилот включён</string>
+    <string name="auto_manual_pause">Чат остановлен вами · автопилот на паузе</string>
+    <string name="auto_agent_pause">Агент прервал ход · автопилот на паузе</string>
 </resources>

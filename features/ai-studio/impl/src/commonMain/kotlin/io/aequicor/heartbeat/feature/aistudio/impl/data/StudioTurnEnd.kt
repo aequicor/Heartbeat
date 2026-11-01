@@ -1,13 +1,15 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
+import io.aequicor.heartbeat.feature.autocontinue.api.AutopilotContextSettings
 import io.aequicor.heartbeat.feature.autocontinue.api.ChatAuto
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationContext
+import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationRequest
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogAuthor
-import io.aequicor.heartbeat.feature.autocontinue.api.DialogEntry
 import io.aequicor.heartbeat.feature.autocontinue.api.Phase
 import io.aequicor.heartbeat.feature.autocontinue.api.dialogOf
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
@@ -60,7 +62,7 @@ internal data class StudioTurnEnd(
 ) {
     /** True when the continuer must not answer for the human now. */
     val isAwaitingHuman: Boolean
-        get() = isChecklistOpen || hasWakes || isCompacting || hasQuestions ||
+        get() = isChecklistOpen || isCompacting || hasQuestions ||
             (plan?.mode == PlanMode.Planning && plan.status == PlanStatus.Proposed)
 }
 
@@ -74,30 +76,35 @@ internal fun continuationContext(
     items: List<SessionItem>,
     autopilotTurns: Set<String>,
     plan: Plan?,
+    settings: AutopilotContextSettings = AutopilotContextSettings(),
+    request: ContinuationRequest? = null,
 ): ContinuationContext? {
     val route = record.target ?: return null
     val autopilotItems = items.filter { it.info.turn?.value in autopilotTurns }.mapTo(mutableSetOf()) { it.info.id }
-    val dialog = dialogOf(items, autopilotItems).takeTask(MAX_DIALOG_ENTRIES).mapNotNull { entry ->
+    val dialog = dialogOf(items, autopilotItems).mapNotNull { entry ->
         if (entry.author == DialogAuthor.Agent) {
             entry
         } else {
             stripHostDirectives(entry.text).trim().takeIf { it.isNotEmpty() }?.let { entry.copy(text = it) }
         }
     }
-    if (dialog.none { it.author == DialogAuthor.Agent }) return null
-    return ContinuationContext(route, dialog, planNote(plan))
+    if (dialog.none { it.author == DialogAuthor.Agent } && request == null) return null
+    val required = setOf(
+        dialog.indexOfFirst { it.author == DialogAuthor.Human },
+        dialog.indexOfLast { it.author == DialogAuthor.Human },
+        dialog.indexOfLast { it.author == DialogAuthor.Agent },
+    )
+    val kept = dialog.filterIndexed { index, _ ->
+        index in required || (settings.history && index >= dialog.size - settings.historyMessages)
+    }
+    return ContinuationContext(
+        route,
+        kept,
+        planNote(plan).takeIf { settings.plan },
+        request,
+        extraContext(items, settings),
+    )
 }
-
-/** The first human message (the task) and the newest of the other entries, [limit] in all. */
-private fun List<DialogEntry>.takeTask(limit: Int): List<DialogEntry> {
-    if (size <= limit) return this
-    val task = indexOfFirst { it.author == DialogAuthor.Human }
-    val tail = takeLast(limit - 1)
-    return if (task < 0 || task >= size - tail.size) takeLast(limit) else listOf(this[task]) + tail
-}
-
-/** Entries kept of a long dialog; the continuer's prompt budget shortens them further. */
-private const val MAX_DIALOG_ENTRIES = 60
 
 /** The plan for the continuer: mode, status and text; null outside the planning mode. */
 internal fun planNote(plan: Plan?): String? {
@@ -106,3 +113,44 @@ internal fun planNote(plan: Plan?): String? {
     val status = plan.status.name.lowercase()
     return "Planning mode: $mode, plan status: $status. Only the human approves or implements a plan.\n\n${plan.text}"
 }
+
+/** Optional completed calls are grouped by source, independently of conversational history. */
+private fun extraContext(items: List<SessionItem>, settings: AutopilotContextSettings): String? {
+    val calls = items.filterIsInstance<SessionItem.ToolCall>().associateBy { it.call }
+    val blocks = items.filterIsInstance<SessionItem.ToolResult>().takeLast(MAX_CONTEXT_RESULTS).mapNotNull { result ->
+        calls[result.call]?.let { call -> toolContext(call, result, settings) }
+    }
+    val plan = items.filterIsInstance<SessionItem.Plan>().lastOrNull()?.takeIf { settings.plan }
+    return (blocks + listOfNotNull(plan?.let { "Agent plan: ${it.steps}" })).joinToString("\n").ifBlank { null }
+}
+
+private fun AutopilotContextSettings.includesResult(name: String): Boolean = when (name) {
+    "questionnaire_ask" -> questionnaires
+    "subagent_receive", "scheduler_start_action", "scheduler_list", "scheduler_events" -> backgroundResults
+    else -> toolResults
+}
+
+private fun toolContext(
+    call: SessionItem.ToolCall,
+    result: SessionItem.ToolResult,
+    settings: AutopilotContextSettings,
+): String? {
+    val isIncluded = settings.includesResult(call.name)
+    if (!isIncluded && !settings.toolArguments) return null
+    return buildString {
+        appendLine("Tool: ${call.name}")
+        if (settings.toolArguments) appendLine("Arguments: ${call.arguments.take(CONTEXT_ARGUMENT_CHARS)}")
+        if (isIncluded) {
+            appendLine(
+                result.parts.filterIsInstance<ContentPart.Text>().joinToString(
+                    "\n",
+                ) { it.text }.take(CONTEXT_RESULT_CHARS),
+            )
+            result.failure?.let { appendLine("Failure: ${it::class.simpleName.orEmpty()}") }
+        }
+    }
+}
+
+private const val MAX_CONTEXT_RESULTS = 40
+private const val CONTEXT_ARGUMENT_CHARS = 2000
+private const val CONTEXT_RESULT_CHARS = 4000
