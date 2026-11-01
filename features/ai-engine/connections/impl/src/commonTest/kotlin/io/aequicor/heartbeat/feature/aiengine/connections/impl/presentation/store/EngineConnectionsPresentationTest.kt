@@ -106,14 +106,12 @@ class EngineConnectionsPresentationTest {
     }
 
     @Test
-    fun `changes target the focused engine and connection`() {
-        assertEquals(
-            ConnectionOperation.SetModelEnabled(modelInfo(EngineBindingId("home"), "qwen").target, true),
-            loaded.operationFor(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true)),
-        )
+    fun `model edits stay local until save targets the focused connection`() {
+        val edited = loaded.editModel("qwen", true)
+        assertEquals(listOf(true, true), edited.models!!.models.map { it.isEnabled })
         assertEquals(
             ConnectionOperation.SetModelsEnabled(EngineBindingId("home"), setOf(ModelId("llama"), ModelId("qwen"))),
-            loaded.operationFor(EngineConnectionsScreenIntent.SetAllModels(true)),
+            edited.operationFor(EngineConnectionsScreenIntent.SaveModels),
         )
         assertEquals(
             ConnectionOperation.Disconnect(EngineBindingId("home")),
@@ -121,6 +119,27 @@ class EngineConnectionsPresentationTest {
         )
         assertNull(loaded.operationFor(EngineConnectionsScreenIntent.ConfirmDisconnect))
         assertNull(EngineConnectionsScreenState().operationFor(EngineConnectionsScreenIntent.RefreshModels))
+    }
+
+    @Test
+    fun `model draft survives pending and clears after its saved snapshot arrives`() {
+        val edited = loaded.editModel("qwen", true)
+        val operation = ConnectionOperation.SetModelsEnabled(
+            EngineBindingId("home"),
+            setOf(ModelId("llama"), ModelId("qwen")),
+        )
+        val pending = edited.reflect(
+            EngineConnectionsState.Active(settingsSnapshot(), pending = operation),
+        )
+        assertEquals<Set<String>?>(setOf("llama", "qwen"), pending.modelDraft)
+        assertTrue(pending.isModelSavePending)
+        val savedSnapshot = settingsSnapshot().let { snapshot ->
+            val target = modelInfo(EngineBindingId("home"), "qwen").target
+            snapshot.copy(selection = snapshot.selection.withModel(target, true))
+        }
+        val saved = pending.reflect(EngineConnectionsState.Active(savedSnapshot))
+        assertNull(saved.modelDraft)
+        assertFalse(saved.isModelSavePending)
     }
 
     @Test

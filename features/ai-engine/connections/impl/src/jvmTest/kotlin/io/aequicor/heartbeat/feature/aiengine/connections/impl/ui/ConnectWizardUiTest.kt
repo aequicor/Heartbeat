@@ -1,11 +1,14 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
 
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performTextInput
@@ -23,12 +26,20 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connect
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_hide_key
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_save
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_show_key
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import org.jetbrains.compose.resources.getString
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class ConnectWizardUiTest {
@@ -74,6 +85,18 @@ class ConnectWizardUiTest {
     }
 
     @Test
+    fun `key is masked by default and visibility actions are named`() = runSkikoComposeUiTest {
+        val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingMethod(engineInfo()))
+        setContent { HbTheme { ConnectWizardContent(state, {}) } }
+        val field = onNodeWithTag("wizard-key")
+        assertTrue(SemanticsProperties.Password in field.fetchSemanticsNode().config)
+        onNodeWithContentDescription(getString(Res.string.wizard_show_key)).assertExists().performClick()
+        assertFalse(SemanticsProperties.Password in field.fetchSemanticsNode().config)
+        onNodeWithContentDescription(getString(Res.string.wizard_hide_key)).assertExists().performClick()
+        assertTrue(SemanticsProperties.Password in field.fetchSemanticsNode().config)
+    }
+
+    @Test
     fun `models step toggles models and finishes`() = runSkikoComposeUiTest {
         val intents = mutableListOf<ConnectWizardScreenIntent>()
         val connection = NewConnection(EngineBindingId("binding-1"), AuthSourceId("source-1"))
@@ -81,7 +104,8 @@ class ConnectWizardUiTest {
         val machine = ConnectWizardState.ChoosingModels(KoogId, connection, models, setOf(ModelId("gpt-a")))
         val state = ConnectWizardScreenState().reflect(machine)
         setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
-        onNodeWithTag("model-switch:gpt-b").performClick()
+        onNodeWithText(getString(Res.string.wizard_connect)).assertExists()
+        onNodeWithTag("model-checkbox:gpt-b").performClick()
         onNodeWithTag("wizard-finish").performClick()
         runOnIdle {
             assertEquals(
@@ -89,6 +113,16 @@ class ConnectWizardUiTest {
                 intents,
             )
         }
+    }
+
+    @Test
+    fun `reused connection offers to save its models`() = runSkikoComposeUiTest {
+        val connection = NewConnection(EngineBindingId("binding-1"), AuthSourceId("source-1"), isCreated = false)
+        val models = listOf(modelInfo(connection.binding, "gpt-a"))
+        val machine = ConnectWizardState.ChoosingModels(KoogId, connection, models, setOf(ModelId("gpt-a")))
+        val state = ConnectWizardScreenState().reflect(machine)
+        setContent { HbTheme { ConnectWizardContent(state, {}) } }
+        onNodeWithText(getString(Res.string.wizard_save)).assertExists()
     }
 
     @Test

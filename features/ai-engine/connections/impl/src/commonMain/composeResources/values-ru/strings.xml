@@ -42,9 +42,8 @@
     <string name="wizard_methods_empty">Провайдеры не найдены</string>
     <string name="wizard_field_key">API-ключ</string>
     <string name="wizard_key_placeholder">Вставьте ключ</string>
-    <string name="wizard_key_hint">Ключ хранится в защищённом хранилище профиля.</string>
-    <string name="wizard_key_hint_development">Сборка для разработки: ключи сохраняются локально без системной защиты, отдельно от ключей релизной версии.</string>
-    <string name="wizard_get_key">Получить API-ключ</string>
+    <string name="wizard_show_key">Показать API-ключ</string>
+    <string name="wizard_hide_key">Скрыть API-ключ</string>
     <string name="wizard_field_host">Адрес API</string>
     <string name="wizard_base_url_hint">Можно указать полный базовый URL API вместе с путём, например https://openrouter.ai/api/v1.</string>
     <string name="wizard_host_fixed">Адрес фиксирован для этого провайдера.</string>
@@ -57,8 +56,9 @@
     <string name="wizard_error_insecure_host">HTTP без шифрования разрешён только для localhost; для других серверов используйте https://</string>
     <string name="wizard_connect">Подключить</string>
     <string name="wizard_connecting">Подключение…</string>
+    <string name="wizard_save">Сохранить</string>
+    <string name="wizard_saving">Сохранение…</string>
     <string name="wizard_models_intro">Выберите модели, которые будут доступны через это подключение.</string>
-    <string name="wizard_finish">Готово</string>
     <string name="wizard_finish_without_models">Продолжить без моделей</string>
     <string name="settings_title">Движки и подключения</string>
     <string name="settings_description">Движок × подключение × модель: выберите, что будет доступно при выборе модели.</string>
@@ -85,14 +85,11 @@
     <string name="settings_model_describe">Описать</string>
     <string name="settings_models_stale">Список из кэша. Обновите, чтобы получить актуальный.</string>
     <string name="settings_models_never">Модели ещё не получены.</string>
+    <string name="settings_save">Сохранить</string>
     <string name="settings_saving">Сохранение…</string>
     <string name="settings_dismiss">Скрыть</string>
     <string name="conn_models_search_clear">Очистить поиск</string>
     <string name="settings_disconnect_title">Удалить подключение?</string>
-    <string name="wizard_check">Проверить подключение</string>
-    <string name="wizard_checking">Проверка…</string>
-    <string name="wizard_check_passed">Подключение работает · доступно моделей: %1$d</string>
-
 
     <string name="engine_preparation_download">Скачивание компонентов движка…</string>
     <string name="engine_preparation_install">Подготовка компонентов движка…</string>

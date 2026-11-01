@@ -13,7 +13,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 import pro.respawn.flowmvi.api.MVIState
 
 /** One connection (binding) of the selected engine. [label] is user text and is never logged. */
@@ -32,7 +34,7 @@ data class ConnectionRowUi(
 @Immutable
 data class ModelsPaneUi(val models: ImmutableList<ModelRowUi>, val isStale: Boolean, val isNeverSynced: Boolean)
 
-/** Three-level settings space derived from the machine snapshot and the local selection. */
+/** Three-level settings space derived from the machine snapshot and the local model draft. */
 @Immutable
 data class EngineConnectionsScreenState(
     val engines: ImmutableList<EngineRowUi> = persistentListOf(),
@@ -40,12 +42,15 @@ data class EngineConnectionsScreenState(
     val connections: ImmutableList<ConnectionRowUi> = persistentListOf(),
     val selectedConnection: String? = null,
     val models: ModelsPaneUi? = null,
+    val selectedModels: ImmutableSet<String> = persistentSetOf(),
+    val modelDraft: ImmutableSet<String>? = null,
     val modelQuery: String = "",
     val confirmDisconnect: String? = null,
     /** Engine management is on: the selected engine is switched on and installed in its engine control panel. */
     val isManaged: Boolean = false,
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
+    val isModelSavePending: Boolean = false,
     val loadFailure: FailureUi? = null,
     val failure: FailureUi? = null,
     /** Models described for adaptive subagents; null while that feature is off. */
@@ -54,15 +59,17 @@ data class EngineConnectionsScreenState(
     override fun toString(): String = "EngineConnectionsScreenState(***)"
 }
 
-/** Rebuilds the three levels, keeping the selection while it still exists and otherwise picking the first entry. */
+/** Rebuilds the three levels, keeping focus and an unsaved model draft while their connection remains selected. */
 internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState): EngineConnectionsScreenState =
     when (state) {
-        EngineConnectionsState.Idle -> copy(isLoading = true, loadFailure = null)
+        EngineConnectionsState.Idle -> copy(isLoading = true, isModelSavePending = false, loadFailure = null)
 
         is EngineConnectionsState.Active -> {
             val base = copy(
                 isLoading = state.snapshot == null && state.loadFailure == null,
                 isSaving = state.pending != null,
+                isModelSavePending = state.pending is ConnectionOperation.SetModelsEnabled ||
+                    (isModelSavePending && state.failed?.operation !is ConnectionOperation.SetModelsEnabled),
                 loadFailure = state.loadFailure?.toUi(),
                 failure = state.failed?.failure?.toUi(),
             )
@@ -119,26 +126,38 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
     val connectionId = selectedConnection?.takeIf { id -> connectionRows.any { it.id == id } }
         ?: connectionRows.firstOrNull()?.id
     val binding = connectionId?.let(::EngineBindingId)
-    val models = binding?.let { id ->
-        val cached = snapshot.models[id]
-        val enabled = snapshot.selection.enabled(id)
-        ModelsPaneUi(
-            models = cached?.models.orEmpty().map { model ->
-                model.toRow(model.target.model in enabled, model.target == snapshot.selection.defaultTarget)
-                    .copy(description = descriptionOf(model.target))
-            }.toImmutableList(),
-            isStale = cached?.observation?.isStale ?: true,
-            isNeverSynced = cached?.observation?.checkedAt == null,
-        )
-    }
+    val enabled = binding?.let { snapshot.selection.enabled(it) }.orEmpty().map { it.value }.toSet()
+    val draft = modelDraft?.takeIf { selectedConnection == connectionId && it != enabled }
+    val models = binding?.let { modelsPane(snapshot, it, draft ?: enabled) }
     return copy(
         engines = engineRows.toImmutableList(),
         selectedEngine = engineId,
         connections = connectionRows.toImmutableList(),
         selectedConnection = connectionId,
         models = models,
+        selectedModels = enabled.toImmutableSet(),
+        modelDraft = draft,
+        isModelSavePending = isModelSavePending && draft != null,
         confirmDisconnect = confirmDisconnect?.takeIf { id -> connectionRows.any { it.id == id } },
         isManaged = management != null,
+    )
+}
+
+private fun EngineConnectionsScreenState.modelsPane(
+    snapshot: ConnectionsSnapshot,
+    binding: EngineBindingId,
+    enabled: Set<String>,
+): ModelsPaneUi {
+    val cached = snapshot.models[binding]
+    return ModelsPaneUi(
+        models = cached?.models.orEmpty().map { model ->
+            model.toRow(
+                model.target.model.value in enabled,
+                model.target == snapshot.selection.defaultTarget,
+            ).copy(description = descriptionOf(model.target))
+        }.toImmutableList(),
+        isStale = cached?.observation?.isStale ?: true,
+        isNeverSynced = cached?.observation?.checkedAt == null,
     )
 }
 
@@ -164,9 +183,26 @@ internal fun EngineConnectionsScreenState.target(model: String): EngineTarget? {
     return EngineTarget(EngineId(engine), EngineBindingId(binding), ModelId(model))
 }
 
-/** Operation replacing the enabled models of the selected connection with all or none of its cached models. */
-internal fun EngineConnectionsScreenState.allModels(isEnabled: Boolean): ConnectionOperation? {
-    val binding = selectedConnection ?: return null
-    val ids = if (isEnabled) models?.models.orEmpty().map { ModelId(it.id) }.toSet() else emptySet()
-    return ConnectionOperation.SetModelsEnabled(EngineBindingId(binding), ids)
+/** Edits one checkbox without writing; all other draft and saved selections stay intact. */
+internal fun EngineConnectionsScreenState.editModel(model: String, isEnabled: Boolean): EngineConnectionsScreenState {
+    if (selectedConnection == null || models?.models.orEmpty().none { it.id == model }) return this
+    val current = modelDraft ?: selectedModels
+    return withDraft(if (isEnabled) current + model else current - model)
+}
+
+/** Drafts all cached models, or none; a bulk edit likewise stays local until SaveModels. */
+internal fun EngineConnectionsScreenState.editAllModels(isEnabled: Boolean): EngineConnectionsScreenState {
+    if (selectedConnection == null) return this
+    val cached = models?.models.orEmpty().map { it.id }
+    return withDraft(if (isEnabled) selectedModels + cached else emptySet())
+}
+
+private fun EngineConnectionsScreenState.withDraft(models: Set<String>): EngineConnectionsScreenState {
+    val draft = models.toImmutableSet()
+    return copy(
+        modelDraft = draft,
+        models = this.models?.let { pane ->
+            pane.copy(models = pane.models.map { it.copy(isEnabled = it.id in draft) }.toImmutableList())
+        },
+    )
 }

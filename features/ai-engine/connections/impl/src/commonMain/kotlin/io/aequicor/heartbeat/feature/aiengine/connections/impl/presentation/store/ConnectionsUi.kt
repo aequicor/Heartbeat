@@ -51,7 +51,6 @@ data class MethodRowUi(
     val origin: String,
     val isOriginEditable: Boolean,
     val isPathEditable: Boolean,
-    val credentialsPage: String?,
     /** Host application whose runtime the connection uses, for a host application sign-in. */
     val hostApp: String? = null,
 )
@@ -90,7 +89,6 @@ internal fun ConnectionMethod.toRow(): MethodRowUi = MethodRowUi(
     origin = origin.value,
     isOriginEditable = isOriginEditable,
     isPathEditable = isPathEditable,
-    credentialsPage = provider.credentialsPage,
     hostApp = (this as? ConnectionMethod.CliLogin)?.hostApp?.title,
 )
 

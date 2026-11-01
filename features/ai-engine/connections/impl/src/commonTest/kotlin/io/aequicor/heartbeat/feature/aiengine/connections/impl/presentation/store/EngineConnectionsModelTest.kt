@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -42,6 +43,27 @@ class EngineConnectionsModelTest {
         assertEquals(EngineConnectionsIntent.Public.Start, machine.sent.first())
         assertEquals(KoogId.value, screen.states.value.selectedEngine)
         assertEquals(binding.id.value, screen.states.value.selectedConnection)
+    }
+
+    @Test
+    fun `model checkboxes edit a draft and save sends one replacement`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(settingsSnapshot())
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true))
+        runCurrent()
+        assertTrue(machine.sent.none { it is EngineConnectionsIntent.Public.Apply })
+        assertEquals<Set<String>?>(setOf("llama", "qwen"), screen.states.value.modelDraft)
+        model.store.intent(EngineConnectionsScreenIntent.SaveModels)
+        runCurrent()
+        val apply = machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Apply>().single()
+        assertEquals(
+            ConnectionOperation.SetModelsEnabled(
+                EngineBindingId("home"),
+                setOf(ModelId("llama"), ModelId("qwen")),
+            ),
+            apply.operation,
+        )
     }
 
     @Test
