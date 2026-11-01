@@ -18,12 +18,15 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueSettings
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationContext
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationOption
+import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationRequest
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationStatus
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationVerdict
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuerFailure
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogAuthor
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogEntry
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -31,6 +34,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -42,6 +46,29 @@ class AutoContinueEffectsTest {
     private val valid = """{"status":"continue","reason":"r","options":[{"label":"Дальше","text":"Продолжай"}]}"""
     private val verdict =
         ContinuationVerdict(ContinuationStatus.Continue, "r", listOf(ContinuationOption("Дальше", "Продолжай")))
+
+    @Test
+    fun `chat options without an active request answer are retried before delivery`() = runTest {
+        val answered = """{"status":"continue","answer":{"confirmed":false}}"""
+        val prompts = ScriptedPrompts(IsolatedAnswer.Answered(valid), IsolatedAnswer.Answered(answered))
+        val machine = RecordingScope()
+        effects(prompts = prompts).handle(
+            ask.copy(context = context.copy(request = ContinuationRequest("q", "{}"))),
+            machine,
+        )
+        assertEquals(2, prompts.asked.size)
+        assertEquals(false, (machine.sent.single() as Internal.Answered).verdict.answer?.isConfirmed)
+    }
+
+    @Test
+    fun `an active request without an answer never falls back to a chat message`() = runTest {
+        val sent = mutableListOf<String>()
+        val machine = RecordingScope()
+        effects(prompts = ScriptedPrompts(), hosts = setOf(AutoContinueHost { _, text -> sent.add(text) }))
+            .handle(AutoContinueEffect.Deliver(CHAT, 3, "Allow", request = ContinuationRequest("q", "{}")), machine)
+        assertTrue(sent.isEmpty())
+        assertEquals(listOf<AutoContinueIntent>(Internal.DeliveryFailed(CHAT, 3)), machine.sent)
+    }
 
     @Test
     fun `settings and modes round trip through the store`() = runTest {
@@ -65,7 +92,10 @@ class AutoContinueEffectsTest {
         val prompts = ScriptedPrompts(IsolatedAnswer.Answered("sure!"), IsolatedAnswer.Answered(valid))
         val machine = RecordingScope()
         effects(prompts = prompts).handle(ask, machine)
-        assertEquals(listOf<AutoContinueIntent>(Internal.Answered(CHAT, 1, verdict, NOW)), machine.sent)
+        assertEquals(
+            listOf<AutoContinueIntent>(Internal.Answered(CHAT, 1, verdict, NOW, AutoContinueSettings())),
+            machine.sent,
+        )
         assertEquals(2, prompts.asked.size)
         assertTrue("not a valid JSON object" in prompts.asked[1].text)
         assertEquals(target, prompts.asked[0].target)
@@ -112,6 +142,39 @@ class AutoContinueEffectsTest {
         advanceUntilIdle()
         assertTrue(running.isCompleted)
         assertEquals(emptyList(), machine.sent)
+    }
+
+    @Test
+    fun `resettle revokes an old model job before invoking the host to recollect context`() = runTest {
+        val gate = CompletableDeferred<IsolatedAnswer>()
+        var oldJob: Job? = null
+        val prompts = object : IsolatedPrompts {
+            override suspend fun ask(prompt: IsolatedPrompt): IsolatedAnswer {
+                oldJob = currentCoroutineContext()[Job]
+                return gate.await()
+            }
+        }
+        val resettled = mutableListOf<String>()
+        var isOldJobActiveAtHost = true
+        val host = object : AutoContinueHost {
+            override suspend fun deliver(chat: String, text: String) = false
+
+            override suspend fun resettle(chat: String) {
+                isOldJobActiveAtHost = checkNotNull(oldJob).isActive
+                resettled += chat
+                gate.complete(IsolatedAnswer.Answered(valid))
+            }
+        }
+        val machine = RecordingScope()
+        val handler = effects(prompts = prompts, hosts = setOf(host))
+        val running = launch { handler.handle(ask, machine) }
+        runCurrent()
+        handler.handle(AutoContinueEffect.Resettle(CHAT), machine)
+        advanceUntilIdle()
+        assertFalse(isOldJobActiveAtHost)
+        assertEquals(listOf(CHAT), resettled)
+        assertTrue(running.isCompleted)
+        assertTrue(machine.sent.isEmpty())
     }
 
     @Test
@@ -181,7 +244,7 @@ class AutoContinueEffectsTest {
     }
 
     @Test
-    fun `stored autopilot chats are loaded as stopped and saved as suggest chats`() = runTest {
+    fun `stored autopilot choices survive loading without rewriting modes`() = runTest {
         val store = MemoryStore()
         store.saveMode(CHAT, AutoContinueMode.Autopilot)
         store.saveMode("b", AutoContinueMode.Suggest)
@@ -196,7 +259,7 @@ class AutoContinueEffectsTest {
             ),
             machine.sent,
         )
-        assertEquals(mapOf(CHAT to AutoContinueMode.Suggest, "b" to AutoContinueMode.Suggest), store.modes())
+        assertEquals(mapOf(CHAT to AutoContinueMode.Autopilot, "b" to AutoContinueMode.Suggest), store.modes())
     }
 
     @Test

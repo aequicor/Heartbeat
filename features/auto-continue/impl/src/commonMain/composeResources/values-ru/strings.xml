@@ -19,4 +19,27 @@
     <string name="auto_continue_countdown_value">%1$d с</string>
     <string name="auto_continue_section_suggestions">Подсказки</string>
     <string name="auto_continue_options">Вариантов после хода</string>
+    <string name="auto_prompt">Системный промпт</string>
+    <string name="auto_prompt_hint">Инструкции, по которым автопилот принимает решения и отвечает агенту.</string>
+    <string name="auto_history">Объём истории</string>
+    <string name="auto_history_count">Последние %1$d сообщений</string>
+    <string name="auto_history_hint">Первая задача и последние указания сохраняются при любом объёме.</string>
+    <string name="auto_context">Что включать в контекст</string>
+    <string name="auto_more">Больше настроек</string>
+    <string name="auto_required">Задача и активный запрос включаются всегда.</string>
+    <string name="auto_done">Готово</string>
+    <string name="auto_source_history">История беседы</string>
+    <string name="auto_source_history_hint">Сообщения пользователя и ответы агента.</string>
+    <string name="auto_source_plan">Текущий план</string>
+    <string name="auto_source_plan_hint">Шаги, статус и содержание плана.</string>
+    <string name="auto_source_tools">Результаты инструментов</string>
+    <string name="auto_source_tools_hint">Результаты и ошибки выполнения.</string>
+    <string name="auto_source_arguments">Аргументы инструментов</string>
+    <string name="auto_source_arguments_hint">Параметры выполненных вызовов.</string>
+    <string name="auto_source_checklist">Чек-лист</string>
+    <string name="auto_source_checklist_hint">Задачи и их состояние выполнения.</string>
+    <string name="auto_source_questions">Завершённые анкеты</string>
+    <string name="auto_source_questions_hint">Предыдущие вопросы и отправленные ответы.</string>
+    <string name="auto_source_background">Результаты фоновых задач</string>
+    <string name="auto_source_background_hint">Завершённые задачи и полученные результаты.</string>
 </resources>

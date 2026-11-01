@@ -163,7 +163,10 @@ private fun hostedApproval(turn: Turn, action: AgentToolApproval): PermissionReq
     PermissionRequestId(UUID.randomUUID().toString()),
     turn.id,
     action.title,
-    listOf(PermissionOption(HostedAllow, "Разрешить"), PermissionOption(HostedDeny, "Запретить")),
+    listOf(
+        PermissionOption(HostedAllow, "Разрешить", isOneTime = true),
+        PermissionOption(HostedDeny, "Запретить", isOneTime = true),
+    ),
     description = action.description,
 )
 

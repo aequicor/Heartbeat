@@ -4,6 +4,7 @@ package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 import androidx.compose.runtime.Immutable
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -118,6 +119,7 @@ data class SubmissionUi(
     val sessionId: String? = null,
     val isDisplayed: Boolean = true,
     val harnesses: ImmutableSet<String> = persistentSetOf(),
+    val autoContinue: AutoContinueUi? = null,
 )
 
 /**
@@ -141,6 +143,7 @@ fun AiStudioScreenState.pendingSubmission(paneId: Int, id: String): SubmissionUi
         draft(paneId),
         attachments(paneId),
         sessionId = sessionId,
+        autoContinue = newChatAutoContinue[paneId].takeIf { sessionId == null },
         harnesses = if (pane != null && sessionId == null) {
             val selected = selectedHarnesses(pane)
             availableHarnesses(pane).filter { it.id in selected }.map { it.id }.toImmutableSet()
@@ -158,6 +161,7 @@ fun AiStudioScreenState.queueSubmission(id: String, pending: SubmissionUi): AiSt
     val currentKey = draftKey(pending.paneId)
     return copy(
         submissions = (submissions + (id to pending)).toImmutableMap(),
+        newChatAutoContinue = (newChatAutoContinue - pending.paneId).toImmutableMap(),
         drafts = ((drafts - currentKey) + (pending.draftKey to pending.text)).toImmutableMap(),
         draftAttachments = ((draftAttachments - currentKey) + (pending.draftKey to pending.attachments))
             .toImmutableMap(),
@@ -231,6 +235,7 @@ private fun AiStudioScreenState.rejectDraft(id: String, sessionId: String): AiSt
         drafts = nextDrafts.toImmutableMap(),
         draftAttachments = nextFiles.toImmutableMap(),
         harnessChoices = harnessChoices.restorePane(submitted, nextKey),
+        newChatAutoContinue = restoredAutoContinue(submitted, nextKey),
         attachmentRequests = attachmentRequests.mapValues { (_, key) ->
             if (key == submitted.draftKey) nextKey else key
         }.toImmutableMap(),
@@ -256,3 +261,14 @@ private const val DEFAULT_TOTAL_BYTES = 25L * 1024 * 1024
 
 /** A draft cannot be submitted while its attachment request has not returned. */
 fun AiStudioScreenState.isAttachmentPending(paneId: Int): Boolean = draftKey(paneId) in attachmentRequests.values
+
+/** A refused new-chat choice returns only to its original visible draft and never overwrites a newer choice. */
+private fun AiStudioScreenState.restoredAutoContinue(
+    submitted: SubmissionUi,
+    nextKey: String,
+): ImmutableMap<Int, AutoContinueUi> {
+    val choice = submitted.autoContinue ?: return newChatAutoContinue
+    if (!submitted.isDisplayed || nextKey != "pane:${submitted.paneId}") return newChatAutoContinue
+    if (submitted.paneId in newChatAutoContinue) return newChatAutoContinue
+    return (newChatAutoContinue + (submitted.paneId to choice)).toImmutableMap()
+}

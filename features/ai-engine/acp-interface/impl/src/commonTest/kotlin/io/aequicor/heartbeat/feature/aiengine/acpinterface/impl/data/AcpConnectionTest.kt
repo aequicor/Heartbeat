@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 
 class AcpConnectionTest {
     @Test
-    fun `new and load forward trusted MCP servers`() = runTest {
+    fun `new load and resume forward trusted MCP servers`() = runTest {
         val h = AcpTestHarness(this)
         h.initialize("""{"loadSession":true}""")
         val server = Json.parseToJsonElement(
@@ -39,6 +39,14 @@ class AcpConnectionTest {
         )
         h.reply(load, "{}")
         loading.await()
+        val resuming = backgroundScope.async { h.client.resumeSession("restored", "/workspace", listOf(server)) }
+        val resume = h.outgoing("session/resume")
+        assertEquals(
+            kotlinx.serialization.json.JsonArray(listOf(server)),
+            resume.obj("params")["mcpServers"] as kotlinx.serialization.json.JsonArray,
+        )
+        h.reply(resume, "{}")
+        resuming.await()
         h.client.close()
     }
 

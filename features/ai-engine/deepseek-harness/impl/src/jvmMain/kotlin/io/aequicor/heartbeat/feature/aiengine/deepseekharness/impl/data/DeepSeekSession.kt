@@ -82,6 +82,7 @@ internal class DeepSeekSession(
     val target: EngineTarget,
     internal val runtime: DeepSeekRuntime,
     private val workingDirectory: String,
+    private val hosted: DeepSeekHosted = DeepSeekHosted(),
 ) : SessionHistory {
     val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
     private val history = DeepSeekHistory()
@@ -93,6 +94,9 @@ internal class DeepSeekSession(
     private val toolCalls = mutableMapOf<String, Pair<String?, JsonObject?>>()
     private val mutex = Mutex()
     private val admissions = Mutex()
+    private val hostedCalls = mutableMapOf<String, Pair<TurnId, String>>()
+    private val usedHostedCalls = mutableSetOf<String>()
+    private val hostedLifetimes = mutableMapOf<String, Job>()
     private var position = 0L
     private var currentTurn: Turn? = null
     private var currentRequest: PromptRequest? = null
@@ -104,6 +108,10 @@ internal class DeepSeekSession(
     private var isCancelPending = false
     private var isInterrupting = false
     private val log = Log.tag("DeepSeekSession")
+
+    private companion object {
+        const val MAX_HOSTED_CALLS = 8192
+    }
 
     suspend fun lease(): ActiveSession = mutex.withLock {
         runtime.checkActive()
@@ -156,6 +164,8 @@ internal class DeepSeekSession(
         isInterrupting = false
         messageId = null
         toolCalls.clear()
+        hostedCalls.clear()
+        hostedLifetimes.clear()
         log.i { "DeepSeek Harness turn submitted" }
         setState(ActiveSessionState.Running(turn))
         history.publish { SessionEvent.TurnStarted(it, turn) }
@@ -237,6 +247,32 @@ internal class DeepSeekSession(
         refreshState()
     }
 
+    /** Atomically consumes an ACP-admitted call; a late or duplicate MCP request cannot borrow another turn. */
+    suspend fun hostedContext(call: String, name: String): AgentToolContext? = mutex.withLock {
+        val turn = currentTurn?.takeIf { it.outcome == null } ?: return@withLock null
+        val origin = hostedCalls.remove(call) ?: return@withLock null
+        if (origin != (turn.id to name) || runtime.isClosed) return@withLock null
+        val lifetime = hostedLifetimes[call]?.takeIf { it.isActive } ?: return@withLock null
+        val prompt = currentRequest ?: return@withLock null
+        AgentToolContext(
+            ref, route.workspace, turn.id, prompt.id, prompt.trust ?: TrustLevel.Ask,
+            AgentToolPermissions { approval -> requestUserPermission(turn.id, approval) },
+            callId = ToolCallId(call), lifetime = lifetime, target = target,
+            decisionMode = prompt.decisionMode, reviewTarget = prompt.reviewTarget,
+            userInstruction = prompt.userInstruction,
+        )
+    }
+
+    private suspend fun admitHosted(call: String, name: String, turn: TurnId): Boolean = mutex.withLock {
+        if (currentTurn?.id != turn || currentTurn?.outcome != null) return@withLock false
+        if (turnLifetime?.isActive != true || runtime.isClosed) return@withLock false
+        if (call.isBlank() || usedHostedCalls.size >= MAX_HOSTED_CALLS) return@withLock false
+        if (!usedHostedCalls.add(call)) return@withLock false
+        hostedCalls[call] = turn to name
+        hostedLifetimes[call] = Job(turnLifetime)
+        true
+    }
+
     suspend fun permission(request: AcpPermissionRequest): AcpPermissionOutcome {
         val (turn, prompt, lifetime) = activePermission() ?: return AcpPermissionOutcome.Cancelled
         val toolCallId = request.toolCall["toolCallId"]?.jsonPrimitive?.contentOrNull
@@ -245,6 +281,15 @@ internal class DeepSeekSession(
         // Never persist a CLI allow rule that could bypass later modes.
         val option = request.options.firstOrNull { it.kind == "allow_once" }
             ?: return AcpPermissionOutcome.Cancelled
+        val title = mutex.withLock { (history[ItemId("tool-$toolCallId")] as? SessionItem.ToolCall)?.name }
+        val hostedName = hosted.names[title]
+        if (hostedName != null) {
+            return if (admitHosted(toolCallId, hostedName, turn.id)) {
+                AcpPermissionOutcome.Selected(option.optionId)
+            } else {
+                AcpPermissionOutcome.Cancelled
+            }
+        }
         val permissions = AgentToolPermissions { approval -> requestUserPermission(turn.id, approval) }
         val context = AgentToolContext(
             ref,
@@ -288,9 +333,10 @@ internal class DeepSeekSession(
                 turn,
                 approval.title,
                 listOf(
-                    PermissionOption(PermissionOptionId("allow"), "Allow", false),
-                    PermissionOption(PermissionOptionId("deny"), "Deny", true),
+                    PermissionOption(PermissionOptionId("allow"), "Allow", false, isOneTime = true),
+                    PermissionOption(PermissionOptionId("deny"), "Deny", true, isOneTime = true),
                 ),
+                description = approval.description,
             )
             val answer = CompletableDeferred<AcpPermissionOutcome>()
             pending[id] = PendingPermission(normalized, answer)
@@ -360,6 +406,40 @@ internal class DeepSeekSession(
             status,
         )
         upsert(item)
+        updateToolResult(id, update, status, turn)
+        revokeCompletedHosted(id, status)
+    }
+
+    @HighFrequency
+    private fun updateToolResult(id: String, update: JsonObject, status: ToolCallStatus, turn: TurnId?) {
+        if (status != ToolCallStatus.Succeeded && status != ToolCallStatus.Failed) return
+        val content = update["content"] as? kotlinx.serialization.json.JsonArray ?: return
+        val parts = content.mapNotNull { entry ->
+            val block = (entry as? JsonObject)?.get("content") as? JsonObject ?: return@mapNotNull null
+            (block["text"] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull?.let(ContentPart::Text)
+        }
+        val resultId = ItemId("result-$id")
+        val previous = history[resultId]
+        upsert(
+            SessionItem.ToolResult(
+                ItemInfo(
+                    resultId,
+                    previous?.info?.position ?: nextPosition(),
+                    (previous?.info?.revision ?: -1) + 1,
+                    turn,
+                ),
+                ToolCallId(id),
+                parts,
+                if (status == ToolCallStatus.Failed) EngineFailure.Unknown() else null,
+            ),
+        )
+    }
+
+    private fun revokeCompletedHosted(id: String, status: ToolCallStatus) {
+        if (status == ToolCallStatus.Succeeded || status == ToolCallStatus.Failed) {
+            hostedCalls.remove(id)
+            hostedLifetimes.remove(id)?.cancel()
+        }
     }
 
     private fun toolStatus(status: String?, previous: SessionItem.ToolCall?): ToolCallStatus = when (status) {
@@ -437,17 +517,20 @@ internal class DeepSeekSession(
         currentTurn = finished
         turnLifetime?.cancel()
         turnLifetime = null
-        submission.value?.completeExceptionally(
-            EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, turn.request)),
-        )
+        hostedCalls.clear()
+        hostedLifetimes.clear()
         log.i { "DeepSeek Harness turn finished" }
         pending.values.forEach { it.answer.complete(AcpPermissionOutcome.Cancelled) }
         pending.clear()
         setState(ActiveSessionState.Ready(finished))
         history.publish { SessionEvent.TurnFinished(it, finished.id, outcome) }
+        submission.value?.completeExceptionally(
+            EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, turn.request)),
+        )
     }
 
     fun revoke() {
+        hosted.close()
         sessionLifetime.cancel()
         turnLifetime?.cancel()
     }

@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -46,6 +47,7 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
@@ -112,9 +114,22 @@ class StudioAutoContinueUiTest {
         onNodeWithContentDescription(labels.add).performClick()
         onNodeWithText(labels.menu).performScrollTo().performClick()
         onNodeWithText(labels.autopilot).performClick()
+        runOnIdle { assertTrue(events.isEmpty()) }
+        onNodeWithTag("autopilot-other-model").performClick()
+        val preview = File("build/previews").apply { mkdirs() }
+        check(ImageIO.write(captureToImage().toAwtImage(), "png", File(preview, "autopilot-model-list.png")))
+        // Dismiss the popup by selecting a route; this enables independently of native switching.
+        onAllNodes(hasText(StudioModelOptions.first().name)).onLast().performClick()
         runOnIdle {
             assertEquals(
-                listOf<StudioIntent>(StudioIntent.SetAutoContinue("chat", AutoContinueModeUi.Autopilot)),
+                listOf<StudioIntent>(
+                    StudioIntent.SetAutoContinue(
+                        "chat",
+                        AutoContinueModeUi.Autopilot,
+                        paneId = 0,
+                        modelId = StudioModelOptions.first().id,
+                    ),
+                ),
                 events,
             )
         }

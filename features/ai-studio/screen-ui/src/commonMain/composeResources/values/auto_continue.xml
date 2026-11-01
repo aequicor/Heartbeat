@@ -35,4 +35,14 @@
     <string name="auto_continue_notice_user_stopped">Autopilot stopped</string>
     <string name="auto_continue_notice_took_over">Autopilot stopped: you took over</string>
     <string name="auto_continue_notice_restarted">Autopilot stopped by the restart</string>
+    <string name="auto_enable_title">Enable autopilot</string>
+    <string name="auto_enable_hint">Choose the model for replies in this chat</string>
+    <string name="auto_current">Use current</string>
+    <string name="auto_other">Choose another</string>
+    <string name="auto_models_header">Engine · Model · Connection</string>
+    <string name="auto_waiting_event">Waiting for an event · autopilot enabled</string>
+    <string name="auto_agent_working">Agent is working · autopilot enabled</string>
+    <string name="auto_enabled">Autopilot enabled</string>
+    <string name="auto_manual_pause">Chat stopped by you · autopilot paused</string>
+    <string name="auto_agent_pause">Agent interrupted the turn · autopilot paused</string>
 </resources>

@@ -166,7 +166,8 @@ internal class StudioQuestionBridge(
                 val question = output.questionnaire
                 if (!question.id.value.startsWith(LIVE_QUESTION_ID_PREFIX)) {
                     val delivery = lock.withLock {
-                        if (question.id in deliveries || pending(question.id) != question) {
+                        val isSnapshotCurrent = isSnapshotCurrent(output)
+                        if (question.id in deliveries || pending(question.id) != question || !isSnapshotCurrent) {
                             null
                         } else {
                             Delivery(
@@ -187,6 +188,12 @@ internal class StudioQuestionBridge(
                     }
                 }
             }
+    }
+
+    /** Called under the bridge lock, against the same live snapshot used to create Delivery. */
+    private fun isSnapshotCurrent(output: QuestionnaireOutput.Answered): Boolean {
+        val generated = output.context as? AutopilotQuestionContext ?: return true
+        return live[output.questionnaire.id] == generated.permission
     }
 
     private suspend fun deliver(delivery: Delivery, answer: Answer) {

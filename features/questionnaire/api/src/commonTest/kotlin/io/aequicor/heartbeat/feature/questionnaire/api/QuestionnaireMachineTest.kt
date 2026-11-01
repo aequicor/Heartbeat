@@ -24,6 +24,22 @@ class QuestionnaireMachineTest {
     private val asking = QuestionnaireState.Asking(listOf(pick))
 
     @Test
+    fun `a generated answer cannot approve a replacement question with the same id`() {
+        val changed = confirm.copy(description = "A different command")
+        val state = QuestionnaireState.Asking(listOf(changed))
+        spec.assertIgnored(
+            state,
+            QuestionnaireIntent.Public.Answer(confirm.id, Answer.Confirmed(true), expectedQuestionnaire = confirm),
+        )
+        spec.assertTransition(
+            state,
+            QuestionnaireIntent.Public.Answer(changed.id, Answer.Confirmed(true), expectedQuestionnaire = changed),
+            state.copy(submitting = setOf(changed.id)),
+            outputs = listOf(QuestionnaireOutput.Answered(changed, Answer.Confirmed(true))),
+        )
+    }
+
+    @Test
     fun `accepted answers relay trusted context without storing it in queue state`() {
         val context = object : QuestionnaireAnswerContext { }
         spec.assertTransition(

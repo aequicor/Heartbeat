@@ -9,7 +9,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
  * The dialog the continuer reads, built from chat [items] (oldest first): every user message (marked
  * [DialogAuthor.Autopilot] when its id is in [autopilotItems]) and, for every agent turn between them, only the text of
  * its last assistant message — tool calls, tool results, reasoning, plans and notices are dropped. Empty texts are
- * skipped. Pure and deterministic.
+ * skipped. The host's display order is authoritative: native positions can restart on resume or engine transfer.
+ * Pure and deterministic.
  */
 public fun dialogOf(items: List<SessionItem>, autopilotItems: Set<ItemId> = emptySet()): List<DialogEntry> {
     val entries = mutableListOf<DialogEntry>()
@@ -18,7 +19,7 @@ public fun dialogOf(items: List<SessionItem>, autopilotItems: Set<ItemId> = empt
         lastAgent?.let { entries += DialogEntry(DialogAuthor.Agent, it) }
         lastAgent = null
     }
-    for (item in items.sortedBy { it.info.position }.filterIsInstance<SessionItem.Message>()) {
+    for (item in items.filterIsInstance<SessionItem.Message>()) {
         val text = item.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }.trim()
         when {
             text.isEmpty() -> Unit

@@ -54,7 +54,8 @@ public enum class HbDialogWidth {
  * The one modal surface of the design system: a dialog on wide windows and a full-width sheet on compact ones.
  * A [title], scrollable [content] and [actions] aligned to the trailing edge (primary action last). Esc, the
  * system back action and a click outside call [onDismissRequest]; the caller decides whether to close.
- * The surface is flat with the popup shadow — the only elevated surface of the style — and no blur.
+ * The surface is flat with the popup shadow. [isBackgroundBlurred] opts desktop configuration dialogs
+ * into the window portal with a blurred background; other platforms retain their modal scrim.
  * With [isContentScrollable] false the content area is still bounded by the window but does not scroll itself,
  * so content with its own scrolling (for example on both axes) is not nested inside a vertical scroll.
  * [isContentFill] gives an application workspace all available height. Its fixed [headerActions] remain reachable
@@ -79,6 +80,7 @@ public fun HbDialog(
     isCompact: Boolean = isContentFill,
     isContentEdgeToEdge: Boolean = false,
     isInWindow: Boolean = isContentEdgeToEdge,
+    isBackgroundBlurred: Boolean = false,
     headerActions: @Composable RowScope.() -> Unit = {},
     actions: (@Composable RowScope.() -> Unit)? = null,
     overlayCloseLabel: String? = null,
@@ -93,7 +95,8 @@ public fun HbDialog(
     val inset = if (isCompact) HbTheme.spacing.s else HbTheme.spacing.xl
     val gap = if (isCompact) HbTheme.spacing.s else HbTheme.spacing.l
     HbPlatformDialog(
-        isInWindow = isInWindow,
+        isInWindow = isInWindow || isBackgroundBlurred,
+        isBackgroundBlurred = isBackgroundBlurred,
         onDismissRequest = {
             log.i { "dialog dismissed" }
             dismiss()
@@ -244,5 +247,6 @@ private fun DialogHeader(title: String, isTitleVisible: Boolean, actions: @Compo
 internal expect fun HbPlatformDialog(
     onDismissRequest: () -> Unit,
     isInWindow: Boolean = false,
+    isBackgroundBlurred: Boolean = false,
     content: @Composable () -> Unit,
 )

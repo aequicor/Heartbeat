@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueSettings
 import io.aequicor.heartbeat.feature.autocontinue.impl.domain.AutoContinueStore
@@ -28,6 +29,13 @@ internal class KeyValueAutoContinueStore(
 
     override suspend fun modes(): Map<String, AutoContinueMode> = store.get(MODES).orEmpty()
 
+    override suspend fun targets(): Map<String, EngineTarget> = store.get(TARGETS).orEmpty()
+
+    override suspend fun saveTarget(chat: String, target: EngineTarget?) {
+        val targets = targets()
+        store.set(TARGETS, if (target == null) targets - chat else targets + (chat to target))
+    }
+
     override suspend fun saveSettings(settings: AutoContinueSettings) {
         log.d { "write auto-continue settings" }
         store.set(SETTINGS, settings)
@@ -44,5 +52,6 @@ internal class KeyValueAutoContinueStore(
         val SPEC = KeyValueSpec("auto_continue")
         val SETTINGS = jsonKey("settings", AutoContinueSettings.serializer())
         val MODES = jsonKey("modes", MapSerializer(String.serializer(), AutoContinueMode.serializer()))
+        val TARGETS = jsonKey("targets", MapSerializer(String.serializer(), EngineTarget.serializer()))
     }
 }

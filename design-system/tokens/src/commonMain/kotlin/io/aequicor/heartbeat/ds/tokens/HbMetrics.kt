@@ -166,6 +166,10 @@ data class HbDimensions(
     val keyboardScrollStep: Dp = 40.dp,
     /** Height of a code editor holding a whole source file, such as a harness script. */
     val codeEditorHeight: Dp = 360.dp,
+    /** Visible area of the autopilot system prompt; longer instructions scroll inside it. */
+    val autopilotPromptHeight: Dp = 240.dp,
+    /** Background blur of explicit autopilot configuration modals. */
+    val modalBackdropBlur: Dp = 8.dp,
     /** Height of a code editor for a short structured value, such as a JSON schema. */
     val codeEditorCompactHeight: Dp = 160.dp,
     val swatchSize: Dp = 64.dp,

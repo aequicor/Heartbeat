@@ -51,6 +51,17 @@ class StudioTurnEndTest {
         SessionItem.Message(ItemInfo(ItemId(id), position++, 0, TurnId(turn)), role, listOf(ContentPart.Text(text)))
 
     @Test
+    fun `latest human instructions survive more than sixty later agent replies`() {
+        val items = listOf(
+            message("first", MessageRole.User, "original task", "t1"),
+            message("latest", MessageRole.User, "LATEST RULE", "t2"),
+        ) + (1..80).map { message("a$it", MessageRole.Assistant, "reply $it", "a$it") }
+        val context = continuationContext(record, items, emptySet(), null)
+        assertTrue(context?.dialog.orEmpty().any { it.text == "LATEST RULE" })
+        assertTrue(context?.dialog.orEmpty().any { it.text == "original task" })
+    }
+
+    @Test
     fun `a turn waits for the human while anything is open`() {
         assertFalse(StudioTurnEnd().isAwaitingHuman)
         assertFalse(StudioTurnEnd(plan = plan).isAwaitingHuman)
@@ -59,7 +70,7 @@ class StudioTurnEndTest {
         )
         assertTrue(StudioTurnEnd(plan = plan.copy(status = PlanStatus.Proposed)).isAwaitingHuman)
         assertTrue(StudioTurnEnd(isChecklistOpen = true).isAwaitingHuman)
-        assertTrue(StudioTurnEnd(hasWakes = true).isAwaitingHuman)
+        assertFalse(StudioTurnEnd(hasWakes = true).isAwaitingHuman)
         assertTrue(StudioTurnEnd(isCompacting = true).isAwaitingHuman)
         assertTrue(StudioTurnEnd(hasQuestions = true).isAwaitingHuman)
     }
@@ -160,7 +171,7 @@ class StudioTurnEndTest {
                 )
             }
         val dialog = continuationContext(record, items, emptySet(), plan = null)?.dialog.orEmpty()
-        assertEquals(60, dialog.size)
+        assertEquals(21, dialog.size)
         assertEquals(DialogEntry(DialogAuthor.Human, "task"), dialog.first())
         assertEquals(DialogEntry(DialogAuthor.Agent, "done 80"), dialog.last())
     }

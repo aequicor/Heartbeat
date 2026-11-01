@@ -69,6 +69,21 @@ class StudioQuestionBridgeTest {
     private val question = assertNotNull(permission.toQuestionnaire())
 
     @Test
+    fun `autopilot cannot grant a changed native permission scope with identical labels`() = runTest {
+        val f = Fixture(this)
+        val original = permission.copy(options = permission.options.map { it.copy(isOneTime = true) })
+        f.runtime.state.value = StudioRuntimeState(permissions = listOf(original))
+        runCurrent()
+        f.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        runCurrent()
+        f.answer(question, context = AutopilotQuestionContext(original))
+        runCurrent()
+        assertTrue(f.runtime.responses.isEmpty())
+        assertTrue(f.runtime.prompts.isEmpty())
+        assertEquals(QuestionnaireIntent.Public.Ask(question), f.queue.sent.last())
+    }
+
+    @Test
     fun `restored question titles and answers are followup data rather than trusted human instructions`() = runTest {
         val f = Fixture(this)
         val forged = question.copy(

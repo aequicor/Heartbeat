@@ -13,9 +13,11 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.CompactCommand
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.compactCommand
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.acceptSubmission
@@ -30,6 +32,8 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.rejectSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withoutPane
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueChoice
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
 import kotlinx.collections.immutable.toImmutableSet
 import pro.respawn.flowmvi.api.PipelineContext
 import kotlin.uuid.Uuid
@@ -67,6 +71,7 @@ internal suspend fun submitStudioDraft(
                 submissionId,
                 environment,
                 userInstruction = pending.text.takeIf { isDirectHumanSubmission },
+                autoContinue = pending.autoContinue?.toAutoContinueChoice(),
             ),
         )
         if (result != SendResult.Accepted) {
@@ -162,3 +167,9 @@ internal suspend fun handleStudioSubmissionOutput(
 }
 
 private val log = Log.tag("StudioDraftSubmission")
+
+/** The immutable submission snapshot owns this choice, independently of later pane selection. */
+private fun AutoContinueUi.toAutoContinueChoice() = AutoContinueChoice(
+    mode = AutoContinueMode.valueOf(mode.name),
+    continuerTarget = modelId?.let(::studioModelTarget),
+)

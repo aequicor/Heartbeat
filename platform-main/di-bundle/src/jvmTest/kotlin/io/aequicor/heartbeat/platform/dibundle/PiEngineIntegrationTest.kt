@@ -32,13 +32,15 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/** Wiring of the bundled Pi engine; the host-specific default choice is covered by facade:impl unit tests. */
+/**
+ * Wiring of the bundled Pi engine. The complete profile also observes engine preparation, so factory laziness
+ * of default resolution is checked in isolation by facade:impl's RegisteredEngineDefaultsTest.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class PiEngineIntegrationTest {
     private val persisted = PersistedProfile()
@@ -55,12 +57,11 @@ class PiEngineIntegrationTest {
     }
 
     @Test
-    fun `profile keeps one Pi registration and default resolution does not construct the adapter`() = withProfile {
+    fun `profile keeps one Pi registration and resolves its default`() = withProfile {
         val registration = engines.piRegistration()
         assertTrue(registration.descriptor.isDefault)
-        engines.engineDefaults.preferred()
+        assertEquals(PiEngineId, engines.engineDefaults.preferred())
         assertSame(registration, engines.piRegistration())
-        assertFalse(registration.factory.isInitialized())
     }
 
     @Test
@@ -75,7 +76,6 @@ class PiEngineIntegrationTest {
         assertTrue(toggles.registered.containsAll(listOf(AiEngines, PiEnabled)))
         toggles.setOverride(PiEnabled, false)
         assertNull(engines.engineDefaults.preferred())
-        assertFalse(engines.piRegistration().factory.isInitialized())
     }
 
     @Test
