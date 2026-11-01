@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineEnablement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import java.io.File
@@ -140,7 +141,8 @@ class EngineBrowserUiTest {
     fun `desktop light and dark engine browser renders reviewable previews`() {
         listOf(false, true).forEach { dark ->
             runSkikoComposeUiTest(size = Size(1016f, 800f)) {
-                val panel = EngineControlPanelState(CodexId.value).reflect(CodexId, managedSnapshot())
+                val installed = managedCodexWithCopy().copy(login = LoginState.SignedIn())
+                val panel = EngineControlPanelState(CodexId.value).reflect(CodexId, managedSnapshot(installed))
                 setContent {
                     HbTheme(dimensions = HbDimensions.Desktop, darkTheme = dark) {
                         EngineControlBrowserContent(loaded, "codex", {}) {
