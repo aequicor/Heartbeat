@@ -25,7 +25,8 @@ class EngineConfiguredModelsTest {
             ModelSelection(listOf(BindingModels(first.id, setOf(ModelId("model"))))),
         )
         val bindings = MutableStateFlow(listOf(first, second, other))
-        val configured = selected.configuredEngines(bindings)
+        val sources = MutableStateFlow(setOf(first.authSource))
+        val configured = selected.configuredEngines(bindings, sources)
         assertEquals(setOf(first.engine), configured.first())
 
         bindings.value = listOf(first.copy(isEnabled = false), second, other)
@@ -37,6 +38,11 @@ class EngineConfiguredModelsTest {
         assertEquals(emptySet(), configured.first())
         assertEquals(setOf(ModelId("model")), selected.state.value.enabled(first.id))
         selected.state.value = selected.state.value.withEnabled(other.id, setOf(ModelId("other-model")))
+        assertEquals(setOf(other.engine), configured.first())
+        sources.value = emptySet()
+        assertEquals(emptySet(), configured.first())
+        assertEquals(setOf(ModelId("other-model")), selected.state.value.enabled(other.id))
+        sources.value = setOf(other.authSource)
         assertEquals(setOf(other.engine), configured.first())
     }
 }

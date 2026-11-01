@@ -375,7 +375,8 @@ private fun KeyField(
         placeholder = stringResource(Res.string.wizard_key_placeholder),
         enabled = isEnabled,
         accessibleLabel = stringResource(Res.string.wizard_field_key),
-        isSecret = !isKeyVisible,
+        isSecret = true,
+        isSecretVisible = isKeyVisible,
         trailingContent = {
             HbIconButton(
                 if (isKeyVisible) HbIcons.EyeOff else HbIcons.Eye,

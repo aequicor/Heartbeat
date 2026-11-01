@@ -136,11 +136,14 @@ class EngineConnectionsModel(
         when (intent) {
             is EngineConnectionsScreenIntent.SelectEngine -> updateState {
                 copy(selectedEngine = intent.id, selectedConnection = null, confirmDisconnect = null)
+                    .clearModelDraft()
                     .reflect(machine.state.value)
             }
 
             is EngineConnectionsScreenIntent.SelectConnection -> updateState {
-                copy(selectedConnection = intent.id, confirmDisconnect = null).reflect(machine.state.value)
+                val selected = copy(selectedConnection = intent.id, confirmDisconnect = null)
+                (if (selectedConnection == intent.id) selected else selected.clearModelDraft())
+                    .reflect(machine.state.value)
             }
 
             is EngineConnectionsScreenIntent.RequestDisconnect -> updateState { copy(confirmDisconnect = intent.id) }
@@ -217,13 +220,19 @@ internal fun EngineConnectionsScreenState.operationFor(
             if (engine != null && binding != null) ConnectionOperation.RefreshModels(engine, binding) else null
         }
 
-        EngineConnectionsScreenIntent.SaveModels -> binding?.let {
-            ConnectionOperation.SetModelsEnabled(
-                it,
-                (modelDraft ?: selectedModels).map(::ModelId).toSet(),
-            )
-        }
+        EngineConnectionsScreenIntent.SaveModels -> modelSaveOperation()
 
         is EngineConnectionsScreenIntent.SetDefaultModel -> target(intent.id)?.let(ConnectionOperation::SetDefaultModel)
     }
+}
+
+private fun EngineConnectionsScreenState.modelSaveOperation(): ConnectionOperation.SetModelsEnabled? {
+    val binding = selectedConnection?.let(::EngineBindingId) ?: return null
+    val draft = modelDraft.takeIf { modelDraftBinding == binding.value }
+    val baseline = if (draft == null) null else (modelDraftBaseline ?: selectedModels).map(::ModelId).toSet()
+    return ConnectionOperation.SetModelsEnabled(
+        binding = binding,
+        models = (draft ?: selectedModels).map(::ModelId).toSet(),
+        previous = baseline,
+    )
 }

@@ -25,6 +25,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CredentialForm
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.SecretText
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connect
@@ -38,7 +40,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import org.jetbrains.compose.resources.getString
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
@@ -85,15 +86,23 @@ class ConnectWizardUiTest {
     }
 
     @Test
-    fun `key is masked by default and visibility actions are named`() = runSkikoComposeUiTest {
-        val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingMethod(engineInfo()))
+    fun `key stays secure while visibility actions reveal and mask its value`() = runSkikoComposeUiTest {
+        val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingMethod(engineInfo())).copy(
+            form = CredentialForm(key = SecretText("sk-123")),
+        )
         setContent { HbTheme { ConnectWizardContent(state, {}) } }
         val field = onNodeWithTag("wizard-key")
-        assertTrue(SemanticsProperties.Password in field.fetchSemanticsNode().config)
+        var config = field.fetchSemanticsNode().config
+        assertTrue(SemanticsProperties.Password in config)
+        assertEquals("••••••", config[SemanticsProperties.EditableText].text)
         onNodeWithContentDescription(getString(Res.string.wizard_show_key)).assertExists().performClick()
-        assertFalse(SemanticsProperties.Password in field.fetchSemanticsNode().config)
+        config = field.fetchSemanticsNode().config
+        assertTrue(SemanticsProperties.Password in config)
+        assertEquals("sk-123", config[SemanticsProperties.EditableText].text)
         onNodeWithContentDescription(getString(Res.string.wizard_hide_key)).assertExists().performClick()
-        assertTrue(SemanticsProperties.Password in field.fetchSemanticsNode().config)
+        config = field.fetchSemanticsNode().config
+        assertTrue(SemanticsProperties.Password in config)
+        assertEquals("••••••", config[SemanticsProperties.EditableText].text)
     }
 
     @Test

@@ -1,7 +1,11 @@
 package io.aequicor.heartbeat.ds.components
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.LocalSaveableStateRegistry
+import androidx.compose.runtime.saveable.SaveableStateRegistry
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -43,6 +47,31 @@ class HbSecretFieldUiTest {
     }
 
     @Test
+    fun `revealed secret shows its value without losing secure field protections`() = runSkikoComposeUiTest {
+        var value by mutableStateOf("sk-123")
+        setContent {
+            HbTheme {
+                HbTextField(
+                    value,
+                    { value = it },
+                    Modifier.testTag("secret"),
+                    isSecret = true,
+                    isSecretVisible = true,
+                )
+            }
+        }
+        val config = onNodeWithTag("secret").fetchSemanticsNode().config
+        assertTrue(SemanticsProperties.Password in config)
+        assertEquals("sk-123", config[SemanticsProperties.EditableText].text)
+        assertEquals("sk-123", config[SemanticsProperties.InputText].text)
+        assertFalse(SemanticsActions.CopyText in config)
+        assertFalse(SemanticsActions.CutText in config)
+        val layouts = mutableListOf<TextLayoutResult>()
+        config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
+        assertEquals("sk-123", layouts.single().layoutInput.text.text)
+    }
+
+    @Test
     fun `masked accessibility text does not replace the underlying secret during edits`() = runSkikoComposeUiTest {
         var value by mutableStateOf("sk-123")
         setContent {
@@ -71,6 +100,12 @@ class HbSecretFieldUiTest {
     }
 
     @Test
+    fun `hidden nonempty secret is not restored with saved state`() = assertSecretNotRestored(isSecretVisible = false)
+
+    @Test
+    fun `revealed nonempty secret is not restored with saved state`() = assertSecretNotRestored(isSecretVisible = true)
+
+    @Test
     fun `plain field shows its text and is not a password`() = runSkikoComposeUiTest {
         var value by mutableStateOf("")
         setContent {
@@ -84,5 +119,63 @@ class HbSecretFieldUiTest {
         val config = field.fetchSemanticsNode().config
         assertFalse(SemanticsProperties.Password in config)
         assertEquals("hello", config[SemanticsProperties.EditableText].text)
+    }
+
+    @Test
+    fun `plain editor text enters the real saveable registry`() = runSkikoComposeUiTest {
+        val registry = SaveableStateRegistry(null) { true }
+        setContent {
+            CompositionLocalProvider(LocalSaveableStateRegistry provides registry) {
+                HbTheme { HbTextField("ordinary-text", {}, Modifier.testTag("plain")) }
+            }
+        }
+        runOnIdle { assertTrue(registry.performSave().toString().contains("ordinary-text")) }
+    }
+
+    private fun assertSecretNotRestored(isSecretVisible: Boolean) = runSkikoComposeUiTest {
+        val secret = "sk-nonempty"
+        var value by mutableStateOf(secret)
+        var registry by mutableStateOf(SaveableStateRegistry(null) { true })
+        var isShown by mutableStateOf(true)
+        setContent {
+            CompositionLocalProvider(LocalSaveableStateRegistry provides registry) {
+                if (isShown) {
+                    HbTheme {
+                        DisposableEffect(Unit) {
+                            onDispose { value = "" }
+                        }
+                        HbTextField(
+                            value,
+                            { value = it },
+                            Modifier.testTag("secret"),
+                            isSecret = true,
+                            isSecretVisible = isSecretVisible,
+                        )
+                    }
+                }
+            }
+        }
+        val field = onNodeWithTag("secret")
+        val displayedText = if (isSecretVisible) secret else "•".repeat(secret.length)
+        assertEquals(displayedText, field.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        runOnIdle { assertEquals(secret, value) }
+
+        // Skiko's StateRestorationTester codec is unimplemented; exercise the real saveable registry instead.
+        var saved: Map<String, List<Any?>> = emptyMap()
+        runOnIdle {
+            saved = registry.performSave()
+            assertFalse(saved.toString().contains(secret))
+            isShown = false
+        }
+        runOnIdle {
+            assertEquals("", value)
+            registry = SaveableStateRegistry(saved) { true }
+            isShown = true
+        }
+
+        runOnIdle { assertEquals("", value) }
+        val restoredConfig = field.fetchSemanticsNode().config
+        assertTrue(SemanticsProperties.Password in restoredConfig)
+        assertEquals("", restoredConfig[SemanticsProperties.EditableText].text)
     }
 }

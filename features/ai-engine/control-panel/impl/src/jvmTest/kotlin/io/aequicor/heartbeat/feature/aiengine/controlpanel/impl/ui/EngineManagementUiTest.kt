@@ -419,6 +419,17 @@ class EngineManagementUiTest {
         }
 
     @Test
+    fun `removal names the managed copy even when a different installation is selected`() = runSkikoComposeUiTest {
+        val installed = managedCodexWithCopy()
+        val other = installed.copy(
+            installation = installed.installation.copy(current = Installation(InstallSource.System, "9.9.9")),
+        )
+        val state = selected(other).copy(confirmAction = EngineActionUi.Uninstall)
+        setContent { Host(state) }
+        onNode(hasText("Codex 0.1.0", substring = true)).assertExists()
+    }
+
+    @Test
     fun `every phase and installation failure has a text`() {
         LaunchProblemReasonUi.entries.forEach { ProblemTexts.getValue(it) }
         InstallFailureUi.entries.forEach { InstallFailureTexts.getValue(it) }

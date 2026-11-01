@@ -44,6 +44,10 @@ data class EngineConnectionsScreenState(
     val models: ModelsPaneUi? = null,
     val selectedModels: ImmutableSet<String> = persistentSetOf(),
     val modelDraft: ImmutableSet<String>? = null,
+    /** Binding that owns [modelDraft]; a draft is never applied to another connection. */
+    val modelDraftBinding: String? = null,
+    /** Saved models from which the user's draft delta is computed and rebased on newer snapshots. */
+    val modelDraftBaseline: ImmutableSet<String>? = null,
     val modelQuery: String = "",
     val confirmDisconnect: String? = null,
     /** Engine management is on: the selected engine is switched on and installed in its engine control panel. */
@@ -127,7 +131,7 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
         ?: connectionRows.firstOrNull()?.id
     val binding = connectionId?.let(::EngineBindingId)
     val enabled = binding?.let { snapshot.selection.enabled(it) }.orEmpty().map { it.value }.toSet()
-    val draft = modelDraft?.takeIf { selectedConnection == connectionId && it != enabled }
+    val draft = rebaseModelDraft(connectionId, enabled)
     val models = binding?.let { modelsPane(snapshot, it, draft ?: enabled) }
     return copy(
         engines = engineRows.toImmutableList(),
@@ -137,6 +141,8 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
         models = models,
         selectedModels = enabled.toImmutableSet(),
         modelDraft = draft,
+        modelDraftBinding = connectionId.takeIf { draft != null },
+        modelDraftBaseline = enabled.toImmutableSet().takeIf { draft != null },
         isModelSavePending = isModelSavePending && draft != null,
         confirmDisconnect = confirmDisconnect?.takeIf { id -> connectionRows.any { it.id == id } },
         isManaged = management != null,
@@ -194,15 +200,37 @@ internal fun EngineConnectionsScreenState.editModel(model: String, isEnabled: Bo
 internal fun EngineConnectionsScreenState.editAllModels(isEnabled: Boolean): EngineConnectionsScreenState {
     if (selectedConnection == null) return this
     val cached = models?.models.orEmpty().map { it.id }
-    return withDraft(if (isEnabled) selectedModels + cached else emptySet())
+    val current = modelDraft ?: selectedModels
+    return withDraft(if (isEnabled) current + cached else emptySet())
 }
 
+/** Drops local model intent and its save status when focus moves to another engine or connection. */
+internal fun EngineConnectionsScreenState.clearModelDraft(): EngineConnectionsScreenState = copy(
+    modelDraft = null,
+    modelDraftBinding = null,
+    modelDraftBaseline = null,
+    isModelSavePending = false,
+)
+
 private fun EngineConnectionsScreenState.withDraft(models: Set<String>): EngineConnectionsScreenState {
+    val binding = selectedConnection ?: return this
+    val baseline = modelDraftBaseline.takeIf { modelDraft != null && modelDraftBinding == binding } ?: selectedModels
     val draft = models.toImmutableSet()
     return copy(
         modelDraft = draft,
+        modelDraftBinding = binding,
+        modelDraftBaseline = baseline,
         models = this.models?.let { pane ->
             pane.copy(models = pane.models.map { it.copy(isEnabled = it.id in draft) }.toImmutableList())
         },
     )
+}
+
+private fun EngineConnectionsScreenState.rebaseModelDraft(
+    binding: String?,
+    enabled: Set<String>,
+): ImmutableSet<String>? {
+    val previous = modelDraftBaseline ?: return null
+    val draft = modelDraft?.takeIf { modelDraftBinding == binding } ?: return null
+    return ((enabled - (previous - draft)) + (draft - previous)).takeIf { it != enabled }?.toImmutableSet()
 }

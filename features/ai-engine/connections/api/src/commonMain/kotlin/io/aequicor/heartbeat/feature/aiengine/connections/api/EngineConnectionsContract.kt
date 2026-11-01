@@ -51,8 +51,17 @@ public sealed interface ConnectionOperation {
     /** Offers or hides one model in model pickers. */
     public data class SetModelEnabled(val target: EngineTarget, val isEnabled: Boolean) : ConnectionOperation
 
-    /** Replaces all enabled models of a binding (select all / none). */
-    public data class SetModelsEnabled(val binding: EngineBindingId, val models: Set<ModelId>) : ConnectionOperation
+    /**
+     * Replaces all enabled models of a binding (select all / none) when [previous] is null. With a baseline, only
+     * the user's delta from [previous] to [models] is applied atomically to the latest stored set, preserving
+     * concurrent changes outside that delta. The default is cleared only when the resulting set disables it; no
+     * replacement default is chosen implicitly.
+     */
+    public data class SetModelsEnabled(
+        val binding: EngineBindingId,
+        val models: Set<ModelId>,
+        val previous: Set<ModelId>? = null,
+    ) : ConnectionOperation
 
     /** Sets or clears the profile default model. */
     public data class SetDefaultModel(val target: EngineTarget?) : ConnectionOperation

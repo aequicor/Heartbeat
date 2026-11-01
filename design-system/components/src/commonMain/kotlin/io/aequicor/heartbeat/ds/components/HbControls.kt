@@ -148,8 +148,9 @@ private fun FlatButton(
 
 /**
  * Controlled input. The caller owns its text; logs never contain the input value.
- * [isSecret] makes a secure single-line field: obfuscated text marked as a password for accessibility,
+ * [isSecret] makes a secure single-line field: text hidden by default and marked as a password for accessibility,
  * no cut/copy, a password keyboard without autocorrect, and nothing written to saved state.
+ * [isSecretVisible] reveals a secret without changing its secure editing, accessibility, or saved-state protections.
  * A secret field is always single-line, whatever [singleLine] says.
  * [selectAllOnFocus] selects the current text on entry, useful for replacing an address.
  * [shape] controls both the field fill and its focus outline, e.g. a pill-shaped address bar.
@@ -168,6 +169,7 @@ public fun HbTextField(
     trailingContent: (@Composable () -> Unit)? = null,
     selectAllOnFocus: Boolean = false,
     shape: Shape = RoundedCornerShape(HbTheme.dimensions.fieldCornerRadius),
+    isSecretVisible: Boolean = false,
 ) {
     val loggedChange: (String) -> Unit = {
         log.d { "text input changed length=${it.length}" }
@@ -189,6 +191,7 @@ public fun HbTextField(
         trailingContent,
         selectAllOnFocus,
         shape,
+        isSecretVisible,
     )
 }
 
@@ -205,6 +208,7 @@ private fun FlatTextField(
     trailingContent: (@Composable () -> Unit)? = null,
     selectAllOnFocus: Boolean = false,
     shape: Shape = RoundedCornerShape(HbTheme.dimensions.fieldCornerRadius),
+    isSecretVisible: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -236,6 +240,7 @@ private fun FlatTextField(
             },
         ),
         isSecret = isSecret,
+        isSecretVisible = isSecretVisible,
         leadingContent = leadingContent,
         trailingContent = trailingContent,
         selectAllOnFocus = selectAllOnFocus,

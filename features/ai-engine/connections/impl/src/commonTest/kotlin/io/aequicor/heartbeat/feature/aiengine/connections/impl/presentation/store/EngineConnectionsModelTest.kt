@@ -46,7 +46,7 @@ class EngineConnectionsModelTest {
     }
 
     @Test
-    fun `model checkboxes edit a draft and save sends one replacement`() = runTest {
+    fun `model checkboxes edit a draft and save sends one rebased replacement`() = runTest {
         machine.state.value = EngineConnectionsState.Active(settingsSnapshot())
         val model = model()
         val screen = subscribe(model.store)
@@ -61,9 +61,31 @@ class EngineConnectionsModelTest {
             ConnectionOperation.SetModelsEnabled(
                 EngineBindingId("home"),
                 setOf(ModelId("llama"), ModelId("qwen")),
+                previous = setOf(ModelId("llama")),
             ),
             apply.operation,
         )
+    }
+
+    @Test
+    fun `editing one connection never saves its draft to another`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(settingsSnapshot())
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true))
+        runCurrent()
+        assertEquals("home", screen.states.value.modelDraftBinding)
+
+        model.store.intent(EngineConnectionsScreenIntent.SelectConnection("work"))
+        runCurrent()
+        assertEquals(null, screen.states.value.modelDraft)
+        assertEquals(null, screen.states.value.modelDraftBaseline)
+        assertEquals(false, screen.states.value.isModelSavePending)
+
+        model.store.intent(EngineConnectionsScreenIntent.SaveModels)
+        runCurrent()
+        val apply = machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Apply>().single()
+        assertEquals(ConnectionOperation.SetModelsEnabled(EngineBindingId("work"), emptySet()), apply.operation)
     }
 
     @Test
