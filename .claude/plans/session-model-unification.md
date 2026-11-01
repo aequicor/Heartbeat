@@ -468,3 +468,10 @@ context commit и запрет следующего replacement после unkno
 с теми же тремя ранее описанными ограничениями анализа. Лог:
 `build/verification/context-admission-recovery.log`. До объединения с обновлённым master
 в этом шаге нет расширения UI или плановых возможностей, только admission и exact ID.
+
+При синхронизации с master после #637 согласованный session-макет сохранён как
+`design/features/ai-studio/session-model.pen`, без правок содержимого: Git blob hash
+`04be0d8a7af13bc7ea576e7f898fe3f5168c373f` совпадает с прежним `ai-studio.pen` этой ветки.
+Через MCP проверены все четыре группы Sessions и заголовок с `·`. Общий `ai-studio.pen`
+при merge сохраняет новую версию master с макетом очереди. Это предотвращает замену
+одного согласованного набора кадров другим; PNG session-model и согласование актуальны.
