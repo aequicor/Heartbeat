@@ -1,0 +1,11 @@
+<resources>
+    <string name="queue_close">Скрыть уведомление</string>
+    <string name="queue_correct">Скорректировать</string>
+    <string name="queue_failed">Не удалось изменить очередь · сообщения сохранены</string>
+    <string name="queue_file">Вложение</string>
+    <string name="queue_more">Ещё %1$d</string>
+    <string name="queue_remove">Удалить сообщение из очереди</string>
+    <string name="queue_resume">Продолжить очередь</string>
+    <string name="queue_success">Корректировка принята</string>
+    <string name="queue_uncertain">Приём не подтверждён · проверьте чат перед повторной отправкой</string>
+</resources>

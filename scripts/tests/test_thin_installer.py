@@ -3,6 +3,7 @@
 import importlib.util
 import io
 import json
+import os
 import plistlib
 import struct
 import tarfile
@@ -58,9 +59,18 @@ class ThinInstallerTest(unittest.TestCase):
             "Contents/MacOS/Heartbeat", "Contents/Resources/heartbeat.icns", "Contents/PkgInfo",
             "Contents/Info.plist", "Contents/Resources/bootstrap-installer.json",
         })
-        self.assertEqual((image / "Contents/MacOS/Heartbeat").stat().st_mode & 0o777, 0o755)
+        if os.name != "nt":  # Windows chmod does not represent POSIX executable permission bits.
+            self.assertEqual((image / "Contents/MacOS/Heartbeat").stat().st_mode & 0o777, 0o755)
 
     def test_dmg_uses_clean_staging_and_rejects_added_payload(self):
+        # DMG staging creates a directory symlink; unprivileged Windows hosts may forbid it.
+        probe = self.root / "symlink-probe"
+        try:
+            probe.symlink_to(self.root, target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f"Directory symlinks are unavailable: {error}")
+        else:
+            probe.unlink()
         image = self.image("macos", "arm64")
         (image.parent / "unrelated.jar").write_bytes(b"not part of this image")
         destination = self.root / "installer.dmg"

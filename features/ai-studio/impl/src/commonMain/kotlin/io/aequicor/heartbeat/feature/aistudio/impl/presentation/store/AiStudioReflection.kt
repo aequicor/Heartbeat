@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.QueueNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionWaitUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
@@ -62,6 +63,10 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         uncancellable = machine.uncancellable.toImmutableSet(),
         settings = machine.settings.toUi().copy(engineEfforts = settings.engineEfforts),
         isEngineSwitchingAvailable = machine.isEngineSwitchingAvailable,
+        isMessageQueueEnabled = machine.isMessageQueueEnabled,
+        messageQueues = queueUi(machine),
+        queueNotices = machine.queueNotices.mapValues { (_, n) -> QueueNoticeUi(n.id, n.isSuccess, n.isUncertain) }
+            .toImmutableMap(),
         engineSwitches = machine.engineSwitches.mapValues { it.value.toUi() }.toImmutableMap(),
         configurations = machine.configurations.mapValues { it.value.toUi() }.toImmutableMap(),
     ).pruneHarnessChoices().pruneNoticeDismissals()

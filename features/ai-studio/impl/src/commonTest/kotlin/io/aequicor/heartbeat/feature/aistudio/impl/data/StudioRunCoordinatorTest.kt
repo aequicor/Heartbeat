@@ -17,6 +17,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
@@ -36,6 +38,57 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioRunCoordinatorTest {
+    @Test
+    fun `failed queue settlement still retires the submission gate before releasing its exact reservation`() = runTest {
+        val profileScope = CoroutineScope(
+            backgroundScope.coroutineContext + SupervisorJob(backgroundScope.coroutineContext[Job]),
+        )
+        val coordinator = StudioRunCoordinator(RunProfile(profileScope), RunClock)
+        val events = mutableListOf<String>()
+        val host = RunHost(events).apply { settle = { _, _ -> error("Queue storage unavailable") } }
+        val gate = object : StudioSubmissionGate {
+            override var isCancelled = false
+            override suspend fun begin() = Unit
+            override suspend fun awaitRevocation(): CancellationException? = null
+            override suspend fun cancel(): Boolean {
+                assertEquals(RequestId("first"), coordinator.currentRequest("chat"))
+                assertTrue(coordinator.isBusy("chat"))
+                isCancelled = true
+                return true
+            }
+        }
+        assertFailsWith<IllegalStateException> {
+            coordinator.run(host, runRequest("first").copy(submission = gate))
+        }
+        assertTrue(gate.isCancelled)
+        assertFalse(coordinator.isBusy("chat"))
+        assertNull(coordinator.currentRequest("chat"))
+        assertEquals(listOf("started", "execute", "finished"), events)
+    }
+
+    @Test
+    fun `queue settlement finishes before a waiting request can reserve the chat`() = runTest {
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val events = mutableListOf<String>()
+        val host = RunHost(events)
+        val barrier = CompletableDeferred<Unit>()
+        host.settle = { request, _ ->
+            if (request.request.value == "first") {
+                assertTrue(coordinator.isBusy("chat"))
+                barrier.await()
+            }
+        }
+        val first = async { coordinator.run(host, runRequest("first")) }
+        runCurrent()
+        val second = async { coordinator.run(host, runRequest("second"), waitForIdle = true) }
+        runCurrent()
+        assertEquals(listOf("started", "execute"), events)
+        assertFalse(second.isCompleted)
+        barrier.complete(Unit)
+        assertEquals(RunOutcome.Completed, first.await())
+        assertEquals(RunOutcome.Completed, second.await())
+    }
+
     @Test
     fun `mutation and sending share reservation and recovery precedes preparation`() = runTest {
         val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
@@ -601,6 +654,8 @@ internal class RunHost(private val events: MutableList<String>) : StudioRunHost 
     var execute: suspend (StudioTurnRequest) -> RunOutcome = { RunOutcome.Completed }
     var cleanup: suspend () -> Unit = {}
     var start: suspend () -> Unit = {}
+    var settle: suspend (StudioTurnRequest, RunOutcome) -> Unit = { _, _ -> }
+    override suspend fun settledRun(request: StudioTurnRequest, outcome: RunOutcome) = settle(request, outcome)
     override suspend fun startedRun(id: String, at: Instant) {
         events += "started"
         start()

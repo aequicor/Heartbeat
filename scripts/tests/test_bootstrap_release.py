@@ -4,12 +4,13 @@ import base64
 import importlib.util
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+
+from scripts.tests.test_release_publish import BASH
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("verify_bootstrap_release", ROOT / "scripts/verify_bootstrap_release.py")
@@ -36,7 +37,7 @@ class BootstrapReleaseTest(unittest.TestCase):
                 path = self.root / name
                 with zipfile.ZipFile(path, "w") as archive:
                     archive.writestr("manifest.json", '{"train":"otest"}')
-                body[component] = dict(url=f"https://github.com/aequicor/Heartbeat/releases/download/v1.2.3/{name}",
+                body[component] = dict(url=f"https://github.com/aequicor/Heartbeat/releases/download/payload-v1.2.3/{name}",
                                        size=path.stat().st_size, sha256=hashlib.sha256(path.read_bytes()).hexdigest())
             body["seed"]["trainId"] = "otest"
             (self.root / f"bootstrap-{target}.json").write_text(json.dumps(body))
@@ -103,7 +104,7 @@ class BootstrapReleaseTest(unittest.TestCase):
 
 
 class ReleaseCollectionTest(unittest.TestCase):
-    @unittest.skipUnless(shutil.which("bash"), "workflow collection uses bash")
+    @unittest.skipUnless(BASH, "workflow collection uses bash")
     def test_workflow_collects_the_matching_installer_and_five_bootstrap_assets(self):
         lines = (ROOT / ".github/workflows/release.yml").read_text().splitlines()
         for target in release.TARGETS:
@@ -130,7 +131,7 @@ class ReleaseCollectionTest(unittest.TestCase):
                         (directory / name).write_text(name)
                 env = dict(os.environ, VERSION="1.2.3", PLATFORM=target,
                            RUNNER_OS="Windows" if target.startswith("windows") else "Linux")
-                subprocess.run(["bash", "-euo", "pipefail", "-c", "\n".join(command)], cwd=root, env=env, check=True)
+                subprocess.run([BASH, "-euo", "pipefail", "-c", "\n".join(command)], cwd=root, env=env, check=True)
                 expected = set(names + [installer])
                 if target == "linux-x64":
                     expected.add("Heartbeat-1.2.3-chromium-extension.zip")

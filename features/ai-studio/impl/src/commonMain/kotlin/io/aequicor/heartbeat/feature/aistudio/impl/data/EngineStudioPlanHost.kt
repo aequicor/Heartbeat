@@ -155,6 +155,11 @@ internal class EngineStudioPlanHost(
 
         override suspend fun executeRun(request: StudioTurnRequest): RunOutcome = body()
 
+        override suspend fun settledRun(request: StudioTurnRequest, outcome: RunOutcome) = host.settledRun(
+            request,
+            outcome,
+        )
+
         override suspend fun finishedRun(id: String) = host.finishedRun(id)
     }
 }

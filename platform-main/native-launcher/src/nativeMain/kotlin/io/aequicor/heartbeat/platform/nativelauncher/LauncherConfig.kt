@@ -41,7 +41,8 @@ data class LauncherConfig(
         fun load(): LauncherConfig {
             val version = env("HEARTBEAT_BOOTSTRAP_VERSION") ?: BOOTSTRAP_VERSION
             val target = launcherHostTarget()
-            val defaultManifest = "https://github.com/$DEFAULT_REPO/releases/download/v$version/bootstrap-$target.json"
+            val defaultManifest =
+                "https://github.com/$DEFAULT_REPO/releases/download/payload-v$version/bootstrap-$target.json"
             val manifest = env("HEARTBEAT_BOOTSTRAP_MANIFEST_URL") ?: defaultManifest
             val signature = env("HEARTBEAT_BOOTSTRAP_SIGNATURE_URL") ?: "$manifest.sig"
             val keys = env("HEARTBEAT_BOOTSTRAP_PUBLIC_KEY")?.let { listOf(decodeBase64(it)) }

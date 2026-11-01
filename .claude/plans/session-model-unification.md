@@ -475,3 +475,39 @@ context commit и запрет следующего replacement после unkno
 Через MCP проверены все четыре группы Sessions и заголовок с `·`. Общий `ai-studio.pen`
 при merge сохраняет новую версию master с макетом очереди. Это предотвращает замену
 одного согласованного набора кадров другим; PNG session-model и согласование актуальны.
+
+Base sync с master `ec1a15b9e` (#637 queue, #638 packaging): сохранить queue FIFO и
+exact native steering из master вместе с canonical chat store и receipt admission.
+Новые enqueue/manageQueue/validateQueuedInput/steeringTarget проходят human role gate;
+steerQueued повторно валидирует target до captureUserInstructions и native steer.
+Stop приостанавливает human FIFO ДО conversationStops, включая early return/Unconfirmed.
+Coordinator сохраняет occupied и currentRequest, вызывает queue settlement до cleanup,
+а submission.cancel выполняется даже при ошибке settlement. PlanRunHost делегирует
+новый settledRun. Регрессии проверяют denial перед authority/native действиями и
+сохранение revocation/cleanup при ошибке queue settlement.
+
+Human queue нельзя напрямую использовать для creator sends: она помечает ход
+isUserPrompt=true и сохраняет userInstruction. Обобщение требует durable trusted
+origin/cause и подготовки native receipt только после coordinator reservation,
+а не в момент enqueue. Текущая creator-delivery очередь этим merge не обещается.
+hasBegun очереди означает begin, не native entry: при отмене policy preparation
+Uncertain безопаснее автоматического replay; снять её можно только по exact journal.
+
+Queue admission выделен в StudioHumanQueue (StudioHumanQueueCommands + StudioQueueAccess),
+а существующие handle берутся через lazy StudioLiveConversations — новый реестр не создаётся.
+Так repository остаётся в лимите LargeClass, а delivery повторно использует реальные role gates.
+После исправления явных Metro bindings и изоляции намеренной ошибки settlement в тестовом
+SupervisorJob: Studio API 110/110, Studio impl 940/940, JVM DI-граф компилируется.
+Kotlin test compiler после base sync сообщил incremental DirtyData по ReasoningEffort и
+сам завершил компиляцию с fallback; тесты фактически выполнены без ошибок.
+Лог: `build/verification/session-queue-base-merge4.log`; в нём оставалось только уже
+исправленное auto-format замечание сигнатуры, финальные линтеры проверяются отдельно.
+Финальные обычный detekt и typed-detekt успешны: `build/verification/session-queue-base-merge-final.log`.
+Typed analysis сохраняет три известные generated-serializer/inference диагностики.
+Архитектурное ревью объединения — APPROVE. Preflight `--staged` считает также весь
+унаследованный master (81 725 токенов); применимое правило base-sync проверено ДО коммита
+на точном итоговом tree через временный двухродительский commit-tree и
+`check_commit_size.py --base origin/master --head <candidate>`: ручное разрешение
+конфликтов и дополнительные правки меньше лимита 25 000, все собственные шаги проходят.
+Временный candidate не меняет ветку и не публикуется. После коммита повторить проверку
+реального HEAD перед push. Это обычный merge, история не переписывается.

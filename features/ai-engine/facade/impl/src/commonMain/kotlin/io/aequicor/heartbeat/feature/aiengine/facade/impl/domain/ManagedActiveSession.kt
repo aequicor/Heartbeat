@@ -32,6 +32,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SteeringRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SteersTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -99,6 +101,7 @@ class ManagedActiveSession(
         FeatureTable(
             mapOf(
                 SendsPrompts.id to parts.native.features.wrap(SendsPrompts) { Sender() },
+                SteersTurns.id to parts.native.features.wrap(SteersTurns) { Steering(it) },
                 CancelsTurns.id to parts.native.features.wrap(CancelsTurns) { Canceller() },
                 RequestsPermissions.id to parts.native.features.wrap(RequestsPermissions) { Permissions() },
                 ReconcilesSession.id to available(Reconciler()),
@@ -321,6 +324,26 @@ class ManagedActiveSession(
         if (hasInstructions && !compacts.isInstructionsSupported) {
             log.w { "compaction instructions refused: engine=${ref.engine.value}" }
             fail(InvalidRequest)
+        }
+    }
+
+    /** Steering preserves the current binding and hook lifecycle; it cannot create or authorize a new turn. */
+    private inner class Steering(private val native: SteersTurns) : SteersTurns {
+        override suspend fun steer(turn: TurnId, request: SteeringRequest) {
+            log.i { "Steer accepted turn parts=${request.parts.size}" }
+            policy.beforeTurn(route, currentModel.value)
+            policy.registry.exclusive(ref) {
+                if (policy.registry.isBusy(ref, this@ManagedActiveSession)) fail(Busy)
+                val current = when (val value = machine.state.value) {
+                    is ActiveSessionState.Running -> value.turn
+                    is ActiveSessionState.AwaitingUserAction -> value.turn
+                    else -> fail(InvalidRequest)
+                }
+                if (current.id != turn) fail(InvalidRequest)
+                untilStopped {
+                    adapterCall(log, "steer") { native.steer(parts.effects.correlation.native(turn), request) }
+                }
+            }
         }
     }
 

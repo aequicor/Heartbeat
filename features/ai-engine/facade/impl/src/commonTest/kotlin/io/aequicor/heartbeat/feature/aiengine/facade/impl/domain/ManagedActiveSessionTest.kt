@@ -33,6 +33,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SteeringRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SteersTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstruction
@@ -94,6 +96,53 @@ class ManagedActiveSessionTest {
     }
 
     private fun ActiveSession.sender() = (features.resolve(SendsPrompts) as FeatureAccess.Available).feature
+
+    @Test
+    fun `steering local turn targets native turn and preserves pending permission`() = runTest {
+        val calls = mutableListOf<Pair<TurnId, SteeringRequest>>()
+        val native = FakeNativeSession(
+            steering = object : SteersTurns {
+                override suspend fun steer(turn: TurnId, request: SteeringRequest) {
+                    calls += turn to request
+                }
+            },
+        )
+        val fixture = RouteFixture(this)
+        val (session, _) = open(fixture, native)
+        val sent = async { session.sender().send(prompt("first")) }
+        runCurrent()
+        val local = sent.await()
+        native.ask("approval")
+        runCurrent()
+        val before = session.state.value
+        val correction = SteeringRequest(RequestId("correction"), listOf(ContentPart.Text("Use smaller rows")))
+        (session.features.resolve(SteersTurns) as FeatureAccess.Available).feature.steer(local, correction)
+        assertEquals(listOf(native.activeTurn.id to correction), calls)
+        assertEquals(before, session.state.value)
+        assertEquals(1, native.sent.size)
+    }
+
+    @Test
+    fun `steering rejects idle and stale turns without starting another turn`() = runTest {
+        var calls = 0
+        val native = FakeNativeSession(
+            steering = object : SteersTurns {
+                override suspend fun steer(turn: TurnId, request: SteeringRequest) {
+                    calls++
+                }
+            },
+        )
+        val (session, _) = open(RouteFixture(this), native)
+        val feature = (session.features.resolve(SteersTurns) as FeatureAccess.Available).feature
+        val request = SteeringRequest(RequestId("correction"), listOf(ContentPart.Text("Correct this")))
+        assertFailsWith<EngineException> { feature.steer(TurnId("old"), request) }
+        val sent = async { session.sender().send(prompt("first")) }
+        runCurrent()
+        sent.await()
+        assertFailsWith<EngineException> { feature.steer(TurnId("old"), request) }
+        assertEquals(0, calls)
+        assertEquals(1, native.sent.size)
+    }
 
     @Test
     fun `durable authority is bound before native send and suppresses the single message fallback`() = runTest {
