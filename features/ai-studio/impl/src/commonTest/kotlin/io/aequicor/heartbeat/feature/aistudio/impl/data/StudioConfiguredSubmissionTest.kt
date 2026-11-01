@@ -50,7 +50,10 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
+import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -331,6 +334,89 @@ class StudioConfiguredSubmissionTest {
     }
 
     @Test
+    fun `independent conversation attempts never inherit an old helper directive or reviewer`() = runTest {
+        for (isCompaction in listOf(false, true)) {
+            val fixture = SubmissionFixture(this)
+            val reviewer = fixture.configuration.target.copy(model = ModelId("old-reviewer"))
+            fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+                helper = StudioHelperIdentity(
+                    ActionId("old-owner"),
+                    null,
+                    null,
+                    TrustLevel.Ask,
+                    HelperModelOptions(reviewTarget = reviewer),
+                ),
+            )
+            val gate = fixture.gate("independent", StudioAttemptPolicy.Conversation)
+            fixture.submit(
+                "independent",
+                compaction = ContextCompaction().takeIf { isCompaction },
+                isUserPrompt = !isCompaction,
+                gate = gate,
+            )
+            val sent = fixture.session.requests.single()
+            assertNull(sent.reviewTarget)
+            assertFalse(sent.text().contains(HELPER_DIRECTIVE))
+        }
+    }
+
+    @Test
+    fun `owned work uses its journaled reviewer while security still follows the current profile`() = runTest {
+        val fixture = SubmissionFixture(this)
+        val reviewer = fixture.configuration.target.copy(model = ModelId("original-reviewer"))
+        val policy = StudioAttemptPolicy.OwnedHelperWork(
+            HelperWorkBinding(ActionId("owner"), ActionId("reservation")),
+            HelperModelOptions(reviewTarget = reviewer),
+        )
+        val gate = fixture.gate("work", policy)
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+            helper = StudioHelperIdentity(
+                ActionId("owner"),
+                null,
+                null,
+                TrustLevel.Ask,
+                HelperModelOptions(reviewTarget = reviewer.copy(model = ModelId("changed-reviewer"))),
+            ),
+        )
+        fixture.security.value = StudioSecurityLevel.Trust
+        fixture.submit("work", isUserPrompt = false, gate = gate)
+        val sent = fixture.session.requests.single()
+        assertEquals(reviewer, sent.reviewTarget)
+        assertTrue(sent.text().contains(HELPER_DIRECTIVE))
+        assertEquals(TrustLevel.Full, sent.trust)
+        assertEquals(AgentToolDecisionMode.Interactive, sent.decisionMode)
+    }
+
+    @Test
+    fun `unclassified legacy attempts keep their prior work restriction`() = runTest {
+        val fixture = SubmissionFixture(this)
+        val reviewer = fixture.configuration.target.copy(model = ModelId("legacy-reviewer"))
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+            helper = StudioHelperIdentity(
+                ActionId("owner"),
+                null,
+                null,
+                TrustLevel.Ask,
+                HelperModelOptions(reviewTarget = reviewer),
+            ),
+        )
+        fixture.submit("legacy", isUserPrompt = false, gate = fixture.gate("legacy", null))
+        assertEquals(reviewer, fixture.session.requests.single().reviewTarget)
+        assertTrue(fixture.session.requests.single().text().contains(HELPER_DIRECTIVE))
+    }
+
+    @Test
+    fun `a foreign chat or request gate never selects policy or reaches native send`() = runTest {
+        for ((chat, request) in listOf("foreign" to "expected", "chat" to "different")) {
+            val fixture = SubmissionFixture(this)
+            val gate = fixture.gate(request, StudioAttemptPolicy.Conversation, helperId = chat)
+            assertFailsWith<IllegalStateException> { fixture.submit("expected", gate = gate) }
+            assertTrue(fixture.session.requests.isEmpty())
+            assertEquals(0, fixture.securityReads)
+        }
+    }
+
+    @Test
     fun `a compaction keeps the chat's trust which the engine then reports back unchanged`() = runTest {
         val fixture = SubmissionFixture(this)
 
@@ -549,6 +635,7 @@ private class SubmissionFixture(
         isUserPrompt: Boolean = true,
         userInstruction: String? = null,
         environment: StudioChatEnvironment? = null,
+        gate: StudioHelperSubmission? = null,
     ): TurnId = submission.submit(
         submissionAccess,
         session,
@@ -563,12 +650,27 @@ private class SubmissionFixture(
             isUserPrompt = isUserPrompt,
             userInstruction = userInstruction,
             environment = environment,
+            submission = gate,
         ),
         { listOf(StudioModel(target.studioModelId(), "Model", isTrustSupported = isTrustSupported)) },
         { access.states },
     )
 
     fun storedApproval(): ApprovalMode? = access.records.getValue("chat").configuration?.approval
+
+    suspend fun gate(request: String, policy: StudioAttemptPolicy?, helperId: String = "chat"): StudioHelperSubmission {
+        val stores = ChecklistTestStores()
+        stores.keyValue(ChatSpec).set(ChatsKey, listOf(access.records.getValue("chat")))
+        val attempts = StudioHelperAttempts(stores)
+        val helper = HelperId(helperId)
+        val prompt = HelperPrompt(RequestId(request), "Hello")
+        when (policy) {
+            StudioAttemptPolicy.Conversation -> attempts.prepareConversation(helper, prompt)
+            is StudioAttemptPolicy.OwnedHelperWork -> attempts.prepareWork(helper, prompt, policy)
+            null -> attempts.prepare(helper, prompt)
+        }
+        return StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, prompt.request)
+    }
 }
 
 /** Publishes the trust of every accepted turn as its configuration, the way Pi does after acceptance. */

@@ -430,3 +430,17 @@ StudioConversationEdits с повторной проверкой перед dura
 тремя ранее диагностированными generated-serializer/inference ограничениями анализа.
 Логи: `build/verification/human-conversation-access2.log` (целевые сценарии) и
 `build/verification/human-conversation-access-final.log` (полный набор).
+
+Request-specific helper policy: StudioConfiguredSubmission читает immutable policy именно
+того StudioHelperSubmission, который совпадает по chat/request. Conversation не получает
+старый HELPER_DIRECTIVE и reviewer; OwnedHelperWork использует journaled model snapshot,
+не новый marker чата. Неклассифицированная старая попытка сохраняет прежний work contract.
+Профильная security остаётся live, stored effort по-прежнему имеет приоритет над initial seed.
+Missing receipt не превращается в Conversation. Добавлена повторная human role проверка
+у самого configured sender; regression проверяет human/service Conversation, snapshot work,
+legacy fallback и чужие chat/request gates до policy/native send. Инкрементальное
+архитектурное ревью после exact-binding исправления — APPROVE. Mode restrictions и
+autopilot будут переключены отдельно с проверкой provenance исходного запроса.
+Проверки: целевые sender/admission/receipt JVM-сценарии без ошибок, обычный detekt успешен,
+typed-detekt успешен с прежними тремя generated-serializer/inference ограничениями.
+Лог: `build/verification/request-work-policy-final.log`.

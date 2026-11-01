@@ -22,6 +22,8 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import kotlinx.coroutines.CancellationException
 
 /** Resolves saved configuration and crosses the native submission barrier with the shared profile mode. */
@@ -49,6 +51,8 @@ internal class StudioConfiguredSubmission(
     ): TurnId {
         val id = request.id
         val record = access.configurationRecord(id)
+        if (request.isUserPrompt) record.requireHumanConversation()
+        val workModel = request.workModel(record)
         val stored = configurations()[id]?.applied ?: record.configuration
         val isTrustSupported = models().isTrustSupported(target)
         val supported = models().reasoningEfforts(target)
@@ -63,14 +67,14 @@ internal class StudioConfiguredSubmission(
         carryLedger(record, active)
         val carried = record.carriedDirectives(request)
         val seeded = if (carried.isEmpty()) request else request.copy(directives = carried + request.directives)
-        val constrained = if (record.helper == null) {
+        val constrained = if (workModel == null) {
             seeded
         } else {
             seeded.copy(directives = seeded.directives + HELPER_DIRECTIVE)
         }
         // A handoff retires configuration observation because its session is never reflected again.
         if (request.isHandoff) controller.retire(id, active)
-        val reviewTarget = record.helper?.model?.reviewTarget
+        val reviewTarget = workModel?.reviewTarget
         val submitted = send(access, active, target, constrained, effort, reviewTarget) {
             turnPolicy(isTrustSupported)
         }
@@ -242,6 +246,17 @@ internal class StudioConfiguredSubmission(
     private data class StudioPromptPolicy(val mode: AgentToolDecisionMode, val trust: TrustLevel?)
 
     private data class SubmittedPrompt(val turn: TurnId, val trust: TrustLevel?)
+}
+
+/** Old unclassified attempts retain their prior policy until exact work evidence classifies them. */
+private suspend fun StudioTurnRequest.workModel(record: StudioChatRecord): HelperModelOptions? {
+    val gate = submission as? StudioHelperSubmission
+    check(gate == null || gate.matches(HelperId(record.id), request)) { "Conversation request binding does not match" }
+    return when (val policy = gate?.policy()) {
+        StudioAttemptPolicy.Conversation -> null
+        is StudioAttemptPolicy.OwnedHelperWork -> policy.model
+        null -> record.helper?.model
+    }
 }
 
 /**

@@ -118,6 +118,10 @@ internal class StudioHelperSubmission(
 
     fun matches(helper: HelperId, request: RequestId): Boolean = this.helper == helper && this.request == request
 
+    /** Exact immutable request provenance; a missing journal is never an ordinary conversation fallback. */
+    suspend fun policy(): StudioAttemptPolicy? =
+        checkNotNull(attempts.receipt(helper, request)) { "Conversation request evidence is unavailable" }.policy
+
     override suspend fun awaitRevocation(): CancellationException? =
         if (attempts.awaitNativeEntryBoundary(helper, request) == StudioHelperPhase.NotSubmitted) {
             log.v { "Observed durable helper preparation revocation" }
