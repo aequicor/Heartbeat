@@ -228,11 +228,11 @@ internal fun EngineConnectionsScreenState.operationFor(
 
 private fun EngineConnectionsScreenState.modelSaveOperation(): ConnectionOperation.SetModelsEnabled? {
     val binding = selectedConnection?.let(::EngineBindingId) ?: return null
-    val draft = modelDraft.takeIf { modelDraftBinding == binding.value }
-    val baseline = if (draft == null) null else (modelDraftBaseline ?: selectedModels).map(::ModelId).toSet()
+    val draft = modelDraft.takeIf { modelDraftBinding == binding.value } ?: return null
+    val baseline = modelDraftBaseline ?: return null
     return ConnectionOperation.SetModelsEnabled(
         binding = binding,
-        models = (draft ?: selectedModels).map(::ModelId).toSet(),
-        previous = baseline,
+        models = draft.map(::ModelId).toSet(),
+        previous = baseline.map(::ModelId).toSet(),
     )
 }

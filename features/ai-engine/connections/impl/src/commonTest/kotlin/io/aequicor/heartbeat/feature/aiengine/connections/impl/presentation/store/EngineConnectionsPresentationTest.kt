@@ -126,6 +126,14 @@ class EngineConnectionsPresentationTest {
     }
 
     @Test
+    fun `save requires a draft owned by the focused binding and its baseline`() {
+        assertNull(loaded.operationFor(EngineConnectionsScreenIntent.SaveModels))
+        val edited = loaded.editModel("qwen", true)
+        assertNull(edited.copy(selectedConnection = "work").operationFor(EngineConnectionsScreenIntent.SaveModels))
+        assertNull(edited.copy(modelDraftBaseline = null).operationFor(EngineConnectionsScreenIntent.SaveModels))
+    }
+
+    @Test
     fun `model draft survives pending and clears after its saved snapshot arrives`() {
         val edited = loaded.editModel("qwen", true)
         val operation = ConnectionOperation.SetModelsEnabled(
