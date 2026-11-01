@@ -55,6 +55,9 @@ private class StudioIdentityResolver(private val records: List<StudioChatRecord>
         if (existing.origin == StudioIdentityOrigin.InternalExecution && existing.context == null) {
             return StudioIdentityResolution(existing)
         }
+        if (existing.origin == StudioIdentityOrigin.LegacyInteractiveHelper && !existing.hasContextPayload) {
+            return StudioIdentityResolution(existing, record.identityIssue ?: "UnresolvedCreator")
+        }
         val context = existing.context ?: return unresolved("InvalidIdentityContext", existing)
         val issue = when {
             context.id.value != record.id -> "IdentityMismatch"
@@ -82,15 +85,17 @@ private class StudioIdentityResolver(private val records: List<StudioChatRecord>
                 LogicalSessionContext(LogicalSessionId(record.id), SessionKind.Session),
             ),
         )
-        val parentId = marker.parentChatId ?: return unresolved("LegacyParentlessExecution")
-        val parent = groups[parentId]?.singleOrNull() ?: return unresolved("MissingCreator")
+        val parentId = marker.parentChatId ?: return unresolvedLegacy("LegacyParentlessExecution")
+        val parent = groups[parentId]?.singleOrNull() ?: return unresolvedLegacy("MissingCreator")
         val context = resolve(parent).context
         return when {
-            parent.projectId != record.projectId -> unresolved("ProjectMismatch")
+            parent.projectId != record.projectId -> unresolvedLegacy("ProjectMismatch")
 
-            marker.parentSession != null && !parent.owns(marker.parentSession) -> unresolved("CreatorReferenceMismatch")
+            marker.parentSession != null && !parent.owns(
+                marker.parentSession,
+            ) -> unresolvedLegacy("CreatorReferenceMismatch")
 
-            context == null || context.kind == SessionKind.Subagent -> unresolved("UnresolvedCreator")
+            context == null || context.kind == SessionKind.Subagent -> unresolvedLegacy("UnresolvedCreator")
 
             else -> StudioIdentityResolution(
                 StudioSessionIdentity(
@@ -101,6 +106,11 @@ private class StudioIdentityResolver(private val records: List<StudioChatRecord>
         }
     }
 }
+
+private fun unresolvedLegacy(issue: String) = unresolved(
+    issue,
+    StudioSessionIdentity(StudioIdentityOrigin.LegacyInteractiveHelper),
+)
 
 private fun unresolved(issue: String, original: StudioSessionIdentity? = null) = StudioIdentityResolution(
     original ?: StudioSessionIdentity(StudioIdentityOrigin.Unresolved),

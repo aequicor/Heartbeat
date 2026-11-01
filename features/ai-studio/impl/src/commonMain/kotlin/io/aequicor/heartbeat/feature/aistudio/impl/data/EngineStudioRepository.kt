@@ -472,9 +472,10 @@ internal class EngineStudioRepository(
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
-        requireBrowserHostSupport(chatRecords.record(sessionId), environment)
+        val record = chatRecords.record(sessionId).requireHumanConversation()
+        requireBrowserHostSupport(record, environment)
         val organism = organisms.submit(
-            chatRecords.record(sessionId),
+            record,
             prompt,
             settings,
             attachments,
@@ -509,6 +510,7 @@ internal class EngineStudioRepository(
         if (request.isRollover) return carry.rollover(request)
         log.i { "Execute the reserved native request" }
         val current = configurationRecord(request.id)
+        if (request.isUserPrompt) current.requireHumanConversation()
         val fresh = if (current.target == null && current.configuration == null) {
             request
         } else {
@@ -623,6 +625,7 @@ internal class EngineStudioRepository(
 
     override suspend fun switchEngine(sessionId: String, change: StudioEngineSwitch) {
         log.i { "Request chat engine replacement" }
+        chatRecords.record(sessionId).requireHumanConversation()
         engineSwitcher.switch(sessionId, change)
     }
 
@@ -645,6 +648,7 @@ internal class EngineStudioRepository(
 
     override suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {
         log.i { "Configure session parameter kind=${change::class.simpleName.orEmpty()}" }
+        chatRecords.record(sessionId).requireHumanConversation()
         return configurations.configure(this, sessionId, change)
     }
 
@@ -798,17 +802,7 @@ internal class EngineStudioRepository(
 
     override suspend fun edit(sessionId: String, edit: SessionEdit) {
         log.i { "Edit conversation metadata type=${edit::class.simpleName.orEmpty()}" }
-        if (edit is SessionEdit.SetArchived && edit.isArchived && sessionId !in state.value.running) {
-            release(sessionId)
-        }
-        update(sessionId) {
-            when (edit) {
-                is SessionEdit.Rename -> copy(title = edit.title)
-                is SessionEdit.SetArchived -> copy(isArchived = edit.isArchived)
-                is SessionEdit.SetPinned -> copy(isPinned = edit.isPinned)
-                is SessionEdit.SetUnread -> copy(isUnread = edit.isUnread)
-            }
-        }
+        chatRecords.editConversation(sessionId, edit, sessionId in state.value.running) { release(sessionId) }
     }
 
     override suspend fun consumeSeed(id: String) = update(id) { seeded() }.also { log.d { "seeded" } }

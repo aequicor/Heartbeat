@@ -46,7 +46,9 @@ class StudioSessionIdentityTest {
         val b = helper("b", a)
         val migrated = resolvedStudioIdentities(listOf(missing, a, b, root, root))
         assertTrue(migrated.all { it.logicalSession == null })
-        assertTrue(migrated.all { it.identity?.origin == StudioIdentityOrigin.Unresolved })
+        assertTrue(migrated.take(3).all { it.identity?.origin == StudioIdentityOrigin.LegacyInteractiveHelper })
+        assertTrue(migrated.drop(3).all { it.identity?.origin == StudioIdentityOrigin.Unresolved })
+        assertEquals(migrated, resolvedStudioIdentities(migrated))
     }
 
     @Test

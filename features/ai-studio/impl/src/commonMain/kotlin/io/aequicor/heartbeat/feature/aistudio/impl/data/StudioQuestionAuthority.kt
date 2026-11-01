@@ -23,16 +23,23 @@ internal class StudioQuestionAuthority(
 
     suspend fun respond(id: String, request: String, option: String, answer: StudioPermissionAnswer?) {
         log.v { "Deliver pending native answer with its authority barrier" }
+        requireHumanConversation(id)
         val active = handle(id)
         active.respondStudioPermission(request, option, answer) { invalidate(id, checkNotNull(active).ref) }
     }
 
     suspend fun respond(permission: StudioPermission, option: String, answer: StudioPermissionAnswer?) {
         log.v { "Deliver captured native answer with its authority barrier" }
+        requireHumanConversation(permission.sessionId)
         val active = handle(permission.sessionId)
         active.respondStudioPermission(permission, option, answer) {
             invalidate(permission.sessionId, checkNotNull(active).ref)
         }
+    }
+
+    private suspend fun requireHumanConversation(id: String) = records.withLock {
+        resolvedStudioIdentities(store.get(ChatsKey).orEmpty()).singleOrNull { it.id == id }
+            ?.requireHumanConversation() ?: error("Unknown studio conversation")
     }
 
     /** Durable revocation precedes the live barrier; no repository mutex is held while cancelling evaluations. */

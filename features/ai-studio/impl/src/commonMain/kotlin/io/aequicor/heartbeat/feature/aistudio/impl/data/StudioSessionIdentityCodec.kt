@@ -49,6 +49,10 @@ internal data class StudioSessionIdentity(val raw: JsonElement) {
         } else {
             null
         }
+
+    /** Distinguishes a deliberately unresolved legacy link from a malformed claimed context. */
+    val hasContextPayload: Boolean
+        get() = (raw as? JsonObject)?.get("context").let { it != null && it != JsonNull }
 }
 
 private fun identityPayload(origin: StudioIdentityOrigin, context: LogicalSessionContext?, version: Int): JsonObject =

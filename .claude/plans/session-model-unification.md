@@ -414,3 +414,19 @@ native acceptance. Если полной исходной записи нет, �
 steering или stop возможности и не обещать неподдержанную очередь. Параллельный native turn
 запрещён. Если добавляется durable очередь, queued receipt отделяется от native unresolved,
 активируется под общим coordinator и отменяется точным request до native entry.
+
+Следующий совместимый шаг отделяет human capability от resolved hierarchy. Непривязанный
+старый interactive helper получает явную LegacyInteractiveHelper provenance без context;
+потеря creator у известной full Subsession также не отнимает ввод. Unknown/future envelope,
+некорректный context, InternalExecution, Subagent и duplicate IDs не получают право мутации.
+Общий backend gate включён на user run (до запуска и повторно после резервирования),
+configure, engine switch, metadata edits и оба direct permission-answer пути. Проверяется
+именно permission.sessionId, до handle lookup и authority invalidation. Остановка и чтение
+остаются отдельными операциями. Metadata edit вынесен из переполненного repository в
+StudioConversationEdits с повторной проверкой перед durable write. Архитектурное ревью
+узкого шага — APPROVE. Planning/compact/autopilot и owner-mediated permission route этим
+шагом ещё не переключены; снимать helper-wide ограничения до request-specific policy нельзя.
+Проверено: JVM Studio 925/925, обычный detekt успешен. Typed-detekt успешен с теми же
+тремя ранее диагностированными generated-serializer/inference ограничениями анализа.
+Логи: `build/verification/human-conversation-access2.log` (целевые сценарии) и
+`build/verification/human-conversation-access-final.log` (полный набор).
