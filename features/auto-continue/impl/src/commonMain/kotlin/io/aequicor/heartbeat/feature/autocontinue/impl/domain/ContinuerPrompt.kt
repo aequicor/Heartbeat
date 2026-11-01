@@ -37,7 +37,7 @@ internal fun continuerPrompt(
         appendLine(SUGGEST_INSTRUCTIONS.trimIndent())
     }
     appendLine()
-    context.planNote?.takeIf { settings.contextSettings.plan && it.isNotBlank() }?.let { plan ->
+    context.planNote?.takeIf { settings.contextSettings.isPlanIncluded && it.isNotBlank() }?.let { plan ->
         appendLine("<plan>")
         appendLine(fenced(plan.take(ContinuerBudget.PLAN_CHARS)))
         appendLine("</plan>")
@@ -170,7 +170,7 @@ private fun validActiveAnswer(status: ContinuationStatus, answer: ContinuationAn
 
 /** Reject empty or contradictory model fields before asking the host to apply a request answer. */
 private fun ContinuationAnswer.hasSingleValue(): Boolean {
-    if (listOf(selected.isNotEmpty(), confirmed != null, text != null).count { it } != 1) return false
+    if (listOf(selected.isNotEmpty(), isConfirmed != null, text != null).count { it } != 1) return false
     if (text?.isNotBlank() == false) return false
     return selected.none { it.isBlank() } && selected.distinct().size == selected.size
 }

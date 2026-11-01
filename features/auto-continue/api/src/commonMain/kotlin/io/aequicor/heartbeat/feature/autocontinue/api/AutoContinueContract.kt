@@ -102,6 +102,8 @@ public data class ContinuationContext(
     val extraContext: String? = null,
     /** Execution metadata of the latest observed turn; never arguments, results or authorization. */
     val toolActivity: List<ContinuationToolActivity> = emptyList(),
+    /** Settings used to collect/filter this snapshot; null preserves compatibility with legacy producers. */
+    val contextSettings: AutopilotContextSettings? = null,
 ) {
     override fun toString(): String = "ContinuationContext(route=$route, entries=${dialog.size})"
 }

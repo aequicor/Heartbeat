@@ -36,10 +36,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -699,17 +697,7 @@ internal class KoogNativeSession(
             log.w { "Tool $name target is too long to show for approval; refusing it" }
             return "Refused: the call is longer than $APPROVAL_TARGET_LIMIT characters and cannot be shown for approval"
         }
-        val request = PermissionRequest(
-            PermissionRequestId(Uuid.random().toString()),
-            turn.id,
-            target,
-            listOf(
-                PermissionOption(AllowOnce, "Разрешить", isOneTime = true),
-                PermissionOption(AllowForSession, "Разрешить до конца сессии"),
-                PermissionOption(Deny, "Запретить", isOneTime = true),
-            ),
-            description = tool.details(args),
-        )
+        val request = koogPermissionRequest(turn.id, target, tool.details(args), isSessionOptionEnabled = true)
         val pending = PendingApproval(request, CompletableDeferred())
         approval = pending
         val running = active ?: turn
@@ -739,16 +727,7 @@ internal class KoogNativeSession(
     /** Hosted tools use only the shared TrustLevel gate, independent of the legacy auto-approve setting. */
     private suspend fun approveHosted(turn: Turn, action: AgentToolApproval): Boolean {
         if (active?.id != turn.id || handles.isEmpty() || current is ActiveSessionState.Interrupting) return false
-        val request = PermissionRequest(
-            PermissionRequestId(Uuid.random().toString()),
-            turn.id,
-            action.title,
-            listOf(
-                PermissionOption(AllowOnce, "Разрешить", isOneTime = true),
-                PermissionOption(Deny, "Запретить", isOneTime = true),
-            ),
-            description = action.description,
-        )
+        val request = koogPermissionRequest(turn.id, action.title, action.description)
         val pending = PendingApproval(request, CompletableDeferred())
         approval = pending
         val running = active ?: turn
@@ -865,10 +844,6 @@ internal class KoogNativeSession(
 
 /** Longest approval target shown in full; longer mutating calls are refused. */
 internal const val APPROVAL_TARGET_LIMIT = 4000
-
-internal val AllowOnce = PermissionOptionId("allow")
-internal val AllowForSession = PermissionOptionId("allow_session")
-internal val Deny = PermissionOptionId("deny")
 
 private data class PendingApproval(val request: PermissionRequest, val answer: CompletableDeferred<PermissionOptionId>)
 

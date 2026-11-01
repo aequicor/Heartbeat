@@ -221,13 +221,13 @@ internal data class ContextSettingsUi(
 internal val AutoContinueSettingsScreenState.context: ContextSettingsUi
     get() = settings.contextSettings.let {
         ContextSettingsUi(
-            it.history,
-            it.plan,
-            it.toolResults,
-            it.toolArguments,
-            it.checklist,
-            it.questionnaires,
-            it.backgroundResults,
+            it.isHistoryIncluded,
+            it.isPlanIncluded,
+            it.isToolResultsIncluded,
+            it.isToolArgumentsIncluded,
+            it.isChecklistIncluded,
+            it.isQuestionnairesIncluded,
+            it.isBackgroundResultsIncluded,
             it.historyMessages,
         )
     }

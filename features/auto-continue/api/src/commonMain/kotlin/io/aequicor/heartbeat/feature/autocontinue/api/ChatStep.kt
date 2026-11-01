@@ -61,8 +61,12 @@ private fun AutoContinueState.Ready.requestStep(id: String, chat: ChatAuto, inte
         }
     }
     if (intent !is Public.RequestOpened || intent.context.request == null) return null
-    val canAnswer = chat.mode == AutoContinueMode.Autopilot && chat.phase !is Phase.Suspended
-    return if (canAnswer && intent.context.request != chat.context?.request) ask(id, chat, intent.context) else null
+    val isAnswerAllowed = chat.mode == AutoContinueMode.Autopilot && chat.phase !is Phase.Suspended
+    return if (isAnswerAllowed && intent.context.request != chat.context?.request) {
+        ask(id, chat, intent.context)
+    } else {
+        null
+    }
 }
 
 /** Buttons of the screen. */
@@ -262,6 +266,12 @@ private fun askFailed(chat: ChatAuto, intent: Internal.AskFailed): ChatStep? {
 
 private fun AutoContinueState.Ready.ask(id: String, chat: ChatAuto, context: ContinuationContext): ChatStep {
     val seq = chat.seq + 1
+    if (context.contextSettings != null && context.contextSettings != settings.contextSettings) {
+        return ChatStep(
+            chat.copy(phase = Phase.Idle, context = null, seq = seq),
+            AutoContinueEffect.Resettle(id),
+        )
+    }
     return ChatStep(
         chat = chat.copy(phase = Phase.Thinking(seq), seq = seq, context = context),
         job = AutoContinueEffect.Ask(

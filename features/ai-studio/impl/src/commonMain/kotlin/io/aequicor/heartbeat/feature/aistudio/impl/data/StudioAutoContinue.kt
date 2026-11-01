@@ -417,7 +417,7 @@ internal class StudioAutoContinue(
             request,
         )
             ?: return null
-        val checklist = if (settings.checklist) checklistContext(record) else null
+        val checklist = if (settings.isChecklistIncluded) checklistContext(record) else null
         return context.copy(
             extraContext = listOfNotNull(context.extraContext, checklist).joinToString("\n").ifBlank { null },
         )

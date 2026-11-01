@@ -13,6 +13,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachment
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
@@ -33,9 +35,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -46,6 +51,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -94,6 +100,31 @@ class DeepSeekHostedTest {
         assertEquals(0, h.tools.nativeAuthorizations)
         assertNull(h.bridge.callbacks.single()("call", "questionnaire_ask"))
         assertEquals(AcpPermissionOutcome.Cancelled, h.permission(lease, "call"))
+    }
+
+    @Test
+    fun `hosted permission retains the complete action description before a one time decision`() = runTest {
+        val h = Harness(backgroundScope)
+        val lease = h.open()
+        val turn = h.send(lease, "request")
+        h.admit(lease, "call")
+        val context = assertNotNull(h.bridge.callbacks.single()("call", "questionnaire_ask"))
+        val description =
+            """{"command":"git diff --check","arguments":{"command":"git diff --check"},""" +
+                "\"workingDirectory\":\"C:/workspace/app\"}"
+        val approval = async {
+            context.permissions.request(AgentToolApproval("run_command", "Run command", description))
+        }
+        runCurrent()
+        val pending = assertIs<ActiveSessionState.AwaitingUserAction>(lease.state.value).requests.single()
+        assertEquals("Run command", pending.title)
+        assertEquals(description, pending.description)
+        assertEquals(turn, pending.turn)
+        assertTrue(pending.options.all { it.isOneTime })
+        lease.features.requireFeature(RequestsPermissions).respond(
+            PermissionDecision(turn, pending.id, PermissionOptionId("deny")),
+        )
+        assertFalse(approval.await())
     }
 
     @Test

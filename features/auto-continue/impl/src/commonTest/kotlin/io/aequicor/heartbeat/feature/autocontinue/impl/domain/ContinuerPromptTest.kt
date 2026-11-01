@@ -37,7 +37,7 @@ class ContinuerPromptTest {
         ).forEach { assertNull(parseVerdict(it, 3, requiresAnswer = true)) }
         assertEquals(
             false,
-            parseVerdict("""{"status":"continue","answer":{"confirmed":false}}""", 3, true)?.answer?.confirmed,
+            parseVerdict("""{"status":"continue","answer":{"confirmed":false}}""", 3, true)?.answer?.isConfirmed,
         )
         assertEquals(
             listOf("allow"),
@@ -84,7 +84,7 @@ class ContinuerPromptTest {
             """{"status":"continue","answer":{"selected":null,"confirmed":false,"text":null}}""",
             1,
         )
-        assertEquals(ContinuationAnswer(confirmed = false), confirmation?.answer)
+        assertEquals(ContinuationAnswer(isConfirmed = false), confirmation?.answer)
         val text = parseVerdict("""{"status":"continue","answer":{"selected":null,"text":"blue"}}""", 1)
         assertEquals(ContinuationAnswer(text = "blue"), text?.answer)
         assertNull(parseVerdict("""{"status":"continue","answer":{"selected":"forged"}}""", 1))

@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.security.MessageDigest
+import java.util.Locale
 import kotlin.concurrent.Volatile
 
 /** One native session's declarations and revocable MCP capability, never a source of action permission. */
@@ -49,7 +50,7 @@ internal fun dshHostedPublicName(name: String): String {
     val normalized = joined.replace(Regex("[^A-Za-z0-9_-]"), "_")
     if (joined == normalized && joined.length <= DSH_NAME_LIMIT) return joined
     val hash = MessageDigest.getInstance("SHA-256").digest("$HOSTED_TOOLS_SERVER\u0000$name".toByteArray())
-        .joinToString("") { "%02x".format(it) }.take(DSH_HASH_LENGTH)
+        .joinToString("") { "%02x".format(Locale.ROOT, it) }.take(DSH_HASH_LENGTH)
     return "${normalized.take(DSH_NAME_LIMIT - DSH_HASH_LENGTH - 1)}_$hash"
 }
 

@@ -51,15 +51,18 @@ class StudioContinuationToolActivityTest {
             result("bg", "background output"),
             message("report", "Done"),
         )
-        val questions = context(items, AutopilotContextSettings(questionnaires = true)).extraContext.orEmpty()
+        val questions = context(items, AutopilotContextSettings(isQuestionnairesIncluded = true)).extraContext.orEmpty()
         assertTrue("Tool: questionnaire_ask" in questions)
         assertTrue("PRIVATE_ANSWER" in questions)
         assertFalse("PRIVATE_ARGUMENT" in questions)
         assertFalse("background output" in questions)
-        val background = context(items, AutopilotContextSettings(backgroundResults = true)).extraContext.orEmpty()
+        val background = context(
+            items,
+            AutopilotContextSettings(isBackgroundResultsIncluded = true),
+        ).extraContext.orEmpty()
         assertTrue("background output" in background)
         assertFalse("PRIVATE_ANSWER" in background)
-        assertNull(context(items, AutopilotContextSettings(toolResults = true)).extraContext)
+        assertNull(context(items, AutopilotContextSettings(isToolResultsIncluded = true)).extraContext)
     }
 
     @Test
@@ -129,6 +132,44 @@ class StudioContinuationToolActivityTest {
             listOf(call("q"), result("q").copy(failure = EngineFailure.Unknown()), message("report", "Failed")),
         )
         assertEquals(ToolCallStatus.Failed, context.toolActivity.single().status)
+    }
+
+    @Test
+    fun `reused call ids preserve source filtering across turns`() {
+        val items = listOf(
+            call("same", "read_file", "old").copy(arguments = "OLD_PATH"),
+            result("same", "PRIVATE_FILE", "old"),
+            call("same").copy(arguments = "NEW_QUESTION"),
+            result("same", "QUESTION_ANSWER"),
+            message("report", "Done"),
+        )
+        val questions = context(items, AutopilotContextSettings(isQuestionnairesIncluded = true)).extraContext.orEmpty()
+        assertTrue("QUESTION_ANSWER" in questions)
+        assertFalse("PRIVATE_FILE" in questions)
+        val files = context(items, AutopilotContextSettings(isToolResultsIncluded = true)).extraContext.orEmpty()
+        assertTrue("PRIVATE_FILE" in files)
+        assertFalse("QUESTION_ANSWER" in files)
+        val arguments = context(items, AutopilotContextSettings(isToolArgumentsIncluded = true)).extraContext.orEmpty()
+        assertTrue("Tool: read_file\nArguments: OLD_PATH" in arguments)
+        assertTrue("Tool: questionnaire_ask\nArguments: NEW_QUESTION" in arguments)
+        assertFalse("PRIVATE_FILE" in arguments)
+        assertFalse("QUESTION_ANSWER" in arguments)
+    }
+
+    @Test
+    fun `unmatched result from another turn never enters optional context`() {
+        val items = listOf(
+            result("same", "UNMATCHED_RESULT", "old"),
+            call("same"),
+            message("report", "Done"),
+        )
+        assertNull(context(items, AutopilotContextSettings(isQuestionnairesIncluded = true)).extraContext)
+    }
+
+    @Test
+    fun `context identifies the settings used to select its sources`() {
+        val settings = AutopilotContextSettings(isHistoryIncluded = false, isQuestionnairesIncluded = true)
+        assertEquals(settings, context(listOf(message("report", "Done")), settings).contextSettings)
     }
 
     private fun context(items: List<SessionItem>, settings: AutopilotContextSettings = AutopilotContextSettings()) =

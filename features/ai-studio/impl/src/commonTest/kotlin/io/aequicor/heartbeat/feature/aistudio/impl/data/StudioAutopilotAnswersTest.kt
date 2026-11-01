@@ -56,8 +56,8 @@ class StudioAutopilotAnswersTest {
             selected.copy(selected = listOf("always")),
             selected.copy(selected = listOf("allow", "deny")),
             selected.copy(selected = listOf("allow", "allow")),
-            selected.copy(confirmed = true),
-            selected.copy(confirmed = false),
+            selected.copy(isConfirmed = true),
+            selected.copy(isConfirmed = false),
             selected.copy(text = "yes"),
         ).forEach { assertNull(q.autopilotAnswer(it, permission)) }
         val duplicate = permission.copy(options = listOf(permission.options.first(), permission.options.first()))
@@ -83,11 +83,11 @@ class StudioAutopilotAnswersTest {
     @Test
     fun `confirm and free text cannot smuggle fields of a different question`() {
         val confirm = question(Question.Confirm("Yes", "No"))
-        assertEquals(Answer.Confirmed(false), confirm.autopilotAnswer(ContinuationAnswer(confirmed = false)))
-        assertNull(confirm.autopilotAnswer(ContinuationAnswer(confirmed = true, selected = listOf("always"))))
+        assertEquals(Answer.Confirmed(false), confirm.autopilotAnswer(ContinuationAnswer(isConfirmed = false)))
+        assertNull(confirm.autopilotAnswer(ContinuationAnswer(isConfirmed = true, selected = listOf("always"))))
         val text = question(Question.FreeText())
         assertEquals(Answer.Text("Answer"), text.autopilotAnswer(ContinuationAnswer(text = "Answer")))
-        assertNull(text.autopilotAnswer(ContinuationAnswer(text = "Answer", confirmed = true)))
+        assertNull(text.autopilotAnswer(ContinuationAnswer(text = "Answer", isConfirmed = true)))
         assertNull(text.autopilotAnswer(ContinuationAnswer(text = " ")))
     }
 }

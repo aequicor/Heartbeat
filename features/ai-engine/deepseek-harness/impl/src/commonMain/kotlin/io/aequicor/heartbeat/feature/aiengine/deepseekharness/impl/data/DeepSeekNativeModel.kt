@@ -63,9 +63,9 @@ internal fun deepSeekNativeCatalog(
  */
 internal fun deepSeekPromptInputSupport(capabilities: JsonObject): PromptInputSupport {
     val prompt = capabilities["promptCapabilities"] as? JsonObject
-    val acceptsImages = (prompt?.get("image") as? JsonPrimitive)?.booleanOrNull == true
+    val isImageSupported = (prompt?.get("image") as? JsonPrimitive)?.booleanOrNull == true
     return PromptInputSupport(
-        imageMediaTypes = if (acceptsImages) DeepSeekImageMediaTypes else emptySet(),
+        imageMediaTypes = if (isImageSupported) DeepSeekImageMediaTypes else emptySet(),
     )
 }
 

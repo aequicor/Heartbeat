@@ -25,6 +25,8 @@ import io.aequicor.heartbeat.feature.autocontinue.api.ContinuerFailure
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogAuthor
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogEntry
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -32,6 +34,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -54,7 +57,7 @@ class AutoContinueEffectsTest {
             machine,
         )
         assertEquals(2, prompts.asked.size)
-        assertEquals(false, (machine.sent.single() as Internal.Answered).verdict.answer?.confirmed)
+        assertEquals(false, (machine.sent.single() as Internal.Answered).verdict.answer?.isConfirmed)
     }
 
     @Test
@@ -139,6 +142,39 @@ class AutoContinueEffectsTest {
         advanceUntilIdle()
         assertTrue(running.isCompleted)
         assertEquals(emptyList(), machine.sent)
+    }
+
+    @Test
+    fun `resettle revokes an old model job before invoking the host to recollect context`() = runTest {
+        val gate = CompletableDeferred<IsolatedAnswer>()
+        var oldJob: Job? = null
+        val prompts = object : IsolatedPrompts {
+            override suspend fun ask(prompt: IsolatedPrompt): IsolatedAnswer {
+                oldJob = currentCoroutineContext()[Job]
+                return gate.await()
+            }
+        }
+        val resettled = mutableListOf<String>()
+        var isOldJobActiveAtHost = true
+        val host = object : AutoContinueHost {
+            override suspend fun deliver(chat: String, text: String) = false
+
+            override suspend fun resettle(chat: String) {
+                isOldJobActiveAtHost = checkNotNull(oldJob).isActive
+                resettled += chat
+                gate.complete(IsolatedAnswer.Answered(valid))
+            }
+        }
+        val machine = RecordingScope()
+        val handler = effects(prompts = prompts, hosts = setOf(host))
+        val running = launch { handler.handle(ask, machine) }
+        runCurrent()
+        handler.handle(AutoContinueEffect.Resettle(CHAT), machine)
+        advanceUntilIdle()
+        assertFalse(isOldJobActiveAtHost)
+        assertEquals(listOf(CHAT), resettled)
+        assertTrue(running.isCompleted)
+        assertTrue(machine.sent.isEmpty())
     }
 
     @Test

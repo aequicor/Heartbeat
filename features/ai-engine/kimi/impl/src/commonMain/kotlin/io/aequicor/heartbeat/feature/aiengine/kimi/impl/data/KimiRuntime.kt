@@ -796,6 +796,7 @@ internal class KimiSession(
                     PermissionOption(PermissionOptionId("allow"), "Allow", false, isOneTime = true),
                     PermissionOption(PermissionOptionId("deny"), "Deny", true, isOneTime = true),
                 ),
+                description = approval.description,
             )
             val answer = CompletableDeferred<AcpPermissionOutcome>()
             pending[id] = PendingPermission(normalized, answer)

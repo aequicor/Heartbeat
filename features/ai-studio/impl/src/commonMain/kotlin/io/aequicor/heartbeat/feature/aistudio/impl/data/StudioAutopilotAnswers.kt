@@ -23,7 +23,7 @@ internal fun Questionnaire.autopilotAnswer(value: ContinuationAnswer, permission
     if ((value.text?.length ?: 0) > MAX_ANSWER_CHARS || value.selected.size > MAX_SELECTIONS) return null
     permissionConfirmation(value, permission)?.let { return it }
     val answer = when (question) {
-        is Question.Confirm -> value.confirmed?.takeIf {
+        is Question.Confirm -> value.isConfirmed?.takeIf {
             value.selected.isEmpty() && value.text == null
         }?.let {
             Answer.Confirmed(
@@ -35,7 +35,7 @@ internal fun Questionnaire.autopilotAnswer(value: ContinuationAnswer, permission
 
         is Question.FreeText -> value.text?.takeIf {
             it.isNotBlank() && value.selected.isEmpty() &&
-                value.confirmed == null
+                value.isConfirmed == null
         }?.let(
             Answer::Text,
         )
@@ -46,7 +46,7 @@ internal fun Questionnaire.autopilotAnswer(value: ContinuationAnswer, permission
 /** Native two-option permissions can be returned by exact option id instead of the UI's Confirm boolean. */
 private fun Questionnaire.permissionConfirmation(value: ContinuationAnswer, permission: StudioPermission?): Answer? {
     if (question !is Question.Confirm) return null
-    if (value.confirmed != null || value.text != null || value.selected.size != 1) return null
+    if (value.isConfirmed != null || value.text != null || value.selected.size != 1) return null
     if (permission == null || permission.input != null) return null
     if (permission.options.size != 2 || permission.toQuestionnaire() != this) return null
     val id = value.selected.single()
@@ -78,7 +78,7 @@ private const val MAX_ANSWER_CHARS = 8000
 private const val MAX_SELECTIONS = 100
 
 private fun ContinuationAnswer.choiceAnswer(): Answer? {
-    if (confirmed != null) return null
+    if (isConfirmed != null) return null
     return when {
         selected.isNotEmpty() && text == null -> Answer.Selected(selected)
         selected.isEmpty() -> text?.let(Answer::Text)

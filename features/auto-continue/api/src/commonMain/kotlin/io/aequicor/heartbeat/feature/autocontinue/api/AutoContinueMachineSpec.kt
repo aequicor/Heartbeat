@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
  * | any chat | SetMode | Selected mode/model; known context → Thinking | SaveMode, Ask / Cancel / Resettle |
  * | enabled chat | TurnStarted | Idle, context cleared; human resets reply count | Cancel if busy |
  * | enabled chat | TurnSettled | Thinking; Off only keeps context | Ask |
+ * | context available | Ask entry with outdated source settings | Idle, context cleared, seq advanced | Resettle |
  * | any chat | TurnAwaitsEvent | WaitingForEvent, context cleared, sequence advanced | Cancel |
  * | autopilot | TurnAwaitsHuman | Paused for a human decision | Cancel if busy |
  * | autopilot | TurnFailed / Stop | Suspended; mode/model kept, sequence advanced | Cancel |
@@ -30,6 +31,8 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
  * | busy autopilot | DraftTyped | Suspended(HumanTookOver), mode/model kept | Cancel |
  * | any chat | Forget | Removed | Cancel, SaveMode(null) |
  *
+ * Collected context binds its filtering settings. Every Ask entry (settlement, request, refresh and mode switch)
+ * rejects an outdated binding before a model call; Resettle cancels previous work and collects fresh data.
  * Stale sequence results and replaced/closed requests are ignored. Structured requests never fall back to sending
  * ordinary chat text. Legacy countdown intents can drain an already pending countdown, but no new countdown is
  * created. Effect errors map to LoadFailed, SaveFailed, AskFailed or DeliveryFailed.

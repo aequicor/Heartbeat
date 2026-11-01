@@ -92,13 +92,21 @@ internal class AutoContinueEffects(
 
             is AutoContinueEffect.Deliver -> job(effect.chat, machine, lost(effect)) { machine.send(deliver(effect)) }
 
-            is AutoContinueEffect.Resettle -> hosts().firstOrNull()?.resettle(effect.chat)
-                ?: log.d { "auto-continue of ${effect.chat} switched on without a studio to report its last turn" }
-
-            is AutoContinueEffect.Cancel -> jobsLock.withLock { jobs.remove(effect.chat) }?.let {
-                it.cancel()
-                log.d { "auto-continue job of ${effect.chat} cancelled" }
+            is AutoContinueEffect.Resettle -> {
+                cancelJob(effect.chat)
+                hosts().firstOrNull()?.resettle(effect.chat)
+                    ?: log.d { "auto-continue of ${effect.chat} switched on without a studio to report its last turn" }
             }
+
+            is AutoContinueEffect.Cancel -> cancelJob(effect.chat)
+        }
+    }
+
+    /** Remove ownership before cancellation, so withdrawn work cannot report a failure or outlive recollection. */
+    private suspend fun cancelJob(chat: String) {
+        jobsLock.withLock { jobs.remove(chat) }?.let {
+            it.cancel()
+            log.d { "auto-continue job of $chat cancelled" }
         }
     }
 

@@ -470,7 +470,7 @@ class AutoContinueMachineTest {
             context = context.copy(request = request),
             seq = 1,
         )
-        val answer = ContinuationAnswer(confirmed = true)
+        val answer = ContinuationAnswer(isConfirmed = true)
         val verdict = ContinuationVerdict(ContinuationStatus.Continue, "within task", answer = answer)
         spec.assertTransition(
             ready(thinking),
@@ -516,7 +516,7 @@ class AutoContinueMachineTest {
     fun `changed context settings discard the old answer and request a fresh host snapshot`() {
         val previous = AutoContinueSettings()
         val current = previous.copy(
-            contextSettings = previous.contextSettings.copy(history = false, toolResults = false),
+            contextSettings = previous.contextSettings.copy(isHistoryIncluded = false, isToolResultsIncluded = false),
         )
         val thinking = ChatAuto(AutoContinueMode.Autopilot, Phase.Thinking(1), context = context, seq = 1)
         spec.assertTransition(
@@ -525,6 +525,78 @@ class AutoContinueMachineTest {
             ready(thinking.copy(phase = Phase.Idle, context = null, seq = 2), current),
             effects = listOf(AutoContinueEffect.Resettle(CHAT)),
         )
+    }
+
+    @Test
+    fun `context collected before a settings change is recollected before settlement or request asks`() {
+        val previous = AutopilotContextSettings(isHistoryIncluded = true, isToolResultsIncluded = true)
+        val current = AutoContinueSettings(
+            contextSettings = previous.copy(isHistoryIncluded = false, isToolResultsIncluded = false),
+        )
+        val old = context.copy(contextSettings = previous, extraContext = "Previously included private tool payload")
+        val thinking = ChatAuto(AutoContinueMode.Autopilot, Phase.Thinking(7), context = old, seq = 7)
+        val cleared = thinking.copy(phase = Phase.Idle, context = null, seq = 8)
+        val inputs = listOf(
+            Public.TurnSettled(CHAT, old),
+            Public.RequestOpened(CHAT, old.copy(request = ContinuationRequest("current-question", "{}"))),
+        )
+        for (input in inputs) {
+            spec.assertTransition(
+                ready(thinking, current),
+                input,
+                ready(cleared, current),
+                effects = listOf(AutoContinueEffect.Resettle(CHAT)),
+            )
+        }
+        spec.assertIgnored(ready(cleared, current), Internal.Answered(CHAT, 7, proceed))
+    }
+
+    @Test
+    fun `refresh and mode switch cannot reuse context filtered under earlier settings`() {
+        val previous = AutopilotContextSettings(isHistoryIncluded = true)
+        val current = AutoContinueSettings(contextSettings = previous.copy(isHistoryIncluded = false))
+        val old = context.copy(contextSettings = previous)
+        val offered = ChatAuto(AutoContinueMode.Suggest, Phase.Offered(proceed), context = old, seq = 7)
+        val cleared = offered.copy(phase = Phase.Idle, context = null, seq = 8)
+        spec.assertTransition(
+            ready(offered, current),
+            Public.Refresh(CHAT),
+            ready(cleared, current),
+            effects = listOf(AutoContinueEffect.Resettle(CHAT)),
+        )
+        spec.assertTransition(
+            ready(offered, current),
+            Public.SetMode(CHAT, AutoContinueMode.Autopilot, continuer),
+            ready(cleared.copy(mode = AutoContinueMode.Autopilot, continuerTarget = continuer), current),
+            effects = listOf(
+                AutoContinueEffect.Resettle(CHAT),
+                AutoContinueEffect.SaveMode(CHAT, AutoContinueMode.Autopilot, continuer),
+            ),
+        )
+    }
+
+    @Test
+    fun `current bound context and legacy unbound context still reach the selected model`() {
+        val current = AutoContinueSettings(contextSettings = AutopilotContextSettings(isHistoryIncluded = false))
+        val idle = ChatAuto(AutoContinueMode.Autopilot, continuerTarget = continuer)
+        for (snapshot in listOf(context, context.copy(contextSettings = current.contextSettings))) {
+            spec.assertTransition(
+                ready(idle, current),
+                Public.TurnSettled(CHAT, snapshot),
+                ready(idle.copy(phase = Phase.Thinking(1), context = snapshot, seq = 1), current),
+                effects = listOf(
+                    AutoContinueEffect.Ask(
+                        CHAT,
+                        1,
+                        continuer,
+                        snapshot,
+                        AutoContinueMode.Autopilot,
+                        optionCount = current.optionCount,
+                        settings = current,
+                    ),
+                ),
+            )
+        }
     }
 
     private companion object {

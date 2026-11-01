@@ -98,25 +98,26 @@ internal fun continuationContext(
         dialog.indexOfLast { it.author == DialogAuthor.Agent },
     )
     val kept = dialog.filterIndexed { index, _ ->
-        index in required || (settings.history && index >= dialog.size - settings.historyMessages)
+        index in required || (settings.isHistoryIncluded && index >= dialog.size - settings.historyMessages)
     }
     return ContinuationContext(
         route,
         kept,
-        planNote(plan).takeIf { settings.plan },
+        planNote(plan).takeIf { settings.isPlanIncluded },
         request,
         extraContext(items, settings),
         toolActivity(items),
+        contextSettings = settings,
     )
 }
 
 /** Always retain payload-free execution facts, even when detailed tool context is disabled. */
 private fun toolActivity(items: List<SessionItem>): List<ContinuationToolActivity> {
     val turn = items.lastOrNull { it.info.turn != null }?.info?.turn ?: return emptyList()
-    val results = items.filterIsInstance<SessionItem.ToolResult>().associateBy { it.call }
+    val results = items.filterIsInstance<SessionItem.ToolResult>().associateBy { it.info.turn to it.call }
     return items.filterIsInstance<SessionItem.ToolCall>().filter { it.info.turn == turn }
         .takeLast(MAX_CONTEXT_RESULTS).map { call ->
-            val result = results[call.call]?.takeIf { it.info.turn == turn }
+            val result = results[call.info.turn to call.call]
             val status = when {
                 result?.failure != null -> ToolCallStatus.Failed
                 call.status == ToolCallStatus.Failed || call.status == ToolCallStatus.Cancelled -> call.status
@@ -137,18 +138,18 @@ internal fun planNote(plan: Plan?): String? {
 
 /** Optional completed calls are grouped by source, independently of conversational history. */
 private fun extraContext(items: List<SessionItem>, settings: AutopilotContextSettings): String? {
-    val calls = items.filterIsInstance<SessionItem.ToolCall>().associateBy { it.call }
+    val calls = items.filterIsInstance<SessionItem.ToolCall>().associateBy { it.info.turn to it.call }
     val blocks = items.filterIsInstance<SessionItem.ToolResult>().takeLast(MAX_CONTEXT_RESULTS).mapNotNull { result ->
-        calls[result.call]?.let { call -> toolContext(call, result, settings) }
+        calls[result.info.turn to result.call]?.let { call -> toolContext(call, result, settings) }
     }
-    val plan = items.filterIsInstance<SessionItem.Plan>().lastOrNull()?.takeIf { settings.plan }
+    val plan = items.filterIsInstance<SessionItem.Plan>().lastOrNull()?.takeIf { settings.isPlanIncluded }
     return (blocks + listOfNotNull(plan?.let { "Agent plan: ${it.steps}" })).joinToString("\n").ifBlank { null }
 }
 
 private fun AutopilotContextSettings.includesResult(name: String): Boolean = when (name) {
-    "questionnaire_ask" -> questionnaires
-    "subagent_receive", "scheduler_start_action", "scheduler_list", "scheduler_events" -> backgroundResults
-    else -> toolResults
+    "questionnaire_ask" -> isQuestionnairesIncluded
+    "subagent_receive", "scheduler_start_action", "scheduler_list", "scheduler_events" -> isBackgroundResultsIncluded
+    else -> isToolResultsIncluded
 }
 
 private fun toolContext(
@@ -158,10 +159,10 @@ private fun toolContext(
 ): String? {
     val name = hostedToolName(call.name)
     val isIncluded = settings.includesResult(name)
-    if (!isIncluded && !settings.toolArguments) return null
+    if (!isIncluded && !settings.isToolArgumentsIncluded) return null
     return buildString {
         appendLine("Tool: $name")
-        if (settings.toolArguments) appendLine("Arguments: ${call.arguments.take(CONTEXT_ARGUMENT_CHARS)}")
+        if (settings.isToolArgumentsIncluded) appendLine("Arguments: ${call.arguments.take(CONTEXT_ARGUMENT_CHARS)}")
         if (isIncluded) {
             appendLine(
                 result.parts.filterIsInstance<ContentPart.Text>().joinToString(

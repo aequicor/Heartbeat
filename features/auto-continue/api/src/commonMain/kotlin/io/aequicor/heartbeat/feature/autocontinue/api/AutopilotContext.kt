@@ -2,18 +2,19 @@ package io.aequicor.heartbeat.feature.autocontinue.api
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /** Optional sources read from the existing session, never by launching additional tools. */
 @Serializable
 public data class AutopilotContextSettings(
-    val history: Boolean = true,
-    val plan: Boolean = true,
-    val toolResults: Boolean = false,
-    val toolArguments: Boolean = false,
-    val checklist: Boolean = false,
-    val questionnaires: Boolean = false,
-    val backgroundResults: Boolean = false,
+    @SerialName("history") val isHistoryIncluded: Boolean = true,
+    @SerialName("plan") val isPlanIncluded: Boolean = true,
+    @SerialName("toolResults") val isToolResultsIncluded: Boolean = false,
+    @SerialName("toolArguments") val isToolArgumentsIncluded: Boolean = false,
+    @SerialName("checklist") val isChecklistIncluded: Boolean = false,
+    @SerialName("questionnaires") val isQuestionnairesIncluded: Boolean = false,
+    @SerialName("backgroundResults") val isBackgroundResultsIncluded: Boolean = false,
     val historyMessages: Int = 20,
 ) {
     init {
@@ -31,7 +32,7 @@ public data class ContinuationRequest(val id: String, val payload: String) {
 @Serializable
 public data class ContinuationAnswer(
     val selected: List<String> = emptyList(),
-    val confirmed: Boolean? = null,
+    @SerialName("confirmed") val isConfirmed: Boolean? = null,
     val text: String? = null,
 ) {
     override fun toString(): String = "ContinuationAnswer(selected=${selected.size}, hasText=${text != null})"
