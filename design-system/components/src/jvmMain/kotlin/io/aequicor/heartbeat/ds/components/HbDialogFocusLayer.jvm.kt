@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -18,6 +19,7 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.semantics.dialog
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
+import io.aequicor.heartbeat.ds.theme.HbTheme
 
 /** The modal owns focus and accessibility; closing restores the background and its prior focused child. */
 @Composable
@@ -25,6 +27,7 @@ internal fun HbDialogFocusLayer(
     isActive: Boolean,
     background: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    isBackgroundBlurred: Boolean = false,
     overlay: @Composable () -> Unit,
 ) {
     val backgroundFocus = remember { FocusRequester() }
@@ -38,7 +41,9 @@ internal fun HbDialogFocusLayer(
     }
     Box(modifier.fillMaxSize()) {
         Box(
-            Modifier.fillMaxSize().semantics { if (isActive) hideFromAccessibility() }
+            Modifier.fillMaxSize()
+                .then(if (isBackgroundBlurred) Modifier.blur(HbTheme.dimensions.modalBackdropBlur) else Modifier)
+                .semantics { if (isActive) hideFromAccessibility() }
                 .focusRequester(backgroundFocus).focusRestorer().focusGroup(),
         ) {
             background()

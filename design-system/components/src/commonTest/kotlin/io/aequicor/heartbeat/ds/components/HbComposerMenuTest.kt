@@ -12,6 +12,16 @@ import kotlin.test.assertTrue
 
 class HbComposerMenuTest {
     @Test
+    fun `dialog selector anchors below its own trigger and flips when space is short`() {
+        val trigger = IntRect(200, 350, 440, 382)
+        val dropdown = ComposerPopupPosition(null, gutter = 16, gap = 4, isAnchoredBelow = true)
+        val below = dropdown.calculatePosition(trigger, IntSize(900, 700), LayoutDirection.Ltr, IntSize(392, 200))
+        assertEquals(trigger.bottom + 4, below.y + 16)
+        val above = dropdown.calculatePosition(trigger, IntSize(900, 450), LayoutDirection.Ltr, IntSize(392, 200))
+        assertEquals(trigger.top - 4, above.y + 200 - 16)
+    }
+
+    @Test
     fun `popup is above the editor rather than its bottom toolbar and preserves its shadow gutter`() {
         val composer = IntRect(20, 500, 700, 720)
         val toolbarTrigger = IntRect(36, 652, 84, 700)
