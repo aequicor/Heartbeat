@@ -149,14 +149,17 @@ internal class DefaultAcpConnection(
         }
     }
 
-    override suspend fun resumeSession(sessionId: String, cwd: String): AcpSession = owned {
+    override suspend fun resumeSession(sessionId: String, cwd: String): AcpSession =
+        resumeSession(sessionId, cwd, emptyList())
+
+    override suspend fun resumeSession(sessionId: String, cwd: String, servers: List<JsonObject>): AcpSession = owned {
         ready()
         require(sessionId.isNotBlank()) { "Session id is required" }
         requireAbsolute(cwd)
         log.i { "ACP resume session" }
         lock.withLock { check(busySessions.add(sessionId)) { "Session is busy" } }
         try {
-            val params = JsonObject(sessionParams(cwd, emptyList()) + sessionId(sessionId))
+            val params = JsonObject(sessionParams(cwd, servers) + sessionId(sessionId))
             val result = peer.request("session/resume", params)
             lock.withLock { sessions.add(sessionId) }
             AcpSession(sessionId, result)

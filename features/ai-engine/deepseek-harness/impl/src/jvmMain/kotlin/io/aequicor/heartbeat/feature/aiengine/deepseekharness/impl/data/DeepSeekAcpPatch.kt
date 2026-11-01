@@ -27,20 +27,32 @@ internal object DeepSeekAcpPatch {
 
     private val log = Log.tag("DeepSeekAcpPatch")
 
-    /** Absolute overlay path, or null when no temporary file can be created; the engine then starts without images. */
-    private val path: String? by lazy { create() }
+    /** Process-only overlay; failure prevents an unbound hosted transport from starting. */
+    private val path: String by lazy { create() }
 
-    /** Arguments of `dsh`: the ACP profile plus the capability overlay when it is available. */
+    /** Arguments of `dsh`: the ACP profile and required process-only capability/binding overlay. */
     fun arguments(): List<String> = dshAcpArguments(path)
 
-    private fun create(): String? = try {
-        Files.createTempFile("heartbeat-dsh-acp-", ".yml").toFile().apply {
-            writeText(CONTENT)
-            deleteOnExit()
-        }.absolutePath
-    } catch (error: IOException) {
-        log.w(error) { "DeepSeek Harness ACP capability overlay could not be created" }
-        null
+    /** Insert is required for a new DSH plugin row; a bare id only patches an existing row. */
+    internal fun hostedOverlay(pluginUri: String): String =
+        CONTENT + "\n- insert:\n    - id: heartbeat-hosted-binding\n      name: '$pluginUri'\n"
+
+    private fun create(): String {
+        try {
+            val plugin = Files.createTempFile("heartbeat-dsh-hosted-", ".mjs").toFile()
+            plugin.deleteOnExit()
+            val source = checkNotNull(DeepSeekAcpPatch::class.java.getResourceAsStream("/heartbeat-dsh-hosted.mjs")) {
+                "DeepSeek hosted binding plugin is unavailable"
+            }
+            source.use { input -> plugin.outputStream().use(input::copyTo) }
+            return Files.createTempFile("heartbeat-dsh-acp-", ".yml").toFile().apply {
+                writeText(hostedOverlay(plugin.toURI().toString()))
+                deleteOnExit()
+            }.absolutePath
+        } catch (error: IOException) {
+            log.w(error) { "DeepSeek Harness ACP overlay could not be created" }
+            throw IllegalStateException("DeepSeek Harness ACP overlay is unavailable", error)
+        }
     }
 }
 

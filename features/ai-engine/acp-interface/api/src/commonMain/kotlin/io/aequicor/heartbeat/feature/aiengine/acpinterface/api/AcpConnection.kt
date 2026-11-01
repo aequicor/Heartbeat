@@ -64,6 +64,14 @@ public interface AcpConnection {
     public suspend fun resumeSession(sessionId: String, cwd: String): AcpSession =
         throw UnsupportedOperationException("ACP resume unavailable")
 
+    /** Resumes without history replay using fresh trusted MCP definitions; credentials must not be logged. */
+    public suspend fun resumeSession(sessionId: String, cwd: String, servers: List<JsonObject>): AcpSession =
+        if (servers.isEmpty()) {
+            resumeSession(sessionId, cwd)
+        } else {
+            throw UnsupportedOperationException("ACP resume MCP unavailable")
+        }
+
     /**
      * Closes a session the agent advertised through `sessionCapabilities.close`, releasing agent-side resources.
      * Closing is idle-only: the caller must settle or cancel every turn before invoking it.

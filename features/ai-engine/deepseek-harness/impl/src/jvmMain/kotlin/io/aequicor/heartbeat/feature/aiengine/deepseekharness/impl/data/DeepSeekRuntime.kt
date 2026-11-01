@@ -13,6 +13,8 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSessionUpdate
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -34,6 +36,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -52,6 +55,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.Volatile
 
 /** One profile-owned ACP connection. Accepted turns outlive individual session handles. */
@@ -65,6 +69,7 @@ internal class DeepSeekRuntime(
     private val capabilities: JsonObject = JsonObject(emptyMap()),
     private val ownedScope: Job? = null,
     private val sessionTrees: SessionTrees? = null,
+    private val bridge: AgentToolBridge = UnavailableAgentToolBridge,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
@@ -109,10 +114,25 @@ internal class DeepSeekRuntime(
     override suspend fun create(request: CreateSessionRequest): ActiveSession {
         checkActive()
         val cwd = directory(request)
-        val native = connection.newSession(cwd)
-        configure(native.sessionId, native.metadata, request.target)
-        val created = session(native.sessionId, request.target, request.workspace, cwd)
-        return created.lease()
+        val hosted = hosted(
+            request.target,
+            request.workspace,
+            null,
+            request.areDetachedToolsEnabled,
+            request.preselected,
+        )
+        try {
+            val native = connection.newSession(cwd, hosted.servers)
+            configure(native.sessionId, native.metadata, request.target)
+            val created = session(native.sessionId, request.target, request.workspace, cwd, hosted)
+            return created.lease()
+        } catch (error: CancellationException) {
+            hosted.close()
+            throw error
+        } catch (error: Exception) {
+            hosted.close()
+            throw error
+        }
     }
 
     /** Lists the native models and prompt input support the agent advertises; the adapter never starts a turn. */
@@ -156,10 +176,20 @@ internal class DeepSeekRuntime(
         }
         val cwd = directory(CreateSessionRequest(request.target, request.workspace))
         // Register before the RPC: updates and permission requests arriving during resume reach the session.
-        val created = session(nativeId, request.target, request.workspace, cwd)
+        val ref = SessionRef(DeepSeekEngine.Id, DeepSeekEngine.SessionSource, nativeId)
+        val hosted = hosted(request.target, request.workspace, ref, request.areDetachedToolsEnabled, emptyMap())
+        val created = try {
+            session(nativeId, request.target, request.workspace, cwd, hosted)
+        } catch (error: CancellationException) {
+            hosted.close()
+            throw error
+        } catch (error: Exception) {
+            hosted.close()
+            throw error
+        }
         try {
             // The connection completes an abandoned RPC in its own scope; keep the local bookkeeping aligned.
-            val native = withContext(NonCancellable) { connection.resumeSession(nativeId, cwd) }
+            val native = withContext(NonCancellable) { connection.resumeSession(nativeId, cwd, hosted.servers) }
             withContext(NonCancellable) { configure(nativeId, native.metadata, request.target) }
         } catch (error: CancellationException) {
             throw error
@@ -205,15 +235,36 @@ internal class DeepSeekRuntime(
         target: EngineTarget,
         workspace: WorkspaceRef?,
         workingDirectory: String,
+        hosted: DeepSeekHosted,
     ): DeepSeekSession = mutex.withLock {
         checkActive()
         check(nativeId !in sessions.value) { "DeepSeek Harness session identity already registered" }
         val ref = SessionRef(DeepSeekEngine.Id, DeepSeekEngine.SessionSource, nativeId)
         val route = ExecutionRoute(DeepSeekEngine.Id, target.binding, identity.source, identity.revision, workspace)
         log.i { "DeepSeek Harness session registered" }
-        val created = DeepSeekSession(ref, route, target, this, workingDirectory)
+        val created = DeepSeekSession(ref, route, target, this, workingDirectory, hosted)
+        hosted.session = created
         sessions.value = sessions.value + (nativeId to created)
         created
+    }
+
+    private suspend fun hosted(
+        target: EngineTarget,
+        workspace: WorkspaceRef?,
+        ref: SessionRef?,
+        enabled: Boolean,
+        preselected: Map<String, Set<String>>,
+    ): DeepSeekHosted {
+        if (workspace == null && !enabled) return DeepSeekHosted()
+        val toolScope = AgentToolScope(workspace, target, session = ref, preselected = preselected)
+        val names = tools.specifications(toolScope).associate { dshHostedPublicName(it.name) to it.name }
+        if (names.isEmpty()) return DeepSeekHosted()
+        check(bridge.isAvailable) { "DeepSeek hosted tools bridge is unavailable" }
+        val holder = AtomicReference<DeepSeekHosted?>(null)
+        val attachment = bridge.attachCorrelated(toolScope.copy(declared = names.values.toSet())) { call, name ->
+            holder.get()?.session?.hostedContext(call, name)
+        }
+        return DeepSeekHosted(names, attachment).also { holder.set(it) }
     }
 
     @HighFrequency
@@ -292,6 +343,7 @@ internal class DeepSeekRuntime(
             tools: ProfileAgentTools = NoAgentTools,
             resources: ResourceResolver = ResourceResolver { null },
             sessionTrees: SessionTrees? = null,
+            bridge: AgentToolBridge = UnavailableAgentToolBridge,
         ): DeepSeekRuntime {
             val runtime = MutableStateFlow<DeepSeekRuntime?>(null)
             val disconnected = MutableStateFlow(false)
@@ -343,6 +395,7 @@ internal class DeepSeekRuntime(
                     initialization.agentCapabilities,
                     runtimeScope.coroutineContext[Job],
                     sessionTrees,
+                    bridge,
                 ).also { created ->
                     runtime.value = created
                     if (disconnected.value) {
