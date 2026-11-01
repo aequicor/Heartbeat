@@ -66,10 +66,12 @@ sealed interface EngineManagementIntent : EngineControlPanelIntent {
     data object OpenHostApp : EngineRequest
 }
 
-/** Removals, a package sync, an update replacing the verified bundled copy and sign-out ask first. */
+/** Applicable removals, a package sync, an update replacing the verified bundled copy and sign-out ask first. */
 internal fun EngineControlPanelState.needsConfirmation(action: EngineActionUi): Boolean = when (action) {
+    EngineActionUi.Uninstall -> panel?.isUninstallAllowed == true
+
     // A sync also removes the installed packages that are no longer listed.
-    EngineActionUi.Uninstall, EngineActionUi.Logout, EngineActionUi.SyncPackages -> true
+    EngineActionUi.Logout, EngineActionUi.SyncPackages -> true
 
     EngineActionUi.Update -> panel?.installation?.support == InstallSupportUi.Bundled
 
@@ -124,7 +126,7 @@ internal fun EngineControlPanelState.commandFor(intent: EngineManagementIntent.E
 
         EngineManagementIntent.DismissEngineJob -> EngineCommand.Dismiss
 
-        is EngineManagementIntent.RequestEngineAction -> EngineCommand.Start(intent.action.toAction(intent.method))
+        is EngineManagementIntent.RequestEngineAction -> requestedCommand(intent)
 
         EngineManagementIntent.ConfirmEngineAction -> confirmedCommand()
 
@@ -151,6 +153,20 @@ private fun EngineControlPanelState.launchCommand(): EngineCommand? = panel?.lau
 private fun EngineControlPanelState.codeCommand(): EngineCommand? =
     loginCode.trim().takeIf { it.isNotEmpty() }?.let { EngineCommand.AnswerLogin(LoginCode(it)) }
 
-/** Starts the previously confirmed action. */
-private fun EngineControlPanelState.confirmedCommand(): EngineCommand? =
-    confirmAction?.let { EngineCommand.Start(it.toAction()) }
+/** Starts a requested action only while its safety preconditions still hold. */
+private fun EngineControlPanelState.requestedCommand(
+    intent: EngineManagementIntent.RequestEngineAction,
+): EngineCommand? {
+    val current = panel ?: return null
+    if (intent.action == EngineActionUi.Uninstall && !current.isUninstallAllowed) return null
+    return EngineCommand.Start(intent.action.toAction(intent.method))
+}
+
+/** Starts the previously confirmed action after rechecking it against the latest snapshot. */
+private fun EngineControlPanelState.confirmedCommand(): EngineCommand? = confirmAction?.let { action ->
+    if (action == EngineActionUi.Uninstall && panel?.isUninstallAllowed != true) {
+        null
+    } else {
+        EngineCommand.Start(action.toAction())
+    }
+}

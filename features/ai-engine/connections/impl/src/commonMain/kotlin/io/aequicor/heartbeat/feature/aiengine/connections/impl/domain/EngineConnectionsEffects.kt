@@ -98,7 +98,13 @@ class EngineConnectionsEffects(private val services: EngineServices, private val
 
             is ConnectionOperation.SetModelsEnabled -> {
                 log.i { "set enabled models count=${operation.models.size}" }
-                selections.update { it.withEnabled(operation.binding, operation.models) }
+                selections.update { selection ->
+                    val latest = selection.enabled(operation.binding)
+                    val models = operation.previous?.let { previous ->
+                        (latest - (previous - operation.models)) + (operation.models - previous)
+                    } ?: operation.models
+                    selection.withEnabled(operation.binding, models)
+                }
             }
 
             is ConnectionOperation.SetDefaultModel -> {

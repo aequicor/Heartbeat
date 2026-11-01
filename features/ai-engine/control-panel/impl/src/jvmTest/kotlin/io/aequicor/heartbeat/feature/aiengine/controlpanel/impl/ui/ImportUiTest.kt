@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigFormUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EnginePanelTabUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ImportIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ImportItemUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ImportNoteReasonUi
@@ -24,7 +25,13 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 class ImportUiTest {
-    private val overview = EngineControlPanelState("pi", title = "Pi", isImportable = true, isLoading = false)
+    private val overview = EngineControlPanelState(
+        "pi",
+        title = "Pi",
+        openTab = EnginePanelTabUi.Settings,
+        isImportable = true,
+        isLoading = false,
+    )
     private val importing = ImportUi(
         "~/.pi/agent",
         persistentListOf(
@@ -75,7 +82,7 @@ class ImportUiTest {
     }
 
     @Test
-    fun `the overview previews an import`() = runSkikoComposeUiTest {
+    fun `settings preview an import`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
         setContent { HbTheme { EngineControlPanelContent(overview, { intents += it }) } }
 

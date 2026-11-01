@@ -1,8 +1,13 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalizedText
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableMap
@@ -17,18 +22,29 @@ data class TextUi(val default: String, val byLanguage: ImmutableMap<String, Stri
 /** The panel's text of an engine's [LocalizedText]. */
 fun LocalizedText.toUi(): TextUi = TextUi(default, byLanguage.toImmutableMap())
 
-/** Whether an engine runs, is switched off by the user, or cannot run here. */
-enum class EngineStatusUi { On, Off, Unavailable }
+/** Connection summary shown beside an engine name; it is not a request health check. */
+enum class EngineConnectionStatusUi { NotConnected, Off, Connected }
 
-/** The status of a managed engine. */
-fun ManagedEngine.statusUi(): EngineStatusUi = when {
-    enablement.isEnabled -> EngineStatusUi.On
-    enablement.isOnlyUserDisabled -> EngineStatusUi.Off
-    else -> EngineStatusUi.Unavailable
+/** The status supported by the saved management facts, with the profile switch taking priority. */
+fun ManagedEngine.connectionStatusUi(hasSelectedModels: Boolean): EngineConnectionStatusUi = when {
+    !enablement.isUserEnabled -> EngineConnectionStatusUi.Off
+
+    enablement.isEnabled && hasSelectedModels && hasUsableRuntime() && hasSavedConnection() ->
+        EngineConnectionStatusUi.Connected
+
+    else -> EngineConnectionStatusUi.NotConnected
 }
 
-/** Version the engine runs now, or null when unknown. */
-fun ManagedEngine.versionUi(): String? = installation.current?.version
+private fun ManagedEngine.hasUsableRuntime(): Boolean {
+    if (availability != EngineAvailability.Available) return false
+    if (spec.install == InstallSupport.BuiltIn) return true
+    val current = installation.current ?: return false
+    return current.source != InstallSource.Missing && current.isRunnable &&
+        installation.compatibility == Compatibility.Verified
+}
 
-/** Reasons that make an engine unavailable, for the developer hint. */
-fun ManagedEngine.blockingReasons(): Set<DisabledReason> = enablement.reasons - DisabledReason.DisabledByUser
+private fun ManagedEngine.hasSavedConnection(): Boolean = when (spec.login) {
+    LoginSupport.Cli, LoginSupport.CliWithDeviceCode -> login is LoginState.SignedIn
+    LoginSupport.Connections -> connections > 0
+    LoginSupport.None -> true
+}

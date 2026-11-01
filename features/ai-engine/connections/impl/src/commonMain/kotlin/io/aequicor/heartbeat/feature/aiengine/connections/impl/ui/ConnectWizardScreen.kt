@@ -15,9 +15,11 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,7 +30,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -37,15 +38,15 @@ import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
+import io.aequicor.heartbeat.ds.components.HbChoiceRow
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbIcon
+import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
 import io.aequicor.heartbeat.ds.components.HbSearchField
-import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
-import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.layouts.HbColumn
@@ -53,7 +54,6 @@ import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CheckUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardModel
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenAction
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenIntent
@@ -79,9 +79,6 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_mo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_search_clear
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_selected
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_base_url_hint
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_check
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_check_passed
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_checking
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_cli_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connecting
@@ -94,18 +91,18 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_field_host
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_field_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_field_label
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_finish
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_finish_without_models
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_get_key
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_hide_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_host_app_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_host_fixed
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_key_hint
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_key_hint_development
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_key_placeholder
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_method_search
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_methods_empty
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_models_intro
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_no_auth_hint
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_save
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_saving
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_show_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_step
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_step_engine
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_step_method
@@ -323,17 +320,11 @@ private fun MethodForm(
     onIntent: (ConnectWizardScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val uriHandler = LocalUriHandler.current
     val isEnabled = !state.isBusy
     HbSettingsSection(method.provider, modifier, description = methodLabel(method)) {
         HbColumn(Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m), gap = HbTheme.spacing.s) {
             when (method.kind) {
-                MethodKindUi.ApiKey -> KeyField(
-                    state,
-                    method,
-                    isEnabled,
-                    onIntent,
-                ) { openProviderPage(uriHandler, it) }
+                MethodKindUi.ApiKey -> KeyField(state, isEnabled, onIntent)
 
                 MethodKindUi.CliLogin -> Hint(
                     method.hostApp?.let { stringResource(Res.string.wizard_host_app_hint, it) }
@@ -363,21 +354,19 @@ private fun MethodForm(
                     Modifier.testTag("wizard-form-error"),
                 )
             }
-            CheckResult(state.check)
             state.failure?.let { FailurePanel(it) }
         }
     }
 }
 
-/** The secret key field; its value is never shown back, logged or saved in UI state. */
+/** The key is masked whenever the form opens and is revealed only by an explicit, accessibly named action. */
 @Composable
 private fun KeyField(
     state: ConnectWizardScreenState,
-    method: MethodRowUi,
     isEnabled: Boolean,
     onIntent: (ConnectWizardScreenIntent) -> Unit,
-    onOpenPage: (String) -> Unit,
 ) {
+    var isKeyVisible by remember(state.selectedMethod) { mutableStateOf(false) }
     FieldLabel(stringResource(Res.string.wizard_field_key))
     HbTextField(
         state.form.key.value,
@@ -387,36 +376,18 @@ private fun KeyField(
         enabled = isEnabled,
         accessibleLabel = stringResource(Res.string.wizard_field_key),
         isSecret = true,
+        isSecretVisible = isKeyVisible,
+        trailingContent = {
+            HbIconButton(
+                if (isKeyVisible) HbIcons.EyeOff else HbIcons.Eye,
+                stringResource(if (isKeyVisible) Res.string.wizard_hide_key else Res.string.wizard_show_key),
+                { isKeyVisible = !isKeyVisible },
+                Modifier.testTag("wizard-key-visibility"),
+                enabled = isEnabled,
+                size = HbTheme.dimensions.controlHeight,
+            )
+        },
     )
-    Hint(
-        stringResource(
-            if (state.isKeyStorageProtected) Res.string.wizard_key_hint else Res.string.wizard_key_hint_development,
-        ),
-    )
-    method.credentialsPage?.let { page ->
-        HbButton(
-            stringResource(Res.string.wizard_get_key),
-            { onOpenPage(page) },
-            style = HbButtonStyle.Ghost,
-            size = HbButtonSize.Small,
-        )
-    }
-}
-
-/** Outcome of the explicit connection check; nothing while no check was made for the current form. */
-@Composable
-private fun CheckResult(check: CheckUi?, modifier: Modifier = Modifier) {
-    when (check) {
-        null, CheckUi.Running -> Unit
-
-        is CheckUi.Succeeded -> HbText(
-            stringResource(Res.string.wizard_check_passed, check.models),
-            modifier.testTag("wizard-check-passed"),
-            style = HbTheme.typography.caption,
-        )
-
-        is CheckUi.Failed -> FailurePanel(check.failure, modifier.testTag("wizard-check-failed"))
-    }
 }
 
 @Composable
@@ -516,34 +487,43 @@ private fun ModelToolbar(
     }
 }
 
-/** Model as a settings row with an availability switch; shared by the wizard and the settings space. */
+/** Model with an independent multi-selection checkbox; shared by the wizard and the settings space. */
 @Composable
 internal fun ModelRow(
     model: ModelRowUi,
     enabled: Boolean,
     onEnabledChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    visualEnabled: Boolean = enabled,
     trailing: @Composable () -> Unit = {},
 ) {
     val details = listOfNotNull(
         model.id.takeIf { it != model.title },
         model.contextLimit?.let { stringResource(Res.string.conn_context_limit, it.toString()) },
     ).joinToString(" · ")
-    HbSettingsRow(
-        model.title,
-        modifier.testTag("model:${model.id}"),
-        description = details.ifEmpty { null },
-    ) {
+    HbRow(modifier.fillMaxWidth().testTag("model:${model.id}"), gap = HbTheme.spacing.none) {
+        HbColumn(Modifier.weight(1f), gap = HbTheme.spacing.none) {
+            HbChoiceRow(
+                label = model.title,
+                selected = model.isEnabled,
+                isMultiple = true,
+                onClick = { onEnabledChange(!model.isEnabled) },
+                modifier = Modifier.testTag("model-checkbox:${model.id}"),
+                enabled = enabled,
+                maxLines = 1,
+            )
+            if (details.isNotEmpty()) {
+                HbText(
+                    details,
+                    Modifier.padding(
+                        start = HbTheme.dimensions.touchTarget + HbTheme.spacing.m,
+                        bottom = HbTheme.spacing.xs,
+                    ),
+                    style = HbTheme.typography.caption,
+                    color = HbTheme.colors.textSecondary,
+                )
+            }
+        }
         trailing()
-        HbSwitch(
-            model.isEnabled,
-            onEnabledChange,
-            model.title,
-            Modifier.testTag("model-switch:${model.id}"),
-            enabled,
-            visualEnabled = visualEnabled,
-        )
     }
 }
 
@@ -571,13 +551,6 @@ private fun WizardFooter(
                 enabled = !state.isBusy,
             )
             HbButton(
-                stringResource(state.checkLabel()),
-                { onIntent(ConnectWizardScreenIntent.CheckConnection) },
-                Modifier.testTag("wizard-check"),
-                style = HbButtonStyle.Secondary,
-                enabled = !state.isBusy && state.selectedMethod != null,
-            )
-            HbButton(
                 stringResource(state.connectLabel()),
                 { onIntent(ConnectWizardScreenIntent.Connect) },
                 Modifier.testTag("wizard-connect"),
@@ -586,7 +559,7 @@ private fun WizardFooter(
         }
         if (state.step == WizardStep.Models) {
             HbButton(
-                stringResource(Res.string.wizard_finish),
+                stringResource(state.finishLabel()),
                 { onIntent(ConnectWizardScreenIntent.Finish) },
                 Modifier.testTag("wizard-finish"),
                 enabled = !state.isBusy && state.models != null,
@@ -595,11 +568,15 @@ private fun WizardFooter(
     }
 }
 
-private fun ConnectWizardScreenState.checkLabel(): StringResource =
-    if (check == CheckUi.Running) Res.string.wizard_checking else Res.string.wizard_check
-
 private fun ConnectWizardScreenState.connectLabel(): StringResource =
-    if (isBusy && check != CheckUi.Running) Res.string.wizard_connecting else Res.string.wizard_connect
+    if (isBusy) Res.string.wizard_connecting else Res.string.wizard_connect
+
+private fun ConnectWizardScreenState.finishLabel(): StringResource = when {
+    isFinishing && isNewConnection -> Res.string.wizard_connecting
+    isFinishing -> Res.string.wizard_saving
+    isNewConnection -> Res.string.wizard_connect
+    else -> Res.string.wizard_save
+}
 
 @Composable
 private fun HostField(

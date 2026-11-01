@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
@@ -19,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.DescribedModel
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.editModel
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.managedSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.settingsSnapshot
@@ -39,10 +41,11 @@ class EngineConnectionsUiTest {
             HbTheme { EngineConnectionsContent(loaded, { intents += it }, { wizard += it }, {}, { _, _ -> }) }
         }
         onNodeWithTag("settings-engine:koog").assertIsSelected()
-        onNodeWithTag("settings-connection:home").assertIsSelected()
-        onNodeWithTag("settings-connection:work").performClick()
-        onNodeWithTag("model-switch:qwen").performClick()
-        onNodeWithTag("settings-default:qwen").performClick()
+        onNodeWithTag("settings-connection-dropdown").assertExists()
+        onNodeWithTag("settings-connection-dropdown").performClick()
+        onNodeWithText("work-source").performClick()
+        onNodeWithTag("model-checkbox:qwen").performClick()
+        onNodeWithTag("settings-default:qwen").assertDoesNotExist()
         onNodeWithTag("settings-add-connection").performClick()
         onNodeWithTag("settings-add-engine").performClick()
         runOnIdle {
@@ -50,11 +53,21 @@ class EngineConnectionsUiTest {
                 listOf(
                     EngineConnectionsScreenIntent.SelectConnection("work"),
                     EngineConnectionsScreenIntent.SetModelEnabled("qwen", true),
-                    EngineConnectionsScreenIntent.SetDefaultModel("qwen"),
                 ),
                 intents,
             )
             assertEquals(listOf("koog", null), wizard)
+        }
+    }
+
+    @Test
+    fun `edited models offer an explicit save action`() = runSkikoComposeUiTest {
+        val edited = loaded.editModel("qwen", true)
+        val intents = mutableListOf<EngineConnectionsScreenIntent>()
+        setContent { HbTheme { EngineConnectionsContent(edited, intents::add, {}, null, { _, _ -> }) } }
+        onNodeWithTag("settings-models-save").assertIsEnabled().performClick()
+        runOnIdle {
+            assertEquals<List<EngineConnectionsScreenIntent>>(listOf(EngineConnectionsScreenIntent.SaveModels), intents)
         }
     }
 
@@ -86,8 +99,7 @@ class EngineConnectionsUiTest {
                 "settings-connection-enabled",
                 "settings-models-all",
                 "settings-models-none",
-                "model-switch:qwen",
-                "settings-default:qwen",
+                "model-checkbox:qwen",
             )
             setContent { HbTheme { EngineConnectionsContent(state, intents::add, {}, null, { _, _ -> }) } }
             tags.forEach { onNodeWithTag(it).assertIsEnabled() }
@@ -113,7 +125,7 @@ class EngineConnectionsUiTest {
             mainClock.advanceTimeByFrame()
             onNodeWithTag("settings-saving").assertDoesNotExist()
             tags.forEach { onNodeWithTag(it).assertIsEnabled() }
-            onNodeWithTag("model-switch:qwen").performClick()
+            onNodeWithTag("model-checkbox:qwen").performClick()
             runOnIdle {
                 assertEquals(
                     listOf<EngineConnectionsScreenIntent>(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true)),

@@ -21,6 +21,8 @@ import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.navigation.routeEntry
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlMachineSpec
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlOutput
@@ -30,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlStat
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.di.scope.EngineControlScope
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.domain.EngineControlEffects
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.domain.EngineControlServices
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.domain.configuredEngines
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.component.EngineControlBlankRoute
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.component.EngineControlDetailsRoute
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.component.EngineControlListComponent
@@ -38,9 +41,11 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui.EngineControlBlankUiComponent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui.EngineControlListUiComponent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui.EngineControlPanelUiComponent
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import kotlinx.coroutines.flow.map
 
 /** Graph of one engine control screen (the engine list or one engine's panel), retained by its navigation entry. */
 @GraphExtension(EngineControlScope::class)
@@ -76,10 +81,23 @@ object EngineControlBindings {
         management: EngineManagement,
         configuration: EngineConfiguration,
         workspaces: LocalWorkspaces,
+        selections: ModelSelections,
+        bindings: EngineBindings,
+        sources: AuthSources,
     ): Machine<EngineControlState, EngineControlIntent, EngineControlOutput> = launcher.launch(
         EngineControlMachineSpec,
         scope,
-        EngineControlEffects(EngineControlServices(management, configuration, workspaces)),
+        EngineControlEffects(
+            EngineControlServices(
+                management,
+                configuration,
+                workspaces,
+                selections.configuredEngines(
+                    bindings.state,
+                    sources.state.map { available -> available.map { it.info.id }.toSet() },
+                ),
+            ),
+        ),
         isAddressable = false,
     )
 }

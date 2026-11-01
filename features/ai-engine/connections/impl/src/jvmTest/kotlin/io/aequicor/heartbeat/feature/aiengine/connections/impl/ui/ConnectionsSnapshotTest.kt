@@ -51,8 +51,8 @@ class ConnectionsSnapshotTest {
         step = WizardStep.Method,
         engineTitle = "Koog",
         methods = persistentListOf(
-            MethodRowUi("openai", "OpenAI", MethodKindUi.ApiKey, "https://api.openai.com", false, false, "https://x"),
-            MethodRowUi("ollama", "Ollama", MethodKindUi.NoAuth, "http://localhost:11434", true, false, null),
+            MethodRowUi("openai", "OpenAI", MethodKindUi.ApiKey, "https://api.openai.com", false, false),
+            MethodRowUi("ollama", "Ollama", MethodKindUi.NoAuth, "http://localhost:11434", true, false),
         ),
         selectedMethod = "openai",
         isBusy = false,

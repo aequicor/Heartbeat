@@ -2,13 +2,17 @@ package io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.sto
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
+import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.OllamaMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LimitScope
 import kotlin.test.Test
@@ -33,6 +37,21 @@ class ConnectWizardPresentationTest {
         assertEquals(OllamaMethod.id.value, again.selectedMethod)
         assertEquals("Home", again.form.label)
         assertTrue(again.isBusy)
+    }
+
+    @Test
+    fun `new and reused connections keep distinct finish state`() {
+        val created = NewConnection(EngineBindingId("binding-1"), AuthSourceId("source-1"))
+        val reused = created.copy(isCreated = false)
+        val initial = ConnectWizardScreenState()
+        val new = initial.reflect(ConnectWizardState.ChoosingModels(KoogId, created))
+        assertTrue(new.isNewConnection)
+        assertFalse(new.isFinishing)
+        val editing = initial.reflect(ConnectWizardState.ChoosingModels(KoogId, reused))
+        assertFalse(editing.isNewConnection)
+        val saving = editing.reflect(ConnectWizardState.Saving(KoogId, reused, null, emptySet()))
+        assertFalse(saving.isNewConnection)
+        assertTrue(saving.isFinishing)
     }
 
     @Test

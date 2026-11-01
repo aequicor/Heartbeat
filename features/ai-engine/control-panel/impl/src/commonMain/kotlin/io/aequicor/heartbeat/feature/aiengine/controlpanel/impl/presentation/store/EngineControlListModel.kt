@@ -24,15 +24,7 @@ import pro.respawn.flowmvi.plugins.reduce
 
 /** One engine of the list. */
 @Immutable
-data class EngineItemUi(
-    val id: String,
-    val title: String,
-    val status: EngineStatusUi,
-    val version: String?,
-    val isConfigurable: Boolean,
-    val isConnected: Boolean = false,
-    val isBuiltIn: Boolean = false,
-)
+data class EngineItemUi(val id: String, val title: String, val status: EngineConnectionStatusUi)
 
 /** The engine list. [isOff] while engine management is off; the section is hidden then, but may still be open. */
 @Immutable
@@ -87,27 +79,12 @@ internal fun listState(state: EngineControlState): EngineControlListState {
             isLoading = active.loadFailure == null,
             hasLoadFailure = active.loadFailure != null,
         )
-    val configurable = snapshot.configuration.engines.map { it.engine }.toSet()
     return EngineControlListState(
         engines = snapshot.management.engines.map { engine ->
-            val id = engine.descriptor.id
             EngineItemUi(
-                id.value,
-                engine.descriptor.title,
-                engine.statusUi(),
-                engine.versionUi(),
-                id in configurable,
-                isConnected = when (engine.spec.login) {
-                    io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport.Cli,
-                    io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport.CliWithDeviceCode,
-                    -> engine.login is io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState.SignedIn
-
-                    io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport.Connections -> engine.connections > 0
-
-                    io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport.None -> false
-                },
-                isBuiltIn =
-                    engine.descriptor.family == io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily.BuiltIn,
+                id = engine.descriptor.id.value,
+                title = engine.descriptor.title,
+                status = engine.connectionStatusUi(engine.descriptor.id in snapshot.enginesWithModels),
             )
         }.toImmutableList(),
         isLoading = false,

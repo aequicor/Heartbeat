@@ -10,8 +10,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -27,12 +29,13 @@ import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
+import io.aequicor.heartbeat.ds.components.HbMenuButton
+import io.aequicor.heartbeat.ds.components.HbMenuItem
 import io.aequicor.heartbeat.ds.components.HbSearchField
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
-import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.components.rememberHbBusyReveal
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -49,7 +52,6 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.matches
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_cancel
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_connections_count
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_loading
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_all
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_empty
@@ -61,7 +63,6 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.setting
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_connection_active
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_connection_off
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_connections
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_default
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_description
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_disconnect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_disconnect_confirm
@@ -69,7 +70,6 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.setting
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_dismiss
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_enabled_models
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_engines
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_make_default
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_manage_engine
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_manage_engine_description
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_manage_engine_off
@@ -81,10 +81,12 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.setting
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_no_connections
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_probe
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_refresh_models
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_save
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_saving
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_select_connection
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_title
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_engines_empty
+import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
@@ -198,7 +200,7 @@ private fun SettingsStatus(
 
         state.isLoading -> HbLoadingState(stringResource(Res.string.conn_loading), modifier)
 
-        isSavingVisible -> HbLoadingState(
+        isSavingVisible && !state.isModelSavePending -> HbLoadingState(
             stringResource(Res.string.settings_saving),
             modifier.testTag("settings-saving"),
         )
@@ -250,7 +252,6 @@ private fun EngineEntry(engine: EngineRowUi, isSelected: Boolean, onClick: () ->
     HbSettingsRow(
         engine.title,
         modifier.selectionSemantics(isSelected).testTag("settings-engine:${engine.id}"),
-        description = stringResource(Res.string.conn_connections_count, engine.connections),
         onClick = onClick,
         isSelected = isSelected,
     ) {
@@ -302,43 +303,46 @@ private fun ConnectionsSection(
             )
         },
     ) {
-        if (state.connections.isEmpty()) HbEmptyState(stringResource(Res.string.settings_no_connections))
-        HbColumn(
-            Modifier.fillMaxWidth().selectableGroup().testTag("settings-connections"),
-            gap = HbTheme.spacing.none,
-        ) {
-            state.connections.forEachIndexed { index, connection ->
-                if (index > 0) HbDivider()
-                ConnectionEntry(
-                    connection,
-                    isSelected = connection.id == state.selectedConnection,
-                    onClick = { onIntent(EngineConnectionsScreenIntent.SelectConnection(connection.id)) },
+        if (state.connections.isEmpty()) {
+            HbEmptyState(stringResource(Res.string.settings_no_connections))
+        } else {
+            val selected = state.connections.firstOrNull { it.id == state.selectedConnection }
+            var isExpanded by remember(state.selectedEngine) { mutableStateOf(false) }
+            HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
+                HbMenuButton(
+                    icon = HbIcons.ChevronDown,
+                    contentDescription = stringResource(Res.string.settings_select_connection),
+                    items = state.connections.map { connection ->
+                        HbMenuItem(
+                            id = connection.id,
+                            label = connection.label,
+                            isChecked = connection.id == state.selectedConnection,
+                        )
+                    }.toImmutableList(),
+                    isExpanded = isExpanded,
+                    onExpandedChange = { isExpanded = it },
+                    onItem = { onIntent(EngineConnectionsScreenIntent.SelectConnection(it)) },
+                    modifier = Modifier.fillMaxWidth().testTag("settings-connection-dropdown"),
+                    label = selected?.label ?: stringResource(Res.string.settings_select_connection),
+                    badge = selected?.takeUnless { it.isEnabled }?.let {
+                        stringResource(Res.string.settings_connection_off)
+                    },
                 )
+                selected?.let { connection ->
+                    val details = listOfNotNull(
+                        connection.provider,
+                        if (connection.kind == null) null else methodKindLabel(connection.kind),
+                        stringResource(Res.string.settings_enabled_models, connection.enabledModels),
+                    ).joinToString(" · ")
+                    HbText(
+                        details,
+                        Modifier.padding(horizontal = HbTheme.spacing.m),
+                        style = HbTheme.typography.caption,
+                        color = HbTheme.colors.textSecondary,
+                    )
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun ConnectionEntry(
-    connection: ConnectionRowUi,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val details = listOfNotNull(
-        connection.provider,
-        connection.kind?.let { methodKindLabel(it) },
-        stringResource(Res.string.settings_enabled_models, connection.enabledModels),
-    ).joinToString(" · ")
-    HbSettingsRow(
-        connection.label,
-        modifier.selectionSemantics(isSelected).testTag("settings-connection:${connection.id}"),
-        description = details,
-        onClick = onClick,
-        isSelected = isSelected,
-    ) {
-        if (!connection.isEnabled) HbBadge(stringResource(Res.string.settings_connection_off))
     }
 }
 
@@ -362,7 +366,13 @@ private fun ModelsSection(
         HbDivider()
         val engine = state.selectedEngine
         val onOpenModel = { id: String -> engine?.let { onOpenDescription(it, id) } ?: Unit }
-        ModelsList(pane, state.modelQuery, !state.isSaving, onIntent, onOpenModel, visualEnabled = !isSavingVisible)
+        ModelsList(
+            state = state,
+            enabled = !state.isSaving,
+            onIntent = onIntent,
+            onOpenDescription = onOpenModel,
+            visualEnabled = !isSavingVisible,
+        )
     }
 }
 
@@ -431,19 +441,21 @@ private fun DisconnectDialog(label: String, isEnabled: Boolean, onIntent: (Engin
 
 @Composable
 private fun ModelsList(
-    pane: ModelsPaneUi,
-    query: String,
+    state: EngineConnectionsScreenState,
     enabled: Boolean,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     onOpenDescription: (model: String) -> Unit,
     modifier: Modifier = Modifier,
     visualEnabled: Boolean = enabled,
 ) {
-    val visible = remember(pane.models, query) { pane.models.filter { matches(query, it.title, it.id) } }
+    val pane = state.models ?: return
+    val visible = remember(pane.models, state.modelQuery) {
+        pane.models.filter { matches(state.modelQuery, it.title, it.id) }
+    }
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
         HbRow(Modifier.fillMaxWidth().padding(top = HbTheme.spacing.s), gap = HbTheme.spacing.s) {
             HbSearchField(
-                query,
+                state.modelQuery,
                 { onIntent(EngineConnectionsScreenIntent.SearchModels(it)) },
                 placeholder = stringResource(Res.string.conn_models_search),
                 clearLabel = stringResource(Res.string.conn_models_search_clear),
@@ -468,49 +480,45 @@ private fun ModelsList(
                 size = HbButtonSize.Small,
             )
         }
-        val note = when {
-            pane.isNeverSynced -> Res.string.settings_models_never
-            pane.models.isEmpty() -> Res.string.conn_models_empty
-            pane.isStale -> Res.string.settings_models_stale
-            else -> null
-        }
-        note?.let {
-            HbText(stringResource(it), style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
-        }
+        ModelsNote(pane)
         HbColumn(Modifier.fillMaxWidth().testTag("settings-models"), gap = HbTheme.spacing.none) {
             visible.forEach { model ->
                 ModelRow(
                     model,
                     enabled = enabled,
-                    visualEnabled = visualEnabled,
                     onEnabledChange = { onIntent(EngineConnectionsScreenIntent.SetModelEnabled(model.id, it)) },
                 ) {
-                    ModelActions(
-                        model,
-                        enabled,
-                        onIntent,
-                        { onOpenDescription(model.id) },
-                        visualEnabled = visualEnabled,
-                    )
+                    ModelActions(model, { onOpenDescription(model.id) })
                 }
             }
         }
+        HbButton(
+            stringResource(if (state.isModelSavePending) Res.string.settings_saving else Res.string.settings_save),
+            { onIntent(EngineConnectionsScreenIntent.SaveModels) },
+            Modifier.testTag("settings-models-save"),
+            enabled = enabled && state.modelDraft != null,
+            visualEnabled = visualEnabled && state.modelDraft != null,
+            size = HbButtonSize.Small,
+        )
     }
 }
 
-/**
- * Actions of one model row: its description for adaptive subagents (while descriptions are on) and the default.
- * They keep the row's own spacing between trailing controls.
- */
 @Composable
-private fun ModelActions(
-    model: ModelRowUi,
-    enabled: Boolean,
-    onIntent: (EngineConnectionsScreenIntent) -> Unit,
-    onOpenDescription: () -> Unit,
-    modifier: Modifier = Modifier,
-    visualEnabled: Boolean = enabled,
-) {
+private fun ModelsNote(pane: ModelsPaneUi) {
+    val note = when {
+        pane.isNeverSynced -> Res.string.settings_models_never
+        pane.models.isEmpty() -> Res.string.conn_models_empty
+        pane.isStale -> Res.string.settings_models_stale
+        else -> null
+    }
+    note?.let {
+        HbText(stringResource(it), style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
+    }
+}
+
+/** Opens model descriptions without changing the defaults of future chats. */
+@Composable
+private fun ModelActions(model: ModelRowUi, onOpenDescription: () -> Unit, modifier: Modifier = Modifier) {
     HbRow(modifier, gap = HbTheme.spacing.l) {
         model.description?.let { description ->
             val label = when (description) {
@@ -523,19 +531,6 @@ private fun ModelActions(
                 Modifier.testTag("settings-description:${model.id}"),
                 HbButtonStyle.Ghost,
                 size = HbButtonSize.Small,
-            )
-        }
-        if (model.isDefault) {
-            HbBadge(stringResource(Res.string.settings_default), tone = HbTone.Brand)
-        } else {
-            HbButton(
-                stringResource(Res.string.settings_make_default),
-                { onIntent(EngineConnectionsScreenIntent.SetDefaultModel(model.id)) },
-                Modifier.testTag("settings-default:${model.id}"),
-                HbButtonStyle.Ghost,
-                enabled,
-                HbButtonSize.Small,
-                visualEnabled = visualEnabled,
             )
         }
     }

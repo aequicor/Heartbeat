@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -15,14 +16,14 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 /**
- * Joins selected routes with loaded cached capabilities without starting discovery. The temporary catalog
+ * Joins selected routes with loaded cached capabilities without starting discovery. Unknown availability remains
+ * eligible until an explicit probe; confirmed failures and missing sources hide the route. The temporary catalog
  * placeholder is not an offered model: submitting against it would silently discard a restored effort choice.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -32,24 +33,29 @@ internal fun EngineFacade.observeStudioModels(
 ): Flow<List<StudioModel>> = combine(
     selections.observe(),
     bindings.state,
-    engines.state.map { engines -> engines.map { it.descriptor } }.distinctUntilChanged(),
+    engines.state,
     sources.state,
 ) { selected, bindings, engines, auth ->
     selected.bindings.mapNotNull { enabled ->
         val binding = bindings.firstOrNull { it.id == enabled.binding && it.isEnabled } ?: return@mapNotNull null
-        val engine = engines.firstOrNull { it.id == binding.engine } ?: return@mapNotNull null
-        val label = auth.firstOrNull { it.info.id == binding.authSource }?.info?.label.orEmpty()
+        val engine = engines.firstOrNull { it.descriptor.id == binding.engine } ?: return@mapNotNull null
+        when (engine.availability) {
+            EngineAvailability.Available, EngineAvailability.Unknown -> Unit
+            EngineAvailability.UnsupportedPlatform, is EngineAvailability.Unavailable -> return@mapNotNull null
+        }
+        val source = auth.firstOrNull { it.info.id == binding.authSource } ?: return@mapNotNull null
         models.observe(binding.engine, binding.id).filter { it.isLoaded }.map { snapshot ->
-            enabled.models.map { model ->
+            enabled.models.mapNotNull model@{ model ->
                 val target = EngineTarget(binding.engine, binding.id, model)
+                val info = snapshot.models.firstOrNull { it.target == target } ?: return@model null
                 studioModel(
                     target,
-                    snapshot.models.firstOrNull { it.target == target },
-                    engine.title,
-                    label,
-                    engine.isLocalWorkspaceSupported,
-                    isTrustSupported = AppliesTrustLevels.id in engine.declaredFeatures,
-                    isModelSwitchSupported = engine.declaredFeatures.supportsStudioModelSwitch(),
+                    info,
+                    engine.descriptor.title,
+                    source.info.label,
+                    engine.descriptor.isLocalWorkspaceSupported,
+                    isTrustSupported = AppliesTrustLevels.id in engine.descriptor.declaredFeatures,
+                    isModelSwitchSupported = engine.descriptor.declaredFeatures.supportsStudioModelSwitch(),
                 )
             }
         }

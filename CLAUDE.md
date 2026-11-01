@@ -113,7 +113,7 @@ design/          макеты pen.dev (`.pen`): библиотека токен�
 > `core:network:{api,impl}`,
 > `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей),
 > `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl`).
-> `features:ai-engine:{facade:{api,impl},pi:{api,impl}}` — встроенный движок Pi по умолчанию только на Desktop (Windows/macOS/Linux)
+> `features:ai-engine:{facade:{api,impl},pi:{api,impl}}` — внешний движок Pi, используемый по умолчанию только на Desktop (Windows/macOS/Linux)
 > (бинарь Pi загружается и проверяется по SHA-256 при первом использовании, прогресс и повтор доступны в студии и подключениях;
 > `preparePiRuntime` остаётся для development, данные — в `<app data>/engines/pi`; установщик Windows на Inno Setup
 > (`packageInnoSetup`) при удалении чистит данные пользователя — `platform-main/desktop/packaging/windows/heartbeat.iss`)
@@ -624,6 +624,7 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 | Room / DataStore / репозитории | `data-storage` |
 | HTTP | `network` |
 | Агенты, инструменты, LLM-провайдеры | `ai-koog` |
+| Подключение движка: ресёрч, установка/CLI/ACP, совместимость, настройки, MCP, безопасность, регрессия | `connect-engine` |
 | Управление компьютером инструментами `computer_*` / `window_*` (захват, ROI, ввод, расшифровка отказов) | `computer-use` |
 | Харнессы: API скриптов/workflow, события, хуки, политика инструментов, script host | `harness` |
 | Интерфейсы агента: спека поверхностей, места студии, карточки, инструменты `ui_*`, web-документы | `service-as-ui` |

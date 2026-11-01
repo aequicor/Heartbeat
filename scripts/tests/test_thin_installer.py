@@ -9,6 +9,7 @@ import struct
 import tarfile
 import tempfile
 import unittest
+from contextlib import nullcontext
 from unittest.mock import patch
 from pathlib import Path
 
@@ -48,7 +49,9 @@ class ThinInstallerTest(unittest.TestCase):
         return image
 
     def test_macos_bundle_has_native_metadata_and_no_runtime_or_seed(self):
-        image = self.image("macos", "arm64")
+        real_chmod = Path.chmod
+        with patch.object(Path, "chmod", autospec=True, side_effect=real_chmod) as chmod:
+            image = self.image("macos", "arm64")
         info = plistlib.loads((image / "Contents/Info.plist").read_bytes())
         self.assertEqual(info["CFBundleExecutable"], "Heartbeat")
         self.assertEqual(info["CFBundleIdentifier"], "io.aequicor.heartbeat.selector")
@@ -59,21 +62,20 @@ class ThinInstallerTest(unittest.TestCase):
             "Contents/MacOS/Heartbeat", "Contents/Resources/heartbeat.icns", "Contents/PkgInfo",
             "Contents/Info.plist", "Contents/Resources/bootstrap-installer.json",
         })
-        if os.name != "nt":  # Windows chmod does not represent POSIX executable permission bits.
-            self.assertEqual((image / "Contents/MacOS/Heartbeat").stat().st_mode & 0o777, 0o755)
+        executable = image / "Contents/MacOS/Heartbeat"
+        self.assertTrue(any(
+            call.args[0].as_posix().endswith("Contents/MacOS/Heartbeat") and call.args[1:] == (0o755,)
+            for call in chmod.call_args_list
+        ), "the launcher must receive chmod 0o755")
+        # Windows chmod cannot express POSIX executable bits, so the resulting mode is checked only on POSIX.
+        if os.name == "posix":
+            self.assertEqual(executable.stat().st_mode & 0o777, 0o755)
 
     def test_dmg_uses_clean_staging_and_rejects_added_payload(self):
-        # DMG staging creates a directory symlink; unprivileged Windows hosts may forbid it.
-        probe = self.root / "symlink-probe"
-        try:
-            probe.symlink_to(self.root, target_is_directory=True)
-        except OSError as error:
-            self.skipTest(f"Directory symlinks are unavailable: {error}")
-        else:
-            probe.unlink()
         image = self.image("macos", "arm64")
         (image.parent / "unrelated.jar").write_bytes(b"not part of this image")
         destination = self.root / "installer.dmg"
+        staged_link = []
 
         def create_image(command, check):
             self.assertTrue(check)
@@ -88,14 +90,33 @@ class ThinInstallerTest(unittest.TestCase):
             stage = Path(command[command.index("-srcfolder") + 1])
             self.assertTrue((stage / "Heartbeat.app/Contents/_CodeSignature/CodeResources").is_file())
             self.assertEqual({p.name for p in stage.iterdir()}, {"Heartbeat.app", "Applications"})
-            self.assertTrue((stage / "Applications").is_symlink())
-            self.assertEqual((stage / "Applications").readlink(), Path("/Applications"))
+            link = stage / "Applications"
+            if os.name == "posix":
+                self.assertTrue(link.is_symlink())
+                self.assertEqual(link.readlink(), Path("/Applications"))
+            else:
+                # Windows cannot create symlinks without a privilege (WinError 1314):
+                # the mocked Path.symlink_to leaves a placeholder carrying the recorded target.
+                self.assertEqual(link.read_text(encoding="utf-8"), "symlink:/Applications")
+            staged_link.append(link)
             self.assertFalse((stage / "unrelated.jar").exists())
             Path(command[-1]).write_bytes(b"test disk image")
 
-        with patch.object(THIN.sys, "platform", "darwin"), patch.object(THIN.subprocess, "run", create_image):
+        def fake_symlink(link, target, target_is_directory=False):
+            self.assertTrue(target_is_directory)
+            link.write_text("symlink:" + target, encoding="utf-8")
+
+        symlink = (patch.object(Path, "symlink_to", autospec=True, side_effect=fake_symlink)
+                   if os.name == "nt" else nullcontext())
+        with (
+            patch.object(THIN.sys, "platform", "darwin"),
+            patch.object(THIN.subprocess, "run", create_image),
+            symlink as symlink_mock,
+        ):
             THIN.package_dmg(image, destination, "1.2.3", "arm64")
             self.assertEqual(destination.read_bytes(), b"test disk image")
+            if os.name == "nt":
+                symlink_mock.assert_called_once_with(staged_link[0], "/Applications", target_is_directory=True)
             (image / "Contents/runtime").mkdir()
             with self.assertRaises(ValueError):
                 THIN.package_dmg(image, destination, "1.2.3", "arm64")

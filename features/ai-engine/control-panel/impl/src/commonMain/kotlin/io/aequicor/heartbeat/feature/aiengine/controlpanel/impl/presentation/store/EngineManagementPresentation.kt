@@ -325,7 +325,12 @@ data class EnginePanelUi(
     /** The engine's host application; null when it has none. */
     val hostApp: HostAppUi? = null,
     val isBuiltIn: Boolean = false,
-)
+) {
+    /** Only Heartbeat's present managed copy may be removed, and never during an accepted turn. */
+    val isUninstallAllowed: Boolean
+        get() = EngineActionKindUi.Uninstall in actions && installation.managedVersion != null &&
+            runtime.activeTurns == 0
+}
 
 /** The panel of [engine] with the local launch [draft] (null: not editing). */
 internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatform?): EnginePanelUi {

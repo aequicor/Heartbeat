@@ -4,18 +4,78 @@ import base64
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-
-from scripts.tests.test_release_publish import BASH
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("verify_bootstrap_release", ROOT / "scripts/verify_bootstrap_release.py")
 release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(release)
+
+
+def find_bash():
+    """Use Git Bash on Windows: the WSL launcher cannot run these Windows-path fixtures."""
+    if sys.platform != "win32":
+        return shutil.which("bash")
+    git = shutil.which("git")
+    if not git:
+        return None
+    directory = Path(git).resolve().parent
+    root = directory.parent
+    if directory.name.lower() == "bin" and root.name.lower() in ("mingw64", "mingw32", "usr"):
+        root = root.parent
+    for relative in ("bin/bash.exe", "usr/bin/bash.exe"):
+        bash = root / relative
+        if bash.is_file():
+            return str(bash)
+    return None
+
+
+BASH = find_bash()
+
+
+class BashExecutableTest(unittest.TestCase):
+    def test_windows_uses_git_bash_and_never_falls_back_to_wsl(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            git = root / "Git with spaces/cmd/git.exe"
+            bash = root / "Git with spaces/bin/bash.exe"
+            git.parent.mkdir(parents=True)
+            bash.parent.mkdir(parents=True)
+            git.touch()
+            bash.touch()
+            executables = {"git": str(git), "bash": str(root / "Windows/System32/bash.exe")}
+            with patch.object(sys, "platform", "win32"), patch.object(shutil, "which", side_effect=executables.get):
+                self.assertEqual(find_bash(), str(bash))
+                bash.unlink()
+                self.assertIsNone(find_bash())
+                executables.pop("git")
+                self.assertIsNone(find_bash())
+
+    def test_windows_finds_bash_from_git_bash_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "Git with spaces"
+            bash = root / "usr/bin/bash.exe"
+            bash.parent.mkdir(parents=True)
+            bash.touch()
+            for layout in ("mingw64/bin/git.exe", "mingw32/bin/git.exe", "usr/bin/git.exe", "bin/git.exe"):
+                with self.subTest(layout=layout):
+                    git = root / layout
+                    git.parent.mkdir(parents=True, exist_ok=True)
+                    git.touch()
+                    with patch.object(sys, "platform", "win32"), patch.object(shutil, "which", return_value=str(git)):
+                        self.assertEqual(find_bash(), str(bash))
+
+    def test_posix_uses_bash_from_path(self):
+        with patch.object(sys, "platform", "linux"), patch.object(shutil, "which", return_value="/bin/bash") as which:
+            self.assertEqual(find_bash(), "/bin/bash")
+            which.assert_called_once_with("bash")
 
 
 class BootstrapReleaseTest(unittest.TestCase):
@@ -104,7 +164,7 @@ class BootstrapReleaseTest(unittest.TestCase):
 
 
 class ReleaseCollectionTest(unittest.TestCase):
-    @unittest.skipUnless(BASH, "workflow collection uses bash")
+    @unittest.skipUnless(BASH, "workflow collection uses Bash (Git Bash on Windows)")
     def test_workflow_collects_the_matching_installer_and_five_bootstrap_assets(self):
         lines = (ROOT / ".github/workflows/release.yml").read_text().splitlines()
         for target in release.TARGETS:
