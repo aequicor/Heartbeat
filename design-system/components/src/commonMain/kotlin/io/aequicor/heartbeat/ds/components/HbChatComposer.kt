@@ -67,6 +67,9 @@ public data class HbComposerCaretRequest(public val id: Long, public val text: S
  * While [suggestions] are shown, arrows move their selection, Enter and Tab accept it and Escape closes
  * the list; these keys never reach the send shortcut, so accepting a suggestion cannot send the draft.
  * The list also shows a close button labelled [suggestionsCloseLabel].
+ * [canSendWhileStreaming] lets input replace Stop with Send during execution. Enter uses [onSend];
+ * Ctrl/Cmd+Enter uses [onCorrect] when supplied during execution, preserving Shift+Enter for newlines.
+ * [headerContent] attaches a bounded queue between the context row and editor panel.
  * Sending, cancellation and clearing remain caller responsibilities.
  * Constrain [inputMaxHeight] to the minimum composer height in short viewports to preserve history space.
  * [leadingContent] and [trailingContent] populate the bottom toolbar; overflowing controls scroll
@@ -88,6 +91,7 @@ public fun HbChatComposer(
     sendLabel: String,
     stopLabel: String,
     modifier: Modifier = Modifier,
+    inputModifier: Modifier = Modifier,
     inputMaxHeight: Dp = HbTheme.dimensions.composerMaxHeight,
     layout: HbComposerLayout = HbComposerLayout.Stacked,
     placeholder: String = "",
@@ -108,12 +112,20 @@ public fun HbChatComposer(
     leadingContent: @Composable RowScope.() -> Unit = {},
     trailingContent: @Composable RowScope.() -> Unit = {},
     contextContent: (@Composable () -> Unit)? = null,
-    inputModifier: Modifier = Modifier,
+    canSendWhileStreaming: Boolean = false,
+    onCorrect: (() -> Unit)? = null,
+    headerContent: (@Composable () -> Unit)? = null,
 ) {
     val isEnterSendingEnabled = HbTheme.dimensions.isDesktop
-    val isSendEnabled = enabled && !isStreaming && canSend && (value.isNotBlank() || hasAttachments)
-    val actionLabel = if (isStreaming) stopLabel else sendLabel
-    val isActionEnabled = if (isStreaming) enabled else isSendEnabled
+    val action = composerAction(
+        value.isNotBlank() || hasAttachments,
+        isStreaming,
+        canSendWhileStreaming,
+        enabled,
+        canSend,
+    )
+    val isStopping = action.isStopping
+    val isSendEnabled = action.isSendingEnabled
     val anchor = remember { mutableStateOf<IntRect?>(null) }
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -139,6 +151,7 @@ public fun HbChatComposer(
                         gap = HbTheme.spacing.s,
                     ) { contextContent() }
                 }
+                headerContent?.invoke()
                 ComposerLayout(
                     layout = layout,
                     isFocused = isFocused,
@@ -147,10 +160,10 @@ public fun HbChatComposer(
                     action = {
                         ComposerPrimaryAction(
                             layout = layout,
-                            isStreaming = isStreaming,
-                            label = actionLabel,
-                            onClick = { submitComposerAction(isStreaming, onSend, onStop) },
-                            enabled = isActionEnabled,
+                            isStreaming = isStopping,
+                            label = action.label(sendLabel, stopLabel),
+                            onClick = { submitComposerAction(isStopping, onSend, onStop) },
+                            enabled = action.isEnabled,
                         )
                     },
                     editor = { editorModifier ->
@@ -166,7 +179,13 @@ public fun HbChatComposer(
                                     onAccept = selectedSuggestionAccept(suggestions, onSuggestionAccept),
                                     onDismiss = onSuggestionsDismiss,
                                 )
-                                .composerSendKeys(isSendEnabled, isEnterSendingEnabled, onSend, focusManager),
+                                .composerSendKeys(
+                                    isSendEnabled,
+                                    isEnterSendingEnabled,
+                                    onSend,
+                                    focusManager,
+                                    onCorrect.takeIf { action.isCorrectionEnabled },
+                                ),
                             placeholder = placeholder,
                             enabled = enabled,
                             accessibleLabel = accessibleLabel,
@@ -354,8 +373,10 @@ private fun Modifier.composerSendKeys(
     isEnterSendingEnabled: Boolean,
     onSend: () -> Unit,
     focusManager: FocusManager,
+    onCorrect: (() -> Unit)?,
 ): Modifier = onPreviewKeyEvent { event ->
-    handleSendShortcut(event, isSendEnabled, isEnterSendingEnabled, onSend) ||
+    val send = if (event.isCtrlPressed || event.isMetaPressed) onCorrect ?: onSend else onSend
+    handleSendShortcut(event, isSendEnabled, isEnterSendingEnabled, send) ||
         handleFocusTraversal(event, focusManager)
 }
 
@@ -403,3 +424,29 @@ private fun submitComposerAction(isStreaming: Boolean, onSend: () -> Unit, onSto
     log.i { "composer action streaming=$isStreaming" }
     if (isStreaming) onStop() else onSend()
 }
+
+private data class ComposerAction(
+    val isStopping: Boolean,
+    val isSendingEnabled: Boolean,
+    val isEnabled: Boolean,
+    val isCorrectionEnabled: Boolean,
+)
+
+private fun composerAction(
+    hasInput: Boolean,
+    isStreaming: Boolean,
+    canSendWhileStreaming: Boolean,
+    enabled: Boolean,
+    canSend: Boolean,
+): ComposerAction {
+    val isStopping = isStreaming && !(canSendWhileStreaming && hasInput)
+    val isSending = enabled && (!isStreaming || canSendWhileStreaming) && canSend && hasInput
+    return ComposerAction(
+        isStopping,
+        isSending,
+        if (isStopping) enabled else isSending,
+        isStreaming && canSendWhileStreaming,
+    )
+}
+
+private fun ComposerAction.label(send: String, stop: String): String = if (isStopping) stop else send

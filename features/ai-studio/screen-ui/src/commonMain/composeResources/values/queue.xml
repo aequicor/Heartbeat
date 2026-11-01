@@ -1,0 +1,11 @@
+<resources>
+    <string name="queue_close">Dismiss notification</string>
+    <string name="queue_correct">Steer</string>
+    <string name="queue_failed">Could not change queue · messages preserved</string>
+    <string name="queue_file">Attachment</string>
+    <string name="queue_more">%1$d more</string>
+    <string name="queue_remove">Remove queued message</string>
+    <string name="queue_resume">Resume queue</string>
+    <string name="queue_success">Correction accepted</string>
+    <string name="queue_uncertain">Delivery unconfirmed · check the chat before retrying</string>
+</resources>

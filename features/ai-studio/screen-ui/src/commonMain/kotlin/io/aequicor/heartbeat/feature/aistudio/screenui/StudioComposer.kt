@@ -173,6 +173,9 @@ private fun StudioComposerInput(
         value = draft,
         onValueChange = { onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, it)) },
         onSend = { onIntent(StudioIntent.Submit(pane.id)) },
+        onCorrect = { onIntent(StudioIntent.Submit(pane.id, isCorrection = true)) },
+        canSendWhileStreaming = content.isMessageQueueEnabled,
+        headerContent = { StudioMessageQueue(content, onIntent) },
         onStop = { session?.let { onIntent(StudioIntent.Stop(it.id)) } },
         sendLabel = stringResource(Res.string.composer_send),
         stopLabel = stringResource(Res.string.composer_stop),
@@ -280,8 +283,11 @@ private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, ()
 /** Available harnesses also need the context row in chats without a project. */
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
+    val hasQueueStatus = isMessageQueueEnabled && session?.isRunning == true
     return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() || app != null ||
-        contextUsage != null || providerUsage != null || planning.plan != null ||
+        hasQueueStatus || contextUsage != null || providerUsage != null ||
+        planning.plan != null ||
+        queue.messages.isNotEmpty() ||
         autoContinue?.mode?.let { it != AutoContinueModeUi.Off } == true
 }
 
@@ -402,6 +408,8 @@ private fun StudioComposerContext(
         StudioComposerIdentity(content, onIntent, presentation)
         content.app?.let { StudioAppChip(it, content.pane.id, onIntent) }
         StudioComposerModes(content, onIntent)
+        if (content.isMessageQueueEnabled) PaneExecutionStatus(content)
+        QueueControls(content, onIntent)
     }
 }
 
@@ -852,7 +860,8 @@ private const val ADD_PROJECT = "add-project"
 
 private fun PaneContent.canAddAttachments(): Boolean {
     val support = models.firstOrNull { it.id == settings.modelId }?.inputSupport
-    return isAttachmentsEnabled && !pane.isCreating && takesPrompts() && session?.isRunning != true &&
+    return isAttachmentsEnabled && !pane.isCreating && takesPrompts() &&
+        (session?.isRunning != true || isMessageQueueEnabled) &&
         !support?.mediaTypes.isNullOrEmpty()
 }
 

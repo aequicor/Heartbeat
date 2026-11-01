@@ -17,7 +17,7 @@ import kotlinx.serialization.Serializable
 public val StudioMessageQueueEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "ai_studio.message_queue",
     description = "Очередь сообщений чата и корректировка текущего хода",
-    default = false,
+    default = true,
 )
 
 /** Uncertain delivery must never be replayed automatically, including after restarting the profile. */
