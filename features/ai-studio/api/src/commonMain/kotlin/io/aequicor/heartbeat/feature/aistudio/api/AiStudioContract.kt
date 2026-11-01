@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueChoice
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
@@ -184,6 +185,8 @@ public sealed interface AiStudioIntent : MachineIntent {
             val environment: StudioChatEnvironment? = null,
             /** Original composer text from an explicit human send; generated and decoded prompts leave this null. */
             val userInstruction: String? = null,
+            /** Draft-scoped auto-continue choice, attached before the first turn. */
+            val autoContinue: AutoContinueChoice? = null,
         ) : Public
 
         /** Asks the running agent of [sessionId] to stop. */
@@ -367,6 +370,8 @@ public sealed interface AiStudioEffect : MachineEffect {
         val environment: StudioChatEnvironment? = null,
         /** Original human input carried through creation, never inferred from [prompt]. */
         val userInstruction: String? = null,
+        /** Draft-scoped mode and model; no generated context or in-flight phase is transferred. */
+        val autoContinue: AutoContinueChoice? = null,
     ) : AiStudioEffect
 
     /** A turn of [sessionId] that the machine marks running until its `RunFinished`. */

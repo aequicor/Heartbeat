@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekConfig
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekLogin
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekBackend
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -54,6 +55,7 @@ internal class JvmDeepSeekBackend(
     private val workspaces: LocalWorkspaces,
     private val dispatchers: DispatcherProvider,
     private val tools: ProfileAgentTools,
+    private val bridge: AgentToolBridge,
     private val resources: ResourceResolver,
     private val account: DeepSeekAccount,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
@@ -147,6 +149,7 @@ internal class JvmDeepSeekBackend(
             tools,
             resources,
             sessionTrees = DeepSeekSessionTrees(nativeHistory),
+            bridge = bridge,
         )
     }
 

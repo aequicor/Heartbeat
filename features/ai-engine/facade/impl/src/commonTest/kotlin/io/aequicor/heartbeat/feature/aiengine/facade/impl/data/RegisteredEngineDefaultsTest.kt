@@ -76,8 +76,9 @@ class RegisteredEngineDefaultsTest {
     }
 
     @Test
-    fun `disabled default engine toggle has no preference`() = runTest {
+    fun `disabled default engine toggle has no preference without constructing its factory`() = runTest {
         assertNull(defaults(HostPlatform.MacOs, mapOf(engineToggle to false)).preferred())
+        assertFalse(factory.isInitialized())
     }
 
     @Test

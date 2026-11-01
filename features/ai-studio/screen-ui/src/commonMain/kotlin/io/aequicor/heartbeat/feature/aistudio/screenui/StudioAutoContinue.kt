@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.ds.components.HbChip
 import io.aequicor.heartbeat.ds.components.HbComposerAction
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
 import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
+import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
@@ -35,6 +36,8 @@ import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_agent_pause
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_agent_working
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_chip_autopilot
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_chip_off
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_chip_suggest
@@ -59,15 +62,23 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_notic
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_notice_user_stopped
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_paused
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_refresh
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_running
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_sending
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_stop
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_suggest_title
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_thinking
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_current
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_enable_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_enable_title
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_enabled
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_manual_pause
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_models_header
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_other
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_waiting_event
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueModeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueUi
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
@@ -75,11 +86,19 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent a
 /** Icon of an enabled mode; disabled chats enable auto-continue through the composer's add menu. */
 @Composable
 internal fun AutoContinueModeMenu(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
-    val chat = content.pane.sessionId ?: return
+    val choose = rememberAutoContinueSelection(content, onIntent)
     val ui = content.autoContinue ?: return
     if (ui.mode == AutoContinueModeUi.Off) return
     var isExpanded by remember { mutableStateOf(false) }
-    val label = when (ui.mode) {
+    val selectedModel = ui.modelId?.takeIf {
+        it != content.settings.modelId
+    }?.let { id ->
+        content.autopilotModels.firstOrNull {
+            it.id ==
+                id
+        }?.shortName
+    }
+    val label = selectedModel ?: when (ui.mode) {
         AutoContinueModeUi.Off -> stringResource(Res.string.auto_continue_chip_off)
 
         AutoContinueModeUi.Suggest -> stringResource(Res.string.auto_continue_chip_suggest)
@@ -95,13 +114,13 @@ internal fun AutoContinueModeMenu(content: PaneContent, onIntent: (StudioIntent)
         onAction = { id ->
             isExpanded = false
             AutoContinueModeUi.entries.firstOrNull { it.name == id }?.let {
-                onIntent(StudioIntent.SetAutoContinue(chat, it))
+                choose(it)
             }
         },
         modifier = Modifier.testTag("auto-continue-mode-${content.pane.id}"),
         headerLabel = stringResource(Res.string.auto_continue_menu),
         icon = if (ui.mode == AutoContinueModeUi.Autopilot) HbIcons.Play else HbIcons.Sparkles,
-        style = HbComposerMenuStyle.AccentCircle,
+        style = if (selectedModel == null) HbComposerMenuStyle.AccentCircle else HbComposerMenuStyle.AccentPill,
     )
 }
 
@@ -157,11 +176,11 @@ internal fun AutoContinueStrip(content: PaneContent, onIntent: (StudioIntent) ->
     if (content.session?.isRunning == true && ui.mode != AutoContinueModeUi.Autopilot) return
     HbColumn(modifier.testTag("auto-continue-${content.pane.id}"), gap = HbTheme.spacing.s) {
         if (ui.mode == AutoContinueModeUi.Autopilot) {
-            AutoContinueRunning(chat, ui.isPaused, onIntent)
+            AutoContinueRunning(chat, ui, content.session?.isRunning == true, onIntent)
         } else {
             AutoContinueStatus(ui)
         }
-        ui.notice?.let { notice ->
+        ui.notice?.takeIf { ui.mode != AutoContinueModeUi.Autopilot }?.let { notice ->
             val message = stringResource(notice.message())
             val reason = ui.reason.take(MAX_SHOWN_CHARS)
             val text = if (reason.isBlank()) {
@@ -186,20 +205,41 @@ internal fun AutoContinueStrip(content: PaneContent, onIntent: (StudioIntent) ->
 }
 
 @Composable
-private fun AutoContinueRunning(chat: String, isPaused: Boolean, onIntent: (StudioIntent) -> Unit) {
+private fun AutoContinueRunning(
+    chat: String,
+    ui: AutoContinueUi,
+    isAgentRunning: Boolean,
+    onIntent: (StudioIntent) -> Unit,
+) {
+    val status = when {
+        ui.isThinking -> Res.string.auto_continue_thinking
+        ui.notice == AutoContinueNoticeUi.UserStopped -> Res.string.auto_manual_pause
+        ui.notice == AutoContinueNoticeUi.TurnFailed -> Res.string.auto_agent_pause
+        ui.notice != null -> requireNotNull(ui.notice).message()
+        ui.isPaused -> Res.string.auto_continue_paused
+        ui.isWaitingForEvent -> Res.string.auto_waiting_event
+        isAgentRunning -> Res.string.auto_agent_working
+        ui.isSending -> Res.string.auto_continue_sending
+        else -> Res.string.auto_enabled
+    }
     HbRow(
         Modifier.fillMaxWidth()
             .hbSurface(HbTheme.surfaces.composer, HbTheme.shapes.medium)
             .padding(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.s),
         gap = HbTheme.spacing.m,
     ) {
-        if (isPaused) {
-            HbIcon(HbIcons.Pause, null, Modifier.size(HbTheme.dimensions.iconSmallSize), tint = HbTheme.colors.brand)
-        } else {
+        if (ui.isThinking) {
             HbActivityIndicator()
+        } else {
+            HbIcon(
+                if (ui.isPaused || ui.isWaitingForEvent) HbIcons.Pause else HbIcons.Play,
+                null,
+                Modifier.size(HbTheme.dimensions.iconSmallSize),
+                tint = HbTheme.colors.brand,
+            )
         }
         HbText(
-            stringResource(if (isPaused) Res.string.auto_continue_paused else Res.string.auto_continue_running),
+            stringResource(status),
             Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
             style = HbTheme.typography.label,
             maxLines = 1,
@@ -305,3 +345,52 @@ private fun AutoContinueNoticeUi.tone(): HbTone = when (this) {
 
 /** Model text shown in a banner at most; the full reply is still sent and can be edited. */
 private const val MAX_SHOWN_CHARS = 300
+
+/** Both the add menu and the active-mode chip enable autopilot through this model choice. */
+@Composable
+internal fun rememberAutoContinueSelection(
+    content: PaneContent,
+    onIntent: (StudioIntent) -> Unit,
+): (AutoContinueModeUi) -> Unit {
+    var isChoosing by remember(content.pane.id, content.pane.sessionId) { mutableStateOf(false) }
+    var isModelsOpen by remember { mutableStateOf(false) }
+    val select: (AutoContinueModeUi, String?) -> Unit = { mode, model ->
+        isChoosing = false
+        isModelsOpen = false
+        onIntent(StudioIntent.SetAutoContinue(content.pane.sessionId.orEmpty(), mode, content.pane.id, model))
+    }
+    if (isChoosing) {
+        HbDialog(
+            stringResource(Res.string.auto_enable_title),
+            { isChoosing = false },
+            isBackgroundBlurred = true,
+        ) {
+            HbText(stringResource(Res.string.auto_enable_hint), color = HbTheme.colors.textSecondary)
+            HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.l) {
+                HbComposerMenuButton(
+                    label = stringResource(Res.string.auto_other),
+                    actions = content.autopilotModels.map { HbComposerAction(it.id, it.name) }.toImmutableList(),
+                    isExpanded = isModelsOpen,
+                    onExpandedChange = { isModelsOpen = it },
+                    onAction = { select(AutoContinueModeUi.Autopilot, it) },
+                    modifier = Modifier.weight(1f).testTag("autopilot-other-model"),
+                    isAnchoredBelow = true,
+                    isFullWidth = true,
+                    headerLabel = stringResource(Res.string.auto_models_header),
+                    style = HbComposerMenuStyle.Pill,
+                    enabled = content.autopilotModels.isNotEmpty(),
+                )
+                HbButton(
+                    stringResource(Res.string.auto_current),
+                    { select(AutoContinueModeUi.Autopilot, null) },
+                    Modifier.weight(1f).testTag("autopilot-current-model"),
+                    style = HbButtonStyle.Primary,
+                    enabled = content.autopilotModels.any { it.id == content.settings.modelId },
+                )
+            }
+        }
+    }
+    return { mode ->
+        if (mode == AutoContinueModeUi.Autopilot) isChoosing = true else select(mode, null)
+    }
+}

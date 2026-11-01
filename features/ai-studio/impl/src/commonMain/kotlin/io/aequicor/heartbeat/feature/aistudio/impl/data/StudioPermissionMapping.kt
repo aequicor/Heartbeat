@@ -22,7 +22,7 @@ internal fun PermissionRequest.toStudio(sessionId: String) = StudioPermission(
     sessionId,
     id.value,
     title,
-    options.map { StudioPermissionOption(it.id.value, it.title, it.isSkip) },
+    options.map { StudioPermissionOption(it.id.value, it.title, it.isSkip, it.isOneTime) },
     description = description,
     turnId = turn.value,
     input = when (val input = input) {

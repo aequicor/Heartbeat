@@ -294,6 +294,7 @@ private fun ReadyTransitions.conversations() {
                 isSandbox = state.pane(intent.paneId)?.let { it.isWorktree && it.isSandbox } == true,
                 isOrganism = state.pane(intent.paneId)?.isOrganism == true,
                 isPlanning = state.pane(intent.paneId)?.isPlanning == true && state.isPlanningAvailable,
+                autoContinue = intent.autoContinue,
                 environment = intent.environment,
                 userInstruction = intent.userInstruction,
             )

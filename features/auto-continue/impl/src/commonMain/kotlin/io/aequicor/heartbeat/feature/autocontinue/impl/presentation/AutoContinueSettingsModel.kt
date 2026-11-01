@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueOutput
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueSettings
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueState
+import io.aequicor.heartbeat.feature.autocontinue.api.AutopilotContextSettings
 import io.aequicor.heartbeat.feature.autocontinue.impl.domain.AutoContinueMachine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -65,6 +66,12 @@ internal data class AutoContinueSettingsScreenState(
 
 /** Changes offered by the auto-continue settings. */
 internal sealed interface AutoContinueSettingsIntent : MVIIntent {
+    data class SetSystemPrompt(val text: String) : AutoContinueSettingsIntent {
+        override fun toString(): String = "SetSystemPrompt(chars=${text.length})"
+    }
+
+    data class SetContext(val context: ContextSettingsUi) : AutoContinueSettingsIntent
+
     /** Mode of new chats: off or suggestions. */
     data class SetDefaultMode(val mode: DefaultModeUi) : AutoContinueSettingsIntent
 
@@ -151,6 +158,18 @@ private fun AutoContinueSettingsScreenState.reflecting(state: AutoContinueState)
 /** [this] with [intent] applied; values outside the settings' limits leave it unchanged. */
 internal fun AutoContinueSettings.changed(intent: AutoContinueSettingsIntent, profileDefault: EngineTarget?) =
     when (intent) {
+        is AutoContinueSettingsIntent.SetSystemPrompt -> if (intent.text.length <=
+            AutoContinueSettings.MAX_SYSTEM_PROMPT_CHARS
+        ) {
+            copy(
+                systemPrompt = intent.text,
+            )
+        } else {
+            this
+        }
+
+        is AutoContinueSettingsIntent.SetContext -> copy(contextSettings = intent.context.toDomain())
+
         is AutoContinueSettingsIntent.SetDefaultMode -> copy(
             defaultMode = if (intent.mode == DefaultModeUi.Suggest) AutoContinueMode.Suggest else AutoContinueMode.Off,
         )
@@ -178,9 +197,48 @@ private fun AutoContinueSettings.withNumber(intent: AutoContinueSettingsIntent):
     is AutoContinueSettingsIntent.SetOptionCount ->
         if (intent.count in OPTION_COUNTS) copy(optionCount = intent.count) else this
 
-    is AutoContinueSettingsIntent.SetDefaultMode, is AutoContinueSettingsIntent.SetContinuer -> this
+    is AutoContinueSettingsIntent.SetSystemPrompt, is AutoContinueSettingsIntent.SetContext,
+    is AutoContinueSettingsIntent.SetDefaultMode, is AutoContinueSettingsIntent.SetContinuer,
+    -> this
 }
 
 private val AUTO_TURN_LIMITS = 1..AutoContinueSettings.MAX_AUTO_TURN_LIMIT
 private val COUNTDOWNS = 0..AutoContinueSettings.MAX_COUNTDOWN_SECONDS
 private val OPTION_COUNTS = 1..AutoContinueSettings.MAX_OPTIONS
+
+/** Context controls without exposing machine configuration types to the UI layer. */
+internal data class ContextSettingsUi(
+    val isHistoryIncluded: Boolean,
+    val isPlanIncluded: Boolean,
+    val isToolResultsIncluded: Boolean,
+    val isToolArgumentsIncluded: Boolean,
+    val isChecklistIncluded: Boolean,
+    val isQuestionnairesIncluded: Boolean,
+    val isBackgroundResultsIncluded: Boolean,
+    val historyMessages: Int,
+)
+
+internal val AutoContinueSettingsScreenState.context: ContextSettingsUi
+    get() = settings.contextSettings.let {
+        ContextSettingsUi(
+            it.isHistoryIncluded,
+            it.isPlanIncluded,
+            it.isToolResultsIncluded,
+            it.isToolArgumentsIncluded,
+            it.isChecklistIncluded,
+            it.isQuestionnairesIncluded,
+            it.isBackgroundResultsIncluded,
+            it.historyMessages,
+        )
+    }
+
+private fun ContextSettingsUi.toDomain() = AutopilotContextSettings(
+    isHistoryIncluded,
+    isPlanIncluded,
+    isToolResultsIncluded,
+    isToolArgumentsIncluded,
+    isChecklistIncluded,
+    isQuestionnairesIncluded,
+    isBackgroundResultsIncluded,
+    historyMessages,
+)

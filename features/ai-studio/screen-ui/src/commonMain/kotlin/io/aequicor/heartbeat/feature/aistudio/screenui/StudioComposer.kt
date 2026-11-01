@@ -341,6 +341,7 @@ private fun StudioComposerLeading(
     val pasteImage = rememberHbPasteImageAction {
         onIntent(StudioIntent.ImportAttachments(content.pane.id, listOf(NativeAttachmentUi.Image(it))))
     }
+    val chooseAutoContinue = rememberAutoContinueSelection(content, onIntent)
     val support = content.models.firstOrNull { it.id == content.settings.modelId }?.inputSupport
     TemplatesMenu(
         draft = content.draft,
@@ -357,9 +358,7 @@ private fun StudioComposerLeading(
         planning = content.planningSelection(),
         onPlanning = { isEnabled -> onIntent(content.planningIntent(isEnabled)) },
         autoContinue = content.autoContinue?.mode,
-        onAutoContinue = { mode ->
-            content.pane.sessionId?.let { onIntent(StudioIntent.SetAutoContinue(it, mode)) }
-        },
+        onAutoContinue = chooseAutoContinue,
         onAttach = { onIntent(StudioIntent.PickAttachments(content.pane.id)) }.takeIf {
             content.canAddAttachments() && content.host.isNativeAttachmentInputAvailable &&
                 !content.isAttachmentPending

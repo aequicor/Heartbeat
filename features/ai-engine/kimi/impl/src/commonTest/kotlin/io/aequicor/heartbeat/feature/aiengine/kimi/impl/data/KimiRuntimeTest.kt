@@ -423,7 +423,7 @@ class KimiRuntimeTest {
     }
 
     @Test
-    fun `permission waits for matching user decision`() = runTest {
+    fun `permission retains exact action details while waiting for matching user decision`() = runTest {
         val connection = FakeConnection()
         val runtime = runtime(connection, this)
         val session = runtime.create(CreateSessionRequest(target))
@@ -442,7 +442,9 @@ class KimiRuntimeTest {
             )
         }
         testScheduler.advanceUntilIdle()
-        assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value)
+        val waiting = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value)
+        assertEquals(TEST_APPROVAL_DESCRIPTION, waiting.requests.single().description)
+        assertEquals("Kimi CLI requests permission", waiting.requests.single().title)
         session.permissions().respond(
             PermissionDecision(
                 turn,
@@ -974,10 +976,17 @@ private object TestAgentTools : ProfileAgentTools {
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
         AgentToolResult("Unsupported", isError = true)
 
-    override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
-        if (context.permissions.request(AgentToolApproval(call.name, "Kimi CLI requests permission"))) {
+    override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
+        val approval = AgentToolApproval(call.name, "Kimi CLI requests permission", TEST_APPROVAL_DESCRIPTION)
+        return if (context.permissions.request(approval)) {
             NativeVerdict.Allow
         } else {
             NativeVerdict.Deny("Denied")
         }
+    }
 }
+
+/** A generic title must not hide the exact command, arguments or working directory from the decision maker. */
+private const val TEST_APPROVAL_DESCRIPTION =
+    """{"command":"git diff --check","arguments":{"command":"git diff --check"},""" +
+        "\"workingDirectory\":\"/workspace/app\"}"

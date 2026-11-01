@@ -69,6 +69,8 @@ data class AutoContinueCountdownUi(
 data class AutoContinueUi(
     val mode: AutoContinueModeUi = AutoContinueModeUi.Off,
     val autoTurns: Int = 0,
+    val modelId: String? = null,
+    val isWaitingForEvent: Boolean = false,
     val isThinking: Boolean = false,
     val options: ImmutableList<AutoContinueOptionUi> = persistentListOf(),
     val countdown: AutoContinueCountdownUi? = null,

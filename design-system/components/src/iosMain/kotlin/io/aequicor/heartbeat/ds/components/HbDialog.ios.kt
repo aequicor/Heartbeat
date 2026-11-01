@@ -8,6 +8,7 @@ import androidx.compose.ui.window.DialogProperties
 internal actual fun HbPlatformDialog(
     onDismissRequest: () -> Unit,
     isInWindow: Boolean,
+    isBackgroundBlurred: Boolean,
     content: @Composable () -> Unit,
 ) {
     Dialog(onDismissRequest, DialogProperties(usePlatformDefaultWidth = false), content)

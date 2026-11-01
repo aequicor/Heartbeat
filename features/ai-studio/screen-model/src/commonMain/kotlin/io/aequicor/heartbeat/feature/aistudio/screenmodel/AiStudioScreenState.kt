@@ -103,6 +103,8 @@ data class AiStudioScreenState(
     val isPlanningEnabled: Boolean = false,
     /** Suggestions and autopilot of the chats. */
     val autoContinue: AutoContinueScreenUi = AutoContinueScreenUi(),
+    /** Auto-continue choice of each unsent new chat, independent of other panes. */
+    val newChatAutoContinue: ImmutableMap<Int, AutoContinueUi> = persistentMapOf(),
     /** Plans of the chats shown in panes, by chat id; detached plans are not shown. */
     val plans: ImmutableMap<String, PlanUi> = persistentMapOf(),
     /** Organisms of organism chats, by chat id. */

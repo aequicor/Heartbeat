@@ -46,6 +46,25 @@ class StudioAutoContinueModelTest {
     )
 
     @Test
+    fun `new chat captures its own autopilot choice with the submitted draft`() = runTest {
+        val port = RecordingPort()
+        port.state.value = AutoContinueState.Ready()
+        val fixture = AiStudioModelTest.Fixture(this, ready, autoContinue = port)
+        val screen = fixture.subscribe()
+        runCurrent()
+        screen.intent(AiStudioScreenIntent.SetAutoContinue("", AutoContinueModeUi.Autopilot, paneId = 1))
+        screen.intent(AiStudioScreenIntent.Suggestions.DraftChanged(1, "first task"))
+        runCurrent()
+        assertEquals(AutoContinueModeUi.Autopilot, screen.states.value.newChatAutoContinue[1]?.mode)
+        assertTrue(port.sent.isEmpty())
+        screen.intent(AiStudioScreenIntent.Submit(1))
+        runCurrent()
+        val submitted = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
+        assertEquals(AutoContinueMode.Autopilot, submitted.autoContinue?.mode)
+        assertTrue(screen.states.value.newChatAutoContinue.isEmpty())
+    }
+
+    @Test
     fun `phases are projected for the screen`() {
         val suggest = ChatAuto(AutoContinueMode.Suggest)
         val offered = AutoContinueUi(
@@ -99,6 +118,29 @@ class StudioAutoContinueModelTest {
         val submit = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
         assertEquals(reply, submit.prompt)
         assertEquals(reply, submit.userInstruction)
+    }
+
+    @Test
+    fun `a suggestion can be inserted and edited before manual submission`() = runTest {
+        val port = RecordingPort()
+        port.state.value = AutoContinueState.Ready(
+            chats = mapOf("chat" to ChatAuto(AutoContinueMode.Suggest, Phase.Offered(proceed))),
+        )
+        val fixture = AiStudioModelTest.Fixture(this, ready, autoContinue = port)
+        val screen = fixture.subscribe()
+        runCurrent()
+        screen.intent(AiStudioScreenIntent.PickAutoContinue("chat", 0, 0, isSend = false, text = option.text))
+        runCurrent()
+        assertEquals(option.text, screen.states.value.draft(0))
+        assertTrue(fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().isEmpty())
+        val edited = "${option.text}, сначала проверь результат"
+        screen.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, edited))
+        runCurrent()
+        assertEquals(edited, screen.states.value.draft(0))
+        assertEquals(listOf<AutoContinueIntent>(AutoContinueIntent.Public.DraftTyped("chat")), port.sent)
+        screen.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+        assertEquals(edited, fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single().prompt)
     }
 
     @Test

@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 
@@ -51,6 +52,7 @@ internal class MachineStudioAutoContinue(
     }
 
     override suspend fun send(intent: AutoContinueIntent.Public) {
+        state.first { it is AutoContinueState.Ready }
         val result = machines.send(AutoContinueMachineKey, intent)
         // Typing is reported on keystrokes, not as a user action.
         if (intent is AutoContinueIntent.Public.DraftTyped) {

@@ -35,13 +35,18 @@ public data class AutoContinueSettings(
     val autoTurnLimit: Int = DEFAULT_AUTO_TURN_LIMIT,
     val countdownSeconds: Int = DEFAULT_COUNTDOWN_SECONDS,
     val optionCount: Int = MAX_OPTIONS,
+    val systemPrompt: String = defaultAutopilotPrompt,
+    val contextSettings: AutopilotContextSettings = AutopilotContextSettings(),
 ) {
     init {
         require(defaultMode != AutoContinueMode.Autopilot) { "Autopilot cannot be a default mode" }
         require(autoTurnLimit in 1..MAX_AUTO_TURN_LIMIT) { "Auto turn limit is out of range" }
         require(countdownSeconds in 0..MAX_COUNTDOWN_SECONDS) { "Countdown is out of range" }
         require(optionCount in 1..MAX_OPTIONS) { "Option count is out of range" }
+        require(systemPrompt.length <= MAX_SYSTEM_PROMPT_CHARS) { "System prompt is too long" }
     }
+
+    override fun toString(): String = "AutoContinueSettings($defaultMode, context=$contextSettings)"
 
     /** Limits of the settings. */
     public companion object {
@@ -52,7 +57,10 @@ public data class AutoContinueSettings(
         public const val MAX_AUTO_TURN_LIMIT: Int = 100
 
         /** Pause before an autopilot reply is sent, by default. */
-        public const val DEFAULT_COUNTDOWN_SECONDS: Int = 5
+        public const val DEFAULT_COUNTDOWN_SECONDS: Int = 0
+
+        /** Maximum editable prompt length; its contents are never logged. */
+        public const val MAX_SYSTEM_PROMPT_CHARS: Int = 16_000
 
         /** Upper bound of [countdownSeconds]. */
         public const val MAX_COUNTDOWN_SECONDS: Int = 60
@@ -90,6 +98,12 @@ public data class ContinuationContext(
     val route: EngineTarget,
     val dialog: List<DialogEntry>,
     val planNote: String? = null,
+    val request: ContinuationRequest? = null,
+    val extraContext: String? = null,
+    /** Execution metadata of the latest observed turn; never arguments, results or authorization. */
+    val toolActivity: List<ContinuationToolActivity> = emptyList(),
+    /** Settings used to collect/filter this snapshot; null preserves compatibility with legacy producers. */
+    val contextSettings: AutopilotContextSettings? = null,
 ) {
     override fun toString(): String = "ContinuationContext(route=$route, entries=${dialog.size})"
 }
@@ -123,10 +137,13 @@ public data class ContinuationVerdict(
     val status: ContinuationStatus,
     val reason: String,
     val options: List<ContinuationOption> = emptyList(),
+    val answer: ContinuationAnswer? = null,
 ) {
     init {
         require(options.size <= AutoContinueSettings.MAX_OPTIONS) { "Too many continuation options" }
-        require(status != ContinuationStatus.Continue || options.isNotEmpty()) { "Continue needs an option" }
+        require(status != ContinuationStatus.Continue || options.isNotEmpty() || answer != null) {
+            "Continue needs an option or a structured answer"
+        }
     }
 
     override fun toString(): String = "ContinuationVerdict($status, options=${options.size})"
@@ -224,6 +241,14 @@ public sealed interface Phase {
     @Serializable
     public data object Paused : Phase
 
+    /** The chat awaits an external event; no continuer request is running. */
+    @Serializable
+    public data object WaitingForEvent : Phase
+
+    /** Interrupted chat: keep the mode and model until its next actual turn starts. */
+    @Serializable
+    public data class Suspended(val reason: HaltReason) : Phase
+
     /** The autopilot stopped, or the continuer failed in suggest mode; [verdict] options stay offered. */
     @Serializable
     public data class Halted(
@@ -245,6 +270,7 @@ public data class ChatAuto(
     val lastAutoText: String? = null,
     val context: ContinuationContext? = null,
     val seq: Long = 0,
+    val continuerTarget: EngineTarget? = null,
 ) {
     override fun toString(): String = "ChatAuto($mode, $phase, autoTurns=$autoTurns, seq=$seq)"
 }
@@ -284,7 +310,11 @@ public sealed interface AutoContinueIntent : MachineIntent {
          * The human switched [chat] to [mode]; a settled chat is answered at once. An autopilot reply already being
          * sent is not taken back: its turn starts as usual.
          */
-        public data class SetMode(override val chat: String, val mode: AutoContinueMode) : Public
+        public data class SetMode(
+            override val chat: String,
+            val mode: AutoContinueMode,
+            val continuerTarget: EngineTarget? = null,
+        ) : Public
 
         /** A turn started in [chat]; [isHuman] when the human sent the message (resets the counter). */
         public data class TurnStarted(override val chat: String, val isHuman: Boolean) : Public
@@ -297,6 +327,15 @@ public sealed interface AutoContinueIntent : MachineIntent {
 
         /** A turn of [chat] ended and the agent waits for the human. */
         public data class TurnAwaitsHuman(override val chat: String) : Public
+
+        /** The next step is an external wake, not a human decision and not a completed task. */
+        public data class TurnAwaitsEvent(override val chat: String) : Public
+
+        /** A pending request can be answered while the agent's own turn is suspended inside a tool. */
+        public data class RequestOpened(override val chat: String, val context: ContinuationContext) : Public
+
+        /** The exact pending request disappeared or changed; invalidate its in-flight answer. */
+        public data class RequestClosed(override val chat: String, val id: String) : Public
 
         /** A turn of [chat] failed, or [isStoppedByUser]. */
         public data class TurnFailed(override val chat: String, val isStoppedByUser: Boolean) : Public
@@ -323,8 +362,11 @@ public sealed interface AutoContinueIntent : MachineIntent {
     /** Results of effects. */
     public sealed interface Internal : AutoContinueIntent {
         /** Stored settings and chat modes were read. */
-        public data class Loaded(val settings: AutoContinueSettings, val modes: Map<String, AutoContinueMode>) :
-            Internal
+        public data class Loaded(
+            val settings: AutoContinueSettings,
+            val modes: Map<String, AutoContinueMode>,
+            val targets: Map<String, EngineTarget> = emptyMap(),
+        ) : Internal
 
         /** Storage could not be read; defaults apply for this run. */
         public data object LoadFailed : Internal
@@ -336,6 +378,7 @@ public sealed interface AutoContinueIntent : MachineIntent {
             val verdict: ContinuationVerdict,
             /** When the answer came; an autopilot countdown ends [AutoContinueSettings.countdownSeconds] later. */
             val at: Instant = Instant.DISTANT_PAST,
+            val settings: AutoContinueSettings? = null,
         ) : Internal
 
         /** The continuer failed request [seq]. */
@@ -365,7 +408,8 @@ public sealed interface AutoContinueEffect : MachineEffect {
     public data class SaveSettings(val settings: AutoContinueSettings) : AutoContinueEffect
 
     /** Writes the [mode] of [chat]; null removes it. */
-    public data class SaveMode(val chat: String, val mode: AutoContinueMode?) : AutoContinueEffect
+    public data class SaveMode(val chat: String, val mode: AutoContinueMode?, val target: EngineTarget? = null) :
+        AutoContinueEffect
 
     /** Asks the continuer through [target] about [context] for at most [optionCount] options; replaces the job. */
     public data class Ask(
@@ -375,13 +419,20 @@ public sealed interface AutoContinueEffect : MachineEffect {
         val context: ContinuationContext,
         val mode: AutoContinueMode,
         val optionCount: Int,
+        val settings: AutoContinueSettings = AutoContinueSettings(),
     ) : AutoContinueEffect
 
     /** Waits [seconds] and reports [AutoContinueIntent.Internal.CountdownElapsed]; replaces the job. */
     public data class Countdown(val chat: String, val seq: Long, val seconds: Int) : AutoContinueEffect
 
     /** Sends [text] to [chat] as an autopilot message through [AutoContinueHost]; replaces the job. */
-    public data class Deliver(val chat: String, val seq: Long, val text: String) : AutoContinueEffect {
+    public data class Deliver(
+        val chat: String,
+        val seq: Long,
+        val text: String,
+        val request: ContinuationRequest? = null,
+        val answer: ContinuationAnswer? = null,
+    ) : AutoContinueEffect {
         override fun toString(): String = "Deliver(chat=$chat, seq=$seq)"
     }
 
@@ -431,6 +482,9 @@ public interface AutoContinueView {
 public fun interface AutoContinueHost {
     /** Sends [text] to [chat]; false when the chat cannot take a message now. */
     public suspend fun deliver(chat: String, text: String): Boolean
+
+    /** Answers only the captured request, never a replacement or an ordinary follow-up message. */
+    public suspend fun answer(chat: String, request: ContinuationRequest, answer: ContinuationAnswer): Boolean = false
 
     /** Reports the last turn of [chat] again ([AutoContinueEffect.Resettle]); nothing while a turn of it runs. */
     public suspend fun resettle(chat: String) {
