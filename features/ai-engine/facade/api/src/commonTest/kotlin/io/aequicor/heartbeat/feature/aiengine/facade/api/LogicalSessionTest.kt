@@ -48,6 +48,8 @@ class LogicalSessionTest {
     fun `invalid local ownership is rejected on deserialization too`() {
         assertFailsWith<IllegalArgumentException> { root.subsession(root.id) }
         assertFailsWith<IllegalArgumentException> { root.subagent(root.id) }
+        assertNull(LogicalSessionContext.createOrNull(root.id, SessionKind.Subsession))
+        assertEquals(root, LogicalSessionContext.createOrNull(root.id, SessionKind.Session))
         assertFailsWith<IllegalArgumentException> {
             Json.decodeFromString<LogicalSessionContext>(
                 """{"id":{"value":"a"},"kind":"Subagent","root":{"value":"b"}}""",

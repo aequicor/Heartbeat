@@ -40,11 +40,7 @@ public data class LogicalSessionContext(
     val owner: LogicalSessionId? = null,
 ) {
     init {
-        when (kind) {
-            SessionKind.Session -> require(root == id && creator == null && owner == null)
-            SessionKind.Subsession -> require(root != id && creator != null && creator != id && owner == null)
-            SessionKind.Subagent -> require(root != id && creator != id && owner != null && owner != id)
-        }
+        require(isValidLogicalSession(id, kind, root, creator, owner)) { "Invalid logical session relationship" }
     }
 
     /** Full conversations can create another full conversation without introducing sidebar level three. */
@@ -68,4 +64,32 @@ public data class LogicalSessionContext(
 
     /** User input and configuration are available in both full conversation roles. */
     public val isHumanInteractive: Boolean get() = kind != SessionKind.Subagent
+
+    /** Validated construction for a compatible reader; malformed metadata never grants a logical role. */
+    public companion object {
+        /** Returns null for an invalid local relationship; cross-record checks remain host-owned. */
+        public fun createOrNull(
+            id: LogicalSessionId,
+            kind: SessionKind,
+            root: LogicalSessionId = id,
+            creator: LogicalSessionId? = null,
+            owner: LogicalSessionId? = null,
+        ): LogicalSessionContext? = if (isValidLogicalSession(id, kind, root, creator, owner)) {
+            LogicalSessionContext(id, kind, root, creator, owner)
+        } else {
+            null
+        }
+    }
+}
+
+private fun isValidLogicalSession(
+    id: LogicalSessionId,
+    kind: SessionKind,
+    root: LogicalSessionId,
+    creator: LogicalSessionId?,
+    owner: LogicalSessionId?,
+): Boolean = when (kind) {
+    SessionKind.Session -> root == id && creator == null && owner == null
+    SessionKind.Subsession -> root != id && creator != null && creator != id && owner == null
+    SessionKind.Subagent -> root != id && creator != id && owner != null && owner != id
 }

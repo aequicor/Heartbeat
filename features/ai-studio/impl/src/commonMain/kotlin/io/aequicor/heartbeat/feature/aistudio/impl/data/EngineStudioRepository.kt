@@ -164,6 +164,10 @@ internal data class StudioChatRecord(
     val pendingHarnessContext: SessionRef? = null,
     /** Original human instructions only; null is legacy or unknown provenance and never implies complete authority. */
     val humanAuthority: StudioHumanAuthority? = null,
+    /** Versioned logical role and migration provenance, never derived from a native segment or title. */
+    val identity: StudioSessionIdentity? = null,
+    /** Local resolution failure kept separately so unknown or damaged source metadata remains unchanged. */
+    val identityIssue: String? = null,
 ) {
     /** Whether [session] is this chat's current or an earlier native session. */
     fun owns(session: SessionRef): Boolean = ref == session || session in previousRefs
