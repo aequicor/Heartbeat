@@ -65,6 +65,14 @@ class EngineManagementTest {
     }
 
     @Test
+    fun `an external CLI is only inspected and never installed or updated`() {
+        val spec = ManagementSpec(InstallSupport.External, LoginSupport.Connections)
+        val engine = engine(spec, InstallationState(current = Installation(InstallSource.System, "0.2.1-rc.5")))
+
+        assertEquals(setOf(Inspect), engine.actions())
+    }
+
+    @Test
     fun `an engine with packages offers package jobs while it can run`() {
         val spec = ManagementSpec(InstallSupport.Bundled, LoginSupport.Connections, hasPackages = true)
         assertTrue(EngineActionKind.Packages in engine(spec).actions())

@@ -8,12 +8,14 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSession
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.test.runTest
@@ -23,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class DeepSeekRuntimeTest {
     @Test
@@ -64,18 +67,36 @@ class DeepSeekRuntimeTest {
         assertEquals(listOf("session-1"), connection.closedSessions)
     }
 
+    @Test
+    fun `initialize image capability reaches the catalog and the active session`() = runTest {
+        val runtime = runtime(
+            FakeAcpConnection(),
+            json("""{"promptCapabilities":{"image":true,"embeddedContext":false}}"""),
+        )
+
+        val catalog = runtime.discoverCatalog(EngineBindingId("binding"))
+        assertTrue(catalog.inputSupport.accepts("image/png"))
+
+        val session = runtime.create(CreateSessionRequest(target(ModelId("deepseek-flash"))))
+        val access = assertIs<FeatureAccess.Available<AcceptsImages>>(session.features.resolve(AcceptsImages))
+        assertEquals(DeepSeekImageMediaTypes, access.feature.mediaTypes)
+    }
+
     private fun target(model: ModelId) = EngineTarget(
         DeepSeekEngine.Id,
         EngineBindingId("binding"),
         model,
     )
 
-    private fun runtime(connection: AcpConnection) = DeepSeekRuntime(
+    private fun runtime(connection: AcpConnection, capabilities: JsonObject = JsonObject(emptyMap())) = DeepSeekRuntime(
         RuntimeIdentity(DeepSeekEngine.Id, AuthSourceId("auth"), AuthRevision.Unknown),
         connection,
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()),
         directory = { "C:\\workspace" },
+        capabilities = capabilities,
     )
+
+    private fun json(value: String): JsonObject = Json.parseToJsonElement(value) as JsonObject
 
     private class FakeAcpConnection(
         private val metadata: JsonObject = Json.parseToJsonElement(

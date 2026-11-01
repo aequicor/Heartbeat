@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionOutcome
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
@@ -78,7 +79,7 @@ internal class DeepSeekSession(
     val ref: SessionRef,
     val route: ExecutionRoute,
     val target: EngineTarget,
-    private val runtime: DeepSeekRuntime,
+    internal val runtime: DeepSeekRuntime,
     private val workingDirectory: String,
 ) : SessionHistory {
     val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
@@ -130,7 +131,7 @@ internal class DeepSeekSession(
             checkReadyToSend(lease)
             validate(request)
         }
-        val content = dshPromptInputs(request)
+        val content = dshPromptInputs(request, runtime.inputSupportFor(target.model), runtime.resources)
         val (turn, submitted) = mutex.withLock {
             checkReadyToSend(lease)
             start(request, content)
@@ -508,6 +509,10 @@ internal class DeepSeekLease(private val session: DeepSeekSession) :
         AppliesTrustLevels to this,
         ReconcilesSession to this,
         SessionHistory to session,
+        AcceptsImages to object : AcceptsImages {
+            override val mediaTypes: Set<String>
+                get() = session.runtime.inputSupportFor(session.target.model).imageMediaTypes
+        },
     )
 
     override suspend fun send(request: PromptRequest) = session.send(request, this)

@@ -225,7 +225,7 @@ private fun InstallationBlock(
                 Modifier.padding(horizontal = HbTheme.spacing.m).testTag("engine-installation-failure"),
             )
         }
-        if (installation.support != InstallSupportUi.BuiltIn) {
+        if (installation.support != InstallSupportUi.BuiltIn && installation.support != InstallSupportUi.External) {
             InstallationActions(panel, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         }
     }

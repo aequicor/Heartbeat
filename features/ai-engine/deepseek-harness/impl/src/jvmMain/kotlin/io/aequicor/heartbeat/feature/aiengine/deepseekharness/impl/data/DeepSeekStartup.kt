@@ -61,9 +61,10 @@ internal fun dshEnvironment(homeDirectory: String?): Map<String, String> = build
 private fun systemDeepSeek(host: DeepSeekHost): FoundDeepSeek {
     val name = if (host.isWindows) "dsh.cmd" else "dsh"
     val directories = pathEntries(host) + listOfNotNull(
-        desktopDeepSeekCli(host),
+        File(File(host.userHome, ".local"), "bin").path.takeIf { !host.isWindows },
+        "/opt/homebrew/bin".takeIf { host.osName.startsWith("Mac") },
         "/usr/local/bin".takeIf { !host.isWindows },
-    )
+    ) + desktopDeepSeekDirectories(host)
     val found = directories.map { File(it, name) }.firstOrNull(host.isExecutable)
     return when {
         found != null -> FoundDeepSeek(found.path, InstallSource.System, true)
@@ -71,17 +72,24 @@ private fun systemDeepSeek(host: DeepSeekHost): FoundDeepSeek {
     }
 }
 
-/** The CLI shipped inside the DeepSeek Harness desktop app; its updates belong to that app. */
-private fun desktopDeepSeekCli(host: DeepSeekHost): String? {
-    val app = if (host.isWindows) {
+/**
+ * Directories of the CLI shipped inside the DeepSeek Harness desktop app; its updates belong to that app.
+ * The desktop bundle keeps the launcher under `Contents/Resources/runtime/cli/bin` on macOS and under
+ * `<install root>/resources/runtime/cli/bin` on Windows. A GUI launch often has a minimal PATH, so the bundle is
+ * checked explicitly instead of relying on the user's shell PATH.
+ */
+private fun desktopDeepSeekDirectories(host: DeepSeekHost): List<String> = when {
+    host.isWindows -> listOfNotNull(
         host.localAppData.takeIf(String::isNotBlank)
-            ?.let { File(it, "Programs/DeepSeek Harness/resources/runtime/cli/bin").path }
-    } else if (host.osName.startsWith("Mac")) {
-        "/Applications/DeepSeek Harness.app/Contents/Resources/resources/runtime/cli/bin"
-    } else {
-        null
-    }
-    return app
+            ?.let { File(it, "Programs/DeepSeek Harness/resources/runtime/cli/bin").path },
+    )
+
+    host.osName.startsWith("Mac") -> listOf(
+        "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin",
+        File(host.userHome, "Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin").path,
+    )
+
+    else -> emptyList()
 }
 
 private fun pathEntries(host: DeepSeekHost): List<String> =

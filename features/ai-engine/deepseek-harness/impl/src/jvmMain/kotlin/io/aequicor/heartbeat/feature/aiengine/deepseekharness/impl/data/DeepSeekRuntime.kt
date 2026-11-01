@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientHandler
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpConnection
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpImplementation
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpInitialization
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionOutcome
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSessionUpdate
@@ -24,6 +25,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -55,11 +58,24 @@ internal class DeepSeekRuntime(
     internal val scope: CoroutineScope,
     private val directory: suspend (CreateSessionRequest) -> String,
     internal val tools: ProfileAgentTools = NoAgentTools,
+    internal val resources: ResourceResolver = ResourceResolver { null },
+    private val capabilities: JsonObject = JsonObject(emptyMap()),
     private val ownedScope: Job? = null,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
     AcpClientHandler {
+    /** Input support from the ACP `initialize` result; only the configured route's exact selector is confirmed. */
+    internal val inputSupport: PromptInputSupport = deepSeekPromptInputSupport(capabilities)
+
+    /** Support confirmed for [model]; DSH validates the exact route before accepting an image. */
+    internal fun inputSupportFor(model: ModelId): PromptInputSupport =
+        if (dshSelectedModel(dshModelSelector(model.value)) == DeepSeekAcpPatch.MODEL) {
+            inputSupport
+        } else {
+            PromptInputSupport()
+        }
+
     override val features = DeepSeekFeatures(CreatesSessions to this, AttachesSessions to this)
     private val sessions = MutableStateFlow<Map<String, DeepSeekSession>>(emptyMap())
     private val mutex = Mutex()
@@ -84,11 +100,11 @@ internal class DeepSeekRuntime(
         return created.lease()
     }
 
-    /** Lists the native models the agent advertises; the adapter never starts a turn. */
-    suspend fun discoverCatalog(binding: EngineBindingId): List<DeepSeekNativeModel> {
+    /** Lists the native models and prompt input support the agent advertises; the adapter never starts a turn. */
+    suspend fun discoverCatalog(binding: EngineBindingId): DeepSeekModelCatalog {
         val target = EngineTarget(identity.engine, binding, ModelId("catalog"))
         val native = connection.newSession(directory(CreateSessionRequest(target)))
-        return deepSeekNativeModels(native.metadata)
+        return deepSeekNativeCatalog(native.metadata, capabilities, DeepSeekAcpPatch.MODEL)
     }
 
     /** Selects the requested model on a freshly created or resumed session; an unsupported model fails the open. */
@@ -96,14 +112,12 @@ internal class DeepSeekRuntime(
         if (!metadata.hasConfigOption("model")) {
             throw EngineException(EngineFailure.Engine(EngineFailureReason.UnsupportedCapability))
         }
-        connection.setConfigOption(sessionId, "model", modelSelector(target.model.value))
+        connection.setConfigOption(sessionId, "model", dshModelSelector(target.model.value))
     }
 
-    /**
-     * Maps a stored model id onto the opaque `["provider","model"]` selector. Ids persisted before selector values
-     * became opaque are bare model names and resolve through the account route.
-     */
-    private fun modelSelector(value: String): String =
+    /** Maps a stored model id onto the opaque `["provider","model"]` selector. Ids persisted before selector values
+     * became opaque are bare model names and resolve through the account route. */
+    private fun dshModelSelector(value: String): String =
         if (value.startsWith("[")) value else "[\"$ACCOUNT_ROUTE\",\"$value\"]"
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
@@ -242,9 +256,9 @@ internal class DeepSeekRuntime(
 
         private val log = Log.tag("DeepSeekRuntime")
 
-        private suspend fun initializeConnection(connection: AcpConnection) {
+        private suspend fun initializeConnection(connection: AcpConnection): AcpInitialization {
             try {
-                withTimeout(INITIALIZE_TIMEOUT_MS) {
+                return withTimeout(INITIALIZE_TIMEOUT_MS) {
                     connection.initialize(AcpImplementation("heartbeat", "1", "Heartbeat"))
                 }
             } catch (error: TimeoutCancellationException) {
@@ -261,6 +275,7 @@ internal class DeepSeekRuntime(
             scope: CoroutineScope,
             directory: suspend (CreateSessionRequest) -> String,
             tools: ProfileAgentTools = NoAgentTools,
+            resources: ResourceResolver = ResourceResolver { null },
         ): DeepSeekRuntime {
             val runtime = MutableStateFlow<DeepSeekRuntime?>(null)
             val disconnected = MutableStateFlow(false)
@@ -301,13 +316,15 @@ internal class DeepSeekRuntime(
             }
             var isTransferred = false
             try {
-                initializeConnection(connection)
+                val initialization = initializeConnection(connection)
                 return DeepSeekRuntime(
                     identity,
                     connection,
                     runtimeScope,
                     directory,
                     tools,
+                    resources,
+                    initialization.agentCapabilities,
                     runtimeScope.coroutineContext[Job],
                 ).also { created ->
                     runtime.value = created

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
@@ -10,6 +11,7 @@ internal class DeepSeekFeatures(private vararg val entries: Pair<EngineFeatureKe
         val feature = entries.firstOrNull { it.first.id == key.id && it.first.type == key.type }?.second
             ?: return FeatureAccess.Unsupported
         if (!key.type.isInstance(feature)) return FeatureAccess.Unsupported
+        if (feature is AcceptsImages && feature.mediaTypes.isEmpty()) return FeatureAccess.Unsupported
         @Suppress("UNCHECKED_CAST")
         return FeatureAccess.Available(feature as F)
     }
