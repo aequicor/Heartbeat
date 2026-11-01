@@ -4,9 +4,11 @@ import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSe
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekEngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class DeepSeekBindingsTest {
     @Test
@@ -20,6 +22,7 @@ class DeepSeekBindingsTest {
         assertEquals(LoginSupport.Connections, registration.management.login)
         assertNotNull(registration.manager)
         assertEquals("DeepSeek Harness", registration.descriptor.title)
-        assertEquals(2, registration.modelCatalogRevision)
+        assertTrue(SessionTrees.id in registration.descriptor.declaredFeatures)
+        assertEquals(3, registration.modelCatalogRevision)
     }
 }

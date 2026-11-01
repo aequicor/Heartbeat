@@ -103,6 +103,38 @@ internal class DeepSeekNativeHistory(
 
     fun stored(ref: SessionRef): SessionHistory = DeepSeekStoredHistory(ref, configuration, dispatchers)
 
+    /** Id → structural header of every native session across all workspaces, including subagent sessions. */
+    internal suspend fun families(): Map<String, DeepSeekFamily> = withContext(dispatchers.io) {
+        val root = sessionsRoot(configuration)
+        if (!root.isDirectory) return@withContext emptyMap()
+        val result = mutableMapOf<String, DeepSeekFamily>()
+        for (workspaceDir in listDirs(root)) {
+            for (dir in listDirs(workspaceDir)) {
+                currentCoroutineContext().ensureActive()
+                val entry = try {
+                    family(File(dir, SESSION_FILE))
+                } catch (error: IOException) {
+                    // One truncated or unreadable session must not hide the rest of the family.
+                    log.w(error) { "DeepSeek Harness session header could not be read" }
+                    null
+                }
+                entry?.let { (id, header) -> result[id] = header }
+            }
+        }
+        result
+    }
+
+    /** Parses one session header into its tree identity; malformed or rootless entries are skipped alone. */
+    private fun family(file: File): Pair<String, DeepSeekFamily>? {
+        val header = readHeader(file) ?: return null
+        val id = header.string("id")?.takeIf(String::isNotBlank) ?: return null
+        return id to DeepSeekFamily(
+            parent = header.string("parentSession")?.takeIf(String::isNotBlank),
+            name = header.string("title")?.takeIf(String::isNotBlank)
+                ?: header.string("name")?.takeIf(String::isNotBlank),
+        )
+    }
+
     private fun listDirs(file: File): List<File> = file.listFiles { entry -> entry.isDirectory }?.toList()
         ?: throw EngineException(EngineFailure.Unknown())
 
@@ -261,6 +293,9 @@ internal class DeepSeekStoredHistory(
         val SAFE_NATIVE_ID = Regex("[A-Za-z0-9][A-Za-z0-9._-]*")
     }
 }
+
+/** A native session's structural header: its authoritative parent and a display name when DSH records one. */
+internal data class DeepSeekFamily(val parent: String?, val name: String?)
 
 private fun sessionsRoot(configuration: DeepSeekConfiguration): File = File(
     configuration.homeDirectory ?: File(System.getProperty("user.home"), ".dsh").path,
