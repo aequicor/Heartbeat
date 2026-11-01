@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAutoContinuePort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueCountdownUi
@@ -55,7 +57,29 @@ internal class StudioAutoContinueView(private val port: StudioAutoContinuePort) 
     ) {
         val chat = intent.sessionId
         when (intent) {
-            is AiStudioScreenIntent.SetAutoContinue -> port.send(Public.SetMode(chat, intent.mode.toDomain()))
+            is AiStudioScreenIntent.SetAutoContinue -> {
+                if (chat.isEmpty()) {
+                    pipeline.updateState {
+                        val pane = panes.firstOrNull { it.id == intent.paneId && it.sessionId == null }
+                        if (pane == null || !autoContinue.isEnabled) {
+                            this
+                        } else {
+                            copy(
+                                newChatAutoContinue = (
+                                    newChatAutoContinue + (
+                                        pane.id to AutoContinueUi(
+                                            mode = intent.mode,
+                                            modelId = intent.modelId,
+                                        )
+                                    )
+                                ).toImmutableMap(),
+                            )
+                        }
+                    }
+                } else {
+                    port.send(Public.SetMode(chat, intent.mode.toDomain(), intent.modelId?.let(::studioModelTarget)))
+                }
+            }
 
             is AiStudioScreenIntent.RefreshAutoContinue -> port.send(Public.Refresh(chat))
 
@@ -135,7 +159,7 @@ internal fun AutoContinueState.toUi(isEnabled: Boolean): AutoContinueScreenUi {
 }
 
 internal fun ChatAuto.toUi(): AutoContinueUi {
-    val base = AutoContinueUi(mode = mode.toUi(), autoTurns = autoTurns)
+    val base = AutoContinueUi(mode = mode.toUi(), autoTurns = autoTurns, modelId = continuerTarget?.studioModelId())
     return when (val phase = phase) {
         Phase.Idle -> base
         is Phase.Thinking -> base.copy(isThinking = true)
@@ -143,6 +167,8 @@ internal fun ChatAuto.toUi(): AutoContinueUi {
         is Phase.Countdown -> base.copy(countdown = phase.toUi())
         is Phase.Delivering -> base.copy(isSending = true)
         Phase.Paused -> base.copy(isPaused = true)
+        Phase.WaitingForEvent -> base.copy(isWaitingForEvent = true)
+        is Phase.Suspended -> base.copy(isPaused = true, notice = phase.reason.toUi(null))
         is Phase.Halted -> base.withVerdict(phase.verdict, notice = phase.reason.toUi(phase.failure))
     }
 }

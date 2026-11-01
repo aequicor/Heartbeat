@@ -7,44 +7,32 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Interna
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
 
 /**
- * Auto-continue of studio chats. The profile machine loads settings and chat modes, then reacts per chat; every chat
- * intent in `Ready` stays in `Ready` and changes only [ChatAuto] of its chat. Requests carry a sequence number `seq`:
- * answers, countdowns and deliveries of an older request are ignored.
+ * Profile-owned continuation, independently sequenced per chat. Mode and model survive stops and restart.
+ * Every generated answer is tied to the current sequence and optional exact structured request.
  *
- * | From | Intent | Guard | To | Effect / output |
- * |---|---|---|---|---|
- * | Idle | Start | | Loading | Load |
- * | Loading | Loaded | | Ready (autopilot chats → Suggest + Halted(Restarted)) | |
- * | Loading | LoadFailed | | Ready() | |
- * | Ready | UpdateSettings | differs | Ready(settings) | SaveSettings |
- * | Ready | SaveFailed | | Ready | SaveFailed |
+ * | State / phase | Intent | Result | Effect |
+ * |---|---|---|---|
+ * | Idle | Start | Loading | Load |
+ * | Loading | Loaded / LoadFailed | Ready; restored autopilots Suspended(Restarted) | |
+ * | Ready | UpdateSettings | New settings | SaveSettings |
+ * | any chat | SetMode | Selected mode/model; known context → Thinking | SaveMode, Ask / Cancel / Resettle |
+ * | enabled chat | TurnStarted | Idle, context cleared; human resets reply count | Cancel if busy |
+ * | enabled chat | TurnSettled | Thinking; Off only keeps context | Ask |
+ * | any chat | TurnAwaitsEvent | WaitingForEvent, context cleared, sequence advanced | Cancel |
+ * | autopilot | TurnAwaitsHuman | Paused for a human decision | Cancel if busy |
+ * | autopilot | TurnFailed / Stop | Suspended; mode/model kept, sequence advanced | Cancel |
+ * | autopilot, not suspended | RequestOpened | Thinking for a different exact request | Ask |
+ * | matching request | RequestClosed | Idle, context cleared, sequence advanced | Cancel |
+ * | Thinking(seq) | Answered | Suggest → Offered; Autopilot → Delivering immediately or Halted | Deliver |
+ * | Thinking(seq) | Answered with changed settings | Idle, old context dropped | Resettle with latest settings |
+ * | Thinking(seq) | AskFailed | Halted; mode/model kept | |
+ * | Delivering(seq) | Delivered / DeliveryFailed | Idle / Halted | |
+ * | busy autopilot | DraftTyped | Suspended(HumanTookOver), mode/model kept | Cancel |
+ * | any chat | Forget | Removed | Cancel, SaveMode(null) |
  *
- * Per chat in `Ready` (mode Off only keeps the context of a settled turn; switched on without one, it asks the host to
- * report the last turn again with `Resettle`):
- *
- * | Phase | Intent | Guard | Chat | Effect / output |
- * |---|---|---|---|---|
- * | any | SetMode | mode differs | Idle; Autopilot: counter 0; on, context → Thinking | Ask/Cancel/Resettle; SaveMode |
- * | any | TurnStarted | | Idle, no context; human resets counter; Autopilot → Halted(HumanTookOver) | Cancel; Save |
- * | any | TurnSettled | | Thinking(seq + 1), context kept; Off: only the context kept | Ask |
- * | any | TurnAwaitsHuman | | Autopilot → Paused, Suggest → Idle | Cancel if busy |
- * | any | TurnFailed | | Autopilot → Halted(UserStopped / TurnFailed), Suggest → Idle | Cancel if busy; SaveMode |
- * | Thinking / Offered / Halted | DraftTyped | Suggest | Idle | Cancel if Thinking |
- * | Thinking / Countdown | DraftTyped | Autopilot | Halted(HumanTookOver) | Cancel; SaveMode |
- * | not busy | Refresh | context known | Thinking(seq + 1) | Ask |
- * | Thinking(seq) | Answered | Suggest | Offered(verdict) | |
- * | Thinking(seq) | Answered | Autopilot: Done / NeedsUser / limit / near repeat | Halted(reason, verdict) | SaveMode |
- * | Thinking(seq) | Answered | Autopilot: Continue, countdown > 0 | Countdown(seq, first option, ends) | Countdown |
- * | Thinking(seq) | Answered | Autopilot: Continue, countdown = 0 | Delivering, counter + 1 | Deliver |
- * | Thinking(seq) | AskFailed | | Autopilot → Halted(ContinuerFailed); Suggest → Halted, mode kept | SaveMode |
- * | Countdown(seq) | CountdownElapsed / SendNow | | Delivering, counter + 1, context dropped | Deliver |
- * | Countdown | Edit | | Suggest, Idle | Cancel; SaveMode; Draft(text) |
- * | any | Stop | Autopilot | Halted(UserStopped) | Cancel if busy; SaveMode |
- * | Delivering(seq) | Delivered | | Idle | |
- * | Delivering(seq) | DeliveryFailed | | Halted(DeliveryFailed) | SaveMode |
- * | any | Forget | chat known | removed | Cancel; SaveMode(null) |
- *
- * Effect failures: Load → LoadFailed, saves → SaveFailed, Ask → AskFailed(Failed), Deliver → DeliveryFailed.
+ * Stale sequence results and replaced/closed requests are ignored. Structured requests never fall back to sending
+ * ordinary chat text. Legacy countdown intents can drain an already pending countdown, but no new countdown is
+ * created. Effect errors map to LoadFailed, SaveFailed, AskFailed or DeliveryFailed.
  */
 public val AutoContinueMachineSpec: AutoContinueSpec =
     machineSpec(AutoContinueMachineKey, AutoContinueState.Idle) {
@@ -75,6 +63,9 @@ public val AutoContinueMachineSpec: AutoContinueSpec =
             chatStep<Public.TurnStarted>()
             chatStep<Public.TurnSettled>()
             chatStep<Public.TurnAwaitsHuman>()
+            chatStep<Public.TurnAwaitsEvent>()
+            chatStep<Public.RequestOpened>()
+            chatStep<Public.RequestClosed>()
             chatStep<Public.TurnFailed>()
             chatStep<Public.DraftTyped>()
             chatStep<Public.Refresh>()
@@ -126,11 +117,11 @@ private inline fun <reified J : AutoContinueIntent> ReadyBuilder.chatStep() {
 
 private fun loaded(intent: Internal.Loaded): AutoContinueState.Ready = AutoContinueState.Ready(
     settings = intent.settings,
-    chats = intent.modes.mapValues { (_, mode) ->
+    chats = intent.modes.mapValues { (id, mode) ->
         if (mode == AutoContinueMode.Autopilot) {
-            ChatAuto(AutoContinueMode.Suggest, Phase.Halted(HaltReason.Restarted))
+            ChatAuto(mode, Phase.Suspended(HaltReason.Restarted), continuerTarget = intent.targets[id])
         } else {
-            ChatAuto(mode)
+            ChatAuto(mode, continuerTarget = intent.targets[id])
         }
     },
 )

@@ -65,7 +65,10 @@ class AutoContinueEffectsTest {
         val prompts = ScriptedPrompts(IsolatedAnswer.Answered("sure!"), IsolatedAnswer.Answered(valid))
         val machine = RecordingScope()
         effects(prompts = prompts).handle(ask, machine)
-        assertEquals(listOf<AutoContinueIntent>(Internal.Answered(CHAT, 1, verdict, NOW)), machine.sent)
+        assertEquals(
+            listOf<AutoContinueIntent>(Internal.Answered(CHAT, 1, verdict, NOW, AutoContinueSettings())),
+            machine.sent,
+        )
         assertEquals(2, prompts.asked.size)
         assertTrue("not a valid JSON object" in prompts.asked[1].text)
         assertEquals(target, prompts.asked[0].target)
@@ -181,7 +184,7 @@ class AutoContinueEffectsTest {
     }
 
     @Test
-    fun `stored autopilot chats are loaded as stopped and saved as suggest chats`() = runTest {
+    fun `stored autopilot choices survive loading without rewriting modes`() = runTest {
         val store = MemoryStore()
         store.saveMode(CHAT, AutoContinueMode.Autopilot)
         store.saveMode("b", AutoContinueMode.Suggest)
@@ -196,7 +199,7 @@ class AutoContinueEffectsTest {
             ),
             machine.sent,
         )
-        assertEquals(mapOf(CHAT to AutoContinueMode.Suggest, "b" to AutoContinueMode.Suggest), store.modes())
+        assertEquals(mapOf(CHAT to AutoContinueMode.Autopilot, "b" to AutoContinueMode.Suggest), store.modes())
     }
 
     @Test

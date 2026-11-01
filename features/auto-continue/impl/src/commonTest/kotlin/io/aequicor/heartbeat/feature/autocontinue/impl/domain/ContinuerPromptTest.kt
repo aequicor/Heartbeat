@@ -21,6 +21,19 @@ class ContinuerPromptTest {
     private val route = EngineTarget(EngineId("pi"), EngineBindingId("b"), ModelId("m"))
 
     @Test
+    fun `latest user instructions survive a long agent tail`() {
+        val dialog = listOf(
+            DialogEntry(DialogAuthor.Human, "original task"),
+            DialogEntry(DialogAuthor.Human, "LATEST RULE: no publish"),
+        ) +
+            (1..60).map { DialogEntry(DialogAuthor.Agent, "Progress $it ".repeat(200)) }
+        val rendered = renderDialog(dialog)
+        assertTrue("original task" in rendered)
+        assertTrue("LATEST RULE: no publish" in rendered)
+        assertTrue("Progress 60" in rendered)
+    }
+
+    @Test
     fun `prompt fences the dialog and the plan and marks authors`() {
         val context = ContinuationContext(
             route,

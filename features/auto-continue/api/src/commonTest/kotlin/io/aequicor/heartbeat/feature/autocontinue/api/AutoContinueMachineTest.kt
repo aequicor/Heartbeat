@@ -10,7 +10,6 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Interna
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 class AutoContinueMachineTest {
@@ -31,7 +30,7 @@ class AutoContinueMachineTest {
     private fun saveMode(mode: AutoContinueMode?) = AutoContinueEffect.SaveMode(CHAT, mode)
 
     @Test
-    fun `start loads and restart turns autopilot into suggestions`() {
+    fun `restart preserves autopilot paused until the next turn`() {
         spec.assertTransition(
             AutoContinueState.Idle,
             Public.Start,
@@ -45,7 +44,7 @@ class AutoContinueMachineTest {
             AutoContinueState.Ready(
                 settings,
                 mapOf(
-                    CHAT to ChatAuto(AutoContinueMode.Suggest, Phase.Halted(HaltReason.Restarted)),
+                    CHAT to ChatAuto(AutoContinueMode.Autopilot, Phase.Suspended(HaltReason.Restarted)),
                     "b" to ChatAuto(AutoContinueMode.Off),
                 ),
             ),
@@ -56,7 +55,7 @@ class AutoContinueMachineTest {
 
     @Test
     fun `settings are saved only when changed`() {
-        val settings = AutoContinueSettings(countdownSeconds = 0)
+        val settings = AutoContinueSettings(countdownSeconds = 3)
         spec.assertTransition(
             AutoContinueState.Ready(),
             Public.UpdateSettings(settings),
@@ -84,7 +83,7 @@ class AutoContinueMachineTest {
                     CHAT to ChatAuto(AutoContinueMode.Suggest, Phase.Thinking(1), context = context, seq = 1),
                 ),
             ),
-            effects = listOf(ask(1, AutoContinueMode.Suggest)),
+            effects = listOf(ask(1, AutoContinueMode.Suggest).copy(settings = suggesting.settings)),
         )
         val off = AutoContinueState.Ready()
         val kept = ready(ChatAuto(AutoContinueMode.Off, context = context))
@@ -112,12 +111,24 @@ class AutoContinueMachineTest {
             context = context,
             seq = 2,
         )
-        val settings = AutoContinueSettings(continuerTarget = continuer)
+        val settings = AutoContinueSettings()
         spec.assertTransition(
             ready(offered, settings),
-            Public.SetMode(CHAT, AutoContinueMode.Autopilot),
-            ready(ChatAuto(AutoContinueMode.Autopilot, Phase.Thinking(3), context = context, seq = 3), settings),
-            effects = listOf(ask(3, AutoContinueMode.Autopilot, continuer), saveMode(AutoContinueMode.Autopilot)),
+            Public.SetMode(CHAT, AutoContinueMode.Autopilot, continuer),
+            ready(
+                ChatAuto(
+                    AutoContinueMode.Autopilot,
+                    Phase.Thinking(3),
+                    context = context,
+                    seq = 3,
+                    continuerTarget = continuer,
+                ),
+                settings,
+            ),
+            effects = listOf(
+                ask(3, AutoContinueMode.Autopilot, continuer),
+                AutoContinueEffect.SaveMode(CHAT, AutoContinueMode.Autopilot, continuer),
+            ),
         )
         spec.assertIgnored(ready(offered), Public.SetMode(CHAT, AutoContinueMode.Suggest))
     }
@@ -150,14 +161,21 @@ class AutoContinueMachineTest {
     }
 
     @Test
-    fun `a countdown ends its length after the answer came`() {
+    fun `legacy countdown setting does not delay a generated answer`() {
         val thinking = ChatAuto(AutoContinueMode.Autopilot, Phase.Thinking(1), context = context, seq = 1)
         val at = Instant.fromEpochSeconds(1_000)
         spec.assertTransition(
             ready(thinking),
             Internal.Answered(CHAT, 1, proceed, at),
-            ready(thinking.copy(phase = Phase.Countdown(1, option.text, 5, at + 5.seconds))),
-            effects = listOf(AutoContinueEffect.Countdown(CHAT, 1, 5)),
+            ready(
+                thinking.copy(
+                    phase = Phase.Delivering(1, option.text),
+                    autoTurns = 1,
+                    lastAutoText = option.text,
+                    context = null,
+                ),
+            ),
+            effects = listOf(AutoContinueEffect.Deliver(CHAT, 1, option.text)),
         )
     }
 
@@ -239,15 +257,9 @@ class AutoContinueMachineTest {
     }
 
     @Test
-    fun `autopilot counts down and delivers the first option`() {
+    fun `legacy pending countdowns can still be drained`() {
         val thinking = ChatAuto(AutoContinueMode.Autopilot, Phase.Thinking(1), context = context, seq = 1)
         val countdown = thinking.copy(phase = Phase.Countdown(1, option.text, 5))
-        spec.assertTransition(
-            ready(thinking),
-            Internal.Answered(CHAT, 1, proceed),
-            ready(countdown),
-            effects = listOf(AutoContinueEffect.Countdown(CHAT, 1, 5)),
-        )
         val delivering = thinking.copy(
             phase = Phase.Delivering(1, option.text),
             autoTurns = 1,
@@ -298,33 +310,29 @@ class AutoContinueMachineTest {
     fun `autopilot halts on done or needs user or limit or repeats`() {
         val thinking = ChatAuto(AutoContinueMode.Autopilot, Phase.Thinking(1), context = context, seq = 1)
         fun halted(chat: ChatAuto, reason: HaltReason, verdict: ContinuationVerdict) =
-            ready(chat.copy(mode = AutoContinueMode.Suggest, phase = Phase.Halted(reason, verdict)))
+            ready(chat.copy(phase = Phase.Halted(reason, verdict)))
         spec.assertTransition(
             ready(thinking),
             Internal.Answered(CHAT, 1, done),
             halted(thinking, HaltReason.Done, done),
-            effects = listOf(saveMode(AutoContinueMode.Suggest)),
         )
         val ask = ContinuationVerdict(ContinuationStatus.NeedsUser, "choose a database")
         spec.assertTransition(
             ready(thinking),
             Internal.Answered(CHAT, 1, ask),
             halted(thinking, HaltReason.NeedsUser, ask),
-            effects = listOf(saveMode(AutoContinueMode.Suggest)),
         )
         val exhausted = thinking.copy(autoTurns = AutoContinueSettings.DEFAULT_AUTO_TURN_LIMIT)
         spec.assertTransition(
             ready(exhausted),
             Internal.Answered(CHAT, 1, proceed),
             halted(exhausted, HaltReason.LimitReached, proceed),
-            effects = listOf(saveMode(AutoContinueMode.Suggest)),
         )
         val repeating = thinking.copy(autoTurns = 1, lastAutoText = "Продолжай со шага 3 плана!")
         spec.assertTransition(
             ready(repeating),
             Internal.Answered(CHAT, 1, proceed),
             halted(repeating, HaltReason.Looping, proceed),
-            effects = listOf(saveMode(AutoContinueMode.Suggest)),
         )
     }
 
@@ -336,44 +344,46 @@ class AutoContinueMachineTest {
             Internal.AskFailed(CHAT, 1, ContinuerFailure.Unavailable),
             ready(
                 thinking.copy(
-                    mode = AutoContinueMode.Suggest,
                     phase = Phase.Halted(HaltReason.ContinuerFailed, failure = ContinuerFailure.Unavailable),
                 ),
             ),
-            effects = listOf(saveMode(AutoContinueMode.Suggest)),
         )
         val countdown = thinking.copy(phase = Phase.Countdown(1, "go", 5))
         spec.assertTransition(
             ready(countdown),
             Public.DraftTyped(CHAT),
-            ready(countdown.copy(mode = AutoContinueMode.Suggest, phase = Phase.Halted(HaltReason.HumanTookOver))),
-            effects = listOf(AutoContinueEffect.Cancel(CHAT), saveMode(AutoContinueMode.Suggest)),
+            ready(
+                countdown.copy(
+                    phase = Phase.Suspended(HaltReason.HumanTookOver),
+                    context = null,
+                    seq = countdown.seq + 1,
+                ),
+            ),
+            effects = listOf(AutoContinueEffect.Cancel(CHAT)),
         )
         val idle = ChatAuto(AutoContinueMode.Autopilot, autoTurns = 4, lastAutoText = "go", seq = 2)
         spec.assertTransition(
             ready(idle),
             Public.TurnStarted(CHAT, isHuman = true),
-            ready(ChatAuto(AutoContinueMode.Suggest, Phase.Halted(HaltReason.HumanTookOver), seq = 2)),
-            effects = listOf(saveMode(AutoContinueMode.Suggest)),
+            ready(ChatAuto(AutoContinueMode.Autopilot, seq = 2)),
         )
         spec.assertTransition(
             ready(idle),
             Public.TurnFailed(CHAT, isStoppedByUser = true),
-            ready(idle.copy(mode = AutoContinueMode.Suggest, phase = Phase.Halted(HaltReason.UserStopped))),
-            effects = listOf(saveMode(AutoContinueMode.Suggest)),
+            ready(idle.copy(phase = Phase.Suspended(HaltReason.UserStopped), seq = idle.seq + 1)),
+            effects = listOf(AutoContinueEffect.Cancel(CHAT)),
         )
         spec.assertTransition(
             ready(idle),
             Public.TurnFailed(CHAT, isStoppedByUser = false),
-            ready(idle.copy(mode = AutoContinueMode.Suggest, phase = Phase.Halted(HaltReason.TurnFailed))),
-            effects = listOf(saveMode(AutoContinueMode.Suggest)),
+            ready(idle.copy(phase = Phase.Suspended(HaltReason.TurnFailed), seq = idle.seq + 1)),
+            effects = listOf(AutoContinueEffect.Cancel(CHAT)),
         )
         val delivering = idle.copy(phase = Phase.Delivering(3, "go"))
         spec.assertTransition(
             ready(delivering),
             Internal.DeliveryFailed(CHAT, 3),
-            ready(delivering.copy(mode = AutoContinueMode.Suggest, phase = Phase.Halted(HaltReason.DeliveryFailed))),
-            effects = listOf(saveMode(AutoContinueMode.Suggest)),
+            ready(delivering.copy(phase = Phase.Halted(HaltReason.DeliveryFailed))),
         )
     }
 
@@ -404,8 +414,8 @@ class AutoContinueMachineTest {
         spec.assertTransition(
             ready(countdown),
             Public.Stop(CHAT),
-            ready(countdown.copy(mode = AutoContinueMode.Suggest, phase = Phase.Halted(HaltReason.UserStopped))),
-            effects = listOf(AutoContinueEffect.Cancel(CHAT), saveMode(AutoContinueMode.Suggest)),
+            ready(countdown.copy(phase = Phase.Suspended(HaltReason.UserStopped), context = null, seq = 2)),
+            effects = listOf(AutoContinueEffect.Cancel(CHAT)),
         )
         spec.assertIgnored(ready(ChatAuto(AutoContinueMode.Suggest)), Public.Stop(CHAT))
         spec.assertIgnored(ready(ChatAuto(AutoContinueMode.Autopilot)), Public.Edit(CHAT))
@@ -420,6 +430,101 @@ class AutoContinueMachineTest {
             effects = listOf(AutoContinueEffect.Cancel(CHAT), saveMode(null)),
         )
         spec.assertIgnored(AutoContinueState.Ready(), Public.Forget(CHAT))
+    }
+
+    @Test
+    fun `event waiting never generates an answer and invalidates an old one`() {
+        val thinking = ChatAuto(AutoContinueMode.Autopilot, Phase.Thinking(2), context = context, seq = 2)
+        val waiting = thinking.copy(phase = Phase.WaitingForEvent, context = null, seq = 3)
+        spec.assertTransition(
+            ready(thinking),
+            Public.TurnAwaitsEvent(CHAT),
+            ready(waiting),
+            effects = listOf(AutoContinueEffect.Cancel(CHAT)),
+        )
+        spec.assertIgnored(ready(waiting), Internal.Answered(CHAT, 2, proceed))
+    }
+
+    @Test
+    fun `a closed structured request cannot receive an old answer`() {
+        val request = ContinuationRequest("question-1", "exact question")
+        val asked = context.copy(request = request)
+        val thinking = ChatAuto(AutoContinueMode.Autopilot, Phase.Thinking(2), context = asked, seq = 2)
+        val closed = thinking.copy(phase = Phase.Idle, context = null, seq = 3)
+        spec.assertTransition(
+            ready(thinking),
+            Public.RequestClosed(CHAT, request.id),
+            ready(closed),
+            effects = listOf(AutoContinueEffect.Cancel(CHAT)),
+        )
+        spec.assertIgnored(ready(closed), Internal.Answered(CHAT, 2, proceed))
+        spec.assertIgnored(ready(thinking), Public.RequestClosed(CHAT, "another-question"))
+    }
+
+    @Test
+    fun `structured answers use the request channel and ordinary text cannot replace them`() {
+        val request = ContinuationRequest("permission-1", "exact action")
+        val thinking = ChatAuto(
+            AutoContinueMode.Autopilot,
+            Phase.Thinking(1),
+            context = context.copy(request = request),
+            seq = 1,
+        )
+        val answer = ContinuationAnswer(confirmed = true)
+        val verdict = ContinuationVerdict(ContinuationStatus.Continue, "within task", answer = answer)
+        spec.assertTransition(
+            ready(thinking),
+            Internal.Answered(CHAT, 1, verdict),
+            ready(thinking.copy(phase = Phase.Delivering(1, ""), autoTurns = 1)),
+            effects = listOf(AutoContinueEffect.Deliver(CHAT, 1, "", request, answer)),
+        )
+        spec.assertTransition(
+            ready(thinking),
+            Internal.Answered(CHAT, 1, proceed),
+            ready(thinking.copy(phase = Phase.Halted(HaltReason.NeedsUser, proceed))),
+        )
+    }
+
+    @Test
+    fun `stop preserves the selected model and only a new turn resumes it`() {
+        val thinking = ChatAuto(
+            AutoContinueMode.Autopilot,
+            Phase.Thinking(1),
+            context = context,
+            seq = 1,
+            continuerTarget = continuer,
+        )
+        val paused = thinking.copy(phase = Phase.Suspended(HaltReason.UserStopped), context = null, seq = 2)
+        spec.assertTransition(
+            ready(thinking),
+            Public.Stop(CHAT),
+            ready(paused),
+            effects = listOf(AutoContinueEffect.Cancel(CHAT)),
+        )
+        spec.assertIgnored(ready(paused), Public.DraftTyped(CHAT))
+        spec.assertIgnored(ready(paused), Public.TurnSettled(CHAT, context))
+        spec.assertIgnored(ready(paused), Public.TurnAwaitsHuman(CHAT))
+        spec.assertIgnored(ready(paused), Public.TurnAwaitsEvent(CHAT))
+        spec.assertIgnored(
+            ready(paused),
+            Public.RequestOpened(CHAT, context.copy(request = ContinuationRequest("q", "question"))),
+        )
+        spec.assertTransition(ready(paused), Public.TurnStarted(CHAT, true), ready(paused.copy(phase = Phase.Idle)))
+    }
+
+    @Test
+    fun `changed context settings discard the old answer and request a fresh host snapshot`() {
+        val previous = AutoContinueSettings()
+        val current = previous.copy(
+            contextSettings = previous.contextSettings.copy(history = false, toolResults = false),
+        )
+        val thinking = ChatAuto(AutoContinueMode.Autopilot, Phase.Thinking(1), context = context, seq = 1)
+        spec.assertTransition(
+            ready(thinking, current),
+            Internal.Answered(CHAT, 1, proceed, settings = previous),
+            ready(thinking.copy(phase = Phase.Idle, context = null, seq = 2), current),
+            effects = listOf(AutoContinueEffect.Resettle(CHAT)),
+        )
     }
 
     private companion object {

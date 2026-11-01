@@ -359,7 +359,12 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Switches the auto-continue [mode] of [sessionId]. */
     @Serializable
     @SerialName("AiStudioScreenIntent.SetAutoContinue")
-    data class SetAutoContinue(override val sessionId: String, val mode: AutoContinueModeUi) : AutoContinue
+    data class SetAutoContinue(
+        override val sessionId: String,
+        val mode: AutoContinueModeUi,
+        val paneId: Int? = null,
+        val modelId: String? = null,
+    ) : AutoContinue
 
     /** Asks the continuer again for [sessionId]. */
     @Serializable
