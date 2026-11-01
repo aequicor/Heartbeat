@@ -66,8 +66,8 @@ internal sealed interface PiDialog {
             val title = record.string("title")?.takeIf { it.isNotBlank() } ?: return null
             val requestId = PermissionRequestId(id)
             val answerActions = listOf(
-                PermissionOption(AnswerOption, "Ответить"),
-                PermissionOption(SkipOption, "Пропустить", isSkip = true),
+                PermissionOption(AnswerOption, "Ответить", isOneTime = true),
+                PermissionOption(SkipOption, "Пропустить", isSkip = true, isOneTime = true),
             )
             return when (record.string("method")) {
                 "confirm" -> Confirm(
@@ -75,7 +75,10 @@ internal sealed interface PiDialog {
                         requestId,
                         turn,
                         title,
-                        listOf(PermissionOption(YesOption, "Да"), PermissionOption(NoOption, "Нет")),
+                        listOf(
+                            PermissionOption(YesOption, "Да", isOneTime = true),
+                            PermissionOption(NoOption, "Нет", isOneTime = true),
+                        ),
                         description = record.string("message"),
                     ),
                 )

@@ -16,10 +16,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -529,7 +527,7 @@ internal class CodexSession(
             log.w { "Codex original input could not be persisted: ${error::class.simpleName ?: "Failure"}" }
             fail(
                 EngineFailure.History(
-                    io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason.Unavailable,
+                    HistoryFailureReason.Unavailable,
                 ),
             )
         }
@@ -644,14 +642,8 @@ internal class CodexSession(
 
     private suspend fun hostedApproval(turn: Turn, approval: AgentToolApproval): Boolean {
         if (currentTurn()?.id != turn.id || hostedJobs.isClosed(turn.id) || leases.isEmpty()) return false
-        val request = PermissionRequest(
-            PermissionRequestId(Uuid.random().toString()),
-            turn.id,
-            approval.title,
-            listOf(PermissionOption(HOSTED_ALLOW, "Разрешить"), PermissionOption(HOSTED_DENY, "Запретить")),
-            description = approval.description,
-        )
-        return permissions.awaitDecision(request)?.option == HOSTED_ALLOW
+        val request = codexHostedPermission(turn.id, approval)
+        return permissions.awaitDecision(request)?.option == CodexHostedAllow
     }
 
     private fun cancelTools(turn: TurnId) = hostedJobs.revoke(turn)
@@ -741,8 +733,6 @@ internal class CodexSession(
         const val IN_PROGRESS = "inProgress"
         val TERMINAL_STATUSES = setOf("completed", "interrupted", "failed")
         val RESTORED_TERMINAL_STATUSES = setOf("completed", "failed")
-        val HOSTED_ALLOW = PermissionOptionId("hosted.allow")
-        val HOSTED_DENY = PermissionOptionId("hosted.deny")
     }
 }
 

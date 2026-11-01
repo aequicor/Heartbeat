@@ -39,7 +39,10 @@ internal class ClaudePermissions(
                 PermissionRequestId(UUID.randomUUID().toString()),
                 observer.turn.id,
                 approval.title,
-                listOf(PermissionOption(ALLOW, "Allow once"), PermissionOption(DENY, "Deny")),
+                listOf(
+                    PermissionOption(ALLOW, "Allow once", isOneTime = true),
+                    PermissionOption(DENY, "Deny", isOneTime = true),
+                ),
                 approval.description,
             )
             Pending(request).also {

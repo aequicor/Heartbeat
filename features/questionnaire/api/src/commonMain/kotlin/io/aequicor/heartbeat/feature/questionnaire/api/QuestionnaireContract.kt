@@ -49,7 +49,11 @@ public sealed interface QuestionnaireIntent : MachineIntent {
             val id: QuestionnaireId,
             val answer: io.aequicor.heartbeat.feature.questionnaire.api.Answer,
             val context: QuestionnaireAnswerContext? = null,
-        ) : Public
+            /** Generated answers must still match this complete question when the queue accepts them. */
+            val expectedQuestionnaire: Questionnaire? = null,
+        ) : Public {
+            override fun toString(): String = "Answer(id=$id, isSnapshotBound=${expectedQuestionnaire != null})"
+        }
 
         /** The source no longer needs [id] (answer delivered, turn ended or cancelled). */
         public data class Withdraw(val id: QuestionnaireId) : Public
@@ -91,7 +95,7 @@ public object QuestionnaireMachineKey : MachineKey<
  * |--------|----------|-----------------------------------------|----------------------------|-----------|
  * | Idle   | Ask      | —                                       | Asking([q])                | —         |
  * | Asking | Ask      | —                                       | Asking(q replaced/appended, not submitting) | — |
- * | Asking | Answer   | pending, not submitting, answer accepted | Asking(+submitting)       | Answered  |
+ * | Asking | Answer   | pending, current snapshot, valid answer | Asking(+submitting)       | Answered  |
  * | Asking | Withdraw | pending, others remain                  | Asking(− q)                | Withdrawn |
  * | Asking | Withdraw | pending, last one                       | Idle                       | Withdrawn |
  *
@@ -115,7 +119,10 @@ public val QuestionnaireMachineSpec:
             }
             on<QuestionnaireIntent.Public.Answer>(guard = {
                 intent.id !in state.submitting &&
-                    state.pending.any { it.id == intent.id && it.accepts(intent.answer) }
+                    state.pending.any {
+                        it.id == intent.id && it.accepts(intent.answer) &&
+                            (intent.expectedQuestionnaire == null || intent.expectedQuestionnaire == it)
+                    }
             }) {
                 stay { state.copy(submitting = state.submitting + intent.id) }
                 output {

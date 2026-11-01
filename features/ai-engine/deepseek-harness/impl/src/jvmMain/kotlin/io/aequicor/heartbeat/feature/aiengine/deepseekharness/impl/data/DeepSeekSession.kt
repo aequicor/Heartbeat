@@ -288,8 +288,8 @@ internal class DeepSeekSession(
                 turn,
                 approval.title,
                 listOf(
-                    PermissionOption(PermissionOptionId("allow"), "Allow", false),
-                    PermissionOption(PermissionOptionId("deny"), "Deny", true),
+                    PermissionOption(PermissionOptionId("allow"), "Allow", false, isOneTime = true),
+                    PermissionOption(PermissionOptionId("deny"), "Deny", true, isOneTime = true),
                 ),
             )
             val answer = CompletableDeferred<AcpPermissionOutcome>()

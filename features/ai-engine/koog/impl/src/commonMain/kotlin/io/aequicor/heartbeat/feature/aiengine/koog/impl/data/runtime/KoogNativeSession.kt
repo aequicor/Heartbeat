@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
@@ -618,8 +619,7 @@ internal class KoogNativeSession(
     private suspend fun initialPrompt(provider: KoogProvider, instructions: String?): Prompt =
         access.historyPrompt(record, provider, inputSupport(), instructions)
 
-    private fun inputSupport(): io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport =
-        access.inputs.cached(route.binding, model.value)
+    private fun inputSupport(): PromptInputSupport = access.inputs.cached(route.binding, model.value)
 
     private suspend fun streamRound(
         turn: Turn,
@@ -704,9 +704,9 @@ internal class KoogNativeSession(
             turn.id,
             target,
             listOf(
-                PermissionOption(AllowOnce, "Разрешить"),
+                PermissionOption(AllowOnce, "Разрешить", isOneTime = true),
                 PermissionOption(AllowForSession, "Разрешить до конца сессии"),
-                PermissionOption(Deny, "Запретить"),
+                PermissionOption(Deny, "Запретить", isOneTime = true),
             ),
             description = tool.details(args),
         )
@@ -743,7 +743,10 @@ internal class KoogNativeSession(
             PermissionRequestId(Uuid.random().toString()),
             turn.id,
             action.title,
-            listOf(PermissionOption(AllowOnce, "Разрешить"), PermissionOption(Deny, "Запретить")),
+            listOf(
+                PermissionOption(AllowOnce, "Разрешить", isOneTime = true),
+                PermissionOption(Deny, "Запретить", isOneTime = true),
+            ),
             description = action.description,
         )
         val pending = PendingApproval(request, CompletableDeferred())
