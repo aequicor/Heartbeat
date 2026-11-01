@@ -141,6 +141,8 @@ internal class CodexSession(
 
     suspend fun send(request: PromptRequest): TurnId = submission.send(request)
 
+    val steering = CodexSteering(this) { id -> nativeTurns.entries.firstOrNull { it.value == id }?.key }
+
     private suspend fun prepareSubmission(request: PromptRequest, submission: CodexSubmission) {
         runtime.gate()
         submission.ensureAllowed()
@@ -490,7 +492,7 @@ internal class CodexSession(
 
             "item/started", "item/completed" -> {
                 val item = params.obj("item")
-                history.nativeItem(item, turnId, isStarted = method == "item/started")
+                nativeHistory.recordItem(item, turnId, isStarted = method == "item/started")
             }
 
             "item/agentMessage/delta" -> history.delta(params, turnId)

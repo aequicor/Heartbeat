@@ -75,8 +75,25 @@ internal class CodexNativeHistory(
         val native = turn.text("id") ?: protocolFailure()
         val id = logicalTurns[native] ?: TurnId(native)
         loadedTurns += native
-        host.resourceHistory.parts(ref, native)?.let { history.rememberOriginals(id, it) }
-        items.forEach { history.nativeItem(it, id) }
+        val firstUser = items.firstOrNull { it.text("type") == "userMessage" }?.text("id")
+        val hasItemOriginals = firstUser?.let { host.resourceHistory.parts(ref, "item:$it") } != null
+        if (!hasItemOriginals) host.resourceHistory.parts(ref, native)?.let { history.rememberOriginals(id, it) }
+        items.forEach { item ->
+            if (item.text("type") == "userMessage") {
+                val key = item.text("id") ?: protocolFailure()
+                host.resourceHistory.parts(ref, "item:$key")?.let { history.inputs.restoreItem(key, it) }
+            }
+            history.nativeItem(item, id)
+        }
+    }
+
+    /** Persist references by user item, since steering adds multiple user items to one native turn. */
+    suspend fun recordItem(item: JsonObject, turn: TurnId?, isStarted: Boolean) {
+        history.nativeItem(item, turn, isStarted)
+        if (item.text("type") == "userMessage") {
+            val id = item.text("id") ?: protocolFailure()
+            history.inputs.itemOriginals(id)?.let { host.resourceHistory.remember(ref, "item:$id", it) }
+        }
     }
 
     private fun nativeItems(turn: JsonObject): List<JsonObject>? = turn["items"]?.let { value ->
