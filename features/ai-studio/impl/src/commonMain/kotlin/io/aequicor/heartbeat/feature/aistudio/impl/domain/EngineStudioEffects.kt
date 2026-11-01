@@ -43,7 +43,7 @@ class EngineStudioEffects(
                 ),
             )
 
-            is AiStudioEffect.Configuration -> configure(effect)
+            is AiStudioEffect.Configuration, is AiStudioEffect.MessageQueue -> configureOrQueue(effect, machine)
 
             AiStudioEffect.ObserveAvailability -> availability.observe().collect {
                 machine.send(
@@ -81,6 +81,25 @@ class EngineStudioEffects(
             }
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+        }
+    }
+
+    private suspend fun configureOrQueue(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
+        if (effect is AiStudioEffect.Configuration) {
+            configure(effect)
+        } else {
+            queue(effect as AiStudioEffect.MessageQueue, machine)
+        }
+    }
+
+    private suspend fun queue(effect: AiStudioEffect.MessageQueue, machine: EffectScope<AiStudioIntent>) {
+        when (effect) {
+            is AiStudioEffect.QueueMessage -> {
+                runtime.enqueue(effect.sessionId, effect.message, effect.environment, effect.isCorrection)
+                machine.send(AiStudioIntent.Internal.QueueAccepted(effect.paneId, effect.message.id, effect.sessionId))
+            }
+
+            is AiStudioEffect.ManageQueue -> runtime.manageQueue(effect.sessionId, effect.action, effect.message)
         }
     }
 

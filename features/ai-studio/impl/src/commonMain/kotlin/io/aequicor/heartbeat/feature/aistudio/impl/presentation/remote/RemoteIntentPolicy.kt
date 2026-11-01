@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismActionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.QueueActionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.QueueActionUi.Correct
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isValid
 
 /**
@@ -23,7 +25,9 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
 
     is AiStudioScreenIntent.ControlOrganism -> intent.action == OrganismActionUi.Abort
 
-    is AiStudioScreenIntent.Attachment -> isAllowedAttachment(intent)
+    is AiStudioScreenIntent.Submit, is AiStudioScreenIntent.ManageQueue,
+    is AiStudioScreenIntent.Attachment,
+    -> queueInputAllowed(intent)
 
     is AiStudioScreenIntent.Suggestions -> isAllowedSuggestion(intent)
 
@@ -50,7 +54,6 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.CancelWorktreeBuild,
     is AiStudioScreenIntent.DiagramAction,
     is AiStudioScreenIntent.AutoContinue,
-    is AiStudioScreenIntent.Submit,
     is AiStudioScreenIntent.Stop,
     is AiStudioScreenIntent.RefreshUsage,
     is AiStudioScreenIntent.CompactContext,
@@ -114,4 +117,13 @@ private fun isAllowedAttachment(intent: AiStudioScreenIntent.Attachment): Boolea
     }
 
     is AiStudioScreenIntent.RemoveAttachment, is AiStudioScreenIntent.AttachmentPreviewVisible -> true
+}
+
+private fun queueInputAllowed(intent: AiStudioScreenIntent): Boolean = if (intent is AiStudioScreenIntent.Attachment) {
+    isAllowedAttachment(intent)
+} else if (intent is AiStudioScreenIntent.Submit) {
+    !intent.isCorrection
+} else {
+    require(intent is AiStudioScreenIntent.ManageQueue)
+    intent.action != QueueActionUi.Correct
 }

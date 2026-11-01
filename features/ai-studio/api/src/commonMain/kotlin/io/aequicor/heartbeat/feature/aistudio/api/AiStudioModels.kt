@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.api
 import kotlinx.serialization.Serializable
 
 /** Reasoning budget the agent may spend on a run. */
+@Serializable
 public enum class ReasoningEffort { Low, Medium, High, VeryHigh }
 
 /** How the agent treats actions with side effects, such as editing files. */
@@ -19,6 +20,7 @@ public enum class ApprovalMode {
 }
 
 /** New-conversation preferences; existing engine chats keep their own settings. [modelId] is a studio route. */
+@Serializable
 public data class RunSettings(val modelId: String, val effort: ReasoningEffort, val approval: ApprovalMode)
 
 /** Values the studio starts with, resolved from the workspace and the model catalog. */

@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
  */
 internal interface StudioSubmissionGate {
     val isCancelled: Boolean
+    val hasBegun: Boolean get() = true
     suspend fun begin()
     suspend fun cancel(): Boolean
     suspend fun awaitRevocation(): CancellationException?

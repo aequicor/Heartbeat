@@ -69,4 +69,10 @@ public data class StudioRuntimeState(
     val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
     val isEngineSwitchingAvailable: Boolean = false,
     val engineSwitches: Map<String, StudioEngineSwitchState> = emptyMap(),
+    /** Human input accepted by the profile queue; independent of the screen's local draft. */
+    val messageQueues: StudioMessageQueues = StudioMessageQueues(),
+    /** Transient delivery feedback; closing a notice never changes [messageQueues]. */
+    val queueNotices: Map<String, StudioQueueNotice> = emptyMap(),
+    /** Queue/steering feature availability, observed by the profile runtime. */
+    val isMessageQueueEnabled: Boolean = false,
 )
