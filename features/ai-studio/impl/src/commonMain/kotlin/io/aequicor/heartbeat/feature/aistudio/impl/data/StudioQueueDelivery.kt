@@ -78,7 +78,9 @@ internal suspend fun StudioQueuePort.manage(chat: String, action: StudioQueueAct
 @Inject
 @ContributesBinding(ProfileScope::class)
 internal class StudioQueueDelivery(
-    private val repository: Lazy<EngineStudioRepository>,
+    private val chats: Lazy<StudioQueueAccess>,
+    private val host: Lazy<StudioRunHost>,
+    private val authority: Lazy<StudioConfigurationAccess>,
     private val runs: StudioRunCoordinator,
 ) : StudioQueueHost {
     override suspend fun queuedRun(
@@ -88,9 +90,9 @@ internal class StudioQueueDelivery(
         submission: StudioSubmissionGate,
         accepted: suspend () -> Unit,
     ) {
-        repository.value.validateQueuedInput(chat, environment)
+        chats.value.validateQueuedInput(chat, environment)
         runs.run(
-            repository.value,
+            host.value,
             studioTurnRequest(
                 chat, message.text, message.settings, WorktreeRunKind.Coding, RequestId(message.id),
                 attachments = message.attachments, onAccepted = accepted, environment = environment,
@@ -100,11 +102,11 @@ internal class StudioQueueDelivery(
         )
     }
 
-    override suspend fun steeringTarget(chat: String): StudioSteeringTarget = repository.value.steeringTarget(chat)
+    override suspend fun steeringTarget(chat: String): StudioSteeringTarget = chats.value.steeringTarget(chat)
 
     override suspend fun steerQueued(target: StudioSteeringTarget, message: StudioQueuedMessage) {
         check(!message.hasEnvironment) { "Steering cannot replace a captured host environment" }
-        repository.value.captureUserInstructions(target.chat, RequestId(message.id), message.userInstruction)
+        authority.value.captureUserInstructions(target.chat, RequestId(message.id), message.userInstruction)
         target.deliver(message)
     }
 }
@@ -128,4 +130,10 @@ internal suspend fun cancelStudioNativeTurn(active: ActiveSession, worktrees: St
     val turn = active.state.value.activeTurn() ?: return
     turn.request?.let { worktrees.cancelBuilds(active.ref, it, turn.id) }
     active.features.requireFeature(CancelsTurns).cancel(turn.id)
+}
+
+/** Narrow profile boundary keeps Metro contribution providers independent of the concrete repository type. */
+internal interface StudioQueueAccess {
+    suspend fun validateQueuedInput(chat: String, environment: StudioChatEnvironment?)
+    suspend fun steeringTarget(chat: String): StudioSteeringTarget
 }

@@ -58,7 +58,6 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
-import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
@@ -175,6 +174,7 @@ internal data class StudioChatRecord(
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRepository>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRuntime>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioQueueAccess>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioConfigurationAccess>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioChatModes>())
@@ -191,14 +191,14 @@ internal class EngineStudioRepository(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val clock: Clock,
     private val workspaces: LocalWorkspaces,
-    private val efforts: EffortChoicesView,
+    efforts: EffortChoicesView,
     private val usage: EngineStudioUsage,
     private val worktrees: StudioWorktrees,
     private val turns: StudioTurnExecutor,
     private val runs: StudioRunCoordinator,
     workspaceProjection: StudioWorkspaceProjection,
     private val configurations: StudioConfigurationController,
-    private val preferences: StudioPreferences,
+    preferences: StudioPreferences,
     private val conversations: StudioConversationCreation,
     learning: StudioLearningPrompts,
     private val checklists: StudioChecklists,
@@ -211,8 +211,8 @@ internal class EngineStudioRepository(
     private val switchHelpers: StudioEngineSwitchHelpers,
     tools: Lazy<ProfileAgentTools>,
     private val messageQueue: StudioQueuePort = NoStudioQueue,
-) : NativeStudioRepository(),
-    StudioRuntime,
+) : NativeStudioRepository(preferences, selections, efforts),
+    StudioQueueAccess,
     StudioTurnHost,
     StudioRunHost,
     StudioConfigurationAccess,
@@ -371,21 +371,6 @@ internal class EngineStudioRepository(
         return lock.withLock { store.studioChatOf(ref) }
     }
 
-    override suspend fun defaults(): RunSettings {
-        log.v { "Read start-page defaults" }
-        return observeDefaults().first()
-    }
-
-    override fun observeDefaults(): Flow<RunSettings> {
-        log.v { "Observe start-page defaults" }
-        return observeStudioDefaults(preferences, selections, efforts)
-    }
-
-    override suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {
-        log.d { "Save start-page preferences revision=${version.revision}" }
-        preferences.save(settings, version)
-    }
-
     override suspend fun createSession(
         projectId: String?,
         title: String,
@@ -499,14 +484,14 @@ internal class EngineStudioRepository(
     override suspend fun manageQueue(sessionId: String, action: StudioQueueAction, message: String) =
         messageQueue.manage(sessionId, action, message).also { log.d { "Manage human queue action=$action" } }
 
-    internal suspend fun validateQueuedInput(chat: String, environment: StudioChatEnvironment?) {
+    override suspend fun validateQueuedInput(chat: String, environment: StudioChatEnvironment?) {
         log.v { "Validate queued conversation input" }
         val record = record(chat)
         check(record.organismId == null && record.helper == null) { "Only ordinary chats accept queued input" }
         requireBrowserHostSupport(record, environment)
     }
 
-    internal suspend fun steeringTarget(chat: String): StudioSteeringTarget = handlesLock.withLock {
+    override suspend fun steeringTarget(chat: String): StudioSteeringTarget = handlesLock.withLock {
         log.v { "Capture exact native steering target" }
         studioSteeringTarget(checkNotNull(handles.live(chat)) { "No live native turn" }, chat)
     }
