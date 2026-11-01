@@ -146,6 +146,7 @@ internal class JvmDeepSeekBackend(
             ::directory,
             tools,
             resources,
+            sessionTrees = DeepSeekSessionTrees(nativeHistory),
         )
     }
 

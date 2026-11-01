@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PlanStepStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
@@ -171,6 +172,9 @@ internal class DeepSeekSession(
             } catch (error: AcpException.Protocol) {
                 log.w(error) { "DeepSeek Harness connection failed" }
                 failed(turn.id, error, retire = true)
+            } catch (error: AcpException.Remote) {
+                log.w(error) { "DeepSeek Harness rejected the turn" }
+                failed(turn.id, error)
             } catch (error: Exception) {
                 log.w(error) { "DeepSeek Harness turn failed" }
                 failed(turn.id, error)
@@ -182,7 +186,7 @@ internal class DeepSeekSession(
     }
 
     private suspend fun failed(turn: TurnId, error: Exception, retire: Boolean = false) {
-        finish(turn, TurnOutcome.Failed(error.engineFailure()))
+        finish(turn, TurnOutcome.Failed(dshEngineFailure(error, currentRequest?.id)))
         if (retire) runtime.close()
     }
 
@@ -535,12 +539,14 @@ internal class DeepSeekStoredSession(ref: SessionRef, history: SessionHistory? =
 @OptIn(ExperimentalUuidApi::class)
 private fun newId(prefix: String): String = "$prefix-${Uuid.random().toHexString()}"
 
-private fun Throwable.engineFailure(): EngineFailure = when (this) {
-    is EngineException -> failure
-
-    is AcpException.Protocol, is AcpException.Remote -> EngineFailure.Transport(
-        TransportFailureReason.ProtocolViolation,
-    )
-
+/**
+ * Classifies a failed turn. A remote JSON-RPC error rejects this request (DSH answers `-32602` for an image the
+ * selected route does not accept), so it must not be reported as a transport failure: the user would be told to
+ * check the network for a request the engine refused outright.
+ */
+internal fun dshEngineFailure(error: Throwable, request: RequestId?): EngineFailure = when (error) {
+    is EngineException -> error.failure
+    is AcpException.Remote -> EngineFailure.Request(RequestFailureReason.Invalid, request)
+    is AcpException.Protocol -> EngineFailure.Transport(TransportFailureReason.ProtocolViolation)
     else -> EngineFailure.Engine(EngineFailureReason.Crashed)
 }
