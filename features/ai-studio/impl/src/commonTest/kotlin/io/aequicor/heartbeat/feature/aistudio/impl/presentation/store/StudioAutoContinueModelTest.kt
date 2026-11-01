@@ -121,6 +121,29 @@ class StudioAutoContinueModelTest {
     }
 
     @Test
+    fun `a suggestion can be inserted and edited before manual submission`() = runTest {
+        val port = RecordingPort()
+        port.state.value = AutoContinueState.Ready(
+            chats = mapOf("chat" to ChatAuto(AutoContinueMode.Suggest, Phase.Offered(proceed))),
+        )
+        val fixture = AiStudioModelTest.Fixture(this, ready, autoContinue = port)
+        val screen = fixture.subscribe()
+        runCurrent()
+        screen.intent(AiStudioScreenIntent.PickAutoContinue("chat", 0, 0, isSend = false, text = option.text))
+        runCurrent()
+        assertEquals(option.text, screen.states.value.draft(0))
+        assertTrue(fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().isEmpty())
+        val edited = "${option.text}, сначала проверь результат"
+        screen.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, edited))
+        runCurrent()
+        assertEquals(edited, screen.states.value.draft(0))
+        assertEquals(listOf<AutoContinueIntent>(AutoContinueIntent.Public.DraftTyped("chat")), port.sent)
+        screen.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+        assertEquals(edited, fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single().prompt)
+    }
+
+    @Test
     fun `a pick of another offer or chat is dropped and a typed draft is kept`() = runTest {
         val port = RecordingPort()
         port.state.value = AutoContinueState.Ready(

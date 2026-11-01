@@ -24,6 +24,32 @@ class ContinuerPromptTest {
     private val route = EngineTarget(EngineId("pi"), EngineBindingId("b"), ModelId("m"))
 
     @Test
+    fun `active requests require one unambiguous structured answer`() {
+        listOf(
+            """{"status":"done"}""",
+            """{"status":"continue","options":[{"text":"Allow"}]}""",
+            """{"status":"continue","answer":{}}""",
+            """{"status":"continue","answer":{"selected":[],"confirmed":null,"text":null}}""",
+            """{"status":"continue","answer":{"selected":["allow"],"confirmed":true}}""",
+            """{"status":"continue","answer":{"text":" "}}""",
+            """{"status":"continue","answer":{"selected":[""]}}""",
+            """{"status":"continue","answer":{"selected":["allow","allow"]}}""",
+        ).forEach { assertNull(parseVerdict(it, 3, requiresAnswer = true)) }
+        assertEquals(
+            false,
+            parseVerdict("""{"status":"continue","answer":{"confirmed":false}}""", 3, true)?.answer?.confirmed,
+        )
+        assertEquals(
+            listOf("allow"),
+            parseVerdict("""{"status":"continue","answer":{"selected":["allow"]}}""", 3, true)?.answer?.selected,
+        )
+        assertEquals(
+            ContinuationStatus.NeedsUser,
+            parseVerdict("""{"status":"needs_user"}""", 3, true)?.status,
+        )
+    }
+
+    @Test
     fun `prompt includes execution facts without asking for omitted result proof`() {
         val context = ContinuationContext(
             route,

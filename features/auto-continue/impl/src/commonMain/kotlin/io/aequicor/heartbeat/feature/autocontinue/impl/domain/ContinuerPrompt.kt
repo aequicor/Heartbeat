@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationStatus
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationVerdict
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogAuthor
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogEntry
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -141,7 +142,7 @@ private fun keptBlocks(lengths: List<Int>, pinned: Set<Int>, budget: Int): Boole
  * and text around it are tolerated), a known status, options trimmed to [optionCount] with clipped labels and texts.
  * `continue` without a usable option is invalid.
  */
-internal fun parseVerdict(answer: String, optionCount: Int): ContinuationVerdict? {
+internal fun parseVerdict(answer: String, optionCount: Int, requiresAnswer: Boolean = false): ContinuationVerdict? {
     val raw = decodeVerdict(answer) ?: return null
     val status = when (raw.status.trim().lowercase().replace('-', '_')) {
         "continue" -> ContinuationStatus.Continue
@@ -156,8 +157,22 @@ internal fun parseVerdict(answer: String, optionCount: Int): ContinuationVerdict
     }.take(optionCount)
     if (status == ContinuationStatus.Continue && options.isEmpty() && raw.answer == null) return null
     val reason = raw.reason.trim().take(ContinuerBudget.REASON_CHARS)
-    val structured = raw.answer?.let { ContinuationAnswer(it.selected.orEmpty(), it.confirmed, it.text) }
+    val structured = raw.answer?.let { ContinuationAnswer(it.selected.orEmpty(), it.isConfirmed, it.text) }
+    if (requiresAnswer && !validActiveAnswer(status, structured)) return null
     return ContinuationVerdict(status, reason, options, structured)
+}
+
+private fun validActiveAnswer(status: ContinuationStatus, answer: ContinuationAnswer?): Boolean = when (status) {
+    ContinuationStatus.Continue -> answer?.hasSingleValue() == true
+    ContinuationStatus.Done -> false
+    ContinuationStatus.NeedsUser -> true
+}
+
+/** Reject empty or contradictory model fields before asking the host to apply a request answer. */
+private fun ContinuationAnswer.hasSingleValue(): Boolean {
+    if (listOf(selected.isNotEmpty(), confirmed != null, text != null).count { it } != 1) return false
+    if (text?.isNotBlank() == false) return false
+    return selected.none { it.isBlank() } && selected.distinct().size == selected.size
 }
 
 /**
@@ -223,7 +238,7 @@ private data class RawOption(val label: String = "", val text: String = "")
 @Serializable
 private data class RawAnswer(
     val selected: List<String>? = null,
-    val confirmed: Boolean? = null,
+    @SerialName("confirmed") val isConfirmed: Boolean? = null,
     val text: String? = null,
 )
 
@@ -239,7 +254,11 @@ private const val REQUEST_INSTRUCTIONS = """
     There is an exact active questionnaire or action permission in <active_request>. Resolve that request instead
     of sending a chat message. For status continue, return an additional field "answer":
     {"selected": ["exact-choice-id"], "confirmed": null, "text": null}.
-    For a confirmation use "confirmed": true or false with "selected": []; for free text use "text" with
+    A continue verdict MUST contain "answer" for this active request; chat options cannot answer it.
+    Do not return done while this exact request is still pending; answer it or return needs_user.
+    For a confirmation use "confirmed": true or false with "selected": []; permissionOptions are metadata,
+    not extra questionnaire choices. With two permission options, true selects the first and false the second.
+    For free text use "text" with
     "selected": []. Use only offered choices and
     respect multi-choice limits. Do not skip a question. For action permissions, approve only the exact one-time
     action already authorized by the human's task. Never grant always/remember/session-wide permissions or invent

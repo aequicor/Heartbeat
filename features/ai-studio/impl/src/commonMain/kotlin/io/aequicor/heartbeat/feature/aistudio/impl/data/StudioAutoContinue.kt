@@ -199,7 +199,10 @@ internal class StudioAutoContinue(
         } ?: return false
         val permission = runtime.value.state.value.permissions.firstOrNull { it.questionnaireId() == question.id }
         if (request(question, permission) != request) return false
-        val resolved = question.autopilotAnswer(answer) ?: return false
+        val resolved = question.autopilotAnswer(answer, permission) ?: run {
+            log.w { "Autopilot answer does not fit the active question" }
+            return false
+        }
         if (!isSafeAnswer(question, resolved, permission)) return false
         return machines.send(
             QuestionnaireMachineKey,

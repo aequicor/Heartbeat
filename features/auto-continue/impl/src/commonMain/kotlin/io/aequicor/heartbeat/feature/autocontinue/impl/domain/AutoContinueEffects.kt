@@ -125,7 +125,7 @@ internal class AutoContinueEffects(
         }
 
         is IsolatedAnswer.Answered -> {
-            val verdict = parseVerdict(answer.text, effect.optionCount)
+            val verdict = parseVerdict(answer.text, effect.optionCount, requiresAnswer = effect.context.request != null)
             if (verdict == null) {
                 Internal.AskFailed(effect.chat, effect.seq, ContinuerFailure.InvalidAnswer)
             } else {
@@ -143,8 +143,8 @@ internal class AutoContinueEffects(
         val host = hosts().firstOrNull()
         val request = effect.request
         val answer = effect.answer
-        val isSent = if (request != null && answer != null) {
-            host?.answer(effect.chat, request, answer) == true
+        val isSent = if (request != null) {
+            answer != null && host?.answer(effect.chat, request, answer) == true
         } else {
             host?.deliver(effect.chat, effect.text) == true
         }

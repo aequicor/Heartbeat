@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.toQuestionnaire
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationAnswer
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
@@ -18,8 +19,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** A generated answer must fit the original structured question; it cannot turn a choice into arbitrary text. */
-internal fun Questionnaire.autopilotAnswer(value: ContinuationAnswer): Answer? {
+internal fun Questionnaire.autopilotAnswer(value: ContinuationAnswer, permission: StudioPermission? = null): Answer? {
     if ((value.text?.length ?: 0) > MAX_ANSWER_CHARS || value.selected.size > MAX_SELECTIONS) return null
+    permissionConfirmation(value, permission)?.let { return it }
     val answer = when (question) {
         is Question.Confirm -> value.confirmed?.takeIf {
             value.selected.isEmpty() && value.text == null
@@ -39,6 +41,17 @@ internal fun Questionnaire.autopilotAnswer(value: ContinuationAnswer): Answer? {
         )
     }
     return answer?.takeIf { accepts(it) }
+}
+
+/** Native two-option permissions can be returned by exact option id instead of the UI's Confirm boolean. */
+private fun Questionnaire.permissionConfirmation(value: ContinuationAnswer, permission: StudioPermission?): Answer? {
+    if (question !is Question.Confirm) return null
+    if (value.confirmed != null || value.text != null || value.selected.size != 1) return null
+    if (permission == null || permission.input != null) return null
+    if (permission.options.size != 2 || permission.toQuestionnaire() != this) return null
+    val id = value.selected.single()
+    val option = permission.options.singleOrNull { it.id == id }?.takeIf { it.isOneTime } ?: return null
+    return Answer.Confirmed(permission.options.indexOf(option) == 0)
 }
 
 /** The profile keeps answering live requests even when no studio screen is mounted. */

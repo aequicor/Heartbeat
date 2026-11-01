@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueSettings
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationContext
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationOption
+import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationRequest
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationStatus
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationVerdict
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuerFailure
@@ -42,6 +43,29 @@ class AutoContinueEffectsTest {
     private val valid = """{"status":"continue","reason":"r","options":[{"label":"Дальше","text":"Продолжай"}]}"""
     private val verdict =
         ContinuationVerdict(ContinuationStatus.Continue, "r", listOf(ContinuationOption("Дальше", "Продолжай")))
+
+    @Test
+    fun `chat options without an active request answer are retried before delivery`() = runTest {
+        val answered = """{"status":"continue","answer":{"confirmed":false}}"""
+        val prompts = ScriptedPrompts(IsolatedAnswer.Answered(valid), IsolatedAnswer.Answered(answered))
+        val machine = RecordingScope()
+        effects(prompts = prompts).handle(
+            ask.copy(context = context.copy(request = ContinuationRequest("q", "{}"))),
+            machine,
+        )
+        assertEquals(2, prompts.asked.size)
+        assertEquals(false, (machine.sent.single() as Internal.Answered).verdict.answer?.confirmed)
+    }
+
+    @Test
+    fun `an active request without an answer never falls back to a chat message`() = runTest {
+        val sent = mutableListOf<String>()
+        val machine = RecordingScope()
+        effects(prompts = ScriptedPrompts(), hosts = setOf(AutoContinueHost { _, text -> sent.add(text) }))
+            .handle(AutoContinueEffect.Deliver(CHAT, 3, "Allow", request = ContinuationRequest("q", "{}")), machine)
+        assertTrue(sent.isEmpty())
+        assertEquals(listOf<AutoContinueIntent>(Internal.DeliveryFailed(CHAT, 3)), machine.sent)
+    }
 
     @Test
     fun `settings and modes round trip through the store`() = runTest {
