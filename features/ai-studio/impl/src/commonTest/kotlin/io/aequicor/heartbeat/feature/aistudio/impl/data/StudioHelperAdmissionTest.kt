@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
@@ -29,7 +30,7 @@ class StudioHelperAdmissionTest {
         assertEquals(StudioHelperPhase.Preparing, attempts.receipt(HelperId(record.id), request.request)?.phase)
         assertNotNull(admitted.submission).begin()
         assertEquals(StudioHelperPhase.Submitting, attempts.receipt(HelperId(record.id), request.request)?.phase)
-        assertFailsWith<IllegalStateException> {
+        assertFailsWith<EngineException> {
             admission.prepare(record, runRequest("another").copy(id = record.id))
         }
         assertFailsWith<IllegalStateException> { admission.prepare(record, request) }

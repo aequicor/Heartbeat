@@ -3,16 +3,19 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -20,7 +23,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import okio.ByteString.Companion.encodeUtf8
 
-internal val HelperAttemptsSpec = KeyValueSpec("ai_studio_helper_attempts")
+internal val HelperAttemptsSpec = KeyValueSpec("ai_studio_helper_attempts", readPolicy = KeyValueReadPolicy.Strict)
 
 /** Whether this invocation acquired the right to prepare a newly journaled request. */
 internal data class StudioHelperPreparation(val receipt: StudioHelperReceipt, val isNew: Boolean)
@@ -33,6 +36,8 @@ internal data class StudioHelperPreparation(val receipt: StudioHelperReceipt, va
  */
 @SingleIn(ProfileScope::class)
 @Inject
+// Preparation, native entry and cancellation must share one atomic journal owner.
+@Suppress("TooManyFunctions")
 internal class StudioHelperAttempts(
     @ForScope(ProfileScope::class) stores: DataStores,
     private val routes: StudioHelperRoutes = StudioHelperRoutes(),
@@ -70,6 +75,7 @@ internal class StudioHelperAttempts(
         isRedelivery: Boolean,
     ): StudioHelperPreparation = lock.withLock {
         val records = read(helper)
+        requireRecordedHistory(helper, records)
         val fingerprint = prompt.fingerprint()
         val existing = records[prompt.request.value]
         val isRedelivered = isRedelivery && existing?.isRedeliveryOf(prompt) == true
@@ -93,6 +99,7 @@ internal class StudioHelperAttempts(
             StudioHelperPhase.Preparing,
             fingerprint,
             handoff = prompt.handoff,
+            isNativeEntryTracked = true,
         )
         write(helper, records + (prompt.request.value to receipt))
         log.v { "Journaled helper preparation redelivered=$isRedelivered" }
@@ -168,9 +175,15 @@ internal class StudioHelperAttempts(
         isFinal: Boolean = true,
     ): StudioHelperReceipt = lock.withLock {
         val records = read(helper)
+        requireRecordedHistory(helper, records)
         val receipt = records[request.value]
         val isFinalized = receipt?.phase == StudioHelperPhase.NotSubmitted && isFinal && !receipt.isFinal
-        if (receipt != null && receipt.phase != StudioHelperPhase.Preparing && !isFinalized) return@withLock receipt
+        val isBeforeNative = receipt?.phase == StudioHelperPhase.Preparing ||
+            (
+                receipt?.phase == StudioHelperPhase.Submitting && receipt.isNativeEntryTracked &&
+                    receipt.nativeEntryClaim == null
+            )
+        if (receipt != null && !isBeforeNative && !isFinalized) return@withLock receipt
         val cancelled = receipt?.copy(phase = StudioHelperPhase.NotSubmitted, isFinal = isFinal || receipt.isFinal)
             ?: StudioHelperReceipt(request, StudioHelperPhase.NotSubmitted, null, isFinal = isFinal)
         write(helper, records + (request.value to cancelled))
@@ -230,6 +243,53 @@ internal class StudioHelperAttempts(
         read(helper)[request.value]
     }
 
+    /** Binds immutable source evidence before any native effect; caller values are never decoded from model input. */
+    suspend fun bindCauses(helper: HelperId, request: RequestId, causes: Set<RequestInitiator>): StudioHelperReceipt =
+        lock.withLock {
+            val records = read(helper)
+            val receipt = checkNotNull(records[request.value]) { "The conversation request was not journaled" }
+            check(receipt.phase == StudioHelperPhase.Preparing) { "Source evidence must precede submission" }
+            check(receipt.causes == null || receipt.causes == causes) { "Conversation source evidence changed" }
+            receipt.copy(causes = causes).also { write(helper, records + (request.value to it)) }
+        }
+
+    /** The actual sender boundary: an external stop before it prevents all later native delivery. */
+    suspend fun enterNative(helper: HelperId, request: RequestId, claim: String): Boolean = lock.withLock {
+        val records = read(helper)
+        val receipt = checkNotNull(records[request.value]) { "The conversation request was not journaled" }
+        val isOwned = receipt.phase == StudioHelperPhase.Submitting && receipt.submissionClaim == claim
+        if (!isOwned || receipt.isStopRequested || receipt.nativeEntryClaim != null) return@withLock false
+        check(receipt.isNativeEntryTracked) { "Legacy submission needs reconciliation before another native entry" }
+        write(helper, records + (request.value to receipt.copy(nativeEntryClaim = claim)))
+        true
+    }
+
+    /**
+     * Fences preparation and persists stop intent for an entered/legacy attempt. The native adapter must still
+     * confirm its terminal result. A fresh Submitting whose sender has not entered native code is safe to retire.
+     */
+    suspend fun requestStop(helper: HelperId, request: RequestId): StudioHelperReceipt = lock.withLock {
+        val records = read(helper)
+        requireRecordedHistory(helper, records)
+        val receipt = records[request.value]
+        val updated = when {
+            receipt == null -> StudioHelperReceipt(request, StudioHelperPhase.NotSubmitted, null, isFinal = true)
+
+            receipt.phase == StudioHelperPhase.Terminal -> receipt
+
+            receipt.phase in setOf(StudioHelperPhase.Preparing, StudioHelperPhase.NotSubmitted) ||
+                (
+                    receipt.phase == StudioHelperPhase.Submitting && receipt.isNativeEntryTracked &&
+                        receipt.nativeEntryClaim == null
+                ) ->
+                receipt.copy(phase = StudioHelperPhase.NotSubmitted, isFinal = true, isStopRequested = true)
+
+            else -> receipt.copy(isStopRequested = true)
+        }
+        write(helper, records + (request.value to updated))
+        updated
+    }
+
     suspend fun unresolved(helper: HelperId): RequestId? = lock.withLock {
         log.v { "Read unresolved helper request" }
         val pending = read(helper).values.filter { it.isUnresolved }
@@ -242,7 +302,27 @@ internal class StudioHelperAttempts(
             it != null && it != StudioHelperPhase.Preparing
         }.let { checkNotNull(it) }
 
+    /** New senders remain revocable throughout policy preparation, until their actual native entry is journaled. */
+    suspend fun awaitNativeEntryBoundary(helper: HelperId, request: RequestId): StudioHelperPhase =
+        store.observe(key(helper)).map { decode(it)[request.value] }.first { receipt ->
+            receipt != null && when (receipt.phase) {
+                StudioHelperPhase.Preparing -> false
+                StudioHelperPhase.Submitting -> !receipt.isNativeEntryTracked || receipt.nativeEntryClaim != null
+                StudioHelperPhase.Accepted, StudioHelperPhase.Terminal, StudioHelperPhase.NotSubmitted -> true
+            }
+        }.let { checkNotNull(it).phase }
+
     private suspend fun read(helper: HelperId): Map<String, StudioHelperReceipt> = decode(store.get(key(helper)))
+
+    /** Missing old evidence preserves readable history, but cannot authorize another send or a safe tombstone. */
+    private suspend fun requireRecordedHistory(helper: HelperId, records: Map<String, StudioHelperReceipt>) {
+        val record = chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value }
+        val isTracked = record?.helper != null || record?.logicalSession?.kind == SessionKind.Subsession
+        val known = record?.lastRunRequest
+        check(!isTracked || known == null || known.value in records) {
+            "Conversation attempt evidence is missing; reconcile before another submission"
+        }
+    }
 
     private suspend fun write(helper: HelperId, records: Map<String, StudioHelperReceipt>) {
         store.set(key(helper), Json.encodeToString(records))

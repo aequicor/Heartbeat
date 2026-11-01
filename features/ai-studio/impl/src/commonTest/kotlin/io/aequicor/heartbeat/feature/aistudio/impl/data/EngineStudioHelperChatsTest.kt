@@ -356,8 +356,10 @@ private class HelperFixture(private val scope: CoroutineScope) :
             assertFailsWith<EngineException> { submission.send<Unit> { throw failure } }
             return
         }
-        sends++
-        beforeAck?.await()
+        submission.send {
+            sends++
+            beforeAck?.await()
+        }
         // A failed turn observer leaves acceptance unjournaled; the acceptance callback must still repair it.
         if (!isObserverFailing) attempts.accepted(helper, prompt.request, HelperSession, TurnId(prompt.request.value))
         onAccepted(HelperSession, TurnId(prompt.request.value))

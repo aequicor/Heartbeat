@@ -172,9 +172,13 @@ internal class EngineStudioHelperChats(
      * and answer Unconfirmed, so the caller observes their exact result.
      */
     suspend fun revokeUnsubmitted(helper: HelperId, request: RequestId): HelperCancellation =
-        revoke(helper, request) { HelperCancellation.Unconfirmed(request) }
+        revoke(helper, request, shouldStopNative = false) { HelperCancellation.Unconfirmed(request) }
 
-    suspend fun cancel(helper: HelperId, request: RequestId): HelperCancellation = revoke(helper, request) {
+    suspend fun cancel(helper: HelperId, request: RequestId): HelperCancellation = revoke(
+        helper,
+        request,
+        shouldStopNative = true,
+    ) {
         // Stop does not await prompt's acceptance: its ACK may never arrive.
         val terminal = runs.value.stopHelper(helper, request)
         if (terminal == null) {
@@ -190,10 +194,18 @@ internal class EngineStudioHelperChats(
     private suspend fun revoke(
         helper: HelperId,
         request: RequestId,
+        shouldStopNative: Boolean,
         native: suspend () -> HelperCancellation,
     ): HelperCancellation {
         checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
-        val receipt = attempts.cancelBeforeSubmission(helper, request)
+        val receipt = if (shouldStopNative) {
+            attempts.requestStop(
+                helper,
+                request,
+            )
+        } else {
+            attempts.cancelBeforeSubmission(helper, request)
+        }
         return when {
             receipt.phase == StudioHelperPhase.NotSubmitted -> HelperCancellation.NotSubmitted(request)
             receipt.terminal != null -> HelperCancellation.Terminal(receipt.terminal.result(request))

@@ -115,7 +115,6 @@ class StudioHelperAttemptsTest {
         stores.afterWrite = { throw CancellationException("lost begin ACK") }
         assertFailsWith<CancellationException> { journal.begin(helper, prompt.request, "sender") }
         stores.afterWrite = {}
-        assertEquals(StudioHelperPhase.Submitting, journal.cancelBeforeSubmission(helper, prompt.request).phase)
         assertFalse(journal.cancelBeforeNative(helper, prompt.request, session, "another sender"))
         assertFalse(journal.cancelBeforeNative(helper, prompt.request, session.copy(nativeId = "wrong"), "sender"))
         assertTrue(journal.cancelBeforeNative(helper, prompt.request, session, "sender"))
@@ -165,7 +164,7 @@ class StudioHelperAttemptsTest {
         assertFailsWith<CancellationException> {
             gate.withPreparation(session, null) {
                 gate.begin()
-                throw CancellationException("native ACK unknown")
+                gate.send<Unit> { throw CancellationException("native ACK unknown") }
             }
         }
         assertFalse(gate.isCancelled)
@@ -464,13 +463,14 @@ class StudioHelperAttemptsTest {
     }
 
     @Test
-    fun `begin wins the storage barrier and cancellation cannot claim NotSubmitted`() = runTest {
+    fun `native entry wins the storage barrier and cancellation cannot claim NotSubmitted`() = runTest {
         val stores = AttemptStores()
         val journal = StudioHelperAttempts(stores)
         journal.prepare(helper, prompt)
+        journal.begin(helper, prompt.request, "sender")
         val write = CompletableDeferred<Unit>()
         stores.beforeWrite = { write.await() }
-        val begin = async { journal.begin(helper, prompt.request) }
+        val begin = async { journal.enterNative(helper, prompt.request, "sender") }
         runCurrent()
         val cancel = async { journal.cancelBeforeSubmission(helper, prompt.request) }
         runCurrent()
@@ -499,7 +499,7 @@ class StudioHelperAttemptsTest {
         stores.afterWrite = {}
         assertEquals(StudioHelperPhase.Submitting, journal.receipt(helper, prompt.request)?.phase)
         assertFalse(journal.begin(helper, prompt.request))
-        assertEquals(StudioHelperPhase.Submitting, journal.cancelBeforeSubmission(helper, prompt.request).phase)
+        assertEquals(StudioHelperPhase.NotSubmitted, journal.cancelBeforeSubmission(helper, prompt.request).phase)
     }
 
     @Test

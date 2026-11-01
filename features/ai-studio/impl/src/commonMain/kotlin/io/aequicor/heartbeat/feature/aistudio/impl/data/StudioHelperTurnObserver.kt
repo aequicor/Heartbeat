@@ -4,6 +4,8 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -21,13 +23,18 @@ internal class StudioHelperTurnObserver(
 ) : StudioTurnObserver {
     override suspend fun acceptedTurn(request: StudioTurnRequest, active: ActiveSession, turn: TurnId) {
         val record = access.value.helperRecord(HelperId(request.id))
-        if (record.helper != null) {
+        if (record.helper != null || attempts.receipt(HelperId(record.id), request.request) != null) {
             val helper = HelperId(record.id)
             val task = worktrees?.tasks()?.first()?.get(record.id)
             if (request.request.value in task?.virtualContinuations?.values.orEmpty()) {
                 attempts.accepted(helper, request.request, active.ref, turn, isVirtualContinuation = true)
             } else {
                 attempts.accepted(helper, request.request, active.ref, turn)
+            }
+            if (attempts.receipt(helper, request.request)?.isStopRequested == true &&
+                active.state.value.activeTurn()?.id == turn
+            ) {
+                (active.features.resolve(CancelsTurns) as? FeatureAccess.Available)?.feature?.cancel(turn)
             }
         }
     }
@@ -40,7 +47,7 @@ internal class StudioHelperTurnObserver(
         isHistoryCurrent: Boolean,
     ) {
         val record = access.value.helperRecord(HelperId(request.id))
-        if (record.helper != null) {
+        if (record.helper != null || attempts.receipt(HelperId(record.id), request.request) != null) {
             native.remember(record, request.request, active.ref, turn, outcome) {
                 native.read(active.features.requireFeature(SessionHistory))
             }

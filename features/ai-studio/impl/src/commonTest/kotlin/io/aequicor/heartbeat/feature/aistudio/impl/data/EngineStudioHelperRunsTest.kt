@@ -183,6 +183,7 @@ private class HelperRunsHost : StudioRunHost {
         executed += request
         // Crossing the native boundary, as the repository's sender does.
         request.submission?.begin()
+        (request.submission as? StudioHelperSubmission)?.send { }
         return RunOutcome.Completed
     }
     override suspend fun finishedRun(id: String) = Unit

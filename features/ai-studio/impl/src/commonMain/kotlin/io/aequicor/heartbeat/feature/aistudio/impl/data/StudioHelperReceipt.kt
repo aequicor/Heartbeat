@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import kotlinx.serialization.Serializable
 
@@ -62,6 +63,14 @@ internal data class StudioHelperReceipt(
      * rollback, a later delivery of the same request is never prepared again.
      */
     val isFinal: Boolean = false,
+    /** New senders journal native entry; older Submitting receipts remain conservatively uncertain. */
+    val isNativeEntryTracked: Boolean = false,
+    /** The sender that crossed the actual native-call boundary, separate from cancellable policy preparation. */
+    val nativeEntryClaim: String? = null,
+    /** Durable external stop intent; an acknowledgement alone never changes the native outcome. */
+    val isStopRequested: Boolean = false,
+    /** Trusted causal requests captured before submission by conversation control. */
+    val causes: Set<RequestInitiator>? = null,
 ) {
     init {
         require(!isFinal || phase == StudioHelperPhase.NotSubmitted)
@@ -77,6 +86,7 @@ internal data class StudioHelperReceipt(
         require(phase != StudioHelperPhase.Accepted || session != null)
         require((phase == StudioHelperPhase.Terminal) == (terminal != null))
         require(terminal == null || (terminal.session == session && terminal.turn == turn))
+        require(nativeEntryClaim == null || (isNativeEntryTracked && nativeEntryClaim == submissionClaim))
         require(phase !in setOf(StudioHelperPhase.Preparing, StudioHelperPhase.NotSubmitted) || session == null)
     }
 
