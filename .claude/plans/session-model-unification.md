@@ -511,3 +511,64 @@ Typed analysis сохраняет три известные generated-serializer
 конфликтов и дополнительные правки меньше лимита 25 000, все собственные шаги проходят.
 Временный candidate не меняет ветку и не публикуется. После коммита повторить проверку
 реального HEAD перед push. Это обычный merge, история не переписывается.
+
+Реальный merge `65260d9df991988de3d9a79050995c95f8dee6d2` измерен после коммита:
+7706 токенов manual base-sync diff; push выполнен. PR #640 снова MERGEABLE, Commit size
+успешен. На этой Windows-песочнице range-check с remerge нужно запускать с правом записи
+в общий Git directory: без него Git может вернуть exit 0, пустой diff и stderr
+`unable to create temporary object directory`. Такой нулевой результат не является
+проверкой; подтверждённый результат получен с escalation. Preflight candidate и HEAD
+имеют одинаковый manual diff. CI не перезапускался вручную.
+
+Узкий следующий шаг: MachineStudioPlanning проверяет canonical human capability у
+enter/leave/approve/write/startImplementation. Native bind остаётся внутренним путём,
+сохраняющим read-only правила плана. Unknown/future/duplicates и Subagent не отправляют
+machine intents, известная full Subsession с отсутствующим creator сохраняет user plan
+commands. Целевые planning/implementation JVM 38/38 и DI-граф успешны, логи
+`build/verification/planning-role-access.log`; финальные линтеры — отдельно.
+Итоговый прогон planning gates: `build/verification/planning-role-access-final3.log`,
+38/38 тестов, DI и оба режима detekt успешны с прежними ограничениями typed analysis.
+
+### Следующий обязательный источник provenance: virtual continuations
+
+Архитектор подтвердил, что перед capability/autopilot loosening нужен такой порядок:
+
+1. Nullable continuationOf в WorktreeActionRequest заполняет только continueVirtual,
+   а не inferred expectedAction+Coding. Передача в StudioTurnRequest проверяется после
+   coordinator reservation/ActionDelivered, до RunStarted: exact source, interrupted
+   request и operation/kind. Nullable source в RunStarted обновляет virtualContinuations
+   только для подтверждённого continuation; независимый human/creator Coding не меняет
+   lineage. Старый map — lookup hint, не proof.
+2. Общий admission journal для всех НОВЫХ Studio native turns, включая ordinary roots.
+   Нейтральный gate не читает helper metadata. Root stop до handle должен fenced current
+   reservation; для старого уже принятого unjournaled root сохраняется native fallback.
+   Для future root lost-journal detection нужен явный writer witness, а не наличие ref.
+3. Отдельный atomic prepareContinuation (route→journal) сохраняет continuationOf и
+   source.policy/handoff/causes/model snapshot. Не копировать native identity/claims/
+   terminal. Source не может быть uncertain, stopped или незавершённым Preparing;
+   generic prepareDelivery не должен переатрибутировать continuation в Conversation.
+4. Missing legacy root source получает terminal Conversation evidence только при
+   совокупности canonical known UserConversation/no helper, exact original human ledger,
+   exact interrupted source и exact native terminal(ref/turn/request). Один ledger или
+   только terminal недостаточны. Unknown host source остаётся unknown; новый независимый
+   human send сохраняется. Callback не создаёт provenance из map-only membership.
+5. Один validated lineage resolver нужен result/cancel/revoke/progress/recovery: цепь
+   R→C→D без missing/cycle/branch, смены policy/owner/reservation. Conversation не даёт
+   work result. Существующие observer/continuedResult не создают missing Accepted receipt
+   по map. Положительный старый virtual-result тест должен иметь настоящую lineage receipt;
+   отдельно добавить отрицательный map-only кейс.
+6. Metadata.lastRequest остаётся actual=C (этого требует HelperPromptAttempt и harness
+   ancestry admission). Для восстановления lease expected=R при active C нужен narrow
+   lineage-aware SPI с default false; не подменять metadata на root R.
+7. Logical cancel R сохраняет stop intent даже на terminal source, не меняя native
+   terminal outcome. Это закрывает окно R already Cancelled / C not yet prepared, когда
+   lease release иначе освободит capacity перед запуском C. Prepare проверяет ancestor
+   stops; running descendant останавливается по собственной native identity, результат
+   адресуется original R. Не ограничиваться только перенаправлением result.
+
+Регрессии: Work→Work и Conversation→Conversation, human после interruption не становится
+work, цепь R→C→D, неправильный binding/missing/cycle, cancel до C и при active C,
+capacity до подтверждённого stop, restored lease R / actual admission C, unknown legacy,
+ordinary new root и доказанный legacy human root. Сначала эту основу, затем расширять
+planning/compact/rollover/engine-switch и autopilot; прежний helper marker не является
+постоянным типом, а old Work не становится независимым chat turn.
