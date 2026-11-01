@@ -26,8 +26,15 @@ def find_bash():
     git = shutil.which("git")
     if not git:
         return None
-    bash = Path(git).resolve().parent.parent / "bin/bash.exe"
-    return str(bash) if bash.is_file() else None
+    directory = Path(git).resolve().parent
+    root = directory.parent
+    if directory.name.lower() == "bin" and root.name.lower() in ("mingw64", "mingw32", "usr"):
+        root = root.parent
+    for relative in ("bin/bash.exe", "usr/bin/bash.exe"):
+        bash = root / relative
+        if bash.is_file():
+            return str(bash)
+    return None
 
 
 BASH = find_bash()
@@ -50,6 +57,20 @@ class BashExecutableTest(unittest.TestCase):
                 self.assertIsNone(find_bash())
                 executables.pop("git")
                 self.assertIsNone(find_bash())
+
+    def test_windows_finds_bash_from_git_bash_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "Git with spaces"
+            bash = root / "usr/bin/bash.exe"
+            bash.parent.mkdir(parents=True)
+            bash.touch()
+            for layout in ("mingw64/bin/git.exe", "mingw32/bin/git.exe", "usr/bin/git.exe", "bin/git.exe"):
+                with self.subTest(layout=layout):
+                    git = root / layout
+                    git.parent.mkdir(parents=True, exist_ok=True)
+                    git.touch()
+                    with patch.object(sys, "platform", "win32"), patch.object(shutil, "which", return_value=str(git)):
+                        self.assertEqual(find_bash(), str(bash))
 
     def test_posix_uses_bash_from_path(self):
         with patch.object(sys, "platform", "linux"), patch.object(shutil, "which", return_value="/bin/bash") as which:
