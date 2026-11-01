@@ -1,5 +1,6 @@
 """Exercise the two-release publication steps without contacting GitHub."""
 
+import hashlib
 import json
 import os
 import shutil
@@ -204,7 +205,11 @@ class ReleasePublishTest(unittest.TestCase):
 
     def test_retry_accepts_published_payload_and_finishes_main_draft(self):
         self.run_step("Separate installers from the payload")
-        original_payload = [{"name": "train-manifest.json", "size": 1, "digest": "sha256:" + "a" * 64}]
+        original_payload = [
+            {"name": name, "size": len(name.encode()),
+             "digest": "sha256:" + hashlib.sha256(name.encode()).hexdigest()}
+            for name in sorted(PAYLOAD)
+        ]
         (self.state / f"{PAYLOAD_TAG}.json").write_text(
             json.dumps({"draft": False, "prerelease": False, "assets": original_payload}),
             encoding="utf-8",
@@ -224,6 +229,43 @@ class ReleasePublishTest(unittest.TestCase):
         ])
         edits = [call[2] for call in self.invocations() if call[:2] == ["release", "edit"]]
         self.assertEqual([TAG], edits)
+
+    def test_retry_rejects_changed_installer_checksums_before_touching_main(self):
+        self.assertEqual(self.run_step("Separate installers from the payload").returncode, 0)
+        original_payload = [
+            {"name": name, "size": len(name.encode()),
+             "digest": "sha256:" + hashlib.sha256(name.encode()).hexdigest()}
+            for name in sorted(PAYLOAD)
+        ]
+        # A repeated upstream build can change installer bytes and their SHA256SUMS.
+        installer = self.root / "installers" / sorted(INSTALLERS)[0]
+        installer.write_bytes(b"rebuilt installer")
+        (self.root / "release" / "SHA256SUMS").write_text(
+            hashlib.sha256(installer.read_bytes()).hexdigest() + "  " + installer.name,
+            encoding="utf-8",
+        )
+        (self.state / f"{PAYLOAD_TAG}.json").write_text(
+            json.dumps({"draft": False, "prerelease": False, "assets": original_payload}),
+            encoding="utf-8",
+        )
+        result = self.run_step("Publish the releases")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Published payload differs from this attempt: SHA256SUMS", result.stderr)
+        self.assertEqual(original_payload, self.release(PAYLOAD_TAG)["assets"])
+        self.assertFalse((self.state / f"{TAG}.json").exists())
+        self.assertFalse([call for call in self.invocations() if call[1] != "view"])
+
+    def test_retry_rejects_incomplete_payload_before_touching_main(self):
+        self.run_step("Separate installers from the payload")
+        (self.state / f"{PAYLOAD_TAG}.json").write_text(
+            json.dumps({"draft": False, "prerelease": False, "assets": []}),
+            encoding="utf-8",
+        )
+        result = self.run_step("Publish the releases")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Published payload asset set differs", result.stderr)
+        self.assertFalse((self.state / f"{TAG}.json").exists())
+        self.assertFalse([call for call in self.invocations() if call[1] != "view"])
 
 
 if __name__ == "__main__":
