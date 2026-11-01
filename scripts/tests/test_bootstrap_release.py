@@ -6,15 +6,55 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("verify_bootstrap_release", ROOT / "scripts/verify_bootstrap_release.py")
 release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(release)
+
+
+def find_bash():
+    """Use Git Bash on Windows: the WSL launcher cannot run these Windows-path fixtures."""
+    if sys.platform != "win32":
+        return shutil.which("bash")
+    git = shutil.which("git")
+    if not git:
+        return None
+    bash = Path(git).resolve().parent.parent / "bin/bash.exe"
+    return str(bash) if bash.is_file() else None
+
+
+BASH = find_bash()
+
+
+class BashExecutableTest(unittest.TestCase):
+    def test_windows_uses_git_bash_and_never_falls_back_to_wsl(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            git = root / "Git with spaces/cmd/git.exe"
+            bash = root / "Git with spaces/bin/bash.exe"
+            git.parent.mkdir(parents=True)
+            bash.parent.mkdir(parents=True)
+            git.touch()
+            bash.touch()
+            executables = {"git": str(git), "bash": str(root / "Windows/System32/bash.exe")}
+            with patch.object(sys, "platform", "win32"), patch.object(shutil, "which", side_effect=executables.get):
+                self.assertEqual(find_bash(), str(bash))
+                bash.unlink()
+                self.assertIsNone(find_bash())
+                executables.pop("git")
+                self.assertIsNone(find_bash())
+
+    def test_posix_uses_bash_from_path(self):
+        with patch.object(sys, "platform", "linux"), patch.object(shutil, "which", return_value="/bin/bash") as which:
+            self.assertEqual(find_bash(), "/bin/bash")
+            which.assert_called_once_with("bash")
 
 
 class BootstrapReleaseTest(unittest.TestCase):
@@ -103,7 +143,7 @@ class BootstrapReleaseTest(unittest.TestCase):
 
 
 class ReleaseCollectionTest(unittest.TestCase):
-    @unittest.skipUnless(shutil.which("bash"), "workflow collection uses bash")
+    @unittest.skipUnless(BASH, "workflow collection uses Bash (Git Bash on Windows)")
     def test_workflow_collects_the_matching_installer_and_five_bootstrap_assets(self):
         lines = (ROOT / ".github/workflows/release.yml").read_text().splitlines()
         for target in release.TARGETS:
@@ -130,7 +170,7 @@ class ReleaseCollectionTest(unittest.TestCase):
                         (directory / name).write_text(name)
                 env = dict(os.environ, VERSION="1.2.3", PLATFORM=target,
                            RUNNER_OS="Windows" if target.startswith("windows") else "Linux")
-                subprocess.run(["bash", "-euo", "pipefail", "-c", "\n".join(command)], cwd=root, env=env, check=True)
+                subprocess.run([BASH, "-euo", "pipefail", "-c", "\n".join(command)], cwd=root, env=env, check=True)
                 expected = set(names + [installer])
                 if target == "linux-x64":
                     expected.add("Heartbeat-1.2.3-chromium-extension.zip")
