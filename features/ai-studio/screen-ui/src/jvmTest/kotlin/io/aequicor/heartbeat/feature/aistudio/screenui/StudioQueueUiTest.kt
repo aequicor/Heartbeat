@@ -15,7 +15,9 @@ import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -42,9 +44,11 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.QueueActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.QueueNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.QueuedMessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionWaitUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
 import java.io.File
@@ -111,6 +115,98 @@ class StudioQueueUiTest {
                 )
             }
         }
+
+    @Test
+    fun `queued attachment opens the existing viewer from its row`() = runSkikoComposeUiTest(size = Size(1000f, 700f)) {
+        val events = mutableListOf<StudioIntent>()
+        setContent {
+            HbTheme(dimensions = HbDimensions.Desktop) {
+                StudioComposer(previewState().paneContent(pane), events::add, isCompact = false)
+            }
+        }
+        onNodeWithTag("queued-attachment-image").performClick()
+        runOnIdle {
+            assertEquals(
+                listOf(StudioIntent.OpenAttachment("image")),
+                events.filterIsInstance<StudioIntent.OpenAttachment>(),
+            )
+        }
+    }
+
+    @Test
+    fun `browser queues control enter and never offers unsupported steering or opening`() =
+        runSkikoComposeUiTest(size = Size(1000f, 700f)) {
+            val events = mutableListOf<StudioIntent>()
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    val content = previewState().withDraft(0, "Next message").paneContent(pane).copy(
+                        host = StudioHostCapabilities(
+                            isTurnSteeringAvailable = false,
+                            isAttachmentOpeningAvailable = false,
+                        ),
+                    )
+                    StudioComposer(content, events::add, isCompact = false)
+                }
+            }
+            onNodeWithTag("queued-correct-1").assertIsNotEnabled()
+            onNodeWithTag("queued-attachment-image").assertHasNoClickAction()
+            onNode(hasSetTextAction()).performClick()
+            onNode(hasSetTextAction()).performKeyInput { pressKey(Key.Enter) }
+            onNode(hasSetTextAction()).performKeyInput {
+                keyDown(Key.CtrlLeft)
+                pressKey(Key.Enter)
+                keyUp(Key.CtrlLeft)
+            }
+            runOnIdle {
+                assertEquals(
+                    listOf(StudioIntent.Submit(0), StudioIntent.Submit(0)),
+                    events.filterIsInstance<StudioIntent.Submit>(),
+                )
+            }
+        }
+
+    @Test
+    fun `waiting chat keeps its status above an empty queue without other context`() =
+        runSkikoComposeUiTest(size = Size(1000f, 700f)) {
+            val waiting = state.copy(
+                running = persistentSetOf(),
+                sessions = persistentListOf(
+                    state.sessions.single().copy(isRunning = false, scheduledWait = SessionWaitUi.WaitingForEvent),
+                ),
+                messageQueues = persistentMapOf(),
+            )
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    StudioComposer(waiting.paneContent(pane), {}, isCompact = false)
+                }
+            }
+            onNodeWithTag("session-wait-status").assertIsDisplayed()
+        }
+
+    @Test
+    fun `execution status stays centered while overflow stays on the right`() {
+        for (width in listOf(390, 760)) {
+            runSkikoComposeUiTest(size = Size(width.toFloat(), 500f)) {
+                setContent {
+                    CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                        HbTheme(dimensions = if (width < 720) HbDimensions.Mobile else HbDimensions.Desktop) {
+                            StudioComposer(state.paneContent(pane), {}, false, Modifier.width(width.dp))
+                        }
+                    }
+                }
+                val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+                val status = onNodeWithTag("run-status").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                val more = onNodeWithTag("queue-more").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                assertEquals(composer.center.x, status.center.x, 1f)
+                kotlin.test.assertTrue(more.center.x > composer.center.x)
+                if (width < 720) {
+                    kotlin.test.assertTrue(status.top >= more.bottom)
+                } else {
+                    assertEquals(more.center.y, status.center.y, 1f)
+                }
+            }
+        }
+    }
 
     @Test
     fun `queue shows three rows and dismissing snackbar changes no message`() =

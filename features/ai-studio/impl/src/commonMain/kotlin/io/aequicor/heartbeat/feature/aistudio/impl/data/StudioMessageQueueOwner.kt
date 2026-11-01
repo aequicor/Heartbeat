@@ -155,27 +155,46 @@ internal class StudioMessageQueueOwner(
             environment?.let { environments[message.id] = it }
             machine.send(StudioQueueIntent.Internal.Activity(runs.occupied.value, runs.occupied.value))
             commit(machine, StudioQueueIntent.Public.Enqueue(chat, message, token()), tokenOf = { it.operation })
-            if (isCorrection) {
-                try {
+            // From this commit onward the profile owns the input, even if the requested follow-up action fails.
+            try {
+                if (isCorrection) {
                     targets[message.id] = host.value.steeringTarget(chat)
                     commit(
                         machine,
                         StudioQueueIntent.Public.Steer(chat, message.id, token()),
                         tokenOf = { it.operation },
                     )
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    log.w(error) { "Immediate correction refused; preserve its queued input" }
-                    commit(machine, StudioQueueIntent.Public.Pause(chat, token()), tokenOf = { it.operation })
-                    notice(chat, false)
+                } else if (machine.state.value.data.chat(chat).isPaused) {
+                    commit(machine, StudioQueueIntent.Public.Resume(chat, token()), tokenOf = { it.operation })
                 }
-            } else if (machine.state.value.data.chat(chat).isPaused) {
-                commit(machine, StudioQueueIntent.Public.Resume(chat, token()), tokenOf = { it.operation })
+                if (!isCorrection) blocked.update { it - chat }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.w(error) { "Queue action failed after durable input admission" }
+                blocked.update { it + chat }
+                targets.remove(message.id)
+                pauseCapturedInput(machine, chat)
+                notice(chat, false)
             }
-            if (!isCorrection) blocked.update { it - chat }
         }
     }.await()
+
+    /** A second write cannot turn a successful capture into a composer rejection. */
+    private suspend fun pauseCapturedInput(
+        machine: Machine<StudioQueueState, StudioQueueIntent, StudioQueueOutput>,
+        chat: String,
+    ) {
+        if (machine.state.value.data.chat(chat).isPaused) return
+        try {
+            commit(machine, StudioQueueIntent.Public.Pause(chat, token()), tokenOf = { it.operation })
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            // The in-memory barrier still blocks delivery; restoration always pauses durable queues too.
+            log.e(error) { "Could not persist a pause after durable input admission" }
+        }
+    }
 
     override suspend fun correct(chat: String, message: String) {
         try {

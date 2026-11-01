@@ -176,7 +176,7 @@ public object StudioQueueMachineKey : MachineKey<
  * | Intent | Guard | Data / effect |
  * |---|---|---|
  * | Enqueue | valid unique input | append Pending, Save |
- * | Drain | idle, unpaused, first Pending, no active request | Sending, Save then Dispatch |
+ * | Drain | idle, unpaused, all Pending, no active request | Sending, Save then Dispatch |
  * | Steer | busy, supported, selected Pending, no delivery in flight | Steering, Save then Steer |
  * | Accepted | matching Sending or Steering | remove only that row, Save |
  * | Failed | matching row | retain input; uncertain or failed new turn pauses, Save |
@@ -263,7 +263,7 @@ private fun QueueTransitions.queueDrain() {
         val queue = state.data.chat(intent.chat)
         state.isEnabled && state.saving == null && intent.chat !in state.busy && !queue.isPaused &&
             queue.activeRequest == null &&
-            queue.messages.firstOrNull()?.delivery == StudioQueuedDelivery.Pending
+            queue.messages.isNotEmpty() && queue.messages.all { it.delivery == StudioQueuedDelivery.Pending }
     }) {
         val message: TransitionScope<StudioQueueState, StudioQueueIntent.Public.Drain>.() -> StudioQueuedMessage = {
             state.data.chat(intent.chat).messages.first()

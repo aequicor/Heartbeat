@@ -87,6 +87,7 @@ private fun StudioViewContent(
                 isAppUpdateAvailable = false,
                 isNativeAttachmentInputAvailable = false,
                 isAttachmentOpeningAvailable = false,
+                isTurnSteeringAvailable = false,
                 isProjectAddingAvailable = false,
                 isSplitAvailable = false,
                 isOrganismLaunchingAvailable = false,

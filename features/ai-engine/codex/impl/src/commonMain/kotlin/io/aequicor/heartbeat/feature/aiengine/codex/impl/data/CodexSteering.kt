@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -22,6 +23,7 @@ internal class CodexSteering(private val session: CodexSession, private val nati
         val origin = session.connection
         checkTurn(expected, request, origin)
         if (uncertainTurn == expected) fail(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id))
+        if (request.parts.any { it !is ContentPart.Text }) session.runtime.models(session.target.binding)
         val input = codexPromptInputs(
             PromptRequest(request.id, request.parts),
             session.runtime.inputSupport(session.target.model),

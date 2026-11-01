@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.screenui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -12,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -35,6 +37,7 @@ import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTooltip
 import io.aequicor.heartbeat.ds.components.rememberHbPasteImageAction
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
+import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -173,7 +176,8 @@ private fun StudioComposerInput(
         value = draft,
         onValueChange = { onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, it)) },
         onSend = { onIntent(StudioIntent.Submit(pane.id)) },
-        onCorrect = { onIntent(StudioIntent.Submit(pane.id, isCorrection = true)) },
+        onCorrect = { onIntent(StudioIntent.Submit(pane.id, isCorrection = true)) }
+            .takeIf { content.host.isTurnSteeringAvailable },
         canSendWhileStreaming = content.isMessageQueueEnabled,
         headerContent = { StudioMessageQueue(content, onIntent) },
         onStop = { session?.let { onIntent(StudioIntent.Stop(it.id)) } },
@@ -283,13 +287,17 @@ private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, ()
 /** Available harnesses also need the context row in chats without a project. */
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
-    val hasQueueStatus = isMessageQueueEnabled && session?.isRunning == true
+    val hasQueueStatus = hasQueueExecutionStatus()
     return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() || app != null ||
         hasQueueStatus || contextUsage != null || providerUsage != null ||
         planning.plan != null ||
         queue.messages.isNotEmpty() ||
         autoContinue?.mode?.let { it != AutoContinueModeUi.Off } == true
 }
+
+/** Running and waiting feedback keeps the context visible even when it has no other controls. */
+private fun PaneContent.hasQueueExecutionStatus(): Boolean =
+    isMessageQueueEnabled && (session?.isRunning == true || session?.isWaiting == true)
 
 /** Suggestions of the pane's active token with section labels and icons for their kinds and origins. */
 @Composable
@@ -404,13 +412,49 @@ private fun StudioComposerContext(
             layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
         }
     }
-    HbFlowRow(Modifier.fillMaxWidth().then(measureWidth), gap = HbTheme.spacing.s) {
-        StudioComposerIdentity(content, onIntent, presentation)
-        content.app?.let { StudioAppChip(it, content.pane.id, onIntent) }
-        StudioComposerModes(content, onIntent)
-        if (content.isMessageQueueEnabled) PaneExecutionStatus(content)
-        QueueControls(content, onIntent)
+    HbColumn(Modifier.fillMaxWidth().then(measureWidth), gap = HbTheme.spacing.s) {
+        if (!content.isMessageQueueEnabled) {
+            HbFlowRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+                StudioComposerContextControls(content, onIntent, presentation)
+            }
+        } else {
+            StudioQueueComposerContext(content, onIntent, presentation)
+        }
     }
+}
+
+/** The wide context centers execution between equal sides; narrow hosts place it on a separate line. */
+@Composable
+private fun StudioQueueComposerContext(
+    content: PaneContent,
+    onIntent: (StudioIntent) -> Unit,
+    presentation: ComposerPresentation,
+) {
+    val isWide = presentation == ComposerPresentation.Wide
+    HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+        HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+            HbFlowRow(Modifier.weight(1f), gap = HbTheme.spacing.s) {
+                StudioComposerContextControls(content, onIntent, presentation)
+            }
+            if (isWide) PaneExecutionStatus(content)
+            Box(
+                if (isWide) Modifier.weight(1f) else Modifier,
+                contentAlignment = Alignment.CenterEnd,
+            ) { QueueControls(content, onIntent) }
+        }
+        if (!isWide) PaneExecutionStatus(content, Modifier.align(Alignment.CenterHorizontally))
+    }
+}
+
+@Composable
+private fun StudioComposerContextControls(
+    content: PaneContent,
+    onIntent: (StudioIntent) -> Unit,
+    presentation: ComposerPresentation,
+) {
+    StudioComposerIdentity(content, onIntent, presentation)
+    content.app?.let { StudioAppChip(it, content.pane.id, onIntent) }
+    StudioComposerModes(content, onIntent)
 }
 
 /** Identity wraps its controls so modes can share the line; long names yield space to the harness touch target. */

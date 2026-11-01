@@ -1,8 +1,12 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -92,7 +96,15 @@ internal class CodexNativeHistory(
         history.nativeItem(item, turn, isStarted)
         if (item.text("type") == "userMessage") {
             val id = item.text("id") ?: protocolFailure()
-            history.inputs.itemOriginals(id)?.let { host.resourceHistory.remember(ref, "item:$id", it) }
+            try {
+                history.inputs.itemOriginals(id)?.let { host.resourceHistory.remember(ref, "item:$id", it) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                val failure = EngineException(EngineFailure.History(HistoryFailureReason.Unavailable))
+                log.w(failure) { "Codex item input could not be persisted: ${error::class.simpleName ?: "Failure"}" }
+                throw failure
+            }
         }
     }
 
