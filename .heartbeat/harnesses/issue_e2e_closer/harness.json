@@ -1,0 +1,39 @@
+{
+    "title": "Heartbeat: issues + e2e",
+    "description": "Периодически берёт одну открытую issue Heartbeat, доводит исправление до PR с e2e-проверкой и закрывает через процесс merge.",
+    "items": [
+        {
+            "name": "process_backlog",
+            "kind": "workflow",
+            "input": {
+                "type": "object",
+                "properties": {
+                    "issue_number": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        {
+            "name": "daily_backlog",
+            "kind": "script"
+        },
+        {
+            "name": "issue_policy",
+            "kind": "instruction"
+        },
+        {
+            "name": "process_next",
+            "kind": "template",
+            "description": "Промпт одного периодического прохода по очереди открытых issues.",
+            "arguments": [
+                "run_mode"
+            ]
+        },
+        {
+            "name": "process_issue",
+            "kind": "skill",
+            "description": "Загружай при выборе, исправлении и проверке одной issue aequicor/Heartbeat."
+        }
+    ]
+}
