@@ -141,7 +141,7 @@ internal class EngineStudioPlanHost(
             prompt = prompt,
             settings = settings,
             kind = WorktreeRunKind.Coding,
-            request = RequestId(Uuid.random().toString()),
+            request = checkNotNull(runs.currentRequest(id)) { "The plan turn has no execution reservation" },
         ).copy(isUserPrompt = true)
         return runHost.value.executeRun(request)
     }

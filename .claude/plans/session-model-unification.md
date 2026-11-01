@@ -444,3 +444,27 @@ autopilot будут переключены отдельно с проверко
 Проверки: целевые sender/admission/receipt JVM-сценарии без ошибок, обычный detekt успешен,
 typed-detekt успешен с прежними тремя generated-serializer/inference ограничениями.
 Лог: `build/verification/request-work-policy-final.log`.
+
+Единый draft PR: https://github.com/aequicor/Heartbeat/pull/640. Ветка
+`codex/unified-session-model`; в ready не переводить до закрытия остальных пунктов и E2E.
+
+Подготовительный context-admission шаг распространяет route exclusion на все чаты,
+включая новые full Subsession без helper marker. Смена движка и standalone rollover
+держат общий routes mutex до фиксации replacement; missing known history и любой
+unresolved receipt запрещают замену. Environment carry допускает исключение только
+для exact local gate и coordinator.currentRequest, когда это ещё unbound Conversation
+Preparing без stop и submission/native-entry claims. Привязанный, work/legacy или уже
+отозванный gate не даёт исключения. Plan first turn использует ID внешнего reservation:
+в этом flow фактический native turn один, а plan-rollover native ход не отправляет.
+Это также сохраняет точность пользовательского stop. Архитектор подтвердил отсутствие
+reuse-конфликта; для будущего autopilot lifecycle request плановой реализации остаётся
+внешним synthetic request, поэтому provenance читать по exact receipt, не только
+isUserPrompt. Planning/compact capability пока не расширена этим подготовительным шагом.
+Ревью дополнительно нашло обход при reconcileWork: восстановление старой неизвестной
+работы могло добавить Submitting между idle snapshot и commit. Reconciliation также
+сериализован тем же route mutex перед journal lock; добавлена регрессия на ожидание
+context commit и запрет следующего replacement после unknown recovery.
+Проверено: Studio полный JVM набор 934/934, обычный detekt успешен, typed-detekt успешен
+с теми же тремя ранее описанными ограничениями анализа. Лог:
+`build/verification/context-admission-recovery.log`. До объединения с обновлённым master
+в этом шаге нет расширения UI или плановых возможностей, только admission и exact ID.

@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitchFailure
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 
@@ -21,7 +22,22 @@ internal class StudioEngineSwitchHelpers(
     private val chats = stores.keyValue(ChatSpec)
 
     suspend fun <T> withIdleSource(record: StudioChatRecord, body: suspend () -> T): T =
-        if (record.helper == null) body() else routes.withIdleRoute(HelperId(record.id), attempts, body)
+        routes.withIdleRoute(HelperId(record.id), attempts, body = body)
+
+    /** A frozen tool manifest may move only the exact request still reserved before native preparation. */
+    suspend fun <T> withPreparingSource(
+        record: StudioChatRecord,
+        request: StudioTurnRequest,
+        reserved: RequestId?,
+        body: suspend () -> T,
+    ): T {
+        val gate = request.submission as? StudioHelperSubmission
+        check(record.id == request.id)
+        check(gate == null || (gate.matches(HelperId(record.id), request.request) && reserved == request.request)) {
+            "Conversation context preparation is not reserved by this request"
+        }
+        return routes.withIdleRoute(HelperId(record.id), attempts, gate, body)
+    }
 
     fun validate(record: StudioChatRecord, target: EngineTarget) {
         if (record.helper != null) {

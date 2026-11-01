@@ -507,7 +507,11 @@ internal class EngineStudioRepository(
 
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
         recoverSwitch(request.id)
-        if (request.isRollover) return carry.rollover(request)
+        if (request.isRollover) {
+            return switchHelpers.withIdleSource(chatRecords.record(request.id)) {
+                carry.rollover(request)
+            }
+        }
         log.i { "Execute the reserved native request" }
         val current = configurationRecord(request.id)
         if (request.isUserPrompt) current.requireHumanConversation()
@@ -590,8 +594,10 @@ internal class EngineStudioRepository(
 
     override suspend fun rolloverTurn(request: StudioTurnRequest, active: ActiveSession) {
         log.i { "Carry outside chat into a compatible native context" }
-        carry.environment(request, active, harnesses) {
-            historyMirror.refresh(request.id, active.features.requireFeature(SessionHistory))
+        switchHelpers.withPreparingSource(chatRecords.record(request.id), request, runs.currentRequest(request.id)) {
+            carry.environment(request, active, harnesses) {
+                historyMirror.refresh(request.id, active.features.requireFeature(SessionHistory))
+            }
         }
     }
 

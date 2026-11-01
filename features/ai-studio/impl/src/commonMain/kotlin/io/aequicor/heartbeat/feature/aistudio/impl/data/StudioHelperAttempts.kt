@@ -311,6 +311,24 @@ internal class StudioHelperAttempts(
         pending.singleOrNull()?.request
     }
 
+    /**
+     * Context replacement excludes every unresolved attempt. Only this local submission's unbound Conversation
+     * preparation may travel with its own request before native policy preparation starts. A caller additionally
+     * holds the route mutex and proves that the coordinator still reserves this exact request.
+     */
+    suspend fun isContextIdle(helper: HelperId, preparing: StudioHelperSubmission? = null): Boolean = lock.withLock {
+        log.v { "Read durable context replacement evidence" }
+        val records = read(helper)
+        if (!hasRecordedHistory(helper, records)) return@withLock false
+        if (preparing != null) {
+            val own = records.values.singleOrNull { preparing.matches(helper, it.request) }
+            if (own?.isUnboundConversationPreparation != true) return@withLock false
+        }
+        records.values.filter { it.isUnresolved }.all {
+            preparing?.matches(helper, it.request) == true && it.isUnboundConversationPreparation
+        }
+    }
+
     /** Unclassified/missing old evidence is visible but can never choose a lease's work request. */
     suspend fun workOwnership(helper: HelperId, owner: ActionId, lastKnown: RequestId?): StudioWorkOwnership =
         lock.withLock {
@@ -331,6 +349,15 @@ internal class StudioHelperAttempts(
         request: RequestId,
         policy: StudioAttemptPolicy.OwnedHelperWork,
         isNeverStarted: Boolean = false,
+    ): Boolean = routes.withLock(helper) {
+        reconcileWorkLocked(helper, request, policy, isNeverStarted)
+    }
+
+    private suspend fun reconcileWorkLocked(
+        helper: HelperId,
+        request: RequestId,
+        policy: StudioAttemptPolicy.OwnedHelperWork,
+        isNeverStarted: Boolean,
     ): Boolean = lock.withLock {
         log.v { "Reconcile work attribution from its exact producer journal" }
         val records = read(helper)
@@ -376,12 +403,19 @@ internal class StudioHelperAttempts(
 
     /** Missing old evidence preserves readable history, but cannot authorize another send or a safe tombstone. */
     private suspend fun requireRecordedHistory(helper: HelperId, records: Map<String, StudioHelperReceipt>) {
-        val record = chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value }
-        val isTracked = record?.helper != null || record?.logicalSession?.kind == SessionKind.Subsession
-        val known = record?.lastRunRequest
-        check(!isTracked || known == null || known.value in records) {
+        check(hasRecordedHistory(helper, records)) {
             "Conversation attempt evidence is missing; reconcile before another submission"
         }
+    }
+
+    private suspend fun hasRecordedHistory(helper: HelperId, records: Map<String, StudioHelperReceipt>): Boolean {
+        val record = chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value }
+        val isTracked = record?.helper != null || record?.identity?.context?.kind in setOf(
+            SessionKind.Subsession,
+            SessionKind.Subagent,
+        )
+        val known = record?.lastRunRequest
+        return !isTracked || known == null || known.value in records
     }
 
     private suspend fun write(helper: HelperId, records: Map<String, StudioHelperReceipt>) {
@@ -416,6 +450,10 @@ internal class StudioHelperAttempts(
         val REPREPARABLE_PHASES = setOf(StudioHelperPhase.Preparing, StudioHelperPhase.NotSubmitted)
     }
 }
+
+private val StudioHelperReceipt.isUnboundConversationPreparation: Boolean
+    get() = policy == StudioAttemptPolicy.Conversation && phase == StudioHelperPhase.Preparing &&
+        preparedSession == null && submissionClaim == null && nativeEntryClaim == null && !isStopRequested
 
 /** Directives are part of the immutable attempt; older receipts without them keep their original fingerprint. */
 private fun HelperPrompt.fingerprint(): String {
