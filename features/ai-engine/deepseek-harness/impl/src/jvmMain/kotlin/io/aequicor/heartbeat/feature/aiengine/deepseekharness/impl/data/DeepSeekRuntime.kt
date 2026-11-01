@@ -19,6 +19,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -30,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
@@ -61,6 +64,7 @@ internal class DeepSeekRuntime(
     internal val resources: ResourceResolver = ResourceResolver { null },
     private val capabilities: JsonObject = JsonObject(emptyMap()),
     private val ownedScope: Job? = null,
+    private val sessionTrees: SessionTrees? = null,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
@@ -70,13 +74,24 @@ internal class DeepSeekRuntime(
 
     /** Support confirmed for [model]; DSH validates the exact route before accepting an image. */
     internal fun inputSupportFor(model: ModelId): PromptInputSupport =
-        if (dshSelectedModel(dshModelSelector(model.value)) == DeepSeekAcpPatch.MODEL) {
+        if (dshSelectedModel(dshModelSelector(model.value)) in DeepSeekImageModelIds) {
             inputSupport
         } else {
             PromptInputSupport()
         }
 
-    override val features = DeepSeekFeatures(CreatesSessions to this, AttachesSessions to this)
+    override val features = DeepSeekFeatures(
+        CreatesSessions to this,
+        AttachesSessions to this,
+        *sessionTreesFeature(),
+    )
+
+    /** The read-only tree capability is optional: runtimes without an on-disk store report Unsupported coverage. */
+    private fun sessionTreesFeature(): Array<Pair<EngineFeatureKey<*>, EngineFeature>> {
+        val trees = sessionTrees ?: return emptyArray()
+        return arrayOf<Pair<EngineFeatureKey<*>, EngineFeature>>(SessionTrees to trees)
+    }
+
     private val sessions = MutableStateFlow<Map<String, DeepSeekSession>>(emptyMap())
     private val mutex = Mutex()
     private val loading = Mutex()
@@ -104,7 +119,7 @@ internal class DeepSeekRuntime(
     suspend fun discoverCatalog(binding: EngineBindingId): DeepSeekModelCatalog {
         val target = EngineTarget(identity.engine, binding, ModelId("catalog"))
         val native = connection.newSession(directory(CreateSessionRequest(target)))
-        return deepSeekNativeCatalog(native.metadata, capabilities, DeepSeekAcpPatch.MODEL)
+        return deepSeekNativeCatalog(native.metadata, capabilities, DeepSeekImageModelIds)
     }
 
     /** Selects the requested model on a freshly created or resumed session; an unsupported model fails the open. */
@@ -276,6 +291,7 @@ internal class DeepSeekRuntime(
             directory: suspend (CreateSessionRequest) -> String,
             tools: ProfileAgentTools = NoAgentTools,
             resources: ResourceResolver = ResourceResolver { null },
+            sessionTrees: SessionTrees? = null,
         ): DeepSeekRuntime {
             val runtime = MutableStateFlow<DeepSeekRuntime?>(null)
             val disconnected = MutableStateFlow(false)
@@ -326,6 +342,7 @@ internal class DeepSeekRuntime(
                     resources,
                     initialization.agentCapabilities,
                     runtimeScope.coroutineContext[Job],
+                    sessionTrees,
                 ).also { created ->
                     runtime.value = created
                     if (disconnected.value) {

@@ -18,13 +18,13 @@ internal data class DeepSeekNativeModel(val value: String, val title: String)
 
 /**
  * Native models plus the prompt support negotiated by the ACP connection. DSH advertises image prompts for the
- * connection's configured route; [imageModelId] is the native model id that route confirms, so other models keep
- * an empty support set.
+ * connection's configured route and re-validates each session's exact model before accepting an image; the adapter
+ * mirrors that with [imageModelIds], so models outside the set keep an empty support set.
  */
 internal data class DeepSeekModelCatalog(
     val models: List<DeepSeekNativeModel>,
     val inputSupport: PromptInputSupport,
-    val imageModelId: String?,
+    val imageModelIds: Set<String>,
 )
 
 /**
@@ -44,15 +44,15 @@ internal fun deepSeekNativeModels(metadata: JsonObject): List<DeepSeekNativeMode
         .toList()
 }
 
-/** Models and the capability the ACP bridge advertised during `initialize` for [imageModelId]. */
+/** Models and the capability the ACP bridge advertised during `initialize` for [imageModelIds]. */
 internal fun deepSeekNativeCatalog(
     metadata: JsonObject,
     capabilities: JsonObject,
-    imageModelId: String?,
+    imageModelIds: Set<String>,
 ): DeepSeekModelCatalog = DeepSeekModelCatalog(
     models = deepSeekNativeModels(metadata),
     inputSupport = deepSeekPromptInputSupport(capabilities),
-    imageModelId = imageModelId,
+    imageModelIds = imageModelIds,
 )
 
 /**
@@ -72,9 +72,17 @@ internal fun deepSeekPromptInputSupport(capabilities: JsonObject): PromptInputSu
 /** Raster formats the DSH attachment store and ACP image blocks both accept. */
 internal val DeepSeekImageMediaTypes = setOf("image/png", "image/jpeg", "image/webp", "image/gif")
 
+/**
+ * Model ids (resolved by [dshSelectedModel]) whose native catalog entries declare image input. ACP exposes no
+ * per-model capability, and DSH re-validates every inline image against the exact session route: the account
+ * route `deepseek-v4-pro` rejects an image with a JSON-RPC `-32602`, so it must not be advertised as multimodal.
+ * A model outside this set stays text-only until DSH reports per-model capability.
+ */
+internal val DeepSeekImageModelIds: Set<String> = setOf("deepseek-flash")
+
 internal fun DeepSeekModelCatalog.modelInfo(engine: EngineId, binding: EngineBindingId): List<ModelInfo> =
     models.map { model ->
-        val isImageModel = dshSelectedModel(model.value) == imageModelId
+        val isImageModel = dshSelectedModel(model.value) in imageModelIds
         ModelInfo(
             EngineTarget(engine, binding, ModelId(model.value)),
             model.title,

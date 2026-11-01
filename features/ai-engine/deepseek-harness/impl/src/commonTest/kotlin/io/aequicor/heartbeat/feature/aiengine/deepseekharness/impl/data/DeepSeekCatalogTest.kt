@@ -23,7 +23,7 @@ class DeepSeekCatalogTest {
         val catalog = deepSeekNativeCatalog(
             Metadata,
             json("""{"promptCapabilities":{"image":true,"embeddedContext":false}}"""),
-            IMAGE_MODEL,
+            DeepSeekImageModelIds,
         )
         val models = catalog.modelInfo(EngineId("deepseek-harness"), EngineBindingId("binding"))
 
@@ -44,7 +44,11 @@ class DeepSeekCatalogTest {
 
     @Test
     fun `absent image capability leaves every model text-only`() {
-        val catalog = deepSeekNativeCatalog(Metadata, json("""{"promptCapabilities":{"image":false}}"""), IMAGE_MODEL)
+        val catalog = deepSeekNativeCatalog(
+            Metadata,
+            json("""{"promptCapabilities":{"image":false}}"""),
+            DeepSeekImageModelIds,
+        )
 
         assertTrue(catalog.inputSupport.imageMediaTypes.isEmpty())
         assertTrue(catalog.inputSupport.resourceMediaTypes.isEmpty())
@@ -53,8 +57,6 @@ class DeepSeekCatalogTest {
     }
 
     private companion object {
-        const val IMAGE_MODEL = "deepseek-flash"
-
         val Metadata = json(
             """
             {"configOptions":[{"id":"model","category":"model","options":[

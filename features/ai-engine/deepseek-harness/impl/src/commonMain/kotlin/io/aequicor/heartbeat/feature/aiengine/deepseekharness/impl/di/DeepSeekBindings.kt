@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
@@ -71,6 +72,7 @@ public object DeepSeekBindings {
                 AttachesSessions.id,
                 SendsPrompts.id,
                 SessionHistory.id,
+                SessionTrees.id,
                 ReconcilesSession.id,
                 CancelsTurns.id,
                 RequestsPermissions.id,
@@ -80,7 +82,7 @@ public object DeepSeekBindings {
         factory = lazy { backend.value },
         management = DeepSeekManagementSpec,
         manager = lazy { manager.value },
-        modelCatalogRevision = 2,
+        modelCatalogRevision = 3,
         sessionSources = listOf(DeepSeekSessionSource(backend)),
     )
 }

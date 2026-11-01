@@ -20,6 +20,6 @@ class DeepSeekBindingsTest {
         assertEquals(LoginSupport.Connections, registration.management.login)
         assertNotNull(registration.manager)
         assertEquals("DeepSeek Harness", registration.descriptor.title)
-        assertEquals(2, registration.modelCatalogRevision)
+        assertEquals(3, registration.modelCatalogRevision)
     }
 }

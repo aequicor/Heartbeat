@@ -24,6 +24,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -80,6 +81,24 @@ class DeepSeekRuntimeTest {
         val session = runtime.create(CreateSessionRequest(target(ModelId("deepseek-flash"))))
         val access = assertIs<FeatureAccess.Available<AcceptsImages>>(session.features.resolve(AcceptsImages))
         assertEquals(DeepSeekImageMediaTypes, access.feature.mediaTypes)
+    }
+
+    @Test
+    fun `image support follows the multimodal model set and ignores routes DSH rejects`() = runTest {
+        val runtime = runtime(
+            FakeAcpConnection(),
+            json("""{"promptCapabilities":{"image":true}}"""),
+        )
+        val accountPro = ModelId("""["deepseek-account","deepseek-v4-pro"]""")
+        val officialFlash = ModelId("""["deepseek-official","deepseek-v4-flash"]""")
+
+        assertTrue(runtime.inputSupportFor(ModelId("deepseek-flash")).accepts("image/png"))
+        assertTrue(runtime.inputSupportFor(ModelId("""["deepseek-account","deepseek-flash"]""")).accepts("image/png"))
+        // DSH answers -32602 for an image on these routes, so they must not advertise image input.
+        assertFalse(runtime.inputSupportFor(ModelId("deepseek-v4-pro")).accepts("image/png"))
+        assertFalse(runtime.inputSupportFor(accountPro).accepts("image/png"))
+        assertFalse(runtime.inputSupportFor(ModelId("deepseek-v4-flash")).accepts("image/png"))
+        assertFalse(runtime.inputSupportFor(officialFlash).accepts("image/png"))
     }
 
     private fun target(model: ModelId) = EngineTarget(
