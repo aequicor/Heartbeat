@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionMachineKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionOutput
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
@@ -41,9 +42,12 @@ fun interface ActiveSessionHost {
         native: ActiveSession,
         route: ExecutionRoute,
         model: ModelId,
-        areSessionHooksEnabled: Boolean,
+        options: SessionHostOptions,
     ): ActiveSession
 }
+
+/** Trusted host metadata of one open operation; native segment changes preserve its logical identity. */
+data class SessionHostOptions(val areSessionHooksEnabled: Boolean, val logicalSession: LogicalSessionContext?)
 
 /** Builds handles; native commands run in the profile-owned [commands] scope. */
 class ActiveSessionAssembler(private val policy: SessionPolicy, private val commands: CoroutineScope) {
@@ -54,6 +58,7 @@ class ActiveSessionAssembler(private val policy: SessionPolicy, private val comm
         model: ModelId,
         handle: SessionHandleScope,
         areSessionHooksEnabled: Boolean = false,
+        logicalSession: LogicalSessionContext? = null,
     ): ActiveSession {
         val effects = ActiveSessionEffects(native, commands, policy::observeFailure)
         val spec = activeSessionMachineSpec(ActiveSessionMachineKey(handle.id), native.state.value.asInitial())
@@ -68,6 +73,7 @@ class ActiveSessionAssembler(private val policy: SessionPolicy, private val comm
                 checkNotNull(handle.scope.coroutineContext[Job]),
             ),
             policy,
+            logicalSession = logicalSession,
             hookContext = if (areSessionHooksEnabled) {
                 SessionHookContext(native.ref, route.workspace, null, null, SessionOwner(handle.id))
             } else {

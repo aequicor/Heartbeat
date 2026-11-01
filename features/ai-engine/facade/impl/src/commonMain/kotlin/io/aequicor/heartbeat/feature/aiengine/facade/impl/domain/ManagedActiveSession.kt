@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -78,6 +79,7 @@ class ManagedActiveSession(
     private val parts: SessionParts,
     private val policy: SessionPolicy,
     hookContext: SessionHookContext? = null,
+    override val logicalSession: LogicalSessionContext? = null,
 ) : ActiveSession {
     private val log = Log.tag("ActiveSession")
     private val machine = parts.machine
@@ -287,7 +289,14 @@ class ManagedActiveSession(
                     decisionMode = request.decisionMode,
                     reviewTarget = request.reviewTarget,
                 )
-                policy.bindTurn(ref, request.id, turn, request.userInstruction, request.trustedUserInstructions)
+                policy.bindTurn(
+                    ref,
+                    request.id,
+                    turn,
+                    request.userInstruction,
+                    request.trustedUserInstructions,
+                    logicalSession,
+                )
                 val prepared = hookHandle?.prepare(request, turn) ?: request
                 submit(prepared, turn)
             }

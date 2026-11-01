@@ -88,6 +88,9 @@ public data class CreateSessionRequest(
      * belong here, never values derived from model output or tool arguments.
      */
     val preselected: Map<String, Set<String>> = emptyMap(),
+    /** Host-persisted logical role; serialized/model requests cannot supply an ownership claim. */
+    @kotlinx.serialization.Transient
+    val logicalSession: LogicalSessionContext? = null,
 )
 
 /**
@@ -101,6 +104,9 @@ public data class ResumeSessionRequest(
     val areDetachedToolsEnabled: Boolean = false,
     /** Opts this handle's own turns into profile session hooks; service sessions leave this false. */
     val areSessionHooksEnabled: Boolean = false,
+    /** Restored by the owning host from its durable conversation record, never inferred from the native ref. */
+    @kotlinx.serialization.Transient
+    val logicalSession: LogicalSessionContext? = null,
 )
 
 /**

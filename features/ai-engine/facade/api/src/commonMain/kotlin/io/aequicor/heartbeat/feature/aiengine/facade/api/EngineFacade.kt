@@ -103,6 +103,9 @@ public interface EngineSession {
  * Reading state never starts generation. Capabilities must be resolved again when state/model changes.
  */
 public interface ActiveSession {
+    /** Host-owned logical identity; null means no verified conversation context, including service sessions. */
+    public val logicalSession: LogicalSessionContext? get() = null
+
     /** Persistent native session address. */
     public val ref: SessionRef
 

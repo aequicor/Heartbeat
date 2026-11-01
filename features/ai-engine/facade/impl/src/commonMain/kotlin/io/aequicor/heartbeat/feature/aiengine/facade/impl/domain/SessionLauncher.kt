@@ -66,7 +66,8 @@ class SessionLauncher(
         val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
         val creator = pool.runtime(resolved).features.resolve(CreatesSessions).orFail()
         val native = adapterCall(log, "create") { creator.create(request) }
-        open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
+        val options = SessionHostOptions(request.areSessionHooksEnabled, request.logicalSession)
+        open(native, resolved.route, target.model, options) {
             if (native.ref.engine != target.engine) fail(EngineFailure.Unknown())
             val now = context.clock.now()
             record(
@@ -89,7 +90,8 @@ class SessionLauncher(
         val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
         val attacher = pool.runtime(resolved).features.resolve(AttachesSessions).orFail()
         val native = adapterCall(log, "attach") { attacher.attach(ref, request) }
-        open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
+        val options = SessionHostOptions(request.areSessionHooksEnabled, request.logicalSession)
+        open(native, resolved.route, target.model, options) {
             if (native.ref != ref) fail(EngineFailure.Unknown())
             val known = sessions.indexed(ref) ?: SessionSummary(ref)
             record(known.copy(workspace = request.workspace ?: known.workspace, lastRoute = resolved.route))
@@ -146,7 +148,7 @@ class SessionLauncher(
         native: ActiveSession,
         route: ExecutionRoute,
         model: ModelId,
-        areSessionHooksEnabled: Boolean,
+        options: SessionHostOptions,
         prepare: suspend () -> Unit,
     ): ActiveSession {
         var isOpened = false
@@ -154,7 +156,7 @@ class SessionLauncher(
         try {
             routes.recheck(route, model)
             prepare()
-            val handle = host.open(native, route, model, areSessionHooksEnabled).also { opened = it }
+            val handle = host.open(native, route, model, options).also { opened = it }
             // Register before the recheck: a concurrent removal either closes this handle or is observed here.
             routes.recheck(route, model)
             isOpened = true

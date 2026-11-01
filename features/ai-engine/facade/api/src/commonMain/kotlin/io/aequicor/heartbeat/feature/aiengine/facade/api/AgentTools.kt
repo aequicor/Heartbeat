@@ -91,6 +91,8 @@ public data class AgentToolContext(
     val isActionAnalysisRequired: Boolean = false,
     /** Dispatcher-owned authority generation; final execution rejects evaluations captured before revocation. */
     val userInstructionsRevision: Long? = null,
+    /** Facade-bound logical role and owner; adapter-supplied claims are discarded by the dispatcher. */
+    val logicalSession: LogicalSessionContext? = null,
 ) {
     override fun toString(): String = "AgentToolContext"
 }
@@ -302,6 +304,17 @@ public interface ProfileAgentTools {
         target: EngineTarget? = null,
         decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
         reviewTarget: EngineTarget? = null,
+    ): Unit = Unit
+
+    /**
+     * Binds the host's verified logical context after [bindTurn] and before native submission. Rebinding a
+     * different context or a finished turn is rejected. This is identity metadata, not an operation permission.
+     */
+    public suspend fun bindLogicalSession(
+        session: SessionRef,
+        request: RequestId,
+        turn: TurnId,
+        context: LogicalSessionContext,
     ): Unit = Unit
 
     /**
