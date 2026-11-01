@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimeSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -138,6 +139,7 @@ class EngineControlPanelModelTest {
 
     @Test
     fun `an uninstall waits for confirmation and a dismissed one is forgotten`() = runTest {
+        machine.state.value = managedSnapshot(managedCodexWithCopy())
         val model = model()
         val screen = subscribe(model.store)
         model.store.intent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Uninstall))
@@ -156,6 +158,26 @@ class EngineControlPanelModelTest {
             machine.sent.filterIsInstance<EngineControlIntent.Public.Apply>(),
         )
         assertEquals(null, screen.states.value.confirmAction)
+    }
+
+    @Test
+    fun `a stale uninstall confirmation does not interrupt an active turn`() = runTest {
+        machine.state.value = managedSnapshot(managedCodexWithCopy())
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Uninstall))
+        runCurrent()
+        assertEquals(EngineActionUi.Uninstall, screen.states.value.confirmAction)
+
+        machine.state.value = managedSnapshot(
+            managedCodexWithCopy().copy(runtime = RuntimeSummary(activeTurns = 1)),
+        )
+        runCurrent()
+        model.store.intent(EngineManagementIntent.ConfirmEngineAction)
+        runCurrent()
+
+        assertTrue(machine.sent.none { it is EngineControlIntent.Public.Apply })
+        assertEquals(EngineActionUi.Uninstall, screen.states.value.confirmAction)
     }
 
     @Test
