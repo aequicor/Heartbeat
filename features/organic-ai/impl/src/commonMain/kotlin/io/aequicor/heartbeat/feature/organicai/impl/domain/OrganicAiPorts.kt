@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -60,6 +61,8 @@ internal data class CellRoute(
     val harnesses: Set<String> = emptySet(),
     /** Durable host policy of the organism, applied to every submitted turn. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+    /** Host-proven identity, retained when the native session is resumed. */
+    val logicalSession: LogicalSessionContext? = null,
 )
 
 /** Own checkouts of the cells of sandbox organisms; worktree mode owns the checkouts, their branches and runs. */
@@ -246,7 +249,12 @@ internal interface CellHandle {
 /** Judge sessions: each call is a new session with no tools and one turn, released afterwards. */
 internal fun interface JudgeSessions {
     /** The judge's whole answer to [prompt]; [onSession] learns the new session before the turn starts. */
-    suspend fun deliberate(target: EngineTarget, prompt: String, onSession: suspend (SessionRef) -> Unit): String
+    suspend fun deliberate(
+        target: EngineTarget,
+        prompt: String,
+        logicalSession: LogicalSessionContext?,
+        onSession: suspend (SessionRef) -> Unit,
+    ): String
 }
 
 /** Recent history of a cell session, for the judge's dossier. */

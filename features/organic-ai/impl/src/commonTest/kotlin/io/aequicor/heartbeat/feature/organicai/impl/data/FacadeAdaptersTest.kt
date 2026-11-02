@@ -628,8 +628,8 @@ class FacadeAdaptersTest {
             message(MessageRole.Assistant, "VERDICT spare", turn = "native-1", position = 1),
         )
         val sessions = mutableListOf<io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef>()
-        assertEquals("VERDICT spare", judges.deliberate(TARGET, "dossier") { sessions += it })
-        judges.deliberate(TARGET, "dossier") { sessions += it }
+        assertEquals("VERDICT spare", judges.deliberate(TARGET, "dossier", null) { sessions += it })
+        judges.deliberate(TARGET, "dossier", null) { sessions += it }
         assertEquals(listOf(first.ref, second.ref), sessions)
         facade.creations.forEach {
             assertFalse(it.areDetachedToolsEnabled)
@@ -651,7 +651,7 @@ class FacadeAdaptersTest {
         assertFailsWith<EngineException> {
             FacadeJudgeSessions(
                 FakeFacade(ArrayDeque(listOf(judge))),
-            ).deliberate(TARGET, "x") {}
+            ).deliberate(TARGET, "x", null) {}
         }
         assertEquals(1, judge.closes)
         assertTrue(judge.isArchived)
@@ -661,7 +661,7 @@ class FacadeAdaptersTest {
     fun `a judge that asks for permission is stopped`() = runTest {
         val judge = FakeSession(session("judge")).apply { finish = null }
         val facade = FakeFacade(ArrayDeque(listOf(judge)))
-        val answer = async { FacadeJudgeSessions(facade).deliberate(TARGET, "x") {} }
+        val answer = async { FacadeJudgeSessions(facade).deliberate(TARGET, "x", null) {} }
         runCurrent()
         val turn = TurnId("turn-1")
         judge.state.value = ActiveSessionState.AwaitingUserAction(
@@ -678,7 +678,7 @@ class FacadeAdaptersTest {
             finish = TurnOutcome.Unknown
             items = listOf(message(MessageRole.Assistant, "VERDICT kill", turn = "turn-1"))
         }
-        assertEquals("", FacadeJudgeSessions(FakeFacade(ArrayDeque(listOf(judge)))).deliberate(TARGET, "x") {})
+        assertEquals("", FacadeJudgeSessions(FakeFacade(ArrayDeque(listOf(judge)))).deliberate(TARGET, "x", null) {})
         assertEquals(1, judge.closes)
     }
 

@@ -126,6 +126,7 @@ internal class StudioOrganisms(
             attachments = attachments,
             isolation = isolation(hasProject = workspace != null),
             harnesses = chat.organismHarnesses,
+            conversation = chat.logicalSession,
         )
         val result = machine.send(OrganicAiIntent.Public.Conceive(conception))
         log.i { "organism ${conception.id.value} conception: $result harnesses=${conception.harnesses.size}" }

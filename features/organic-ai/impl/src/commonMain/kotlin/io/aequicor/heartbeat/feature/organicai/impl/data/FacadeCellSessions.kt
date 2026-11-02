@@ -198,7 +198,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
                 // Archived once closed, by [releaseReplaced].
                 discard(key, stale, generation, isStopped = true, isArchived = false)
             } finally {
-                mutex.withLock { stopping -= stale }
+                withContext(NonCancellable) { mutex.withLock { stopping -= stale } }
             }
         }
 
@@ -211,9 +211,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         var isToArchive = false
         val entry = mutex.withLock {
             replaced[handle]?.takeUnless { it.isReleasing }?.also {
-                it.isReleasing = true
-                isToArchive = !it.isArchived
-                it.isArchived = true
+                isToArchive = it.beginRelease()
             }
         } ?: return@withContext
         if (isToArchive) archiveQuietly(handle.ref)
@@ -229,7 +227,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         } catch (e: Exception) {
             log.w(e) { "harness connections of a replaced cell session were not removed; retried later" }
         } finally {
-            mutex.withLock { entry.isReleasing = false }
+            withContext(NonCancellable) { mutex.withLock { entry.finishRelease() } }
         }
     }
 
@@ -534,6 +532,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
             CreateSessionRequest(
                 route.target,
                 route.workspace,
+                logicalSession = route.logicalSession,
                 areDetachedToolsEnabled = true,
                 areSessionHooksEnabled = route.harnesses.isNotEmpty(),
                 preselected = route.harnesses.takeIf { it.isNotEmpty() }?.let { mapOf(HarnessTools.GROUP to it) }
@@ -549,6 +548,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         val request = ResumeSessionRequest(
             route.target,
             route.workspace,
+            logicalSession = route.logicalSession,
             areDetachedToolsEnabled = true,
             areSessionHooksEnabled = route.harnesses.isNotEmpty(),
         )
@@ -624,12 +624,26 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
  * A replaced handle of [key] still to be archived ([isArchived]) and disconnected from [harnesses]; [isReleasing] while
  * a release runs. Mutated only under the owner's mutex.
  */
-private class Replaced(
-    val key: CellKey,
-    val harnesses: Set<String>,
-    var isArchived: Boolean = false,
-    var isReleasing: Boolean = false,
-)
+private class Replaced(val key: CellKey, val harnesses: Set<String>) {
+    var isArchived: Boolean = false
+        private set
+    var isReleasing: Boolean = false
+        private set
+
+    /** Claims cleanup under the host mutex and returns whether archival still needs to be attempted. */
+    fun beginRelease(): Boolean {
+        check(!isReleasing)
+        isReleasing = true
+        val isArchiveNeeded = !isArchived
+        isArchived = true
+        return isArchiveNeeded
+    }
+
+    /** Allows a later cleanup retry after the current attempt has returned. */
+    fun finishRelease() {
+        isReleasing = false
+    }
+}
 
 /** One cell's open session; its turns run at the [route]'s effort and review model. */
 private class FacadeCellHandle(

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -45,10 +46,18 @@ internal class FacadeJudgeSessions(private val facade: EngineFacade) : JudgeSess
     override suspend fun deliberate(
         target: EngineTarget,
         prompt: String,
+        logicalSession: LogicalSessionContext?,
         onSession: suspend (SessionRef) -> Unit,
     ): String {
         val creates = facade.engines.features(target.engine).resolve(CreatesSessions).orThrow()
-        val session = creates.create(CreateSessionRequest(target, workspace = null, areDetachedToolsEnabled = false))
+        val session = creates.create(
+            CreateSessionRequest(
+                target,
+                workspace = null,
+                areDetachedToolsEnabled = false,
+                logicalSession = logicalSession,
+            ),
+        )
         log.i { "judge session opened on ${target.engine.value}" }
         try {
             onSession(session.ref)

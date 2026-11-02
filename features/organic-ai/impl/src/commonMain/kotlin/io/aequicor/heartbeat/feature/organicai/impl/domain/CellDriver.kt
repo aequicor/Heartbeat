@@ -209,6 +209,7 @@ internal class CellDriver(
             organism.target?.takeIf { it != target },
             organism.harnesses,
             organism.decisionMode,
+            organism.cellIdentity(cell.id),
         )
     }
 

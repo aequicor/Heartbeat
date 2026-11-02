@@ -23,7 +23,10 @@ internal class ImmunityCourt(private val judges: JudgeSessions, private val tran
             ?: return Ruling.None("The immune system has no model.")
         val dossier = case.subjects().associateWith { transcriptOf(organism, it) }
         log.i { "organism ${organism.id.value} case ${id.value}: judging in a fresh session" }
-        val ruling = parseRuling(case, judges.deliberate(target, judgePrompt(organism, case, dossier), onSession))
+        val ruling = parseRuling(
+            case,
+            judges.deliberate(target, judgePrompt(organism, case, dossier), organism.judgeIdentity(id), onSession),
+        )
         log.i { "organism ${organism.id.value} case ${id.value}: ruling $ruling" }
         return ruling
     }

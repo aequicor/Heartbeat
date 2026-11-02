@@ -251,7 +251,7 @@ class SandboxScenarioTest {
             { TARGET },
             sessions,
             CellDriver(sessions, journal, workspaces, NoHarnesses),
-            ImmunityCourt({ _, _, _ -> error("no judges in this scenario") }, { emptyList() }),
+            ImmunityCourt({ _, _, _, _ -> error("no judges in this scenario") }, { emptyList() }),
             workspaces,
         )
         private val log = Log.tag("SandboxScenario")

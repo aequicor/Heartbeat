@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
@@ -157,6 +158,7 @@ internal open class OrganicEffectsFixture {
         override suspend fun deliberate(
             target: EngineTarget,
             prompt: String,
+            logicalSession: LogicalSessionContext?,
             onSession: suspend (SessionRef) -> Unit,
         ): String {
             prompts += target to prompt

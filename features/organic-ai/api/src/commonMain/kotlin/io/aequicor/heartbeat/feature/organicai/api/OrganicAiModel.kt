@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -182,12 +183,17 @@ public data class Conception(
     val baseCommit: String? = null,
     /** Host-selected decision policy for every cell turn; fixed at conception and preserved across restart. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+    /** Host-proven full conversation; biological ancestry never establishes this owner. */
+    val conversation: LogicalSessionContext? = null,
 ) {
     init {
         require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
             "Invalid organism goal"
         }
         require(isolation == OrganismIsolation.Shared || workspace != null) { "A sandbox organism needs a project" }
+        require(
+            conversation == null || conversation.isHumanInteractive,
+        ) { "An organism needs a full conversation owner" }
         require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
         require(baseCommit == null || (isolation == OrganismIsolation.Sandbox && isPinnedCommit(baseCommit))) {
             "Invalid pinned organism base"
@@ -240,10 +246,15 @@ public data class Organism(
     val baseCommit: String? = null,
     /** Host-selected decision policy for every cell turn; fixed at conception and preserved across restart. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+    /** Host-proven full conversation; biological ancestry never establishes this owner. */
+    val conversation: LogicalSessionContext? = null,
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }
         require(cells.map { it.id }.distinct().size == cells.size) { "Duplicate cell" }
+        require(
+            conversation == null || conversation.isHumanInteractive,
+        ) { "An organism needs a full conversation owner" }
         require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
         require(baseCommit == null || (isolation == OrganismIsolation.Sandbox && isPinnedCommit(baseCommit))) {
             "Invalid pinned organism base"

@@ -13,6 +13,23 @@
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
 
+## Organic owner identity — продолжение шага 4
+
+- Conception/Organism сохраняют проверенный full conversation context. Studio передаёт canonical context;
+  parentless/legacy остаются без выдуманного owner. Executor как conversation отвергается.
+- Зигота сохраняет exact ID полного чата; клетки и судьи получают разные стабильные logical IDs под тем же
+  владельцем (не family root и не biological parent). Native create и resume передают одинаковый context.
+- Verify: organic API 90, impl 241, Studio impl 1143 теста без failures/errors/skips; ordinary/typed detekt,
+  DI compile, organic/Studio iOS compile зелёные. Прежние Studio type-analysis diagnostics остаются ограничением.
+  Read-only architecture review identity delta без блокеров. Cleanup Replaced инкапсулирует mutable transitions,
+  finally явно NonCancellable для typed-detekt; существующие lifecycle tests проходят.
+- Следующее: permanent strict facade SessionRef→execution binding (metadata, не второй lifecycle registry),
+  lazy authority providers и gates до attach/publication/native entry. Best-effort SessionSummary недостаточен:
+  corrupt summary сейчас skipped. Organic authority требует strict point lookup, durable incarnation nonce,
+  persisted ACK перед Drive/Judge, immediate live Dead/Abort deny. Missing/expired/unreadable binding owner deny;
+  TTL30days не должен разрешать старой native session совпасть с новой conception того же organism ID.
+- Полный объём шагов 4–8, UI/E2E/pr-review-and-fix и `/reviewed` ещё впереди; PR draft.
+
 ## Явные роли lease helpers и graph executors
 
 - `HelperConversationRole` проходит producer → HelperAgents → host до persistence. Scheduled/adaptive helpers и
