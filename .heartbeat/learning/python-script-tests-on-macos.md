@@ -1,0 +1,1 @@
+For the Heartbeat Python script suite on macOS, use Python 3.13 with the commit-policy dependencies installed, set TMPDIR=/private/tmp, and ensure child processes find Python 3.13 on PATH; use an absolute PYTHONPATH if dependencies live outside the interpreter.
