@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.api.spi
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityObservation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -69,8 +70,22 @@ public interface EngineManager {
     /** Version shipped inside Heartbeat, for bundled engines; null otherwise. */
     public suspend fun bundledVersion(): String? = null
 
-    /** Whether [version] was verified with this Heartbeat build. */
+    /** Legacy version display metadata, never admission evidence; use [inspectCompatibility] for observed facts. */
     public fun compatibility(version: String): Compatibility = Compatibility.Unknown
+
+    /**
+     * Restricted compatibility probe of exactly [installation] under [launch]. Called explicitly, never from a
+     * state getter. It must use the supplied source without fallback, avoid credentials/project configuration,
+     * submit no model prompt and cancel/reap every process it starts. A known mismatch is evidence, not a thrown
+     * provider error. Null means this legacy manager has no structured probe; an implemented probe with missing
+     * facts returns an Unknown observation. Evidence belongs to the engine whose manager is registered.
+     * Failures use sanitized typed exceptions, without raw paths or provider payloads.
+     * A later actual launch must establish its own facts again; this report never authorizes a changed executable.
+     */
+    public suspend fun inspectCompatibility(
+        installation: Installation,
+        launch: LaunchContext,
+    ): EngineCompatibilityObservation? = null
 
     /** The newest release for this platform, resolved through [feeds]. */
     public suspend fun resolveRelease(feeds: ReleaseFeeds): InstallPlan = unsupported()

@@ -266,6 +266,8 @@ public data class InstallationState(
     val checkedAt: Instant? = null,
     /** Why the last inspection or update check failed. */
     val failure: ManagementFailure? = null,
+    /** Actual adapter facts and policy of the last explicit inspection; absent for legacy managers. */
+    val compatibilityObservation: EngineCompatibilityObservation? = null,
 ) {
     /** A newer release than the copy Heartbeat would replace (managed, else bundled, else current) is known. */
     val isUpdateAvailable: Boolean

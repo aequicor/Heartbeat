@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityObservation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineEnablement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -61,6 +62,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -102,6 +105,10 @@ class EngineManagementService(
 ) : EngineManagement {
     private val log = Log.tag("EngineManagement")
     private val inspections = MutableStateFlow(emptyMap<EngineId, Inspection>())
+
+    // Inspect and a launch change must never publish snapshots across each other; coordination is scoped per engine.
+    private val inspectionLocks = registry.all.associate { it.descriptor.id to Mutex() }
+
     private val jobs = EngineJobs(
         registry,
         installs,
@@ -169,13 +176,19 @@ class EngineManagementService(
     }
 
     private suspend fun inspect(engine: ManagedEngine) {
+        inspectionLocks.getValue(engine.descriptor.id).withLock { inspectCurrent(engine) }
+    }
+
+    private suspend fun inspectCurrent(engine: ManagedEngine) {
         val id = engine.descriptor.id
         runtimes.prune()
         val registration = registry.require(id)
         val manager = registration.manager?.value
         val hasHostApp = registration.management.hostApp != null
-        val inspected = if (manager == null) builtIn() else inspectWith(manager, launch.context(id), hasHostApp)
-        if (engine.enablement.isEnabled) refreshAvailability(id)
+        val inspected = if (manager == null) builtIn() else inspectWith(id, manager, launch.context(id), hasHostApp)
+        val isProbeAllowed = inspected.installation.compatibilityObservation?.decision?.isBaselineAllowed != false &&
+            !inspected.isCompatibilityProbeFailed
+        if (engine.enablement.isEnabled && isProbeAllowed) refreshAvailability(id)
         inspections.update { all ->
             val previous = all[id]
             val installation = inspected.installation.copy(
@@ -194,13 +207,23 @@ class EngineManagementService(
     }
 
     private suspend fun inspectWith(
+        engine: EngineId,
         manager: EngineManager,
         launchContext: LaunchContext,
         hasHostApp: Boolean,
     ): Inspection {
         val now = context.clock.now()
         val installation = bounded("inspect") { manager.inspect(launchContext) }
-        val login = bounded("login status") { manager.loginStatus(launchContext) }
+        val current = installation.value
+        val observed = current?.let { inspectCompatibility(engine, manager, it, launchContext) }
+        val compatibility = manager.compatibilityOf(current, observed)
+        val isRuntimeLocated = hasRunnableInstallation(current)
+        val isLoginAllowed = isRuntimeLocated && permitsFollowingInspection(observed)
+        val login = if (isLoginAllowed) {
+            bounded("login status") { manager.loginStatus(launchContext) }
+        } else {
+            Bounded<LoginState>(LoginState.Unknown)
+        }
         val warnings = bounded("launch check") { manager.check(launchContext.settings) }
         val bundled = bounded("bundled version") { manager.bundledVersion() }
         val hostApp = if (hasHostApp) {
@@ -210,20 +233,51 @@ class EngineManagementService(
         } else {
             null
         }
-        val current = installation.value
-        val compatibility = current?.version?.let(manager::compatibility)
         return Inspection(
             InstallationState(
                 current = current,
                 bundledVersion = bundled.value,
-                compatibility = compatibility ?: Compatibility.Unknown,
+                compatibility = compatibility,
                 checkedAt = now,
-                failure = installation.failure ?: login.failure,
+                failure = installation.failure ?: observed?.failure ?: login.failure,
+                compatibilityObservation = observed?.value,
             ),
             login.value ?: LoginState.Unknown,
             warnings.value.orEmpty(),
             hostApp,
+            isCompatibilityProbeFailed = !isRuntimeLocated || observed?.failure != null,
         )
+    }
+
+    private fun EngineManager.compatibilityOf(
+        current: Installation?,
+        observed: Bounded<EngineCompatibilityObservation?>?,
+    ): Compatibility = when {
+        observed?.failure != null -> Compatibility.Unknown
+        observed?.value != null -> observed.value.decision.status
+        else -> current?.version?.let(::compatibility) ?: Compatibility.Unknown
+    }
+
+    private fun hasRunnableInstallation(installation: Installation?): Boolean =
+        installation != null && installation.source != InstallSource.Missing && installation.isRunnable
+
+    private fun permitsFollowingInspection(observed: Bounded<EngineCompatibilityObservation?>?): Boolean =
+        observed?.value?.decision?.isBaselineAllowed != false && observed?.failure == null
+
+    private suspend fun inspectCompatibility(
+        engine: EngineId,
+        manager: EngineManager,
+        installation: Installation,
+        launch: LaunchContext,
+    ): Bounded<EngineCompatibilityObservation?> = bounded("compatibility probe") {
+        manager.inspectCompatibility(installation, launch)?.also { report ->
+            val observedVersion = report.evidence.identity.runtime
+            val isVersionChanged = installation.version != null && observedVersion != null &&
+                installation.version != observedVersion
+            if (report.requirements.engine != engine || isVersionChanged) {
+                throw EngineException(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+            }
+        }
     }
 
     private fun builtIn() = Inspection(
@@ -250,6 +304,10 @@ class EngineManagementService(
     }
 
     private suspend fun configure(engine: ManagedEngine, settings: LaunchSettings) {
+        inspectionLocks.getValue(engine.descriptor.id).withLock { configureCurrent(engine, settings) }
+    }
+
+    private suspend fun configureCurrent(engine: ManagedEngine, settings: LaunchSettings) {
         val id = engine.descriptor.id
         val problems = validateLaunchSettings(settings, engine.spec.launch, registry.platform)
         if (problems.isNotEmpty()) {
@@ -268,6 +326,27 @@ class EngineManagementService(
             chosen.copy(launch = chosen.launch + (id to updated))
         }.launchOf(id)
         log.i { "launch settings saved engine=${id.value} isDefault=${saved.isDefault}" }
+        inspections.update { all ->
+            val previous = all[id]
+            if (previous == null) {
+                all
+            } else {
+                val installation = previous.installation.copy(
+                    current = null,
+                    compatibility = Compatibility.Unknown,
+                    compatibilityObservation = null,
+                    checkedAt = null,
+                    failure = null,
+                )
+                all + (
+                    id to previous.copy(
+                        installation = installation,
+                        login = LoginState.Unknown,
+                        isCompatibilityProbeFailed = false,
+                    )
+                )
+            }
+        }
         val manager = registry.require(id).manager?.value
         val warnings = if (manager == null) emptyList() else bounded("launch check") { manager.check(settings) }.value
         inspections.update { all -> all + (id to (all[id] ?: Inspection()).copy(warnings = warnings.orEmpty())) }
@@ -283,13 +362,7 @@ class EngineManagementService(
     }
 
     private suspend fun refreshAvailability(engine: EngineId) {
-        try {
-            catalog.refresh(engine)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: EngineException) {
-            log.w(e) { "availability probe failed engine=${engine.value}" }
-        }
+        bounded("availability probe") { catalog.refresh(engine) }
     }
 
     /** Reads Heartbeat's copies once engine management is on; while it is off, their files are left untouched. */
@@ -494,6 +567,7 @@ class EngineManagementService(
         val login: LoginState? = null,
         val warnings: List<LaunchProblem> = emptyList(),
         val hostApp: HostAppState? = null,
+        val isCompatibilityProbeFailed: Boolean = false,
     )
 
     private data class Inputs(

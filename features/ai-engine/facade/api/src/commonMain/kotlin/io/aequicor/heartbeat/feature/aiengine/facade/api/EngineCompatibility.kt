@@ -131,6 +131,20 @@ public data class EngineCompatibilityEvidence(
     override fun toString(): String = "EngineCompatibilityEvidence"
 }
 
+/**
+ * One immutable adapter observation and its policy. Keeps partial facts and requirements available to diagnostics
+ * even when no complete regression stamp exists. Reading [decision] never probes or starts a process.
+ */
+public data class EngineCompatibilityObservation(
+    val requirements: EngineCompatibilityRequirements,
+    val evidence: EngineCompatibilityEvidence,
+) {
+    /** Assessment of exactly this evidence, not a permit for a later launch. */
+    val decision: EngineCompatibilityDecision = assessEngineCompatibility(requirements, evidence)
+
+    override fun toString(): String = "EngineCompatibilityObservation(status=${decision.status})"
+}
+
 /** Why compatibility could not be confirmed; only typed, non-sensitive diagnostics are exposed. */
 public enum class CompatibilityProblem {
     /** One or more identity dimensions have not been established. */
