@@ -13,6 +13,31 @@
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
 
+## Facade execution authority — проверенная инфраструктура шага 4
+
+- Добавлены host-only `SessionExecutionBinding`/instance, immutable permanent strict KV и lazy canonical authority
+  providers. Known native binding восстанавливается при resume даже с null host fields; resume не создаёт новую
+  authority. Full chat не может стать executor через binding. Serialized/model requests не несут host claim.
+- `SessionExecutionAccess` — profile singleton. Bound admissions и fence сериализованы до native RPC, а не на время
+  RPC. Actual Submit/respond, cached send/steer/config и create/attach используют barrier. History/Stop не объявлены
+  terminal evidence. Interrupted handoff сохраняет unresolved ticket; drain не доказывает native terminal.
+- Native create сохраняет strict `Opening(token, binding, engine)` до RPC. Reservation запрещает новые unbound
+  admissions этого engine и вне mutex ждёт старые handoffs. Native ACK атомарно заменяет exact Opening на binding;
+  concurrent cached unbound handle не может проскочить установку authority. Route preflight идёт до reservation.
+- Ref сохраняется в runtime quarantine до durable binding, даже если одновременно упали запись и native close.
+  Binding записывается до post-open route recheck. Retry не удаляет чужой Opening. Control drain проверяет durable
+  pending openings после restart; absence of ref/local handles не становится успехом. После unknown native create
+  остаётся консервативный engine-wide quarantine; его нельзя молча очистить без privileged reconciliation.
+- Verify: facade API 155 тестов; impl 648, failures/errors 0, skips 12 (Windows/PowerShell на macOS).
+  Ordinary/typed detekt, JVM DI, facade iOS compile успешны. Последний прогон сериализации/CAS тоже зелёный.
+  Architecture review: две гонки найдены и исправлены, повторное ревью без блокеров инфраструктурного участка.
+- HTTP403 approval/subagent был временным: доступ восстановился, Gradle checks реально выполнены. Живых Gradle
+  sessions после последнего прогона нет; /tmp/heartbeat-640-binding-final.log и binding-persistence.log зелёные.
+- Producers/authority providers и canonical termination consumers ещё НЕ подключены. Следом Studio executor
+  incarnation + tombstone, organic strict lookup/incarnation + persisted ACK before Drive/Judge, internal service
+  producers; exact native cleanup после barrier, затем owner mediation/background/UI/E2E/final review.
+- Полный объём PR остаётся незавершённым. PR draft; `/reviewed` не поставлен.
+
 ## Organic owner identity — продолжение шага 4
 
 - Conception/Organism сохраняют проверенный full conversation context. Studio передаёт canonical context;

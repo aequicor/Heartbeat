@@ -91,6 +91,9 @@ public data class CreateSessionRequest(
     /** Host-persisted logical role; serialized/model requests cannot supply an ownership claim. */
     @kotlinx.serialization.Transient
     val logicalSession: LogicalSessionContext? = null,
+    /** Host-only executor incarnation; serialized requests cannot claim execution authority. */
+    @kotlinx.serialization.Transient
+    val execution: SessionExecutionBinding? = null,
 )
 
 /**
@@ -107,6 +110,9 @@ public data class ResumeSessionRequest(
     /** Restored by the owning host from its durable conversation record, never inferred from the native ref. */
     @kotlinx.serialization.Transient
     val logicalSession: LogicalSessionContext? = null,
+    /** Host-only executor incarnation; serialized requests cannot claim execution authority. */
+    @kotlinx.serialization.Transient
+    val execution: SessionExecutionBinding? = null,
 )
 
 /**

@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -36,6 +37,8 @@ class ActiveSessionEffects(
     private val native: ActiveSession,
     commands: CoroutineScope,
     private val onFailure: (EngineFailure) -> Unit = {},
+    private val execution: SessionExecutionBinding? = null,
+    private val executions: SessionExecutionAccess? = null,
 ) : EffectHandler<ActiveSessionEffect, ActiveSessionIntent> {
     private val log = Log.tag("ActiveSessionEffects")
 
@@ -56,8 +59,10 @@ class ActiveSessionEffects(
             is ActiveSessionEffect.Submit -> {
                 log.i { "submit request=${effect.request.id.value} turn=${effect.turn.id.value}" }
                 handOff("send") {
-                    val nativeTurn = command(SendsPrompts).send(effect.request)
-                    correlation.bind(nativeTurn, effect.turn.id)
+                    admitted {
+                        val nativeTurn = command(SendsPrompts).send(effect.request)
+                        correlation.bind(nativeTurn, effect.turn.id)
+                    }
                 }
                 machine.send(ActiveSessionIntent.Internal.Accepted(effect.turn.id))
             }
@@ -69,7 +74,9 @@ class ActiveSessionEffects(
 
             is ActiveSessionEffect.Decide -> {
                 log.i { "decide turn=${effect.decision.turn.value} request=${effect.decision.request.value}" }
-                handOff("respond") { command(RequestsPermissions).respond(correlation.native(effect.decision)) }
+                handOff(
+                    "respond",
+                ) { admitted { command(RequestsPermissions).respond(correlation.native(effect.decision)) } }
             }
 
             is ActiveSessionEffect.Recheck -> try {
@@ -85,6 +92,16 @@ class ActiveSessionEffects(
                 machine.send(ActiveSessionIntent.Internal.Released)
                 handOffJob.complete()
             }
+        }
+    }
+
+    private suspend fun admitted(block: suspend () -> Unit) {
+        val access = executions
+        if (access == null) {
+            check(execution == null) { "Executor handle needs the profile authority gate" }
+            block()
+        } else {
+            access.admitted(native.ref, execution, block)
         }
     }
 

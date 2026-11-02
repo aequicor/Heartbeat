@@ -114,6 +114,7 @@ class SessionLauncherTest {
             sessions,
             host,
             fixture.context,
+            testExecutionAccess(),
         )
         capabilities = FacadeCapabilities(sessions, lazyOf(launcher), registry)
         runCurrent()

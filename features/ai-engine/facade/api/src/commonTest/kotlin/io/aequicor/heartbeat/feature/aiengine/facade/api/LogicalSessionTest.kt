@@ -12,6 +12,18 @@ class LogicalSessionTest {
     private val root = LogicalSessionContext(LogicalSessionId("root"), SessionKind.Session)
 
     @Test
+    fun `serialized requests cannot carry execution authority or turn full chats into executors`() {
+        val target = EngineTarget(EngineId("test"), EngineBindingId("binding"), ModelId("model"))
+        val instance = SessionExecutionInstance("host", "incarnation")
+        val execution = SessionExecutionBinding(instance, root.subagent(LogicalSessionId("executor")))
+        val request = CreateSessionRequest(target, execution = execution)
+        val resume = ResumeSessionRequest(target, execution = execution)
+        assertNull(Json.decodeFromString<CreateSessionRequest>(Json.encodeToString(request)).execution)
+        assertNull(Json.decodeFromString<ResumeSessionRequest>(Json.encodeToString(resume)).execution)
+        assertFailsWith<IllegalArgumentException> { SessionExecutionBinding(instance, root) }
+    }
+
+    @Test
     fun `serialized open requests cannot claim a logical owner`() {
         val target = EngineTarget(EngineId("test"), EngineBindingId("binding"), ModelId("model"))
         val request = CreateSessionRequest(target, logicalSession = root)

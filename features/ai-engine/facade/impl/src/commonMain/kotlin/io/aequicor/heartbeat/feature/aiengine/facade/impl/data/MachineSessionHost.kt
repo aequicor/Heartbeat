@@ -65,6 +65,7 @@ class MachineSessionHost(
                 OwnedHandle(id, owned),
                 options.areSessionHooksEnabled,
                 options.logicalSession,
+                options.execution,
             )
         } catch (e: CancellationException) {
             owned.close()

@@ -56,19 +56,39 @@ class SessionLauncher(
     private val sessions: SessionCatalogService,
     private val host: ActiveSessionHost,
     private val context: FacadeContext,
+    private val executions: SessionExecutionAccess,
 ) {
     private val log = Log.tag("SessionLauncher")
 
     /** Creates an idle session on [request]'s exact target. */
     suspend fun create(request: CreateSessionRequest): ActiveSession = context.observeAuthentication {
+        executions.validate(request.execution, request.logicalSession)
+        request.execution?.let { executions.admissions.check(it) }
         val target = request.target
-        log.i { "create session engine=${target.engine.value} binding=${target.binding.value}" }
         val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
         val creator = pool.runtime(resolved).features.resolve(CreatesSessions).orFail()
+        executions.creating(target.engine, context.token("execution_"), request.execution) { opening ->
+            createAdmitted(request, opening, resolved, creator)
+        }
+    }
+
+    private suspend fun createAdmitted(
+        request: CreateSessionRequest,
+        opening: SessionExecutionOpening?,
+        resolved: ResolvedRoute,
+        creator: CreatesSessions,
+    ): ActiveSession {
+        val target = request.target
+        log.i { "create session engine=${target.engine.value} binding=${target.binding.value}" }
         val native = adapterCall(log, "create") { creator.create(request) }
-        val options = SessionHostOptions(request.areSessionHooksEnabled, request.logicalSession)
-        open(native, resolved.route, target.model, options) {
+        val options = SessionHostOptions(
+            request.areSessionHooksEnabled,
+            request.execution?.logicalSession ?: request.logicalSession,
+            request.execution,
+        )
+        return open(native, resolved.route, target.model, options) {
             if (native.ref.engine != target.engine) fail(EngineFailure.Unknown())
+            executions.record(native.ref, opening)
             val now = context.clock.now()
             record(
                 SessionSummary(
@@ -84,14 +104,24 @@ class SessionLauncher(
 
     /** Attaches the stored session [ref] on [request]'s exact target; never switches credentials implicitly. */
     suspend fun resume(ref: SessionRef, request: ResumeSessionRequest): ActiveSession = context.observeAuthentication {
+        val binding = executions.resolve(ref, request.execution, request.logicalSession)
+        executions.admitted(ref, binding) {
+            resumeAdmitted(
+                ref,
+                request.copy(execution = binding, logicalSession = binding?.logicalSession ?: request.logicalSession),
+            )
+        }
+    }
+
+    private suspend fun resumeAdmitted(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
         val target = request.target
         log.i { "resume session engine=${ref.engine.value} binding=${target.binding.value}" }
         if (target.engine != ref.engine) fail(InvalidRequest)
         val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
         val attacher = pool.runtime(resolved).features.resolve(AttachesSessions).orFail()
         val native = adapterCall(log, "attach") { attacher.attach(ref, request) }
-        val options = SessionHostOptions(request.areSessionHooksEnabled, request.logicalSession)
-        open(native, resolved.route, target.model, options) {
+        val options = SessionHostOptions(request.areSessionHooksEnabled, request.logicalSession, request.execution)
+        return open(native, resolved.route, target.model, options) {
             if (native.ref != ref) fail(EngineFailure.Unknown())
             val known = sessions.indexed(ref) ?: SessionSummary(ref)
             record(known.copy(workspace = request.workspace ?: known.workspace, lastRoute = resolved.route))
@@ -154,11 +184,14 @@ class SessionLauncher(
         var isOpened = false
         var opened: ActiveSession? = null
         try {
-            routes.recheck(route, model)
+            // Publish mandatory authority metadata before any route recheck can fail and release the handle.
             prepare()
+            routes.recheck(route, model)
+            executions.check(native.ref, options.execution)
             val handle = host.open(native, route, model, options).also { opened = it }
             // Register before the recheck: a concurrent removal either closes this handle or is observed here.
             routes.recheck(route, model)
+            executions.check(native.ref, options.execution)
             isOpened = true
             return handle
         } finally {

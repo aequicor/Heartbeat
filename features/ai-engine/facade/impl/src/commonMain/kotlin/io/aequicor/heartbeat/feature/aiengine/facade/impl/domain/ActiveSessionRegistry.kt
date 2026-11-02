@@ -206,6 +206,7 @@ class SessionPolicy(
     private val tools: ProfileAgentTools = NoAgentTools,
     val hooks: SessionHooks = NoSessionHooks,
     private val workspaces: io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces? = null,
+    val executions: SessionExecutionAccess? = null,
 ) {
     /** Observes authoritative adapter outcomes even for service sessions without lifecycle hooks. */
     fun observeNative(state: ActiveSessionState) {

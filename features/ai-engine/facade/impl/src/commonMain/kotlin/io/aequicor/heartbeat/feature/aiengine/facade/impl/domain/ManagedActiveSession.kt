@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationUpdate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextRevision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -82,6 +83,7 @@ class ManagedActiveSession(
     private val policy: SessionPolicy,
     hookContext: SessionHookContext? = null,
     override val logicalSession: LogicalSessionContext? = null,
+    private val execution: SessionExecutionBinding? = null,
 ) : ActiveSession {
     private val log = Log.tag("ActiveSession")
     private val machine = parts.machine
@@ -258,8 +260,20 @@ class ManagedActiveSession(
         if (result != SendResult.Accepted) fail(if (result == SendResult.Ignored) InvalidRequest else result.failure())
     }
 
+    private suspend fun <T> admitted(block: suspend () -> T): T {
+        val access = policy.executions
+        return if (access == null) {
+            check(execution == null) { "Executor handle needs the profile authority gate" }
+            block()
+        } else {
+            access.admitted(ref, execution, block)
+        }
+    }
+
     private inner class Sender : SendsPrompts {
-        override suspend fun send(request: PromptRequest): TurnId {
+        override suspend fun send(request: PromptRequest): TurnId = admitted { sendAdmitted(request) }
+
+        private suspend fun sendAdmitted(request: PromptRequest): TurnId {
             log.i {
                 "send request=${request.id.value} parts=${request.parts.size} trust=${request.trust ?: "default"}" +
                     if (request.compaction != null) " compaction" else ""
@@ -341,7 +355,12 @@ class ManagedActiveSession(
                 }
                 if (current.id != turn) fail(InvalidRequest)
                 untilStopped {
-                    adapterCall(log, "steer") { native.steer(parts.effects.correlation.native(turn), request) }
+                    admitted {
+                        adapterCall(
+                            log,
+                            "steer",
+                        ) { native.steer(parts.effects.correlation.native(turn), request) }
+                    }
                 }
             }
         }
@@ -386,7 +405,7 @@ class ManagedActiveSession(
             policy.registry.exclusive(ref) {
                 if (machine.state.value !is ActiveSessionState.Ready) fail(Busy)
                 if (policy.registry.isBusy(ref, this@ManagedActiveSession)) fail(Busy)
-                adapterCall(log, "switchModel") { native.switchTo(model) }
+                admitted { adapterCall(log, "switchModel") { native.switchTo(model) } }
                 currentModel.value = model
             }
         }
@@ -418,7 +437,7 @@ class ManagedActiveSession(
                     is ActiveSessionState.Submitting, is ActiveSessionState.Interrupting -> fail(Busy)
                 }
                 untilStopped {
-                    adapterCall(log, "configure") { native.apply(operationId, change) }.also {
+                    admitted { adapterCall(log, "configure") { native.apply(operationId, change) } }.also {
                         currentModel.value = it.model
                     }
                 }

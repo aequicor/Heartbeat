@@ -170,6 +170,7 @@ class OwnedTurnStopFacadeTest {
                 sessions,
                 ActiveSessionHost { _, _, _, _ -> error("Stop must not open a handle") },
                 routes.context,
+                testExecutionAccess(),
             )
             capabilities = FacadeCapabilities(sessions, lazyOf(launcher), handles)
             factory.runtime = { identity ->
