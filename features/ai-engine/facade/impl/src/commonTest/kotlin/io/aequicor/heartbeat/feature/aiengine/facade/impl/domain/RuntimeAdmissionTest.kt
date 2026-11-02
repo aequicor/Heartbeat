@@ -13,7 +13,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.identity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimePromotion
@@ -52,22 +51,7 @@ class RuntimeAdmissionTest {
         nativeTargets = setOf(stamp.nativeTarget), baselineCapabilities = setOf("cancel"), verified = setOf(stamp),
     )
     private var candidate = Candidate()
-    private val retainedCandidates = mutableSetOf<EngineRuntimeCandidate>()
-    private val retainedRuntimes = mutableSetOf<EngineRuntime>()
-    private val cleanup = object : RuntimeAdmissionCleanup {
-        override fun retain(candidate: EngineRuntimeCandidate) {
-            retainedCandidates += candidate
-        }
-        override fun retain(runtime: EngineRuntime) {
-            retainedRuntimes += runtime
-        }
-        override fun releaseClosed(candidate: EngineRuntimeCandidate) {
-            retainedCandidates -= candidate
-        }
-        override fun releaseClosed(runtime: EngineRuntime) {
-            retainedRuntimes -= runtime
-        }
-    }
+    private var cleanup: RuntimeCleanupOwner? = null
     private val legacy = FakeEngineFactory()
     private var opens = 0
     private var checks = 0
@@ -104,7 +88,7 @@ class RuntimeAdmissionTest {
         val noCandidate = object : EngineFactory by legacy {
             override val runtimeRequirements = policy
         }
-        val result = RuntimeAdmission(facadeContext(), cleanup).acquire(
+        val result = RuntimeAdmission(facadeContext(), cleanupOwner()).acquire(
             registration(noCandidate),
             request,
             testScheduler.timeSource.markNow() + 5.seconds,
@@ -170,6 +154,18 @@ class RuntimeAdmissionTest {
         assertEquals("1.1.0", unverified.stamp.runtime)
         assertEquals(Compatibility.Unverified, unverified.decision.status)
         assertEquals(1, candidate.promotions)
+    }
+
+    @Test
+    fun `rejected candidate cleanup remains under the requested source identity`() = runTest {
+        candidate.input = request.copy(identity = identity.copy(source = AuthSourceId("foreign")))
+        candidate.beforeClose = { throw EngineException(OperationNotAllowed) }
+        assertFailsWith<EngineException> { acquire() }
+        assertEquals(1, cleanupOwner().pendingCount)
+        candidate.beforeClose = {}
+        cleanupOwner().retryFor(identity.engine, identity.source)
+        assertEquals(0, cleanupOwner().pendingCount)
+        assertEquals(2, candidate.closes)
     }
 
     @Test
@@ -244,16 +240,11 @@ class RuntimeAdmissionTest {
         candidate.beforeClose = { throw EngineException(OperationNotAllowed) }
         candidate.runtime.closeFailure = EngineException(OperationNotAllowed)
         assertFailsWith<EngineException> { acquire() }
-        assertSame(candidate, retainedCandidates.single())
-        assertSame(candidate.runtime, retainedRuntimes.single())
+        assertEquals(2, cleanupOwner().pendingCount)
         candidate.beforeClose = {}
         candidate.runtime.closeFailure = null
-        retainedCandidates.single().close()
-        cleanup.releaseClosed(candidate)
-        retainedRuntimes.single().close()
-        cleanup.releaseClosed(candidate.runtime)
-        assertTrue(retainedCandidates.isEmpty())
-        assertTrue(retainedRuntimes.isEmpty())
+        cleanupOwner().retryAll()
+        assertEquals(0, cleanupOwner().pendingCount)
         assertTrue(candidate.runtime.isClosed)
     }
 
@@ -288,9 +279,12 @@ class RuntimeAdmissionTest {
         assertEquals(1, candidate.closes)
     }
 
+    private fun TestScope.cleanupOwner(): RuntimeCleanupOwner =
+        cleanup ?: RuntimeCleanupOwner(facadeContext()).also { cleanup = it }
+
     private suspend fun TestScope.acquire(
         deadline: TimeMark = testScheduler.timeSource.markNow() + 5.seconds,
-    ): RuntimeAdmissionResult = RuntimeAdmission(facadeContext(), cleanup).acquire(
+    ): RuntimeAdmissionResult = RuntimeAdmission(facadeContext(), cleanupOwner()).acquire(
         registration(factory),
         request,
         deadline,

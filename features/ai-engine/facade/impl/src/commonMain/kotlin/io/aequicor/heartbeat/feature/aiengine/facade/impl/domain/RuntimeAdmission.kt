@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimePromotion
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -90,7 +91,7 @@ internal class RuntimeAdmission(private val context: FacadeContext, private val 
                     RuntimeAdmissionResult.Accepted(promoted.runtime, decision)
                 } finally {
                     val owned = candidate
-                    if (owned != null) withContext(NonCancellable) { closeCandidate(owned) }
+                    if (owned != null) withContext(NonCancellable) { closeCandidate(owned, request.identity) }
                 }
             }
             // Cleanup may suspend; validate again before ownership passes to the pool/caller.
@@ -105,25 +106,17 @@ internal class RuntimeAdmission(private val context: FacadeContext, private val 
         } finally {
             val orphan = promotion?.runtime?.takeUnless { isTransferred }
             if (orphan != null) {
-                withContext(NonCancellable) { closeRuntime(orphan) }
+                withContext(NonCancellable) { closeRuntime(orphan, request.identity) }
             }
         }
     }
 
-    private suspend fun closeCandidate(candidate: EngineRuntimeCandidate) {
-        cleanup.retain(candidate)
-        withContext(context.io) {
-            adapterCall(log, "close restricted candidate") { candidate.close() }
-        }
-        cleanup.releaseClosed(candidate)
+    private suspend fun closeCandidate(candidate: EngineRuntimeCandidate, expected: RuntimeIdentity) {
+        adapterCall(log, "close restricted candidate") { cleanup.close(candidate, expected) }
     }
 
-    private suspend fun closeRuntime(runtime: EngineRuntime) {
-        cleanup.retain(runtime)
-        withContext(context.io) {
-            adapterCall(log, "close untransferred runtime") { runtime.close() }
-        }
-        cleanup.releaseClosed(runtime)
+    private suspend fun closeRuntime(runtime: EngineRuntime, expected: RuntimeIdentity) {
+        adapterCall(log, "close untransferred runtime") { cleanup.close(runtime, expected) }
     }
 
     private fun checkDeadline(deadline: TimeMark) {
@@ -136,21 +129,15 @@ internal class RuntimeAdmission(private val context: FacadeContext, private val 
 }
 
 /**
- * Profile owner of resources during cleanup and after failed close. All methods are synchronous, IO-free and
- * must not throw. Serialize retries with the acquisition attempt, never run two closes concurrently. Keep
- * each resource until a later close succeeds, including through profile shutdown; never replace with a no-op.
- * The pool integration must supply this owner before enabling the acquisition seam.
+ * Profile owner that retains each resource before close and removes it only after successful cleanup.
+ * Initial close and retries are serialized by resource identity. Failed or cancelled close remains owned for
+ * profile/app shutdown retry; no default/no-op implementation is safe. The expected identity comes from the
+ * host request, never the rejected resource itself. Callers use NonCancellable cleanup.
  */
 internal interface RuntimeAdmissionCleanup {
-    /** Retains restricted resources before attempting cleanup. */
-    fun retain(candidate: EngineRuntimeCandidate)
+    /** Closes remaining restricted resources, retaining them if cleanup fails. */
+    suspend fun close(candidate: EngineRuntimeCandidate, expected: RuntimeIdentity)
 
-    /** Retains an untransferred runtime before attempting cleanup. */
-    fun retain(runtime: EngineRuntime)
-
-    /** Removes ownership only after candidate close completed successfully. */
-    fun releaseClosed(candidate: EngineRuntimeCandidate)
-
-    /** Removes ownership only after runtime close completed successfully. */
-    fun releaseClosed(runtime: EngineRuntime)
+    /** Closes an untransferred runtime, retaining it if cleanup fails. */
+    suspend fun close(runtime: EngineRuntime, expected: RuntimeIdentity)
 }

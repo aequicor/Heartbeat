@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -54,6 +55,7 @@ class RuntimePool(
 ) {
     private val log = Log.tag("RuntimePool")
     private val mutex = Mutex()
+    private val cleanup = RuntimeCleanupOwner(context)
     private val runtimes = mutableMapOf<Pair<EngineId, AuthSourceId>, Pooled>()
     private val keyLocks = mutableMapOf<Pair<EngineId, AuthSourceId>, Mutex>()
     private val disconnected = mutableSetOf<Pair<EngineId, EngineBindingId>>()
@@ -61,6 +63,9 @@ class RuntimePool(
     private val published = MutableStateFlow(emptyList<RuntimeEntry>())
     private val hasLiveRuntimes = MutableStateFlow(false)
     private var isClosed = false
+
+    /** Shared cleanup ownership for restricted acquisition and ordinary runtime orphan cleanup. */
+    internal val admissionCleanup: RuntimeAdmissionCleanup get() = cleanup
 
     /**
      * Pooled runtimes; observers receive native exit changes within one second. An exited runtime stays listed
@@ -189,6 +194,7 @@ class RuntimePool(
             requireConnected(resolved)
             runtimes[key]
         }
+        cleanup.retryFor(identity.engine, identity.source)
         if (current != null && current.runtime.isClosed) {
             dispose(current, key)
         } else if (current != null && current.runtime.identity == identity) {
@@ -200,10 +206,12 @@ class RuntimePool(
         log.i { "start runtime engine=${identity.engine.value} source=${identity.source.value}" }
         // Read before the adapter starts, so a change made meanwhile marks the runtime stale rather than current.
         val launch = launchOf(identity.engine)
+        // Retirement can leave an unconfirmed close: never start another credential rotator over that orphan.
+        cleanup.retryFor(identity.engine, identity.source)
         val created = create(resolved)
         if (created.identity != identity) {
             log.e { "runtime reported another identity engine=${identity.engine.value}" }
-            withContext(NonCancellable) { closeQuietly(created) }
+            withContext(NonCancellable) { closeQuietly(created, identity) }
             fail(EngineFailure.Unknown())
         }
         // Registration must not be cancelled between creation and the pool, or the runtime would leak.
@@ -251,7 +259,7 @@ class RuntimePool(
             val orphan = started?.takeUnless { isHandedOver }
             if (orphan != null) {
                 log.i { "runtime created for a cancelled request, closing engine=${identity.engine.value}" }
-                withContext(NonCancellable) { closeQuietly(orphan) }
+                withContext(NonCancellable) { closeQuietly(orphan, identity) }
             }
         }
     }
@@ -299,7 +307,7 @@ class RuntimePool(
                 }
             }
         }
-        if (isOwned) withContext(NonCancellable) { closeQuietly(current.runtime) }
+        if (isOwned) withContext(NonCancellable) { cleanup.close(current.runtime, current.runtime.identity) }
     }
 
     /** Called under [mutex]. */
@@ -349,7 +357,10 @@ class RuntimePool(
             val failures = supervisorScope {
                 val jobs = keys.map { key -> async { locked(key) { closeOwned(key) } } }
                 jobs.forEach { it.join() }
-                jobs.mapNotNull { it.getCompletionExceptionOrNull() }
+                // Source locks have drained, so even a late cancelled creation has registered its orphan.
+                val remaining = async { cleanup.retryAll() }
+                remaining.join()
+                (jobs + remaining).mapNotNull { it.getCompletionExceptionOrNull() }
             }
             failures.firstOrNull()?.let { first ->
                 failures.drop(1).forEach(first::addSuppressed)
@@ -370,9 +381,9 @@ class RuntimePool(
         }
     }
 
-    private suspend fun closeQuietly(runtime: EngineRuntime) {
+    private suspend fun closeQuietly(runtime: EngineRuntime, expected: RuntimeIdentity) {
         try {
-            runtime.close()
+            cleanup.close(runtime, expected)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
