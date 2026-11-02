@@ -86,6 +86,12 @@ internal class StudioHelperNative(
             val receipt = attempts.receipt(HelperId(record.id), request) ?: return@evidence null
             val session = record.ref ?: return@evidence null
             receipt.requireNativeIdentity(session, receipt.turn)
+            check(
+                receipt.nativeRoute == null || receipt.nativeRoute == StudioRecoveryRoute(
+                    checkNotNull(record.target),
+                    record.resolvedExecutionWorkspace(),
+                ),
+            ) { "Native stop route differs from its launch" }
             stopExact(record, request, receipt.turn, active)
         }
 

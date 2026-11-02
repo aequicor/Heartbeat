@@ -46,7 +46,7 @@ internal fun recoveryStopChain(
         return current.execution
     }
     val leaves = records.values.filter {
-        it.execution == request || it.observed == request || (
+        it.execution == request || it.observed == request || it.inspectionTarget == request || it.root == request || (
             it.observed == null && it.phase != StudioRecoveryPhase.Submit && request in it.candidates
         )
     }.map(::leaf).toSet()
@@ -60,7 +60,7 @@ internal fun prepareRecoveryTransfer(
     witness: StudioRecoveryWitness,
     isLegacyStopped: Boolean,
 ): Map<String, StudioRecoveryWitness> {
-    val unresolved = records.values.filter { it.blocksContext(receipts) }
+    val unresolved = records.activeRecoveryWitnesses(receipts).filter { it.blocksContext(receipts) }
     val old = unresolved.singleOrNull()
     check(unresolved.isEmpty() || old != null) { "Contradictory recovery observation ownership" }
     val prepared = if (old == null) {
@@ -69,6 +69,9 @@ internal fun prepareRecoveryTransfer(
             isStopRequested = isLegacyStopped ||
                 records.values.any { it.root == witness.root && it.isStopRequested },
         )
+    } else if (old.hasNativeSend) {
+        check(witness.predecessorExecution == old.execution) { "Recovery did not bind the previous native send" }
+        witness.copy(isStopRequested = old.isStopRequested || isLegacyStopped)
     } else {
         check(old.phase in TransferableRecoveryPhases) { "A native send must be reconciled through its receipt" }
         check(old.root == witness.root && old.session == witness.session && old.route == witness.route) {
@@ -84,7 +87,8 @@ internal fun prepareRecoveryTransfer(
             isStopRequested = old.isStopRequested || isLegacyStopped,
         )
     }
-    val transferred = old?.let { records + (it.execution.value to it.copy(observerSuccessor = witness.execution)) }
-        ?: records
+    val transferred = old?.takeUnless { it.hasNativeSend }?.let {
+        records + (it.execution.value to it.copy(observerSuccessor = witness.execution))
+    } ?: records
     return transferred + (witness.execution.value to prepared)
 }

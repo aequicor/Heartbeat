@@ -58,10 +58,28 @@ internal class StudioRecoveryJournal(private val attempts: StudioHelperAttempts)
     suspend fun idle(delivery: StudioRecoveryDelivery, session: SessionRef) =
         attempts.changeRecoveryDelivery(delivery) { it.idle(session) }
 
-    suspend fun observed(delivery: StudioRecoveryDelivery, evidence: StudioRecoveryEvidence) =
-        attempts.changeRecoveryDelivery(delivery) {
+    suspend fun observed(delivery: StudioRecoveryDelivery, evidence: StudioRecoveryEvidence): StudioRecoveryWitness {
+        val witness = attempts.changeRecoveryDelivery(delivery) {
             it.observed(evidence.request, evidence.session, evidence.turn, evidence.outcome?.recoveryOutcome())
         }
+        rememberTerminal(delivery, evidence)
+        return witness
+    }
+
+    /** A known receipt turn may enrich terminal-only inspection; a missing native turn is never fabricated. */
+    private suspend fun rememberTerminal(delivery: StudioRecoveryDelivery, evidence: StudioRecoveryEvidence) {
+        val outcome = evidence.outcome?.takeUnless { it == TurnOutcome.Unknown } ?: return
+        val helper = HelperId(delivery.chat)
+        val receipt = attempts.receipt(helper, evidence.request) ?: return
+        val turn = evidence.turn ?: receipt.turn
+        attempts.terminal(
+            helper,
+            evidence.request,
+            StudioHelperTerminal(evidence.session, turn, outcome.recoveryOutcome(), ""),
+        )
+    }
+
+    suspend fun inspectionTarget(delivery: StudioRecoveryDelivery): RequestId? = current(delivery).inspectionTarget
 
     suspend fun submitting(delivery: StudioRecoveryDelivery) =
         attempts.changeRecoveryDelivery(delivery) { it.submitting() }

@@ -83,6 +83,9 @@ internal class StudioHelperAdmission(
         check(
             request.origin != StudioTurnOrigin.HelperWork,
         ) { "Helper work requires an authenticated lease submission" }
+        if (request.submission?.recoveryDelivery != null && attempts.recovery(helper, request.request) != null) {
+            return prepareGraphContinuation(helper, request)
+        }
         requireLegacyTerminal(record, helper)
         val policy = request.origin.deliveryPolicy()
         val previous = attempts.unresolved(helper)
@@ -96,6 +99,17 @@ internal class StudioHelperAdmission(
         check(prepared.isNew) { "The helper request is already owned" }
         log.v { "Reserved helper request through common admission" }
         return request.copy(
+            submission = StudioHelperSubmission(attempts, admissions, helper, request.request, request.submission),
+        )
+    }
+    private suspend fun prepareGraphContinuation(helper: HelperId, request: StudioTurnRequest): StudioTurnRequest {
+        check(request.origin is StudioTurnOrigin.GraphWork) { "Only graph work may continue native recovery" }
+        val prepared = attempts.prepareGraphContinuation(helper, request)
+        check(prepared.isNew) { "Graph native execution already exists and must be reconciled" }
+        val receipt = prepared.receipt
+        return request.copy(
+            settings = checkNotNull(receipt.executionSnapshot).settings,
+            causes = receipt.causes.orEmpty(),
             submission = StudioHelperSubmission(attempts, admissions, helper, request.request, request.submission),
         )
     }

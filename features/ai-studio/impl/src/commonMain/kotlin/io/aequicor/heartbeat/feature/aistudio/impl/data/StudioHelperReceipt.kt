@@ -79,12 +79,17 @@ internal data class StudioHelperReceipt(
     val policy: StudioAttemptPolicy? = null,
     /** Persisted by the exact sender before native entry; absent legacy values grant no continuation authority. */
     val executionSnapshot: StudioExecutionSnapshot? = null,
+    /** Actual native launch route of this node; virtual descendants do not inherit it. */
+    val nativeRoute: StudioRecoveryRoute? = null,
     /** Exact producer-proven predecessor, never inferred from virtual lookup maps. */
     val continuationOf: RequestId? = null,
+    /** Null denotes the existing terminal virtual-action edge; graph edges carry their native proof explicitly. */
+    val graphContinuation: StudioGraphContinuationProof? = null,
     /** Revocation of future descendants does not itself interrupt an already accepted native turn. */
     val isContinuationRevoked: Boolean = false,
 ) {
     init {
+        require(graphContinuation == null || graphContinuation.source == continuationOf)
         require(!isFinal || phase == StudioHelperPhase.NotSubmitted)
         require(fingerprint != null || phase == StudioHelperPhase.NotSubmitted)
         require(fingerprint != null || (handoff == null && preparedSession == null && submissionClaim == null))

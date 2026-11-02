@@ -34,5 +34,6 @@ internal fun StudioTurnRequest.recoveryPayloadFingerprint(): String {
             is StudioTurnOrigin.GraphWork -> "graph:${source.recoveryRoot.value}"
         },
     )
-    return JsonArray(fields.map(::JsonPrimitive)).toString().encodeUtf8().sha256().hex()
+    val work = fields + listOfNotNull(graphWork?.let { Json.encodeToString(it) })
+    return JsonArray(work.map(::JsonPrimitive)).toString().encodeUtf8().sha256().hex()
 }

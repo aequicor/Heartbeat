@@ -125,7 +125,7 @@ class StudioRecoveryCancellationTest {
     }
 
     @Test
-    fun `an older execution key cannot hide a newer observer of that native request`() = runTest {
+    fun `a new observer cannot reinterpret a send as a different work root`() = runTest {
         val f = RecoveryStopFixture()
         val older = RequestId("older-native")
         f.native.attempts.prepareRecovery(
@@ -134,16 +134,10 @@ class StudioRecoveryCancellationTest {
         )
         f.native.attempts.submitRecovery(f.helper, f.source)
         f.native.attempts.prepareConversation(f.helper, HelperPrompt(f.source, "original send"))
-        f.prepare()
 
-        assertIs<HostConversationCancellation.Unconfirmed>(f.control.cancel(f.native.record, f.source))
-
+        assertFailsWith<IllegalStateException> { f.prepare() }
+        assertNull(f.native.attempts.recovery(f.helper, f.execution))
         assertNull(f.native.stopped)
-        for (execution in listOf(f.source, f.execution)) {
-            assertTrue(checkNotNull(f.native.attempts.recovery(f.helper, execution)).isStopRequested)
-        }
-        assertFailsWith<EngineException> { f.native.attempts.requestStop(f.helper, f.source) }
-        assertEquals(StudioHelperPhase.Preparing, f.native.attempts.receipt(f.helper, f.source)?.phase)
     }
 
     @Test
@@ -233,14 +227,18 @@ class StudioRecoveryCancellationTest {
     }
 
     @Test
-    fun `fresh submit delegates only to an existing Q send journal`() = runTest {
+    fun `fresh submit cancellation revokes only an existing Q preparation`() = runTest {
         for (hasReceipt in listOf(false, true)) {
             val f = RecoveryStopFixture()
             f.prepare(isBound = false)
             f.native.attempts.submitRecovery(f.helper, f.execution)
             if (hasReceipt) f.native.attempts.prepareConversation(f.helper, HelperPrompt(f.execution, "new prompt"))
             val result = f.control.cancel(f.native.record, f.execution)
-            if (hasReceipt) assertNull(result) else assertIs<HostConversationCancellation.Unconfirmed>(result)
+            if (hasReceipt) {
+                assertIs<HostConversationCancellation.NotSubmitted>(result)
+            } else {
+                assertIs<HostConversationCancellation.Unconfirmed>(result)
+            }
             assertNull(f.native.stopped)
             assertTrue(checkNotNull(f.native.attempts.recovery(f.helper, f.execution)).isStopRequested)
         }

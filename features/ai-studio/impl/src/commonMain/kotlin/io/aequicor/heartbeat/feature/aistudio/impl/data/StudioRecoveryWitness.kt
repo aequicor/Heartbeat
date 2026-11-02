@@ -38,6 +38,16 @@ internal data class StudioRecoveryWitness(
     val isInspectionCurrent: Boolean = false,
     /** Native resume route, including its model; a later new turn has a separate settings snapshot. */
     val route: StudioRecoveryRoute? = null,
+    /** Exact native head resolved from immutable work edges; candidate membership alone cannot select it. */
+    val inspectionTarget: RequestId? = null,
+    /** Prior execution that sent the inspected native work; separate from observation ownership transfer. */
+    val predecessorExecution: RequestId? = null,
+    /** Never cleared by observation restart: this execution may already have crossed native entry. */
+    val isNativeSendAuthorized: Boolean = false,
+    /** Exact NoSend proof retired the send authorization; rearm must inspect its source before authorizing anew. */
+    val isSendRetired: Boolean = false,
+    /** Historical inspection authorizing the send is retained when this execution later observes itself. */
+    val submittedSource: StudioRecoverySource? = null,
 ) {
     init {
         require(candidates.isNotEmpty() && root in candidates)
@@ -51,7 +61,7 @@ internal data class StudioRecoveryWitness(
                     ((isIdleConfirmed && observed == null) || outcome == StudioHelperTerminalOutcome.Cancelled)
             ),
         )
-        require(observed == null || observed in candidates)
+        require(observed == null || observed in candidates || observed == inspectionTarget)
         require(turn == null || observed != null)
         require(outcome == null || observed != null)
         require(phase != StudioRecoveryPhase.Inspecting || observed == null)
@@ -80,6 +90,14 @@ internal data class StudioRecoveryWitness(
                 this
             }
 
+            phase == StudioRecoveryPhase.NoSend ->
+                rearm(checkNotNull(incoming.delivery)).copy(candidates = incoming.candidates)
+
+            hasNativeSend -> {
+                requireSamePayload(checkNotNull(incoming.delivery))
+                reobserveNativeSend(incoming)
+            }
+
             phase in TransferableRecoveryPhases -> {
                 val next = checkNotNull(incoming.delivery)
                 requireSamePayload(next)
@@ -90,9 +108,6 @@ internal data class StudioRecoveryWitness(
                     isInspectionCurrent = false,
                 )
             }
-
-            phase == StudioRecoveryPhase.NoSend ->
-                rearm(checkNotNull(incoming.delivery)).copy(candidates = incoming.candidates)
 
             else -> error("Recovery delivery requires explicit reconciliation")
         }
@@ -128,6 +143,7 @@ internal data class StudioRecoveryWitness(
         return copy(
             phase = StudioRecoveryPhase.NoSend,
             refusal = proof.refusal,
+            isSendRetired = isSendRetired || (isNewSendRevoked && hasNativeSend),
             isStopRequested = isStopRequested || proof.refusal == StudioRecoveryRefusal.Dropped,
         )
     }
@@ -164,13 +180,22 @@ internal data class StudioRecoveryWitness(
     /** Only the host's native inspection may select Submit; this does not assert that R was never submitted. */
     fun submitting(): StudioRecoveryWitness {
         if (isStopRequested) throw CancellationException("Recovery was stopped before new submission")
-        check(observed != execution) { "An observed native request cannot be submitted again under the same identity" }
+        check(
+            observed != execution && inspectionTarget != execution,
+        ) { "An observed native request cannot be submitted again under the same identity" }
         check(delivery == null || isInspectionCurrent) { "A new delivery must inspect native state before sending" }
         check(
             phase in setOf(StudioRecoveryPhase.Inspecting, StudioRecoveryPhase.Submit) ||
                 (phase == StudioRecoveryPhase.Terminal && outcome == StudioHelperTerminalOutcome.Cancelled),
         ) { "Unresolved native recovery cannot authorize a new send" }
-        return copy(phase = StudioRecoveryPhase.Submit)
+        return copy(
+            phase = StudioRecoveryPhase.Submit,
+            isNativeSendAuthorized = true,
+            isSendRetired = false,
+            submittedSource = inspectionTarget?.let {
+                StudioRecoverySource(it, turn, outcome, isIdleConfirmed)
+            },
+        )
     }
 
     /** Native evidence may enrich a terminal-only observation, but cannot change its request, turn or outcome. */
@@ -183,7 +208,7 @@ internal data class StudioRecoveryWitness(
         check(phase !in setOf(StudioRecoveryPhase.Submit, StudioRecoveryPhase.NoSend)) {
             "A new-send decision or closed delivery cannot adopt an older turn"
         }
-        check(nativeSession == session && request in candidates) { "Native recovery belongs to another context" }
+        requireInspectionTarget(request, nativeSession)
         check(observed == null || observed == request) { "Native recovery request changed" }
         check(turn == null || nativeTurn == null || turn == nativeTurn) { "Native recovery turn changed" }
         check(
@@ -209,6 +234,13 @@ internal data class StudioRecoveryWitness(
                 -> StudioRecoveryPhase.Terminal
             },
         )
+    }
+
+    private fun requireInspectionTarget(request: RequestId, nativeSession: SessionRef) {
+        check(nativeSession == session && (request in candidates || request == inspectionTarget)) {
+            "Native recovery belongs to another context"
+        }
+        check(inspectionTarget == null || request == inspectionTarget) { "Recovery inspected a historical native turn" }
     }
 
     /** Lost observation retains every known native identity and all stop intent. */
@@ -246,6 +278,7 @@ internal fun requireRecoveryAdmission(
     receipts: Map<String, StudioHelperReceipt>,
     request: RequestId,
 ) {
+    val unresolved = receipts.unresolvedHeads().mapTo(mutableSetOf()) { it.request }
     val root = recoveries.singleOrNull { it.execution == request }?.root
         ?: (receipts[request.value]?.policy as? StudioAttemptPolicy.GraphWork)?.recoveryRoot
     val isRevoked = recoveries.any {
@@ -259,10 +292,10 @@ internal fun requireRecoveryAdmission(
         throw CancellationException("Recovery was stopped or its observation ownership was transferred")
     }
     check(
-        recoveries.filter { it.observerSuccessor == null }.all {
+        recoveries.associateBy { it.execution.value }.activeRecoveryWitnesses(receipts).all {
             it.phase in setOf(StudioRecoveryPhase.Terminal, StudioRecoveryPhase.NoSend) || (
                 it.phase == StudioRecoveryPhase.Submit &&
-                    (it.execution == request || receipts[it.execution.value]?.isUnresolved == false)
+                    (it.execution == request || (it.execution.value in receipts && it.execution !in unresolved))
             )
         },
     ) { "Native recovery must be reconciled before another send" }

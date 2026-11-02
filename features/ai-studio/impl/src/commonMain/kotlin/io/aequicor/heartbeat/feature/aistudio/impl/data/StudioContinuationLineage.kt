@@ -18,7 +18,7 @@ internal fun continuationChain(
         val source = root.continuationOf ?: break
         check(ancestors.add(root.request)) { "Cyclic continuation ancestry" }
         val parent = checkNotNull(records[source.value]) { "Continuation source is missing" }
-        requireContinuationEdge(parent, root)
+        requireContinuationEdge(records, parent, root)
         root = parent
     }
     val chain = mutableListOf(root)
@@ -28,7 +28,7 @@ internal fun continuationChain(
         check(children.size <= 1) { "Continuation has multiple successors" }
         val next = children.singleOrNull() ?: break
         check(visited.add(next.request)) { "Cyclic continuation ownership" }
-        requireContinuationEdge(chain.last(), next)
+        requireContinuationEdge(records, chain.last(), next)
         chain += next
     }
     check(chain.all { records[it.request.value] == it }) { "Continuation receipt key changed" }
@@ -36,9 +36,17 @@ internal fun continuationChain(
 }
 
 /** Native identity and sender claims belong only to their own node, never to an inherited policy snapshot. */
-private fun requireContinuationEdge(source: StudioHelperReceipt, next: StudioHelperReceipt) {
+private fun requireContinuationEdge(
+    records: Map<String, StudioHelperReceipt>,
+    source: StudioHelperReceipt,
+    next: StudioHelperReceipt,
+) {
     check(source.request != next.request && next.continuationOf == source.request) { "Invalid continuation edge" }
-    requireContinuationSource(source)
+    if (next.graphContinuation == null) {
+        requireContinuationSource(source)
+    } else {
+        next.graphContinuation.requireSource(records, source, next)
+    }
     check(next.policy == source.policy && next.handoff == source.handoff && next.causes == source.causes) {
         "Continuation changed its work ownership or provenance"
     }
@@ -90,14 +98,15 @@ internal fun prepareContinuationReceipt(
         continuationOf = source,
     )
     if (existing != null) {
-        requireContinuationEdge(previous, existing)
+        check(existing.graphContinuation == null) { "A virtual action cannot replace a graph native edge" }
+        requireContinuationEdge(records, previous, existing)
         check(existing.fingerprint == receipt.fingerprint) { "Continuation payload changed" }
         val isRetry = existing.phase == StudioHelperPhase.NotSubmitted && existing.isNativeEntryTracked
-        if (isRetry) check(records.values.none { it.isUnresolved }) { "Another native attempt is unresolved" }
+        if (isRetry) check(records.unresolvedHeads().isEmpty()) { "Another native attempt is unresolved" }
         return if (isRetry) StudioHelperPreparation(receipt, isNew = true) else StudioHelperPreparation(existing, false)
     }
     check(chain.last().request == source) { "Continuation source already has a successor" }
-    check(records.values.none { it.isUnresolved }) { "Another native attempt is unresolved" }
+    check(records.unresolvedHeads().isEmpty()) { "Another native attempt is unresolved" }
     return StudioHelperPreparation(receipt, isNew = true)
 }
 
@@ -167,7 +176,7 @@ internal fun resolveContinuation(
     val chain = continuationChain(records, request)
     val head = chain.lastOrNull() ?: return null
     val result = if (head.request != request && head.phase == StudioHelperPhase.NotSubmitted && head.isFinal) {
-        chain.lastOrNull { it.terminal != null } ?: head
+        chain.dropLast(1).lastOrNull { it.terminal != null || it.isUnresolved } ?: head
     } else {
         head
     }

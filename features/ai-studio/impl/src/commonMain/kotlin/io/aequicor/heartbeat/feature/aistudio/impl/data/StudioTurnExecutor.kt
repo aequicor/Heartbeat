@@ -144,6 +144,8 @@ internal data class StudioTurnRequest(
     val delivery: StudioPromptDelivery? = null,
     /** Trusted producer declaration; it grants no logical owner or human capability. */
     val origin: StudioTurnOrigin = StudioTurnOrigin.UnknownService,
+    /** Immutable producer assignment; recovery observations never apply these settings to the older native turn. */
+    val graphWork: StudioGraphWorkSnapshot? = null,
     /** Exact native evidence for new sends and adopted turns, without changing this execution's gate or id. */
     val onNativeTurn: suspend (ActiveSession, StudioNativeTurn) -> Unit = { _, _ -> },
     /** Durable virtual action source; the worktree machine validates it before preparing a new native run. */
@@ -273,7 +275,21 @@ internal class StudioTurnExecutor(
         currentCoroutineContext().ensureActive()
         val active = host.openRecoveryTurn(request)
         progress.active = active
-        val decision = recoverGraphTurn(active, request)
+        val target = request.submission?.recoveryDelivery?.let { host.recoveryJournal?.inspectionTarget(it) }
+        val inspection = if (target == null) {
+            request
+        } else {
+            request.copy(
+                recoveryRequests = listOf(target),
+                recoveryCheckpoint = null,
+            )
+        }
+        val recovered = recoverGraphTurn(active, inspection)
+        val decision = if (target == request.request && recovered == GraphRecovery.Submit) {
+            GraphRecovery.Unknown
+        } else {
+            recovered
+        }
         recordRecoveryDecision(host, request, active, progress, decision)
         return if (decision is GraphRecovery.Cancelled) {
             if (decision.evidence.request == request.request) {

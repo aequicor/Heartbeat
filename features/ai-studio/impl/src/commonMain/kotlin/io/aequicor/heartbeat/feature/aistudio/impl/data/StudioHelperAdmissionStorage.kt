@@ -14,8 +14,9 @@ internal suspend fun KeyValueStore.requireNativeAdmission(
     incoming: StudioAttemptPolicy?,
 ) {
     val chain = continuationChain(receipts, request)
-    if (chain.size > 1 && chain.any { it.isContinuationFenced }) {
-        throw CancellationException("Execution lineage was stopped")
+    val isSuperseded = chain.isNotEmpty() && chain.last().request != request
+    if (isSuperseded || (chain.size > 1 && chain.any { it.isContinuationFenced })) {
+        throw CancellationException("Execution lineage was stopped or superseded")
     }
     val recoveries = readRecoveryWitnesses(helper)
     val policy = receipts[request.value]?.policy ?: incoming

@@ -43,7 +43,20 @@ private fun StudioAttemptPolicy.continuationOrigin(): StudioTurnOrigin = when (t
 /** Admission may restore only fields proven by the durable edge; every other request field stays immutable. */
 internal suspend fun StudioTurnRequest.requireAdmission(admitted: StudioTurnRequest) {
     val comparable = admitted.copy(settings = settings, submission = submission)
-    if (continuationOf == null) {
+    val graph = (admitted.submission as? StudioHelperSubmission)?.continuationReceipt()?.graphContinuation
+    if (graph != null) {
+        val delivery = checkNotNull(submission?.recoveryDelivery)
+        check(graph.delivery.copy(claim = delivery.claim) == delivery && graph.child == request) {
+            "Graph continuation admission changed its delivery"
+        }
+        check(origin == StudioTurnOrigin.GraphWork(graph.root) && comparable.copy(causes = causes) == this) {
+            "Graph continuation admission changed its request or work"
+        }
+        val receipt = checkNotNull((admitted.submission as? StudioHelperSubmission)?.continuationReceipt())
+        check(admitted.settings == receipt.executionSnapshot?.settings && admitted.causes == receipt.causes.orEmpty()) {
+            "Graph continuation changed inherited execution authority"
+        }
+    } else if (continuationOf == null) {
         check(comparable == this) { "New-send admission changed the request or its provenance" }
     } else {
         check(

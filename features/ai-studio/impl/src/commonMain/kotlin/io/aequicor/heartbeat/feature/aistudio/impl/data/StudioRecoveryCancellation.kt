@@ -20,15 +20,16 @@ internal class StudioRecoveryCancellation(
         val helper = HelperId(record.id)
         val targets = attempts.stopRecoveryTargets(helper, execution)
         if (targets.isEmpty()) return null
-        val witness = targets.singleOrNull() ?: return HostConversationCancellation.Unconfirmed(execution)
-        if (witness.phase == StudioRecoveryPhase.Submit) {
-            return if (witness.execution == execution && attempts.receipt(helper, execution) != null) {
-                null
-            } else if (witness.observed == execution && witness.outcome == StudioHelperTerminalOutcome.Cancelled) {
-                terminal(witness, execution)
-            } else {
-                HostConversationCancellation.Unconfirmed(execution)
-            }
+        val root = targets.map { it.root }.distinct().singleOrNull()
+            ?: return HostConversationCancellation.Unconfirmed(execution)
+        val work = attempts.recoveryWork(helper, root)
+        if (!work.isConsistent) return HostConversationCancellation.Unconfirmed(execution)
+        if (work.receipt != null) {
+            return stopReceipt(record, execution, root, work.receipt, work.observer)
+        }
+        val witness = work.observer ?: return HostConversationCancellation.Unconfirmed(execution)
+        if (witness.hasNativeSend && witness.phase == StudioRecoveryPhase.Submit) {
+            return HostConversationCancellation.Unconfirmed(execution)
         }
         if (hasRevokedSend(helper, witness, execution)) return null
         val closed = closed(witness, execution)
@@ -37,6 +38,33 @@ internal class StudioRecoveryCancellation(
             return HostConversationCancellation.Unconfirmed(execution)
         }
         return stopObserved(record, witness, execution)
+    }
+
+    /** Resolve native descendants before considering any historical witness's terminal shortcut. */
+    private suspend fun stopReceipt(
+        record: StudioChatRecord,
+        execution: RequestId,
+        root: RequestId,
+        receipt: StudioHelperReceipt,
+        observer: StudioRecoveryWitness?,
+    ): HostConversationCancellation {
+        val helper = HelperId(record.id)
+        val result = if (receipt.phase == StudioHelperPhase.NotSubmitted) {
+            if (receipt.request == execution) return HostConversationCancellation.NotSubmitted(execution)
+            attempts.continuation(helper, root)?.result?.terminal
+        } else {
+            receipt.terminal?.takeUnless { it.outcome == StudioHelperTerminalOutcome.Unknown }
+                ?: native.stop(record, receipt.request, access.value.liveHelper(helper))?.also {
+                    attempts.terminal(helper, receipt.request, it)
+                }
+        }
+        val isExactObservation = observer?.phase in TransferableRecoveryPhases &&
+            (observer?.observed ?: observer?.inspectionTarget) == receipt.request
+        if (result != null && receipt.phase != StudioHelperPhase.NotSubmitted && isExactObservation) {
+            recordStopped(helper, checkNotNull(observer), result)
+        }
+        return result?.let { HostConversationCancellation.Terminal(it.conversationResult(execution)) }
+            ?: HostConversationCancellation.Unconfirmed(execution)
     }
 
     private suspend fun stopObserved(
@@ -62,7 +90,7 @@ internal class StudioRecoveryCancellation(
         witness: StudioRecoveryWitness,
         stopped: StudioHelperTerminal,
     ): StudioRecoveryWitness {
-        val request = checkNotNull(witness.observed)
+        val request = checkNotNull(witness.observed ?: witness.inspectionTarget)
         val delivery = witness.delivery
         return if (delivery == null) {
             attempts.observeRecovery(helper, witness.execution, stopped.session, request, stopped.turn, stopped.outcome)

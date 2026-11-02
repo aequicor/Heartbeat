@@ -36,3 +36,22 @@ internal fun StudioExecutionSnapshot.requireContinuationConnection(record: Studi
         "Continuation engine or credential binding changed"
     }
 }
+
+/** Pure validation runs under the journal mutex before persisting actual configuration and route together. */
+internal fun StudioHelperReceipt.freezeExecutionSnapshot(
+    claim: String,
+    snapshot: StudioExecutionSnapshot,
+    nativeRoute: StudioRecoveryRoute?,
+): StudioHelperReceipt {
+    check(this.phase == StudioHelperPhase.Submitting && this.submissionClaim == claim) {
+        "Execution snapshot belongs to another sender"
+    }
+    check(this.nativeEntryClaim == null) { "Execution snapshot must precede native entry" }
+    check(this.executionSnapshot == null || this.executionSnapshot == snapshot) {
+        "Execution snapshot cannot change"
+    }
+    check(this.causes == null || this.causes == snapshot.causes) { "Execution causes changed" }
+    check(nativeRoute == null || nativeRoute.target == snapshot.target) { "Native route target changed" }
+    check(this.nativeRoute == null || this.nativeRoute == nativeRoute) { "Native launch route changed" }
+    return copy(executionSnapshot = snapshot, causes = snapshot.causes, nativeRoute = nativeRoute)
+}

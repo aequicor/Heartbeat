@@ -29,7 +29,7 @@ class StudioRecoveryWitnessTest {
     private val source = RequestId("R")
     private val session = SessionRef(EngineId("test"), SessionSourceId("local"), "native")
     private val turn = TurnId("native-turn")
-    private val initial = StudioRecoveryWitness(execution, source, setOf(source), session)
+    private val initial = StudioRecoveryWitness(execution, source, setOf(source), session, inspectionTarget = source)
 
     @Test
     fun `restart transfers one observer while preserving exact native binding and stop`() = runTest {
@@ -94,10 +94,11 @@ class StudioRecoveryWitnessTest {
         attempts.observeRecovery(helper, execution, session, source, turn, StudioHelperTerminalOutcome.Cancelled)
         attempts.submitRecovery(helper, execution)
 
-        assertFailsWith<IllegalStateException> {
-            attempts.prepareRecovery(helper, initial.copy(execution = RequestId("successor")))
-        }
-        assertNull(attempts.recovery(helper, RequestId("successor")))
+        val successor = attempts.prepareRecovery(helper, initial.copy(execution = RequestId("successor")))
+        assertEquals(execution, successor.inspectionTarget)
+        assertEquals(execution, successor.predecessorExecution)
+        assertNull(successor.observed)
+        assertNull(successor.outcome)
         assertNull(attempts.recovery(helper, execution)?.observerSuccessor)
     }
 
@@ -146,7 +147,7 @@ class StudioRecoveryWitnessTest {
 
         assertFailsWith<CancellationException> { attempts.begin(helper, next) }
         assertFailsWith<CancellationException> { attempts.enterNative(helper, next, "late") }
-        assertEquals(StudioHelperPhase.Preparing, attempts.receipt(helper, next)?.phase)
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(helper, next)?.phase)
     }
 
     @Test
