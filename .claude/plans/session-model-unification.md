@@ -727,3 +727,42 @@ cancellation regression — 974/974 Studio tests, оба режима detekt у�
 adopt/terminal-only без подготовки Q, отказ open/worktree, защита provenance envelope,
 bookkeeping failure и cancellation до native entry. Read-only архитектурное ревью
 после восстановления явного host recovery guard — APPROVE.
+
+### Durable recovery witness — journal foundation
+
+Добавлена отдельная typed запись наблюдения Q→R в существующем strict
+HelperAttemptsSpec, key recovery_<chat hash>. Она не является Accepted/Terminal send
+receipt Q или R. Recovery root, exact candidates и native ref заморожены; actual request,
+optional TurnId и outcome добавляются только точным наблюдением. Stop монотонен и
+сохраняется до bind и после рестарта. Terminal-only observation не выдумывает TurnId.
+Unknown не стирает binding, outcome или stop. Подтверждённый outcome неизменяем.
+
+Создание witness берёт route→journal lock, как preparation/reconcileWork: оно не может
+появиться между context-idle проверкой и commit замены. Новый regression удерживает
+route lock, проверяет ожидание prepareRecovery и отказ следующей замены. Read-only
+context barrier учитывает Inspecting/Observing/Unknown, а Submit с missing Q send receipt
+остаётся unresolved. Сам Submit не является доказательством NotSubmitted R.
+
+Production coordinator/native stop routing пока не подключены, прежний host recovery
+refusal сохранён. Следующий целый шаг: подготовка witness до публикации reservation,
+согласованный publish/Stop/bind, journal recovery→Submit включая ordinary roots, exact
+native fallback для legacy R без receipt, runtime/creator cancel и терминальные updates.
+Для подготовки witness нужен route lock; при wiring нельзя вводить цикл
+coordinator→route→coordinator. Подготовку/publication спроектировать как staged reservation
+с неопубликованным владельцем и ожиданием initial journal outside coordinator lock.
+Старые unresolved witnesses не удаляются; восстановление должно сначала подтвердить их
+native исход либо явно передать observation ownership, не объявлять их idle по отсутствию job.
+
+Дополнительные защитные границы этого шага: generic prepare не запускает новый send при
+unresolved recovery; собственный Submit Q передаётся обычному immutable send journal.
+Generic requestStop/cancelBeforeSubmission не создают NotSubmitted Q по отсутствию send
+receipt, если Q известен как recovery observer (включая Submit с missing Q receipt).
+Явный Stop сохраняется ДО legacy history проверки; отказ собственной подготовки
+(isFinal=false) не добавляет неявное намерение остановить нативный R. После ожидания route
+lock prepare повторно сверяет native ref с canonical chat, чтобы не сохранить устаревший
+ref, захваченный до замены. Регрессии покрывают эти случаи и R==Q adoption без replay.
+
+Итог `build/verification/recovery-witness-final3.log`: Studio impl 988/988, из них
+recovery witness 14/14; DI, обычный и typed detekt успешны с прежними тремя диагностическими
+ограничениями typed analysis. Read-only архитектурное ревью после исправления route race,
+legacy stop ordering и generic cleanup bypass — APPROVE. Production wiring не включено.

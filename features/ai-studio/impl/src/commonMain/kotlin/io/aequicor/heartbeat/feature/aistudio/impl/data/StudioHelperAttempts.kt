@@ -9,6 +9,9 @@ import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -47,6 +50,71 @@ internal class StudioHelperAttempts(
     private val store = stores.keyValue(HelperAttemptsSpec)
     private val lock = Mutex()
     private val chats = stores.keyValue(ChatSpec)
+
+    /** Observation witnesses share this journal lock with send, stop and context replacement decisions. */
+    suspend fun prepareRecovery(helper: HelperId, witness: StudioRecoveryWitness): StudioRecoveryWitness =
+        routes.withLock(helper) { prepareRecoveryLocked(helper, witness) }
+
+    private suspend fun prepareRecoveryLocked(
+        helper: HelperId,
+        witness: StudioRecoveryWitness,
+    ): StudioRecoveryWitness = lock.withLock {
+        require(witness.phase == StudioRecoveryPhase.Inspecting && !witness.isStopRequested)
+        val chat = chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value }
+        check(chat == null || chat.ref == witness.session) { "Recovery native context changed before admission" }
+        val records = readRecoveries(helper)
+        val previous = records[witness.execution.value]
+        if (previous != null) {
+            check(
+                previous.root == witness.root && previous.candidates == witness.candidates &&
+                    previous.session == witness.session,
+            ) { "Recovery execution identity changed" }
+            return@withLock previous
+        }
+        val receipts = read(helper)
+        check(records.values.none { it.blocksContext(receipts) }) { "Previous recovery must be reconciled first" }
+        writeRecoveries(helper, records + (witness.execution.value to witness))
+        log.v { "Journaled recovery observation intent" }
+        witness
+    }
+
+    suspend fun recovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness? = lock.withLock {
+        log.v { "Read exact recovery observation witness" }
+        readRecoveries(helper)[execution.value]
+    }
+
+    /** Missing recovery evidence is uncertainty, never a NotSubmitted tombstone. */
+    suspend fun stopRecovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness =
+        changeRecovery(helper, execution) { it.stopped() }
+
+    suspend fun submitRecovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness =
+        changeRecovery(helper, execution) { it.submitting() }
+
+    suspend fun observeRecovery(
+        helper: HelperId,
+        execution: RequestId,
+        session: SessionRef,
+        request: RequestId,
+        turn: TurnId?,
+        outcome: StudioHelperTerminalOutcome? = null,
+    ): StudioRecoveryWitness = changeRecovery(helper, execution) { it.observed(request, session, turn, outcome) }
+
+    suspend fun loseRecovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness =
+        changeRecovery(helper, execution) { it.unknown() }
+
+    private suspend fun changeRecovery(
+        helper: HelperId,
+        execution: RequestId,
+        change: (StudioRecoveryWitness) -> StudioRecoveryWitness,
+    ): StudioRecoveryWitness = lock.withLock {
+        val records = readRecoveries(helper)
+        val previous = checkNotNull(records[execution.value]) { "Recovery observation evidence is missing" }
+        val changed = change(previous)
+        if (changed != previous) writeRecoveries(helper, records + (execution.value to changed))
+        log.v { "Journaled recovery observation transition" }
+        changed
+    }
+
     suspend fun prepare(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
         prepare(helper, prompt, isRedelivery = false, policy = null)
 
@@ -94,6 +162,7 @@ internal class StudioHelperAttempts(
     ): StudioHelperPreparation = lock.withLock {
         val records = read(helper)
         requireRecordedHistory(helper, records)
+        requireRecoveryAdmission(readRecoveries(helper).values, records, prompt.request)
         val fingerprint = prompt.fingerprint()
         val existing = records[prompt.request.value]
         check(existing?.policy == null || existing.policy.hasSameOrigin(policy)) { "Request attribution cannot change" }
@@ -195,6 +264,7 @@ internal class StudioHelperAttempts(
         isFinal: Boolean = true,
     ): StudioHelperReceipt = lock.withLock {
         val records = read(helper)
+        fenceRecoveryCancellation(helper, request, records, isExplicitStop = isFinal)
         requireRecordedHistory(helper, records)
         val receipt = records[request.value]
         val isFinalized = receipt?.phase == StudioHelperPhase.NotSubmitted && isFinal && !receipt.isFinal
@@ -290,6 +360,7 @@ internal class StudioHelperAttempts(
      */
     suspend fun requestStop(helper: HelperId, request: RequestId): StudioHelperReceipt = lock.withLock {
         val records = read(helper)
+        fenceRecoveryCancellation(helper, request, records, isExplicitStop = true)
         requireRecordedHistory(helper, records)
         val receipt = records[request.value]
         val updated = when {
@@ -310,6 +381,22 @@ internal class StudioHelperAttempts(
         updated
     }
 
+    /** Called under the journal lock; a new-send fallback cannot retire a recovery observer. */
+    private suspend fun fenceRecoveryCancellation(
+        helper: HelperId,
+        request: RequestId,
+        receipts: Map<String, StudioHelperReceipt>,
+        isExplicitStop: Boolean,
+    ) {
+        val records = readRecoveries(helper)
+        val witness = records[request.value] ?: return
+        if (witness.phase == StudioRecoveryPhase.Submit && request.value in receipts) return
+        if (isExplicitStop && !witness.isStopRequested) {
+            writeRecoveries(helper, records + (request.value to witness.stopped()))
+        }
+        throw EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request))
+    }
+
     suspend fun unresolved(helper: HelperId): RequestId? = lock.withLock {
         log.v { "Read unresolved helper request" }
         val pending = read(helper).values.filter { it.isUnresolved }
@@ -326,6 +413,7 @@ internal class StudioHelperAttempts(
         log.v { "Read durable context replacement evidence" }
         val records = read(helper)
         if (!hasRecordedHistory(helper, records)) return@withLock false
+        if (readRecoveries(helper).values.any { it.blocksContext(records) }) return@withLock false
         if (preparing != null) {
             val own = records.values.singleOrNull { preparing.matches(helper, it.request) }
             if (own?.isUnboundConversationPreparation != true) return@withLock false
@@ -406,6 +494,25 @@ internal class StudioHelperAttempts(
         }.let { checkNotNull(it).phase }
 
     private suspend fun read(helper: HelperId): Map<String, StudioHelperReceipt> = decode(store.get(key(helper)))
+
+    private suspend fun readRecoveries(helper: HelperId): Map<String, StudioRecoveryWitness> {
+        val raw = store.get(recoveryKey(helper)) ?: return emptyMap()
+        return try {
+            Json.decodeFromString<Map<String, StudioRecoveryWitness>>(raw).also { records ->
+                check(records.all { (key, witness) -> key == witness.execution.value }) {
+                    "Mismatched recovery witness key"
+                }
+            }
+        } catch (e: IllegalArgumentException) {
+            throw e.withoutHelperReceiptText()
+        }
+    }
+
+    private suspend fun writeRecoveries(helper: HelperId, records: Map<String, StudioRecoveryWitness>) {
+        store.set(recoveryKey(helper), Json.encodeToString(records))
+    }
+
+    private fun recoveryKey(helper: HelperId) = stringKey("recovery_${helper.value.encodeUtf8().sha256().hex()}")
 
     /** Missing old evidence preserves readable history, but cannot authorize another send or a safe tombstone. */
     private suspend fun requireRecordedHistory(helper: HelperId, records: Map<String, StudioHelperReceipt>) {
