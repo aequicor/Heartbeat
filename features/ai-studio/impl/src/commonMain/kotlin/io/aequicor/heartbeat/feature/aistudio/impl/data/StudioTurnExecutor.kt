@@ -39,6 +39,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /** The repository supplies persistence and native features; this executor owns a single accepted turn. */
 internal interface StudioTurnHost : StudioSessionHost {
+    /** Null only for hosts that have not opted into durable recovery publication. */
+    val recoveryJournal: StudioRecoveryJournal? get() = null
+
     suspend fun isWorktree(id: String): Boolean
 
     /**
@@ -172,7 +175,7 @@ internal class StudioTurnExecutor(
                 request.environment?.preselected.orEmpty()
             val recovered = preflightRecovery(host, request, progress)
             if (recovered == GraphRecovery.Submit) {
-                if (request.recoveryRequests.isNotEmpty()) request.submission?.prepareRecoverySubmit()
+                if (request.recoveryRequests.isNotEmpty()) prepareRecoverySubmit(host, request)
                 currentCoroutineContext().ensureActive()
                 admitted = host.prepareNewTurn(request)
                 check(admitted.copy(settings = request.settings, submission = request.submission) == request) {
@@ -200,7 +203,24 @@ internal class StudioTurnExecutor(
             if (progress.isPrepared || progress.active != null) recover(host, admitted, progress)
             return host.failedTurn(request.id, error)
         } finally {
-            withContext(NonCancellable) { finishExecution(admitted, environment, progress) }
+            withContext(NonCancellable) {
+                try {
+                    finishRecoveryObservation(host, request, progress)
+                } finally {
+                    finishExecution(admitted, environment, progress)
+                }
+            }
+        }
+    }
+
+    private suspend fun finishRecoveryObservation(
+        host: StudioTurnHost,
+        request: StudioTurnRequest,
+        progress: Progress,
+    ) {
+        if (!progress.isAdopted || progress.isRecoveryTerminalJournaled) return
+        observe("lost recovery observation") {
+            request.submission?.recoveryDelivery?.let { host.recoveryJournal?.unknown(it) }
         }
     }
 
@@ -238,7 +258,90 @@ internal class StudioTurnExecutor(
         currentCoroutineContext().ensureActive()
         val active = host.openRecoveryTurn(request)
         progress.active = active
-        return recoverGraphTurn(active, request)
+        val decision = recoverGraphTurn(active, request)
+        recordRecoveryDecision(host, request, active, progress, decision)
+        return if (decision is GraphRecovery.Cancelled) {
+            if (decision.evidence.request == request.request) {
+                GraphRecovery.Completed(request.request, TurnOutcome.Cancelled)
+            } else {
+                GraphRecovery.Submit
+            }
+        } else {
+            decision
+        }
+    }
+
+    /** A refusing gate closes only this delivery; missing receipts are never used as proof. */
+    private suspend fun prepareRecoverySubmit(host: StudioTurnHost, request: StudioTurnRequest) {
+        var isAllowed = false
+        try {
+            request.submission?.prepareRecoverySubmit()
+            isAllowed = true
+        } finally {
+            if (!isAllowed) {
+                withContext(NonCancellable) {
+                    observe("refused recovery delivery") {
+                        request.submission?.sealRecoveryNoSend()?.let { host.recoveryJournal?.noSend(it) }
+                    }
+                }
+            }
+        }
+        request.submission?.recoveryDelivery?.let { host.recoveryJournal?.submitting(it) }
+    }
+
+    /** Inspection decisions are saved before authorizing Submit or publishing a terminal-only result. */
+    private suspend fun recordRecoveryDecision(
+        host: StudioTurnHost,
+        request: StudioTurnRequest,
+        active: ActiveSession,
+        progress: Progress,
+        decision: GraphRecovery,
+    ) {
+        val journal = host.recoveryJournal ?: return
+        val delivery = checkNotNull(request.submission?.recoveryDelivery) { "Recovery reservation is missing" }
+        when (decision) {
+            GraphRecovery.Submit -> journal.idle(delivery, active.ref)
+
+            GraphRecovery.Unknown -> journal.unknown(delivery)
+
+            is GraphRecovery.Cancelled -> journal.observed(delivery, decision.evidence)
+
+            is GraphRecovery.Completed -> journal.observed(
+                delivery,
+                StudioRecoveryEvidence(active.ref, decision.request, outcome = decision.outcome),
+            )
+
+            is GraphRecovery.Adopt -> {
+                // Ownership is retained before journal IO, including failed or lost write acknowledgements.
+                progress.native = decision.native
+                progress.isAdopted = true
+                progress.retainNative(request.submission)
+                recordAdopted(host, request, active, progress)
+            }
+        }
+    }
+
+    /** Journal failure cannot route an already accepted native turn through error-triggered Stop. */
+    private suspend fun recordAdopted(
+        host: StudioTurnHost,
+        request: StudioTurnRequest,
+        active: ActiveSession,
+        progress: Progress,
+        outcome: TurnOutcome? = null,
+    ) {
+        val journal = host.recoveryJournal ?: return
+        val delivery = checkNotNull(request.submission?.recoveryDelivery)
+        val native = checkNotNull(progress.native)
+        try {
+            journal.observed(delivery, StudioRecoveryEvidence(active.ref, native.request, native.turn, outcome))
+            progress.isRecoveryJournalCurrent = true
+            progress.isRecoveryTerminalJournaled = outcome != null && outcome != TurnOutcome.Unknown
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            progress.isRecoveryJournalCurrent = false
+            log.e(error) { "Recovery journal acknowledgement failed; retaining native observation" }
+        }
     }
 
     /** A new chat's chosen harnesses are connected first; failing to connect never fails the turn. */
@@ -317,17 +420,30 @@ internal class StudioTurnExecutor(
             val completed = checkNotNull(terminal.lastCompletedTurn())
             check(completed.request == native.request) { "Terminal turn belongs to another request" }
             val outcome = checkNotNull(completed.outcome) { "Terminal outcome is unavailable" }
-            progress.isTerminalObserved = true
-            observeTerminal(request, active, progress, outcome, isHistoryCurrent = true)
-            // The recovery envelope has no authority to provide R's context or trigger its follow-up work.
-            if (!progress.isAdopted) observe("settlement") { settlement.settled(request, active, outcome) }
-            request.onOutcome(outcome)
-            worktrees.settled(request.id.takeIf { progress.isIsolated }, native.request, active.ref, turn, outcome)
-            host.outcome(request.id, outcome)
+            completeNative(host, request, active, progress, outcome)
         } finally {
             observation.cancel()
             permissions.cancel()
         }
+    }
+
+    private suspend fun completeNative(
+        host: StudioTurnHost,
+        request: StudioTurnRequest,
+        active: ActiveSession,
+        progress: Progress,
+        outcome: TurnOutcome,
+    ): RunOutcome {
+        val native = checkNotNull(progress.native)
+        progress.isTerminalObserved = true
+        if (progress.isAdopted) recordAdopted(host, request, active, progress, outcome)
+        observeTerminal(request, active, progress, outcome, isHistoryCurrent = true)
+        // The recovery envelope has no authority to trigger follow-up work for the observed native request.
+        if (!progress.isAdopted) observe("settlement") { settlement.settled(request, active, outcome) }
+        val reported = if (progress.isRecoveryJournalCurrent) outcome else TurnOutcome.Unknown
+        request.onOutcome(reported)
+        worktrees.settled(request.id.takeIf { progress.isIsolated }, native.request, active.ref, native.turn, outcome)
+        return host.outcome(request.id, reported)
     }
 
     private suspend fun observeAcceptance(
@@ -344,7 +460,9 @@ internal class StudioTurnExecutor(
                 observer.acceptedTurn(request, active, native.turn)
             }
         }
-        observe("native checkpoint") { request.onNativeTurn(active, native) }
+        if (progress.isRecoveryJournalCurrent) {
+            observe("native checkpoint") { request.onNativeTurn(active, native) }
+        }
         if (!progress.isAdopted) {
             observe("accepted checkpoint") { request.onTurnAccepted(active, native.turn) }
             notifyAccepted(request)
@@ -363,7 +481,7 @@ internal class StudioTurnExecutor(
         check(active.state.value.matches(recovered.native)) { "Recovered native identity changed after inspection" }
         progress.native = recovered.native
         progress.isAdopted = true
-        progress.isStopRequested = request.submission?.retainNative() == true
+        progress.retainNative(request.submission)
         recovered.native
     } else {
         connectHarnesses(request, active)
@@ -378,7 +496,7 @@ internal class StudioTurnExecutor(
         if (active.state.value is ActiveSessionState.Unavailable) {
             active.features.requireFeature(ReconcilesSession).synchronize()
         }
-        return rememberedGraphTurn(active.state.value, request)
+        return rememberedGraphTurn(active, active.state.value, request)
     }
 
     private suspend fun inspectGraphTurn(
@@ -394,7 +512,9 @@ internal class StudioTurnExecutor(
             GraphRecovery.Unknown
         } else {
             when (val outcome = inspection.outcome) {
-                TurnOutcome.Cancelled -> GraphRecovery.Submit
+                TurnOutcome.Cancelled -> GraphRecovery.Cancelled(
+                    StudioRecoveryEvidence(active.ref, inspection.request, outcome = outcome),
+                )
 
                 TurnOutcome.Unknown -> GraphRecovery.Unknown
 
@@ -407,13 +527,17 @@ internal class StudioTurnExecutor(
                                 it.lastCompletedTurn()?.request == inspection.request
                         }
                     }
-                    state?.let { rememberedGraphTurn(it, request) } ?: GraphRecovery.Unknown
+                    state?.let { rememberedGraphTurn(active, it, request) } ?: GraphRecovery.Unknown
                 }
             }
         }
     }
 
-    private fun rememberedGraphTurn(state: ActiveSessionState, request: StudioTurnRequest): GraphRecovery {
+    private fun rememberedGraphTurn(
+        active: ActiveSession,
+        state: ActiveSessionState,
+        request: StudioTurnRequest,
+    ): GraphRecovery {
         if (state is ActiveSessionState.Submitting) return GraphRecovery.Unknown
         val running = state.activeTurn()
         if (running != null) {
@@ -431,7 +555,9 @@ internal class StudioTurnExecutor(
                 TurnOutcome.Completed, is TurnOutcome.Failed ->
                     GraphRecovery.Adopt(StudioNativeTurn(actual, finished.id))
 
-                TurnOutcome.Cancelled -> GraphRecovery.Submit
+                TurnOutcome.Cancelled -> GraphRecovery.Cancelled(
+                    StudioRecoveryEvidence(active.ref, actual, finished.id, TurnOutcome.Cancelled),
+                )
 
                 TurnOutcome.Unknown, null -> GraphRecovery.Unknown
             }
@@ -444,6 +570,7 @@ internal class StudioTurnExecutor(
         data object Submit : GraphRecovery
         data object Unknown : GraphRecovery
         data class Adopt(val native: StudioNativeTurn) : GraphRecovery
+        data class Cancelled(val evidence: StudioRecoveryEvidence) : GraphRecovery
         data class Completed(val request: RequestId, val outcome: TurnOutcome) : GraphRecovery
     }
 
@@ -491,6 +618,7 @@ internal class StudioTurnExecutor(
         // The observer already ran for this terminal turn if the failure came after it; never call it twice.
         if (!progress.isTerminalObserved && terminal?.request == native.request && terminal.outcome != null) {
             val outcome = checkNotNull(terminal.outcome)
+            if (progress.isAdopted) recordAdopted(host, request, active, progress, outcome)
             observeTerminal(request, active, progress, outcome, isHistoryCurrent = false)
         }
         worktrees.failed(request.id.takeIf { progress.isIsolated }, native.request, active.ref, turn)
@@ -579,6 +707,15 @@ internal class StudioTurnExecutor(
         var isObservationClosed = false
         val delivery = StudioPromptDelivery()
         var isTerminalObserved = false
+        var isRecoveryJournalCurrent = true
+        var isRecoveryTerminalJournaled = false
+        private var isNativeRetained = false
+
+        suspend fun retainNative(submission: StudioSubmissionGate?) {
+            if (isNativeRetained) return
+            isStopRequested = submission?.retainNative() == true
+            isNativeRetained = true
+        }
     }
 
     private companion object {

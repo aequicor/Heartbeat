@@ -10,6 +10,12 @@ internal interface StudioSubmissionGate {
     val isCancelled: Boolean
     val hasBegun: Boolean get() = true
 
+    /** Exact coordinator delivery; null gates cannot publish a durable recovery reservation. */
+    val recoveryDelivery: StudioRecoveryDelivery? get() = null
+
+    /** Seals this gate before native entry; null never proves that its delivery was not sent. */
+    suspend fun sealRecoveryNoSend(): StudioRecoveryNoSendProof? = null
+
     /** A journaled new-send gate cannot observe another request without exact stop routing. */
     val isNativeRetentionSupported: Boolean get() = false
 

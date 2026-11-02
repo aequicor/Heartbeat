@@ -318,7 +318,7 @@ class StudioRecoveryWitnessTest {
             source,
             StudioHelperTerminal(session, turn, StudioHelperTerminalOutcome.Cancelled, ""),
         )
-        attempts.submitRecovery(helper, source)
+        assertFailsWith<IllegalStateException> { attempts.submitRecovery(helper, source) }
         assertFalse(attempts.prepareDelivery(helper, prompt).isNew)
     }
 

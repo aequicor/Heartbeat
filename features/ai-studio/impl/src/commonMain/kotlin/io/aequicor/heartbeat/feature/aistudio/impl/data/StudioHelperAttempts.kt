@@ -61,17 +61,13 @@ internal class StudioHelperAttempts(
         witness: StudioRecoveryWitness,
     ): StudioRecoveryWitness = lock.withLock {
         require(witness.phase == StudioRecoveryPhase.Inspecting && !witness.isStopRequested)
+        require(witness.delivery == null || witness.delivery.chat == helper.value)
         val chat = chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value }
         check(chat == null || chat.ref == witness.session) { "Recovery native context changed before admission" }
         val records = readRecoveries(helper)
         val previous = records[witness.execution.value]
         if (previous != null) {
-            check(
-                previous.root == witness.root && previous.candidates == witness.candidates &&
-                    previous.session == witness.session,
-            ) { "Recovery execution identity changed" }
-            check(previous.observerSuccessor == null) { "Recovery observation ownership was transferred" }
-            return@withLock previous
+            return@withLock repeatRecovery(helper, records, previous, witness)
         }
         val receipts = read(helper)
         val unresolved = records.values.filter { it.blocksContext(receipts) }
@@ -98,6 +94,19 @@ internal class StudioHelperAttempts(
         writeRecoveries(helper, transferred + (witness.execution.value to prepared))
         log.v { "Journaled recovery observation intent" }
         prepared
+    }
+
+    /** Called under the journal lock; a lost preparation ACK can only repeat the same immutable reservation. */
+    private suspend fun repeatRecovery(
+        helper: HelperId,
+        records: Map<String, StudioRecoveryWitness>,
+        previous: StudioRecoveryWitness,
+        incoming: StudioRecoveryWitness,
+    ): StudioRecoveryWitness {
+        val isStopped = records.values.any { it.root == previous.root && it.isStopRequested }
+        val repeated = (if (isStopped) previous.stopped() else previous).repeatDelivery(incoming)
+        if (repeated != previous) writeRecoveries(helper, records + (incoming.execution.value to repeated))
+        return repeated
     }
 
     suspend fun recovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness? = lock.withLock {
@@ -130,6 +139,18 @@ internal class StudioHelperAttempts(
     suspend fun submitRecovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness =
         changeRecovery(helper, execution) { it.submitting() }
 
+    suspend fun confirmRecoveryIdle(
+        helper: HelperId,
+        execution: RequestId,
+        session: SessionRef,
+    ): StudioRecoveryWitness = changeRecovery(helper, execution) { it.idle(session) }
+
+    /** Gate proof closes a delivery only; it never creates or changes a native send receipt. */
+    suspend fun closeRecoveryNoSend(helper: HelperId, proof: StudioRecoveryNoSendProof): StudioRecoveryWitness {
+        check(helper.value == proof.delivery.chat) { "NoSend belongs to another conversation" }
+        return changeRecovery(helper, proof.delivery.execution) { it.noSend(proof) }
+    }
+
     suspend fun observeRecovery(
         helper: HelperId,
         execution: RequestId,
@@ -141,6 +162,22 @@ internal class StudioHelperAttempts(
 
     suspend fun loseRecovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness =
         changeRecovery(helper, execution) { it.unknown() }
+
+    /** Production observers mutate only their reserved delivery, atomically with ownership and stop checks. */
+    suspend fun changeRecoveryDelivery(
+        delivery: StudioRecoveryDelivery,
+        change: (StudioRecoveryWitness) -> StudioRecoveryWitness,
+    ): StudioRecoveryWitness = changeRecovery(HelperId(delivery.chat), delivery.execution) { witness ->
+        if (witness.delivery != delivery) throw CancellationException("Recovery delivery ownership changed")
+        change(witness).also { changed ->
+            check(
+                changed.execution == witness.execution && changed.root == witness.root &&
+                    changed.candidates == witness.candidates && changed.session == witness.session &&
+                    changed.delivery == witness.delivery && changed.observerSuccessor == witness.observerSuccessor &&
+                    (!witness.isStopRequested || changed.isStopRequested),
+            ) { "Recovery transition changed its reservation or cleared stop" }
+        }
+    }
 
     private suspend fun changeRecovery(
         helper: HelperId,

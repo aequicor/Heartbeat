@@ -126,7 +126,7 @@ internal class StudioRunCoordinator(
             "A supplied submission gate must own its admission policy"
         }
         val submission = request.submission ?: if (cancelBeforeSubmission || admission != null) {
-            StudioRunSubmission(admission)
+            StudioRunSubmission(admission, request.newRecoveryDelivery())
         } else {
             null
         }
@@ -322,8 +322,10 @@ internal class StudioRunCoordinator(
  * The owning feature may defer or drop Preparing, but cannot revoke Submitted. Begin checks admission again
  * after preparation.
  */
-internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmission>? = null) :
-    StudioSubmissionGate {
+internal class StudioRunSubmission(
+    private val admission: Flow<ScheduledWakeAdmission>? = null,
+    override val recoveryDelivery: StudioRecoveryDelivery? = null,
+) : StudioSubmissionGate {
     private val log = Log.tag("StudioRunSubmission")
     private val state = MutableStateFlow(SubmissionState(Phase.Preparing))
 
@@ -331,6 +333,29 @@ internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmi
     override val hasBegun: Boolean get() = state.value.phase in setOf(Phase.Submitted, Phase.Retained)
     override val isNativeRetentionSupported: Boolean get() = true
     override val isRecoveryObservationSupported: Boolean get() = true
+
+    override suspend fun sealRecoveryNoSend(): StudioRecoveryNoSendProof? {
+        val delivery = recoveryDelivery ?: return null
+        while (true) {
+            val previous = state.value
+            if (previous.phase in setOf(Phase.Submitted, Phase.Retained)) return null
+            val refusal = when (previous.revoked ?: previous.phase) {
+                Phase.Deferred -> StudioRecoveryRefusal.Deferred
+                Phase.Dropped -> StudioRecoveryRefusal.Dropped
+                Phase.Preparing, Phase.Recovering, Phase.Cancelled -> StudioRecoveryRefusal.Cancelled
+                Phase.Submitted, Phase.Retained -> error("Accepted native ownership cannot prove NoSend")
+            }
+            val next = when (refusal) {
+                StudioRecoveryRefusal.Deferred -> Phase.Deferred
+                StudioRecoveryRefusal.Dropped -> Phase.Dropped
+                StudioRecoveryRefusal.Cancelled -> Phase.Cancelled
+            }
+            if (state.compareAndSet(previous, SubmissionState(next))) {
+                log.v { "Sealed recovery delivery before native entry" }
+                return StudioRecoveryNoSendProof(delivery, refusal)
+            }
+        }
+    }
 
     override suspend fun begin() {
         admission?.first()?.let(::revoke)

@@ -30,7 +30,8 @@ internal class StudioRecoveryCancellation(
                 HostConversationCancellation.Unconfirmed(execution)
             }
         }
-        if (witness.phase == StudioRecoveryPhase.Terminal) return terminal(witness, execution)
+        val closed = closed(witness, execution)
+        if (closed != null) return closed
         if (witness.observed == null || witness.session != record.ref) {
             return HostConversationCancellation.Unconfirmed(execution)
         }
@@ -50,6 +51,21 @@ internal class StudioRecoveryCancellation(
             HostConversationCancellation.Unconfirmed(execution)
         }
     }
+
+    private fun closed(witness: StudioRecoveryWitness, request: RequestId): HostConversationCancellation? =
+        when (witness.phase) {
+            StudioRecoveryPhase.Terminal -> terminal(witness, request)
+
+            StudioRecoveryPhase.NoSend -> if (witness.outcome == StudioHelperTerminalOutcome.Cancelled) {
+                terminal(witness, request)
+            } else {
+                HostConversationCancellation.Unconfirmed(request)
+            }
+
+            StudioRecoveryPhase.Inspecting, StudioRecoveryPhase.Submit,
+            StudioRecoveryPhase.Observing, StudioRecoveryPhase.Unknown,
+            -> null
+        }
 
     /** A terminal-only observation carries no invented answer or native TurnId. */
     private fun terminal(witness: StudioRecoveryWitness, request: RequestId): HostConversationCancellation =

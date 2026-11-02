@@ -98,6 +98,17 @@ Recovery-only open подключён в production `preflightRecovery` и helpe
 Q никогда не replay. Exact gate/reservation proof обязателен; missing receipt не proof. Root Stop и provenance
 сохраняются при NoSend/rearm. Пока этого слоя нет, production recovery capability не включать.
 
+NoSend теперь отделён от native NotSubmitted: exact delivery gate закрывается только после свежего Idle/Cancelled,
+Deferred rearm сбрасывает право отправки до новой инспекции, R==Q не replay. Atomic `changeRecoveryDelivery`
+проверяет claim, frozen identity и монотонность Stop; старый observer не меняет новую delivery. Executor имеет
+обязательный journal seam: actual R до checkpoint callback, terminal-only без TurnId, потеря профиля → Unknown.
+Ошибки bind/terminal journal удерживают live R и не вызывают аварийный Stop; неподтверждённая запись результата
+сообщается как Unknown. Native retention выполняется ровно один раз, независимо от stop flag.
+
+Production opt-in пока не сделан: до него завершить reservation/payload snapshot, NoSend после Submit admission,
+точную result attribution и universal root journal. Пользователь явно требует продолжать все оставшиеся шаги
+этого PR без остановок на foundation-срезах, затем pr-review-and-fix и `/reviewed` на проверенный head.
+
 ### 1. Закончить production recovery одним согласованным слоем
 
 **Первый следующий шаг.** `EngineStudioRepository` пока не реализует `StudioRecoveryRunHost`, а `StudioHelperAdmission.requireNativeRecovery` сохраняет прежний запрет helper/Subsession adoption. Не снимать guard только потому, что unit foundation зелёный.
