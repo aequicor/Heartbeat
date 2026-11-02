@@ -32,12 +32,55 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 class KoogStorageTest {
     private val stores = FakeDataStores()
     private val connections = StoredKoogConnections(stores)
     private val records = StoredKoogSessionRecords(stores)
+
+    @Test
+    fun `legacy golden record stays untagged after reading and checkpoint updates`() = runTest {
+        val store = stores.keyValue(KeyValueSpec("ai_koog_sessions")) as FakeKeyValueStore
+        val legacy = """[{"summary":{"ref":{"engine":{"value":"koog"},"source":{"value":"koog.profile"},""" +
+            """"nativeId":"legacy"}},"model":{"value":"model"}}]"""
+        store.values.value = mapOf("sessions" to legacy)
+        val decoded = records.get(ref("legacy"))
+        assertEquals(KoogHistoryFormat.LEGACY_REVISION, decoded?.schemaRevision)
+        assertEquals(legacy, store.raw("sessions"))
+        records.save(checkNotNull(decoded).copy(reasoningEffort = "high"))
+        assertFalse(store.raw("sessions").contains("schemaRevision"))
+        assertEquals(KoogHistoryFormat.LEGACY_REVISION, records.get(ref("legacy"))?.schemaRevision)
+    }
+
+    @Test
+    fun `current golden format round trips its explicit revision`() = runTest {
+        val store = stores.keyValue(KeyValueSpec("ai_koog_sessions")) as FakeKeyValueStore
+        val current = record("current").copy(schemaRevision = KoogHistoryFormat.CURRENT_REVISION)
+        records.save(current)
+        val golden = """[{"summary":{"ref":{"engine":{"value":"koog"},"source":{"value":"koog.profile"},""" +
+            """"nativeId":"current"}},"model":{"value":"model"},"schemaRevision":1}]"""
+        assertEquals(golden, store.raw("sessions"))
+        assertEquals(current, StoredKoogSessionRecords(stores).get(ref("current")))
+    }
+
+    @Test
+    fun `future and negative history revisions are hidden and survive other writes unchanged`() = runTest {
+        val store = stores.keyValue(KeyValueSpec("ai_koog_sessions")) as FakeKeyValueStore
+        val payload = """{"summary":{"ref":{"engine":{"value":"koog"},"source":{"value":"koog.profile"},""" +
+            """"nativeId":"future"}},"model":{"value":"model"},"schemaRevision":2,"futureData":"keep"}"""
+        val negative = payload.replace("\"schemaRevision\":2", "\"schemaRevision\":-1")
+        val readable = payload.replace("\"schemaRevision\":2", "\"schemaRevision\":0")
+        store.values.value = mapOf("sessions" to "[$readable]")
+        assertEquals(1, records.list().size)
+        store.values.value = mapOf("sessions" to "[$payload,$negative]")
+        assertEquals(emptyList(), records.list())
+        records.save(record("other").copy(schemaRevision = KoogHistoryFormat.CURRENT_REVISION))
+        assertContains(store.raw("sessions"), payload)
+        assertContains(store.raw("sessions"), negative)
+        assertEquals(listOf("other"), records.list().map { it.summary.ref.nativeId })
+    }
 
     @Test
     fun `connections are saved replaced and removed by binding`() = runTest {

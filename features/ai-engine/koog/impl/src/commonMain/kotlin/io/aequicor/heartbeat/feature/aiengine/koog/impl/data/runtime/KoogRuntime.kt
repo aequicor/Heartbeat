@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
+import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogHistoryFormat
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -90,6 +91,7 @@ internal class KoogRuntime(
                     features = setOf(SessionHistory.id, ResumesSessions.id),
                 ),
                 request.target.model,
+                schemaRevision = KoogHistoryFormat.CURRENT_REVISION,
             )
             koogCall { records.save(record) }
             checkOpen()

@@ -37,7 +37,12 @@ internal data class KoogRecord(
     val coverage: HistoryCoverage = HistoryCoverage.Complete,
     val reasoningEffort: String? = null,
     val context: KoogContextSummary? = null,
-)
+    val schemaRevision: Int = KoogHistoryFormat.LEGACY_REVISION,
+) {
+    init {
+        require(KoogHistoryFormat.isReadable(schemaRevision)) { "Unsupported Koog history revision" }
+    }
+}
 
 internal interface KoogSessionRecords {
     suspend fun list(): List<KoogRecord>
