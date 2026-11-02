@@ -98,6 +98,28 @@ class ManagedActiveSessionTest {
     private fun ActiveSession.sender() = (features.resolve(SendsPrompts) as FeatureAccess.Available).feature
 
     @Test
+    fun `retired native connection retains terminal Unknown through a conflated disconnect snapshot`() = runTest {
+        val native = FakeNativeSession()
+        val (session, _) = open(RouteFixture(this), native)
+        val sent = async { session.sender().send(prompt("before-disconnect")) }
+        runCurrent()
+        val local = sent.await()
+        val finished = native.activeTurn.copy(outcome = TurnOutcome.Unknown)
+        // DSH publishes terminal evidence and retirement without an intervening collector dispatch.
+        native.native.value = ActiveSessionState.Ready(finished)
+        native.native.value = ActiveSessionState.Unavailable(
+            EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed),
+            lastTurn = finished,
+        )
+        runCurrent()
+
+        val settled = assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed), settled.failure)
+        assertEquals(local, settled.lastTurn?.id)
+        assertEquals(TurnOutcome.Unknown, settled.lastTurn?.outcome)
+    }
+
+    @Test
     fun `steering local turn targets native turn and preserves pending permission`() = runTest {
         val calls = mutableListOf<Pair<TurnId, SteeringRequest>>()
         val native = FakeNativeSession(

@@ -25,7 +25,7 @@ internal fun AiStudioScreenState.queueUi(machine: AiStudioState.Ready) =
                             ?: AttachmentUi(id, "", ref.mediaType, 0)
                     }.toImmutableList(),
                     isPending = message.delivery ==
-                        StudioQueuedDelivery.Pending,
+                        StudioQueuedDelivery.Pending && queue.correction?.message != message.id,
                     isUncertain = message.delivery ==
                         StudioQueuedDelivery.Uncertain,
                 )

@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioCorrection
 import io.aequicor.heartbeat.feature.aistudio.api.StudioMessageQueueEnabled
 import io.aequicor.heartbeat.feature.aistudio.api.StudioMessageQueues
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueEffect
@@ -36,6 +37,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,7 +53,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlin.uuid.Uuid
 
 /** A captured lease and turn, never looked up again after a steering row was admitted. */
-internal data class StudioSteeringTarget(val session: ActiveSession, val turn: TurnId, val chat: String)
+internal data class StudioSteeringTarget(
+    val session: ActiveSession,
+    val turn: TurnId,
+    val chat: String,
+    val isNative: Boolean = true,
+    val request: String? = null,
+)
 
 /** Native execution boundary implemented by the existing profile repository. */
 internal interface StudioQueueHost {
@@ -65,6 +73,7 @@ internal interface StudioQueueHost {
 
     suspend fun steeringTarget(chat: String): StudioSteeringTarget
     suspend fun steerQueued(target: StudioSteeringTarget, message: StudioQueuedMessage)
+    suspend fun interrupt(target: StudioSteeringTarget) = target.interrupt()
 }
 
 /**
@@ -116,6 +125,8 @@ internal class StudioMessageQueueOwner(
                             is StudioQueueEffect.Dispatch -> dispatch(effect)
 
                             is StudioQueueEffect.Steer -> steer(effect)
+
+                            is StudioQueueEffect.Interrupt -> interrupt(effect)
                         }
                     },
                 )
@@ -158,12 +169,7 @@ internal class StudioMessageQueueOwner(
             // From this commit onward the profile owns the input, even if the requested follow-up action fails.
             try {
                 if (isCorrection) {
-                    targets[message.id] = host.value.steeringTarget(chat)
-                    commit(
-                        machine,
-                        StudioQueueIntent.Public.Steer(chat, message.id, token()),
-                        tokenOf = { it.operation },
-                    )
+                    captureCorrection(machine, chat, message.id)
                 } else if (machine.state.value.data.chat(chat).isPaused) {
                     commit(machine, StudioQueueIntent.Public.Resume(chat, token()), tokenOf = { it.operation })
                 }
@@ -173,7 +179,6 @@ internal class StudioMessageQueueOwner(
             } catch (error: Exception) {
                 log.w(error) { "Queue action failed after durable input admission" }
                 blocked.update { it + chat }
-                targets.remove(message.id)
                 pauseCapturedInput(machine, chat)
                 notice(chat, false)
             }
@@ -199,14 +204,77 @@ internal class StudioMessageQueueOwner(
     override suspend fun correct(chat: String, message: String) {
         try {
             mutate { machine ->
-                targets[message] = host.value.steeringTarget(chat)
-                commit(machine, StudioQueueIntent.Public.Steer(chat, message, token()), tokenOf = { it.operation })
+                captureCorrection(machine, chat, message)
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             log.w(error) { "Correction refused before native submission" }
             notice(chat, false)
+        }
+    }
+
+    private suspend fun captureCorrection(
+        machine: Machine<StudioQueueState, StudioQueueIntent, StudioQueueOutput>,
+        chat: String,
+        message: String,
+    ) {
+        val target = host.value.steeringTarget(chat)
+        val key = if (target.isNative) message else token()
+        check(key !in targets) { "Correction already admitted" }
+        targets[key] = target
+        var isAdmitted = false
+        try {
+            if (target.isNative) {
+                commit(machine, StudioQueueIntent.Public.Steer(chat, message, token()), tokenOf = { it.operation })
+            } else {
+                val correction = StudioCorrection(message, key, checkNotNull(target.request))
+                commit(
+                    machine,
+                    StudioQueueIntent.Public.Interrupt(chat, correction, token()),
+                    tokenOf = { it.operation },
+                )
+                log.i { "Reserve correction awaiting interruption" }
+                blocked.update { it - chat }
+            }
+            isAdmitted = true
+        } finally {
+            if (!isAdmitted) targets.remove(key)
+        }
+    }
+
+    private fun interrupt(effect: StudioQueueEffect.Interrupt) {
+        profile.coroutineScope.launch {
+            try {
+                val target = checkNotNull(targets.remove(effect.correction.token)) { "Correction target was lost" }
+                host.value.interrupt(target)
+                mutate { machine ->
+                    commit(
+                        machine,
+                        StudioQueueIntent.Internal.Interrupted(effect.chat, effect.correction.token, token()),
+                        tokenOf = { it.operation },
+                        mayIgnore = true,
+                    )
+                }
+            } catch (error: TimeoutCancellationException) {
+                log.w(error) { "Correction interruption timed out" }
+                interruptionFailed(effect, error)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.w(error) { "Correction interruption failed" }
+                interruptionFailed(effect, error)
+            }
+        }
+    }
+
+    private suspend fun interruptionFailed(effect: StudioQueueEffect.Interrupt, error: Exception) {
+        log.w(error) { "Correction retained because interruption was not confirmed" }
+        mutate { machine ->
+            if (machine.state.value.data.chat(effect.chat).correction?.token != effect.correction.token) return@mutate
+            blocked.update { it + effect.chat }
+            commit(machine, StudioQueueIntent.Public.Pause(effect.chat, token()), tokenOf = { it.operation })
+            notice(effect.chat, false)
         }
     }
 
@@ -237,7 +305,12 @@ internal class StudioMessageQueueOwner(
         mutate { machine ->
             log.i { "Settle input reservation outcome=$outcome" }
             if (!isSubmitted && machine.state.value.data.chat(chat).activeRequest != request) return@mutate
-            if (outcome != RunOutcome.Completed) blocked.update { it + chat }
+            val correction = machine.state.value.data.chat(chat).correction
+            if (outcome != RunOutcome.Completed &&
+                !(outcome == RunOutcome.Stopped && correction?.request == request)
+            ) {
+                blocked.update { it + chat }
+            }
             if (machine.state.value.data.chat(chat).messages.isNotEmpty() ||
                 machine.state.value.data.chat(chat).activeRequest != null
             ) {

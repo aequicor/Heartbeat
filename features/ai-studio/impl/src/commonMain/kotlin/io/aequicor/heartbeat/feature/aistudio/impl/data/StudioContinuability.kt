@@ -4,10 +4,12 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlinx.coroutines.CancellationException
@@ -72,9 +74,16 @@ internal fun List<EngineInfo>.continuabilityKey(): List<EngineInfo> = map { info
 
 private val DownloadStage = EnginePreparation.Downloading(bytes = 0, total = null)
 
-/** A closing or closed handle runs no more turns; its conversation continues through a resumed handle. */
-internal fun ActiveSession.isReleased(): Boolean =
-    state.value is ActiveSessionState.Closing || state.value == ActiveSessionState.Closed
+/** A definitively retired handle with no unresolved turn can be replaced by a resumed native session. */
+internal fun ActiveSession.isReleased(): Boolean = when (val current = state.value) {
+    is ActiveSessionState.Closing, ActiveSessionState.Closed -> true
+
+    is ActiveSessionState.Unavailable ->
+        current.activeTurn == null &&
+            current.failure == EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed)
+
+    else -> false
+}
 
 /**
  * The open handle of conversation [id]. A runtime retired under an idle conversation (rotated key, engine restart)
@@ -83,8 +92,8 @@ internal fun ActiveSession.isReleased(): Boolean =
 internal suspend fun MutableMap<String, ActiveSession>.live(id: String): ActiveSession? {
     val handle = get(id) ?: return null
     if (!handle.isReleased()) return handle
-    // Closing(failure) still owns the native attachment; close must succeed before a replacement is opened.
-    if (handle.state.value is ActiveSessionState.Closing) handle.close()
+    // Closing and retired unavailable handles still own their attachment until close succeeds.
+    if (handle.state.value != ActiveSessionState.Closed) handle.close()
     check(handle.state.value == ActiveSessionState.Closed) { "Native handle has not finished closing" }
     remove(id)
     releasedLog.i { "Released native handle dropped; the conversation resumes its stored session" }

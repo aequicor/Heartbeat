@@ -97,7 +97,7 @@ interface StudioQueueRuntime {
         error("Message queue is unavailable")
     }
 
-    /** Edits exactly one queue row or dismisses one notice; never implicitly interrupts a native turn. */
+    /** Edits one queue row; explicit Correct may interrupt a turn when native steering is unavailable. */
     suspend fun manageQueue(sessionId: String, action: StudioQueueAction, message: String) {
         error("Message queue is unavailable")
     }
