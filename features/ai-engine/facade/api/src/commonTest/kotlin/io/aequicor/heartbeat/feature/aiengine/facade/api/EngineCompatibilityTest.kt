@@ -12,7 +12,7 @@ class EngineCompatibilityTest {
         heartbeat = "hb1",
         connector = "connector1",
         runtime = "1.2.0",
-        protocol = 1,
+        protocol = EngineProtocolIdentity.Negotiated("acp", 1),
         configurationSchema = 1,
         historySchema = 1,
         nativeTarget = "darwin-arm64",
@@ -23,7 +23,7 @@ class EngineCompatibilityTest {
         heartbeatVersions = setOf("hb1", "hb2"),
         connectorVersions = setOf("connector1", "connector2"),
         minimumRuntime = "1.0.0",
-        protocols = setOf(1),
+        protocols = setOf(EngineProtocolIdentity.Negotiated("acp", 1)),
         configurationSchemas = setOf(1),
         historySchemas = setOf(1),
         nativeTargets = setOf("darwin-arm64"),
@@ -103,7 +103,9 @@ class EngineCompatibilityTest {
             evidence.copy(isBaselineConfirmed = false) to CompatibilityProblem.BaselineRejected,
             evidence.copy(isProvenanceConfirmed = false) to CompatibilityProblem.ProvenanceRejected,
             evidence.copy(capabilities = setOf("cancel")) to CompatibilityProblem.BaselineCapability,
-            evidence.copy(identity = evidence.identity.copy(protocol = 2)) to CompatibilityProblem.Protocol,
+            evidence.copy(
+                identity = evidence.identity.copy(protocol = EngineProtocolIdentity.Negotiated("acp", 2)),
+            ) to CompatibilityProblem.Protocol,
             evidence.copy(
                 identity = evidence.identity.copy(configurationSchema = 2),
             ) to CompatibilityProblem.ConfigurationSchema,
@@ -197,7 +199,9 @@ class EngineCompatibilityTest {
 
     @Test
     fun `partial identity retains a known protocol rejection without inventing a fingerprint`() {
-        val partial = evidence.copy(identity = EngineCompatibilityIdentity(protocol = 999))
+        val partial = evidence.copy(
+            identity = EngineCompatibilityIdentity(protocol = EngineProtocolIdentity.Negotiated("acp", 999)),
+        )
         val result = assessEngineCompatibility(requirements, partial)
         assertEquals(Compatibility.Incompatible, result.status)
         assertTrue(CompatibilityProblem.Protocol in result.problems)
@@ -220,6 +224,27 @@ class EngineCompatibilityTest {
             EngineCompatibilityDecision(Compatibility.Unverified, setOf(CompatibilityProblem.MissingBaseline), stamp)
         }
         assertFailsWith<IllegalArgumentException> { EngineCompatibilityDecision(Compatibility.Unknown) }
+    }
+
+    @Test
+    fun `unversioned schemas require a live baseline and are never called negotiated`() {
+        val schema = EngineProtocolIdentity.ProbedSchema("jsonl", "schema-1")
+        val policy = requirements.copy(protocols = setOf(schema), verified = emptySet())
+        val facts = evidence.copy(identity = evidence.identity.copy(protocol = schema))
+        assertEquals(Compatibility.Unverified, assessEngineCompatibility(policy, facts).status)
+        assertEquals(
+            Compatibility.Unknown,
+            assessEngineCompatibility(policy, facts.copy(isBaselineConfirmed = null)).status,
+        )
+        assertEquals(
+            Compatibility.Incompatible,
+            assessEngineCompatibility(
+                policy,
+                facts.copy(identity = facts.identity.copy(protocol = EngineProtocolIdentity.Negotiated("jsonl", 1))),
+            ).status,
+        )
+        val changed = facts.copy(identity = facts.identity.copy(protocol = schema.copy(schemaRevision = "schema-2")))
+        assertTrue(CompatibilityProblem.Protocol in assessEngineCompatibility(policy, changed).problems)
     }
 
     @Test

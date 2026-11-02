@@ -1,6 +1,33 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.api
 
 /**
+ * Identity of the wire contract actually checked. A connector must not invent a negotiated major for an
+ * unversioned protocol: those protocols identify the pinned schema whose baseline the connector probed.
+ */
+public sealed interface EngineProtocolIdentity {
+    /** Peer explicitly negotiated this named protocol and major, for example ACP v1. */
+    public data class Negotiated(val name: String, val major: Int) : EngineProtocolIdentity {
+        init {
+            require(name.isNotBlank() && major > 0) { "Invalid negotiated protocol" }
+        }
+
+        override fun toString(): String = "NegotiatedProtocol"
+    }
+
+    /**
+     * No peer version negotiation exists. [schemaRevision] identifies the connector's pinned wire schema;
+     * it is not a version reported by the peer. Admission still requires successful live baseline evidence.
+     */
+    public data class ProbedSchema(val name: String, val schemaRevision: String) : EngineProtocolIdentity {
+        init {
+            require(name.isNotBlank() && schemaRevision.isNotBlank()) { "Invalid protocol schema identity" }
+        }
+
+        override fun toString(): String = "ProbedProtocolSchema"
+    }
+}
+
+/**
  * Non-secret identity of one compatibility regression. Values describe the actual process, not the selected
  * display version. [runtimeFingerprint] is a content digest or immutable build identity, never a path/account.
  * A changed external executable needs a fresh stamp and negotiation even when its version string is unchanged.
@@ -10,7 +37,7 @@ public data class EngineCompatibilityStamp(
     val heartbeat: String,
     val connector: String,
     val runtime: String,
-    val protocol: Int,
+    val protocol: EngineProtocolIdentity,
     val configurationSchema: Int,
     val historySchema: Int,
     val nativeTarget: String,
@@ -25,7 +52,7 @@ public data class EngineCompatibilityIdentity(
     val heartbeat: String? = null,
     val connector: String? = null,
     val runtime: String? = null,
-    val protocol: Int? = null,
+    val protocol: EngineProtocolIdentity? = null,
     val configurationSchema: Int? = null,
     val historySchema: Int? = null,
     val nativeTarget: String? = null,
@@ -60,7 +87,7 @@ public data class EngineCompatibilityRequirements(
     val minimumRuntime: String,
     val maximumRuntimeExclusive: String? = null,
     val deniedRuntimeVersions: Set<String> = emptySet(),
-    val protocols: Set<Int>,
+    val protocols: Set<EngineProtocolIdentity>,
     val configurationSchemas: Set<Int>,
     val historySchemas: Set<Int>,
     val nativeTargets: Set<String>,
@@ -80,7 +107,7 @@ public data class EngineCompatibilityRequirements(
             require(maximum > minimum) { "Empty runtime range" }
         }
         require(deniedRuntimeVersions.all { CompatibilityVersion.parse(it) != null }) { "Invalid denied runtime" }
-        require(protocols.isNotEmpty() && protocols.all { it > 0 }) { "Missing protocol contract" }
+        require(protocols.isNotEmpty()) { "Missing protocol contract" }
         require(configurationSchemas.isNotEmpty() && configurationSchemas.all { it >= 0 }) { "Missing config contract" }
         require(historySchemas.isNotEmpty() && historySchemas.all { it >= 0 }) { "Missing history contract" }
         require(nativeTargets.isNotEmpty() && nativeTargets.all { it.isNotBlank() }) { "Missing target contract" }
