@@ -205,7 +205,13 @@ public data class Turn(
  * request with input submits the answer.
  */
 @Serializable
-public data class PermissionOption(val id: PermissionOptionId, val title: String, val isSkip: Boolean = false)
+public data class PermissionOption(
+    val id: PermissionOptionId,
+    val title: String,
+    val isSkip: Boolean = false,
+    /** Trusted adapter metadata: this option affects only this exact invocation, never future requests. */
+    val isOneTime: Boolean = false,
+)
 
 /** Pending action is authoritative state; replaying a historical notification never makes it pending again. */
 @Serializable

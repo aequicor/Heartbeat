@@ -6,8 +6,11 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ChatQueueUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerCaretRequestUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerSuggestionsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnginePreparationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EngineSwitchUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoiceUi
@@ -23,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectTrustNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.QueueNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.RenameUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
@@ -33,6 +37,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioAppUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeDismissalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.appFor
@@ -107,6 +112,7 @@ data class PaneContent(
     /** Targets captured with this pane's snapshot, including for delayed remote clicks. */
     val noticeTargets: ImmutableMap<StudioNoticeUi, StudioNoticeDismissalUi>,
     val models: ImmutableList<ModelUi> = persistentListOf(),
+    val autopilotModels: ImmutableList<ModelUi> = persistentListOf(),
     /** Plan implementation retains its own workspace and connection compatibility rules. */
     val planModels: ImmutableList<ModelUi> = models,
     /** The profile choice shown in the composer of ordinary native chats. */
@@ -136,6 +142,9 @@ data class PaneContent(
     val engineSwitch: EngineSwitchUi? = null,
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val isAttachmentsEnabled: Boolean = false,
+    val isMessageQueueEnabled: Boolean = false,
+    val queue: ChatQueueUi = ChatQueueUi(),
+    val queueNotice: QueueNoticeUi? = null,
     val isRememberEnabled: Boolean = false,
     val isCompactEnabled: Boolean = false,
     /** The chat's context is being compacted now: the indicator animates. */
@@ -159,7 +168,7 @@ data class PaneContent(
     val isAttachmentPending: Boolean = false,
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
     /** Suggestions of the pane's active composer token; null hides the popup. */
-    val suggestions: io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerSuggestionsUi? = null,
+    val suggestions: ComposerSuggestionsUi? = null,
     val caretRequest: ComposerCaretRequestUi? = null,
     val diagram: DiagramActionsUi = DiagramActionsUi(),
     val host: StudioHostCapabilities = StudioHostCapabilities(),
@@ -174,7 +183,7 @@ data class PaneContent(
     /** A descendant view has no execution controls; root ownership remains unchanged. */
     val isNativeChild: Boolean get() = nativeTree?.sessions?.any {
         it.key == subSession &&
-            it.kind == io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi.Agent
+            it.kind == SubSessionKindUi.Agent
     } == true
 
     /** Only the settings of this pane wait while its session configuration is being confirmed. */
@@ -281,6 +290,7 @@ private fun AiStudioScreenState.projectPaneContent(
     isStoppable = pane.sessionId !in uncancellable,
     isResearchAvailable = isResearchOffered(pane),
     models = modelsForPane(pane, session, configuration, organism),
+
     planModels = planModelsForPane(pane, session, configuration, organism),
     isProjectAddingAvailable = isProjectAddingAvailable && addingProjectTo == null,
     isPickingProject = addingProjectTo == pane.id,
@@ -293,14 +303,26 @@ private fun AiStudioScreenState.projectPaneContent(
     isSandboxAvailable = isSandboxAvailable && isWorktreeOffered(pane),
     worktree = worktreeFor(pane.sessionId),
     worktreeJournal = worktreeJournal,
-).withChatModes(this, session, organism)
+).withChatModes(this, session, organism).withMessageQueue(this, session)
 
 /** Planning and auto-continue of the pane's chat; auto-continue is offered for ordinary chats while it is on. */
 private fun PaneContent.withChatModes(screen: AiStudioScreenState, session: SessionUi?, organism: OrganismUi?) = copy(
     planning = PanePlanning(screen.isPlanningEnabled, screen.plans[pane.sessionId], screen.planModes(pane, session)),
     autoContinue = screen.autoContinue.takeIf { it.isEnabled && session?.isHelper != true && organism == null }
-        ?.chat(pane.sessionId),
+        ?.let {
+            if (pane.sessionId ==
+                null
+            ) {
+                screen.newChatAutoContinue[pane.id]
+                    ?: AutoContinueUi(
+                        mode = it.defaultMode,
+                    )
+            } else {
+                it.chat(pane.sessionId)
+            }
+        },
     autoContinueLimit = screen.autoContinue.autoTurnLimit,
+    autopilotModels = screen.models,
 )
 
 /** Where a plan of [session] can be implemented: a checkout needs a Git project, an organism a shared folder. */
@@ -434,7 +456,7 @@ private fun AiStudioScreenState.selectedSubSession(id: String?, session: Session
 data class DiagramActionsUi(
     val isPending: Boolean = false,
     val focusRequest: Long = 0L,
-    val draftReason: io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi? = null,
+    val draftReason: DiagramDraftReasonUi? = null,
 )
 
 private fun AiStudioScreenState.diagramActions(pane: PaneUi): DiagramActionsUi = DiagramActionsUi(
@@ -452,7 +474,12 @@ fun AiStudioScreenState.paneContent(pane: PaneUi, host: StudioHostCapabilities):
         )
     }
 
-private fun AiStudioScreenState.worktreeFor(
-    session: String?,
-): io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi? =
+private fun AiStudioScreenState.worktreeFor(session: String?): WorktreeUi? =
     session?.let { worktrees[it] ?: worktrees["organism.$it.${subSessions[it] ?: PRIMARY_SUB_SESSION}"] }
+
+/** Profile input stays attached to its logical chat while pane selection changes. */
+private fun PaneContent.withMessageQueue(screen: AiStudioScreenState, session: SessionUi?) = copy(
+    isMessageQueueEnabled = screen.isMessageQueueEnabled && session?.isHelper != true && session?.isOrganism != true,
+    queue = screen.messageQueues[pane.sessionId] ?: ChatQueueUi(),
+    queueNotice = screen.queueNotices[pane.sessionId],
+)

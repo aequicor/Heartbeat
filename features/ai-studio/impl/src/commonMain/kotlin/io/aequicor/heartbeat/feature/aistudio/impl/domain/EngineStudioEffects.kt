@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioDefaults
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -26,6 +27,7 @@ class EngineStudioEffects(
     private val projects: StudioProjects? = null,
     private val planning: StudioPlanning = StudioPlanning.None,
     private val plans: StudioPlanRuntime = StudioPlanRuntime.None,
+    private val autoContinue: StudioAutoContinuePort = StudioAutoContinuePort.None,
 ) : EffectHandler<AiStudioEffect, AiStudioIntent> {
     private val log = Log.tag("EngineStudioEffects")
 
@@ -41,7 +43,7 @@ class EngineStudioEffects(
                 ),
             )
 
-            is AiStudioEffect.Configuration -> configure(effect)
+            is AiStudioEffect.Configuration, is AiStudioEffect.MessageQueue -> configureOrQueue(effect, machine)
 
             AiStudioEffect.ObserveAvailability -> availability.observe().collect {
                 machine.send(
@@ -82,6 +84,25 @@ class EngineStudioEffects(
         }
     }
 
+    private suspend fun configureOrQueue(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
+        if (effect is AiStudioEffect.Configuration) {
+            configure(effect)
+        } else {
+            queue(effect as AiStudioEffect.MessageQueue, machine)
+        }
+    }
+
+    private suspend fun queue(effect: AiStudioEffect.MessageQueue, machine: EffectScope<AiStudioIntent>) {
+        when (effect) {
+            is AiStudioEffect.QueueMessage -> {
+                runtime.enqueue(effect.sessionId, effect.message, effect.environment, effect.isCorrection)
+                machine.send(AiStudioIntent.Internal.QueueAccepted(effect.paneId, effect.message.id, effect.sessionId))
+            }
+
+            is AiStudioEffect.ManageQueue -> runtime.manageQueue(effect.sessionId, effect.action, effect.message)
+        }
+    }
+
     private suspend fun createSession(effect: AiStudioEffect.CreateSession, machine: EffectScope<AiStudioIntent>) {
         requireBrowserCreationSupport(effect)
         // Refused before anything is saved: no orphan chat or worktree copy is left behind.
@@ -95,6 +116,15 @@ class EngineStudioEffects(
         )
         // A race lost after the check above leaves the saved conversation as an idle sidebar entry.
         if (effect.isPlanning) check(planning.enter(session.id)) { "Planning mode could not start" }
+        effect.autoContinue?.let { choice ->
+            autoContinue.send(
+                AutoContinueIntent.Public.SetMode(
+                    session.id,
+                    choice.mode,
+                    choice.continuerTarget,
+                ),
+            )
+        }
         machine.send(
             AiStudioIntent.Internal.SessionCreated(
                 effect.paneId,

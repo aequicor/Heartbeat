@@ -55,6 +55,9 @@ data class AiStudioScreenState(
     val uncancellable: ImmutableSet<String> = persistentSetOf(),
     val settings: SettingsUi = DefaultSettingsUi,
     val isEngineSwitchingAvailable: Boolean = false,
+    val isMessageQueueEnabled: Boolean = false,
+    val messageQueues: ImmutableMap<String, ChatQueueUi> = persistentMapOf(),
+    val queueNotices: ImmutableMap<String, QueueNoticeUi> = persistentMapOf(),
     val engineSwitches: ImmutableMap<String, EngineSwitchUi> = persistentMapOf(),
     val configurations: ImmutableMap<String, SessionConfigurationUi> = persistentMapOf(),
     val projects: ImmutableList<ProjectUi> = persistentListOf(),
@@ -103,6 +106,8 @@ data class AiStudioScreenState(
     val isPlanningEnabled: Boolean = false,
     /** Suggestions and autopilot of the chats. */
     val autoContinue: AutoContinueScreenUi = AutoContinueScreenUi(),
+    /** Auto-continue choice of each unsent new chat, independent of other panes. */
+    val newChatAutoContinue: ImmutableMap<Int, AutoContinueUi> = persistentMapOf(),
     /** Plans of the chats shown in panes, by chat id; detached plans are not shown. */
     val plans: ImmutableMap<String, PlanUi> = persistentMapOf(),
     /** Organisms of organism chats, by chat id. */

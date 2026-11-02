@@ -32,6 +32,24 @@ class ModelSelectionTest {
     }
 
     @Test
+    fun `enabling a model keeps the other selected models`() {
+        val selection = ModelSelection().withModel(a, true).withModel(other, true)
+        val updated = selection.withModel(b, true)
+        assertTrue(updated.isEnabled(a))
+        assertTrue(updated.isEnabled(b))
+        assertTrue(updated.isEnabled(other))
+        assertEquals(setOf(ModelId("a"), ModelId("b")), updated.enabled(a.binding))
+    }
+
+    @Test
+    fun `replacing one binding choice keeps other connections`() {
+        val selection = ModelSelection().withModel(a, true).withModel(other, true)
+        val updated = selection.withEnabled(a.binding, setOf(ModelId("b")))
+        assertEquals(setOf(ModelId("b")), updated.enabled(a.binding))
+        assertTrue(updated.isEnabled(other))
+    }
+
+    @Test
     fun `forgetting a binding keeps other connections`() {
         val selection = ModelSelection().withModel(a, true).withDefault(other)
         val forgotten = selection.without(a.binding)

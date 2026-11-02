@@ -15,6 +15,8 @@
     <string name="control_version">Version %1$s</string>
     <string name="control_version_unknown">Version unknown</string>
     <string name="control_panel_missing">This engine is no longer available.</string>
+    <string name="control_panel_overview">Overview</string>
+    <string name="control_panel_tab_settings">Settings</string>
     <string name="control_panel_settings">Engine settings</string>
     <string name="control_panel_settings_description">What the engine itself does: its settings, instructions, extensions and tool servers.</string>
     <string name="control_panel_configuration_off">Engine configuration is off. Turn on the ai.engine_configuration flag to configure engines here.</string>
@@ -22,6 +24,10 @@
     <string name="engine_section">Engine</string>
     <string name="engine_enabled">Use this engine</string>
     <string name="engine_enabled_hint">Sessions, connections and model pickers of this profile use it.</string>
+    <string name="engine_enable">Enable</string>
+    <string name="engine_switch_label">Enable %1$s engine</string>
+    <string name="engine_disabled_profile">The engine is off in this profile. New requests through %1$s are unavailable. History is preserved.</string>
+    <string name="engine_uninstall_blocked">Removal is unavailable while an engine turn is running or Heartbeat\'s managed copy is absent.</string>
     <string name="engine_reason_platform">Not available on this device.</string>
     <string name="engine_reason_catalog">All engines are off by the developer flag %1$s.</string>
     <string name="engine_reason_flag">Off by the developer flag %1$s.</string>
@@ -43,7 +49,7 @@
     <string name="engine_check_updates">Check for updates</string>
     <string name="engine_install">Install</string>
     <string name="engine_update">Update</string>
-    <string name="engine_uninstall">Remove Heartbeat\'s copy</string>
+    <string name="engine_uninstall">Remove installation</string>
     <string name="engine_revert">Return to the bundled version</string>
     <string name="engine_runtime">Runtime</string>
     <string name="engine_runtime_stopped">Not running</string>
@@ -95,8 +101,8 @@
     <string name="engine_login_failure_terminal">This CLI signs in only from a terminal.</string>
     <string name="engine_login_failure_untrusted">The CLI offered a sign-in page outside the provider\'s sites, so it was not opened.</string>
     <string name="engine_login_failure_unsupported">This engine has no CLI sign-in.</string>
-    <string name="engine_confirm_uninstall_title">Remove Heartbeat\'s copy?</string>
-    <string name="engine_confirm_uninstall_body">New sessions use the system installation, if there is one.</string>
+    <string name="engine_confirm_uninstall_title">Remove the %1$s installation?</string>
+    <string name="engine_confirm_uninstall_body">Heartbeat will remove its managed installation of %1$s.&#10;&#10;Connections, settings and chat history are preserved. Your own installation is not affected.&#10;New requests will require installing the engine again.</string>
     <string name="engine_confirm_revert_title">Return to the bundled version?</string>
     <string name="engine_confirm_revert_body">The newer copy is removed, and the version shipped with Heartbeat is used again.</string>
     <string name="engine_confirm_update_title">Install a version Heartbeat was not tested with?</string>
@@ -155,7 +161,7 @@
     <string name="engine_path_copy">Copy the path</string>
     <string name="engine_path_copied">Path copied</string>
     <string name="engine_copy_failed">Could not copy</string>
-    <string name="engine_confirm_uninstall">Remove</string>
+    <string name="engine_confirm_uninstall">Remove installation</string>
     <string name="engine_confirm_revert">Return</string>
     <string name="engine_confirm_update">Install anyway</string>
     <string name="engine_confirm_logout">Sign out</string>

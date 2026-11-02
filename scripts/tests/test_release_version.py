@@ -25,7 +25,7 @@ class ReleaseVersionTests(unittest.TestCase):
                 self.assertEqual(release_version.next_version(["v2.8.4"], "1.0.0", level), expected)
 
     def test_highest_numeric_stable_tag_wins(self):
-        tags = ["v2.9.9", "v2.10.1", "v2.8.100", "v3.0.0-rc1", "jcef-100", "v02.11.0"]
+        tags = ["v2.9.9", "v2.10.1", "v2.8.100", "v3.0.0-rc1", "payload-v9.0.0", "jcef-100", "v02.11.0"]
         self.assertEqual(release_version.next_version(tags, "1.0.0", "patch"), "2.10.2")
 
     def test_first_release_bumps_gradle_baseline(self):
@@ -108,12 +108,13 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 break
             snippet.append(line[10:])
         gh = self.directory / "gh"
-        gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$CALLS"\n')
+        gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$CALLS"\n')
         gh.chmod(0o755)
         calls = self.directory / "calls"
         sha = self.git("rev-parse", "HEAD")
         env = dict(os.environ, PATH=f"{self.directory}{os.pathsep}{os.environ['PATH']}",
-                   TAG="v1.0.1", GITHUB_SHA=sha, GH_REPO="owner/repo", CALLS=str(calls))
+                   TAG="v1.0.1", PAYLOAD_TAG="payload-v1.0.1", GITHUB_SHA=sha,
+                   GH_REPO="owner/repo", CALLS=str(calls))
 
         def run():
             return subprocess.run(
@@ -126,9 +127,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(calls.read_text().splitlines(), [
             "api", "--method", "POST", "repos/owner/repo/git/refs",
             "-f", "ref=refs/tags/v1.0.1", "-f", f"sha={sha}",
+            "api", "--method", "POST", "repos/owner/repo/git/refs",
+            "-f", "ref=refs/tags/payload-v1.0.1", "-f", f"sha={sha}",
         ])
         calls.unlink()
         self.git("tag", "-am", "Release", "v1.0.1")
+        self.git("tag", "-am", "Payload", "payload-v1.0.1")
         self.assertEqual(run().returncode, 0)  # Retrying the same tested commit is safe.
         self.assertFalse(calls.exists())
         self.git("commit", "--allow-empty", "-qm", "Another commit")

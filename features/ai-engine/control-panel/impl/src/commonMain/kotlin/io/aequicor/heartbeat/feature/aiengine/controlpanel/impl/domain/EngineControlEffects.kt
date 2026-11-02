@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.ControlSnapshot
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlEffect
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
@@ -23,6 +24,7 @@ internal data class EngineControlServices(
     val management: EngineManagement,
     val configuration: EngineConfiguration,
     val workspaces: LocalWorkspaces,
+    val enginesWithModels: Flow<Set<EngineId>> = flowOf(emptySet()),
 )
 
 /**
@@ -58,6 +60,7 @@ internal class EngineControlEffects(private val services: EngineControlServices)
         services.management.state,
         services.configuration.state,
         projects(),
+        services.enginesWithModels,
         ::ControlSnapshot,
     )
 

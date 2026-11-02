@@ -73,13 +73,14 @@ class ExtensionArchiveTest {
     fun `only the pinned publisher tag and bounded size are accepted`() {
         val pin = "version=1.2.3\nsha256=${"a".repeat(64)}\nsize=12\n"
         val prefix = "https://github.com/aequicor/Heartbeat/releases/download/"
-        val valid = ExtensionRelease.read(pin + "url=${prefix}v1.2.3/extension.zip")
+        val valid = ExtensionRelease.read(pin + "url=${prefix}payload-v1.2.3/extension.zip")
         assertTrue(valid.artifact.download.allowedHosts.contains("github.com"))
+        ExtensionRelease.read(pin + "url=${prefix}v1.2.3/extension.zip")
         listOf(
-            "http://github.com/aequicor/Heartbeat/releases/download/v1.2.3/extension.zip",
-            "${prefix}v9.0.0/extension.zip",
-            "${prefix}v1.2.3/extension.zip?redirect=bad",
-            "${prefix}v1.2.3/subfolder/extension.zip",
+            "http://github.com/aequicor/Heartbeat/releases/download/payload-v1.2.3/extension.zip",
+            "${prefix}payload-v9.0.0/extension.zip",
+            "${prefix}payload-v1.2.3/extension.zip?redirect=bad",
+            "${prefix}payload-v1.2.3/subfolder/extension.zip",
             "https://attacker.test/extension.zip",
         ).forEach { url ->
             assertFailsWith<IllegalArgumentException>(url) { ExtensionRelease.read(pin + "url=$url") }

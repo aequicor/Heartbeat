@@ -45,7 +45,12 @@ public sealed interface StudioPermissionAnswer {
 }
 
 /** Opaque decision id and user-visible title supplied by the engine; [isSkip] declines an input without answer. */
-public data class StudioPermissionOption(val id: String, val title: String, val isSkip: Boolean = false)
+public data class StudioPermissionOption(
+    val id: String,
+    val title: String,
+    val isSkip: Boolean = false,
+    val isOneTime: Boolean = false,
+)
 
 /**
  * Profile-owned executions observed by the feature without owning their lifetime.
@@ -64,4 +69,10 @@ public data class StudioRuntimeState(
     val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
     val isEngineSwitchingAvailable: Boolean = false,
     val engineSwitches: Map<String, StudioEngineSwitchState> = emptyMap(),
+    /** Human input accepted by the profile queue; independent of the screen's local draft. */
+    val messageQueues: StudioMessageQueues = StudioMessageQueues(),
+    /** Transient delivery feedback; closing a notice never changes [messageQueues]. */
+    val queueNotices: Map<String, StudioQueueNotice> = emptyMap(),
+    /** Queue/steering feature availability, observed by the profile runtime. */
+    val isMessageQueueEnabled: Boolean = false,
 )

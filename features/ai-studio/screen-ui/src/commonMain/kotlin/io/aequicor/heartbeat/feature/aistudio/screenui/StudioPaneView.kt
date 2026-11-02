@@ -245,6 +245,13 @@ internal fun StudioPaneView(
                         ).onSizeChanged { footerHeight = it.height }
                             .onGloballyPositioned { composerPosition = it.positionInRoot() },
                     )
+                    QueueSnackbar(
+                        content,
+                        onIntent,
+                        Modifier.align(Alignment.BottomCenter)
+                            .padding(bottom = bottomInset + HbTheme.spacing.s)
+                            .widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth(),
+                    )
                 }
             },
             context = {
@@ -982,7 +989,7 @@ private fun PaneFooter(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val column = Modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth()
-        PaneExecutionStatus(content, column)
+        if (!content.isMessageQueueEnabled) PaneExecutionStatus(content, column)
         if (content.attachments.isNotEmpty()) {
             StudioAttachments(
                 content.attachments,
@@ -1006,7 +1013,7 @@ private fun PaneFooter(
 }
 
 @Composable
-private fun PaneExecutionStatus(content: PaneContent, modifier: Modifier = Modifier) {
+internal fun PaneExecutionStatus(content: PaneContent, modifier: Modifier = Modifier) {
     if (content.session?.isRunning == true) {
         RunStatus(content.isStopping, content.elapsed, modifier)
     } else if (content.session?.isWaiting == true) {

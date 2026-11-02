@@ -68,7 +68,12 @@ internal fun HbInWindowDialogPortal(
         LocalHbInWindowDialogs provides dialogs,
         LocalHbActiveNativeModalOwner provides active?.owner,
     ) {
-        HbDialogFocusLayer(active != null, { HbInWindowPopupHost(content = content) }, modifier) {
+        HbDialogFocusLayer(
+            active != null,
+            { HbInWindowPopupHost(content = content) },
+            modifier,
+            isBackgroundBlurred = active?.isBackgroundBlurred == true,
+        ) {
             active?.render()
         }
     }
@@ -76,7 +81,11 @@ internal fun HbInWindowDialogPortal(
 
 /** Returns false in previews or hosts without a window portal; they keep the normal dialog fallback. */
 @Composable
-internal fun hbInWindowDialog(onDismissRequest: () -> Unit, content: @Composable () -> Unit): Boolean {
+internal fun hbInWindowDialog(
+    onDismissRequest: () -> Unit,
+    isBackgroundBlurred: Boolean = false,
+    content: @Composable () -> Unit,
+): Boolean {
     // A nested dialog belongs to this entry's composition; replacing it would dispose its own registration.
     if (LocalHbNativeModalOwner.current != null) return false
     val dialogs = LocalHbInWindowDialogs.current ?: return false
@@ -84,8 +93,8 @@ internal fun hbInWindowDialog(onDismissRequest: () -> Unit, content: @Composable
     val dismiss by rememberUpdatedState(onDismissRequest)
     val body by rememberUpdatedState(content)
     val owner = remember { HbNativeModalOwner() }
-    val entry = remember(dialogs) {
-        InWindowDialog(owner) {
+    val entry = remember(dialogs, isBackgroundBlurred) {
+        InWindowDialog(owner, isBackgroundBlurred) {
             CompositionLocalProvider(locals) {
                 CompositionLocalProvider(
                     LocalHbNativeContentViewport provides null,
@@ -109,4 +118,8 @@ internal class InWindowDialogs {
     val entries = mutableStateListOf<InWindowDialog>()
 }
 
-internal data class InWindowDialog(val owner: HbNativeModalOwner, val render: @Composable () -> Unit)
+internal data class InWindowDialog(
+    val owner: HbNativeModalOwner,
+    val isBackgroundBlurred: Boolean = false,
+    val render: @Composable () -> Unit,
+)

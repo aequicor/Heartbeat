@@ -7,19 +7,25 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlStat
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.FailedOperation
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ControlTestData.codex
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ControlTestData.pi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineConnectionStatusUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineStatusUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.listState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedCodex
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.reflect
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineEnablement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallationState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -39,37 +45,59 @@ class EngineControlProjectionTest {
     )
 
     @Test
-    fun `the list shows every engine with its status version and whether it is configurable`() {
+    fun `the list shows only engine names and their connection statuses`() {
         val list = listState(observed)
 
         assertEquals(listOf("Pi", "Codex", "Claude"), list.engines.map { it.title })
         assertEquals(
-            listOf(EngineStatusUi.On, EngineStatusUi.Off, EngineStatusUi.Unavailable),
+            listOf(
+                EngineConnectionStatusUi.NotConnected,
+                EngineConnectionStatusUi.Off,
+                EngineConnectionStatusUi.NotConnected,
+            ),
             list.engines.map { it.status },
         )
-        assertEquals(listOf("1.0.0", null, "1.0.0"), list.engines.map { it.version })
-        assertEquals(listOf(true, false, false), list.engines.map { it.isConfigurable })
-        assertEquals(listOf(false, false, false), list.engines.map { it.isBuiltIn })
         assertEquals(false, list.isLoading)
     }
 
     @Test
-    fun `the list marks only the built-in family engine as built in`() {
-        val observed = EngineControlState.Active(
-            snapshot = ControlSnapshot(
-                EngineManagementState(
-                    isEnabled = true,
-                    engines = listOf(
-                        ControlTestData.managed(EngineId("builtin"), family = EngineFamily.BuiltIn),
-                        ControlTestData.managed(pi, "Pi"),
-                    ),
-                ),
-                ControlTestData.configuration(pi),
+    fun `connected requires runtime credentials and selected models while disabled wins`() {
+        val connected = managedCodex(
+            installation = InstallationState(
+                current = Installation(InstallSource.Managed),
+                compatibility = Compatibility.Verified,
+            ),
+            login = LoginState.SignedIn(),
+        )
+        val signedOut = connected.copy(login = LoginState.SignedOut)
+        val unverified = connected.copy(
+            installation = connected.installation.copy(compatibility = Compatibility.Unverified),
+        )
+        val disabled = connected.copy(
+            enablement = EngineEnablement(
+                isUserEnabled = false,
+                reasons = setOf(DisabledReason.DisabledByUser),
             ),
         )
-        val list = listState(observed)
+        val state = EngineControlState.Active(
+            snapshot = ControlSnapshot(
+                EngineManagementState(true, engines = listOf(connected, signedOut, unverified, disabled)),
+                EngineConfigurationState.Off,
+                enginesWithModels = setOf(connected.descriptor.id),
+            ),
+        )
 
-        assertEquals(listOf(true, false), list.engines.map { it.isBuiltIn })
+        assertEquals(
+            listOf(
+                EngineConnectionStatusUi.Connected,
+                EngineConnectionStatusUi.NotConnected,
+                EngineConnectionStatusUi.NotConnected,
+                EngineConnectionStatusUi.Off,
+            ),
+            listState(state).engines.map { it.status },
+        )
+        val withoutModels = state.copy(snapshot = state.snapshot?.copy(enginesWithModels = emptySet()))
+        assertEquals(EngineConnectionStatusUi.NotConnected, listState(withoutModels).engines.first().status)
     }
 
     @Test

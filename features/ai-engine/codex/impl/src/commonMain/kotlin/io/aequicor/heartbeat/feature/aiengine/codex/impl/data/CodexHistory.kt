@@ -49,13 +49,11 @@ internal class CodexHistory : SessionHistory {
     private val items = linkedMapOf<ItemId, SessionItem>()
     private val nativeSnapshots = mutableMapOf<ItemId, JsonObject>()
     private val reasoning = CodexReasoning()
-    private val originalInputs = mutableMapOf<TurnId, List<ContentPart>>()
+    val inputs = CodexInputHistory()
 
-    fun rememberOriginals(turn: TurnId, parts: List<ContentPart>) {
-        if (parts.any { it is ContentPart.Image || it is ContentPart.Resource }) originalInputs[turn] = parts.toList()
-    }
+    fun rememberOriginals(turn: TurnId, parts: List<ContentPart>) = inputs.rememberOriginals(turn, parts)
 
-    fun originals(turn: TurnId): List<ContentPart>? = originalInputs[turn]
+    fun originals(turn: TurnId): List<ContentPart>? = inputs.originals(turn)
 
     /** [floor] is the last sequence lost to truncation; checkpoints below it cannot be replayed. */
     private data class Journal(val floor: Long, val events: List<SessionEvent>)
@@ -198,7 +196,7 @@ internal class CodexHistory : SessionHistory {
             "userMessage" -> SessionItem.Message(
                 info,
                 MessageRole.User,
-                userParts(native, info),
+                inputs.parts(native, info),
             )
 
             "reasoning" -> reasoningMessage(info, reasoning.snapshot(info.id, native))
@@ -229,12 +227,6 @@ internal class CodexHistory : SessionHistory {
             "contextCompaction" -> SessionItem.Notice(info, COMPACTED_NOTICE, NoticeKind.ContextCompacted)
 
             else -> SessionItem.UnsupportedItem(info, kind?.take(MAX_KIND_LENGTH) ?: "unknown")
-        }
-
-    private fun userParts(native: JsonObject, info: ItemInfo): List<ContentPart> =
-        originalInputs[info.turn] ?: native.array("content").mapNotNull { part ->
-            val value = part as? JsonObject ?: protocolFailure()
-            value.text("text")?.let { ContentPart.Text(it) }
         }
 
     private fun agentTool(native: JsonObject, info: ItemInfo): SessionItem.ToolCall {

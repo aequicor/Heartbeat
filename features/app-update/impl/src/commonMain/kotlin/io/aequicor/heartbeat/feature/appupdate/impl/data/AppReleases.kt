@@ -45,7 +45,8 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
 
     /**
      * The newest train published after the installed one; a launch that runs no train yet (a fresh full installer)
-     * counts the train its own release `v<version>` carries as installed. Age is publication time:
+     * counts the train of its `v<version>` release (before the payload split) or `payload-v<version>` as installed.
+     * Age is publication time:
      * [GitHubReleaseClient.recent]
      * sorts the releases by their publish timestamp, newest first, rather than trusting GitHub's undocumented list
      * order, so only trains above the installed train (or above a train already queued for the launcher) are newer:
@@ -87,9 +88,14 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
         manifests: ManifestCache,
     ): TrainWalk {
         val stops = installation.pendingTrains + installed
+        val installedReleaseTags = if (installation.train == null) {
+            setOf(installed, "payload-$installed")
+        } else {
+            emptySet()
+        }
         var newest: TrainCandidate? = null
         for ((release, asset) in trains(client.recent(installation.repository))) {
-            val id = installed.takeIf { installation.train == null && release.tag == it }
+            val id = installed.takeIf { release.tag in installedReleaseTags }
                 ?: trainIdOfTag(release.tag)
                 ?: manifests.trainOrNull(asset)
                 ?: continue

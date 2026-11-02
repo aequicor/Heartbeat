@@ -4,7 +4,7 @@
 Input is a log, or the ZIP of the "Application logs" settings page. A launch writes the line
 `Launch: train=<id> version=<v>` to its log; the lines after it belong to that train until the next such line (a log
 file is appended to by later launches, which may run another train). The train's `train-manifest.json` lists the jars of
-that train, and the pre-release `train-<id>` that first published a jar carries its mapping
+that train, and the `train-<id>` or `payload-v<version>` release that first published a jar carries its mapping
 `mapping-<jar name without .jar>.txt`:
 
     retrace.py --manifest train-manifest.json --mappings <dir with the mapping files> heartbeat-logs.zip

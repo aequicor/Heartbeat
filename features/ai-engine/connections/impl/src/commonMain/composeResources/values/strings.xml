@@ -42,9 +42,8 @@
     <string name="wizard_methods_empty">No providers match</string>
     <string name="wizard_field_key">API key</string>
     <string name="wizard_key_placeholder">Paste the key</string>
-    <string name="wizard_key_hint">The key is kept in the protected storage of your profile.</string>
-    <string name="wizard_key_hint_development">Development build: keys are saved locally without system protection, separately from release keys.</string>
-    <string name="wizard_get_key">Get an API key</string>
+    <string name="wizard_show_key">Show API key</string>
+    <string name="wizard_hide_key">Hide API key</string>
     <string name="wizard_field_host">API host</string>
     <string name="wizard_base_url_hint">You may enter the full API base URL including its path, e.g. https://openrouter.ai/api/v1.</string>
     <string name="wizard_host_fixed">The address is fixed for this provider.</string>
@@ -57,8 +56,9 @@
     <string name="wizard_error_insecure_host">Plain HTTP is allowed only for localhost; use https:// for other servers</string>
     <string name="wizard_connect">Connect</string>
     <string name="wizard_connecting">Connecting…</string>
+    <string name="wizard_save">Save</string>
+    <string name="wizard_saving">Saving…</string>
     <string name="wizard_models_intro">Choose the models offered through this connection.</string>
-    <string name="wizard_finish">Done</string>
     <string name="wizard_finish_without_models">Continue without models</string>
     <string name="settings_title">Engines and connections</string>
     <string name="settings_description">Engine × connection × model: choose what model pickers offer.</string>
@@ -85,14 +85,11 @@
     <string name="settings_model_describe">Describe</string>
     <string name="settings_models_stale">Cached list. Sync to refresh it.</string>
     <string name="settings_models_never">Models have not been synced yet.</string>
+    <string name="settings_save">Save</string>
     <string name="settings_saving">Saving…</string>
     <string name="settings_dismiss">Dismiss</string>
     <string name="conn_models_search_clear">Clear search</string>
     <string name="settings_disconnect_title">Delete this connection?</string>
-    <string name="wizard_check">Check connection</string>
-    <string name="wizard_checking">Checking…</string>
-    <string name="wizard_check_passed">Connection works · models available: %1$d</string>
-
 
     <string name="engine_preparation_download">Downloading engine components…</string>
     <string name="engine_preparation_install">Preparing engine components…</string>

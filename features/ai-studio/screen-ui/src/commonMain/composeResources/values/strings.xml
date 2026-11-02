@@ -111,7 +111,7 @@
     <string name="approval_safety">Automatic</string>
     <string name="approval_edits">Allow file edits</string>
     <string name="approval_auto">Approve for me</string>
-    <string name="model_menu">Model and reasoning</string>
+    <string name="model_menu">Engine · Model · Connection</string>
     <string name="effort_low">Fast</string>
     <string name="effort_default">Auto</string>
     <string name="effort_medium">Balanced</string>

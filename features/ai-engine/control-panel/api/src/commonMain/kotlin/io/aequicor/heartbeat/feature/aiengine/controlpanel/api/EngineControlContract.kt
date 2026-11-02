@@ -39,19 +39,22 @@ import kotlinx.serialization.Serializable
 @SerialName("engine_control")
 public data class EngineControlRoute(val isEmbedded: Boolean = false) : Route
 
-/** The control panel of one [engine]: management, its configuration pages, projects and import. */
+/** The control panel of one [engine]: management, its declared configuration pages and import. */
 @Serializable
 @SerialName("engine_control_panel")
 public data class EngineControlPanelRoute(val engine: EngineId) : Route
 
 /**
- * What the panel shows: [management] of every registered engine, the [configuration] of engines that declare a
- * schema (off while engine configuration is off) and the saved [projects] whose files the panel can edit.
+ * What the panel observes: [management] of every registered engine, the [configuration] of engines that declare a
+ * schema (off while engine configuration is off) and saved [projects] for project-scoped operations. Project data is
+ * preserved, but the panel has no Projects tab; its Settings tab belongs to engine and connector capabilities.
  */
 public data class ControlSnapshot(
     val management: EngineManagementState,
     val configuration: EngineConfigurationState,
     val projects: List<LocalWorkspace> = emptyList(),
+    /** Engines with at least one saved model on an enabled binding; no request-health implication. */
+    val enginesWithModels: Set<EngineId> = emptySet(),
 )
 
 /** A change requested in the panel; one runs at a time. Secrets of an edit are closed once it ran. */

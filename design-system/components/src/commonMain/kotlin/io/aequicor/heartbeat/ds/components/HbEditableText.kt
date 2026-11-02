@@ -72,9 +72,10 @@ private const val REJECTION_GRACE_FRAMES = 2
  * caret with the text after it; any other selection is clamped to the new text.
  * Selection uses the current scoped palette without replacing selection of surrounding read-only text.
  *
- * [isSecret] switches to a secure single-line editor: the text is obfuscated, cut and copy are disabled,
+ * [isSecret] switches to a secure single-line editor: the text is hidden by default, cut and copy are disabled,
  * the keyboard is a password keyboard without autocorrect, and the text is never written to saved state.
- * Accessibility receives the same hidden text as the screen, even on bridges that expose password values.
+ * [isSecretVisible] reveals the text without changing those secure editing and saved-state protections.
+ * Accessibility receives the same displayed text as the screen, even on bridges that expose password values.
  *
  * Code editors customise the plain multi-line editor: [textStyle] replaces the prose style (also used by the
  * placeholder), [isReadOnly] keeps text selectable and focusable without edits, [outputTransformation] styles the
@@ -111,6 +112,7 @@ internal fun HbEditableText(
     caretRequest: HbComposerCaretRequest? = null,
     onCaretRequestApply: (Long) -> Unit = {},
     selectAllOnFocus: Boolean = false,
+    isSecretVisible: Boolean = false,
 ) {
     val state = rememberEditorState(value, isSecret)
     val bridge = remember(state) { ControlledEditorBridge(value, state.selection) }
@@ -170,12 +172,12 @@ internal fun HbEditableText(
         LocalClipboard provides editorClipboard,
     ) {
         if (isSecret) {
-            val hiddenText = AnnotatedString("•".repeat(editingText.length))
+            val displayedText = secretDisplayText(editingText, isSecretVisible)
             BasicSecureTextField(
                 state = state,
                 modifier = keyModifier.semantics {
-                    editableText = hiddenText
-                    inputText = hiddenText
+                    editableText = displayedText
+                    inputText = displayedText
                 },
                 enabled = enabled,
                 inputTransformation = inputTransformation,
@@ -184,7 +186,7 @@ internal fun HbEditableText(
                 interactionSource = interactionSource,
                 cursorBrush = editorCursor(),
                 decorator = decorator,
-                textObfuscationMode = TextObfuscationMode.Hidden,
+                textObfuscationMode = secretObfuscationMode(isSecretVisible),
             )
         } else {
             PlainEditor(
@@ -485,3 +487,11 @@ private fun TextFieldState.replaceControlledText(value: String, restoredSelectio
         )
     }
 }
+
+private fun secretDisplayText(text: String, isVisible: Boolean): AnnotatedString {
+    val displayed = if (isVisible) text else "•".repeat(text.length)
+    return AnnotatedString(displayed)
+}
+
+private fun secretObfuscationMode(isVisible: Boolean): TextObfuscationMode =
+    if (isVisible) TextObfuscationMode.Visible else TextObfuscationMode.Hidden

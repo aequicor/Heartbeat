@@ -174,8 +174,8 @@ private fun CodexQuestion.request(turn: TurnId, input: PermissionInput) = Permis
     turn,
     title,
     listOf(
-        PermissionOption(PermissionOptionId("question.submit"), "Ответить"),
-        PermissionOption(PermissionOptionId("question.skip"), "Пропустить", isSkip = true),
+        PermissionOption(PermissionOptionId("question.submit"), "Ответить", isOneTime = true),
+        PermissionOption(PermissionOptionId("question.skip"), "Пропустить", isSkip = true, isOneTime = true),
     ),
     description = description,
     input = input,

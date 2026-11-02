@@ -179,6 +179,14 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
 
                 is AiStudioEffect.SaveSettings -> AiStudioIntent.Internal.SettingsSaveFailed
 
+                is AiStudioEffect.QueueMessage -> AiStudioIntent.Internal.QueueRejected(
+                    effect.paneId,
+                    effect.message.id,
+                    effect.sessionId,
+                )
+
+                is AiStudioEffect.ManageQueue -> AiStudioIntent.Internal.QueueActionFailed(effect.sessionId)
+
                 is AiStudioEffect.CreateSession -> AiStudioIntent.Internal.CreateFailed(
                     effect.paneId,
                     effect.prompt,
@@ -269,6 +277,7 @@ private fun ReadyTransitions.navigation() {
 }
 
 private fun ReadyTransitions.conversations() {
+    queueTransitions()
     on<AiStudioIntent.Public.Submit>(
         guard = {
             val pane = state.pane(intent.paneId)
@@ -294,6 +303,7 @@ private fun ReadyTransitions.conversations() {
                 isSandbox = state.pane(intent.paneId)?.let { it.isWorktree && it.isSandbox } == true,
                 isOrganism = state.pane(intent.paneId)?.isOrganism == true,
                 isPlanning = state.pane(intent.paneId)?.isPlanning == true && state.isPlanningAvailable,
+                autoContinue = intent.autoContinue,
                 environment = intent.environment,
                 userInstruction = intent.userInstruction,
             )
@@ -301,7 +311,9 @@ private fun ReadyTransitions.conversations() {
     }
     on<AiStudioIntent.Public.Submit>(
         guard = {
-            (intent.prompt.isNotBlank() || intent.attachments.isNotEmpty()) && state.pane(
+            !state.shouldQueue(
+                intent.paneId,
+            ) && (intent.prompt.isNotBlank() || intent.attachments.isNotEmpty()) && state.pane(
                 intent.paneId,
             )?.sessionId?.let(state::isIdle) == true
         },
@@ -463,6 +475,9 @@ private fun ReadyTransitions.runtimeSnapshots() {
                 configurations = snapshot.configurations,
                 engineSwitches = snapshot.engineSwitches,
                 isEngineSwitchingAvailable = snapshot.isEngineSwitchingAvailable,
+                messageQueues = snapshot.messageQueues,
+                queueNotices = snapshot.queueNotices,
+                isMessageQueueEnabled = snapshot.isMessageQueueEnabled,
                 stopFailures = (state.stopFailures + snapshot.stopFailures).intersect(snapshot.running),
             )
         }
@@ -527,6 +542,11 @@ private fun initialWorkspace(defaults: StudioDefaults): AiStudioState.Ready = Ai
 )
 
 private fun AiStudioState.Ready.pane(id: Int): StudioPane? = panes.firstOrNull { it.id == id }
+
+private fun AiStudioState.Ready.shouldQueue(paneId: Int): Boolean {
+    val id = pane(paneId)?.sessionId ?: return false
+    return isMessageQueueEnabled && (id in running || messageQueues.chat(id).messages.isNotEmpty())
+}
 
 private fun AiStudioState.Ready.hasPane(id: Int?): Boolean = id == null || pane(id) != null
 
@@ -647,4 +667,41 @@ private fun AiStudioState.Ready.afterCreateFailure(pane: StudioPane): StudioPane
         isSandbox = isIsolated && pane.isSandbox && isSandboxAvailable,
         isPlanning = pane.isPlanning && isPlanningAvailable,
     )
+}
+
+private fun ReadyTransitions.queueTransitions() {
+    on<AiStudioIntent.Public.Submit>(guard = {
+        (intent.prompt.isNotBlank() || intent.attachments.isNotEmpty()) && state.shouldQueue(intent.paneId)
+    }) {
+        effect {
+            AiStudioEffect.QueueMessage(
+                intent.paneId,
+                state.sessionOf(intent.paneId),
+                StudioQueuedMessage(
+                    intent.submissionId,
+                    intent.prompt.trim(),
+                    intent.attachments,
+                    state.settings,
+                    intent.userInstruction,
+                    intent.environment != null,
+                ),
+                intent.environment,
+                intent.isCorrection,
+            )
+        }
+    }
+    on<AiStudioIntent.Public.ManageQueue>(guard = {
+        state.messageQueues.chats.containsKey(intent.sessionId) || intent.action == StudioQueueAction.DismissNotice
+    }) {
+        effect { AiStudioEffect.ManageQueue(intent.sessionId, intent.action, intent.message) }
+    }
+    on<AiStudioIntent.Internal.QueueAccepted> {
+        output { AiStudioOutput.SubmitQueued(intent.paneId, intent.submissionId, intent.sessionId) }
+    }
+    on<AiStudioIntent.Internal.QueueRejected> {
+        output { AiStudioOutput.SubmitRejected(intent.paneId, intent.submissionId, intent.sessionId) }
+    }
+    on<AiStudioIntent.Internal.QueueActionFailed> {
+        output { AiStudioOutput.QueueActionFailed(intent.sessionId) }
+    }
 }

@@ -313,7 +313,7 @@ val prepareExtensionMetadata = tasks.register<WriteComponentMetadata>("prepareEx
     artifact.set(packageChromiumExtension.flatMap { it.archiveFile })
     version.set(heartbeatApplicationVersion)
     downloadUrl.set(
-        "https://github.com/$heartbeatUpdateRepository/releases/download/v$heartbeatApplicationVersion/" +
+        "https://github.com/$heartbeatUpdateRepository/releases/download/payload-v$heartbeatApplicationVersion/" +
             "Heartbeat-$heartbeatApplicationVersion-chromium-extension.zip",
     )
     outputFile.set(layout.buildDirectory.file("generated/extensionMetadata/chromium-extension.properties"))
@@ -712,7 +712,7 @@ afterEvaluate {
             runtimeId.set("jbr${libs.versions.desktop.jdk.get()}-$bootstrapTarget")
             trainId.set(providers.gradleProperty("heartbeat.trainId").orElse("seed-$heartbeatApplicationVersion"))
             releaseBaseUrl.set(
-                "https://github.com/$heartbeatUpdateRepository/releases/download/v$heartbeatApplicationVersion",
+                "https://github.com/$heartbeatUpdateRepository/releases/download/payload-v$heartbeatApplicationVersion",
             )
             signingKey.set(providers.environmentVariable("HEARTBEAT_BOOTSTRAP_SIGNING_KEY"))
             trustedKeysFile.set(

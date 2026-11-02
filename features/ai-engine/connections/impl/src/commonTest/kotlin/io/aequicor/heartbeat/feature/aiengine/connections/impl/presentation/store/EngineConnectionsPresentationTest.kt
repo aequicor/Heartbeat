@@ -106,14 +106,16 @@ class EngineConnectionsPresentationTest {
     }
 
     @Test
-    fun `changes target the focused engine and connection`() {
+    fun `model edits stay local until save targets the focused connection`() {
+        val edited = loaded.editModel("qwen", true)
+        assertEquals(listOf(true, true), edited.models!!.models.map { it.isEnabled })
         assertEquals(
-            ConnectionOperation.SetModelEnabled(modelInfo(EngineBindingId("home"), "qwen").target, true),
-            loaded.operationFor(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true)),
-        )
-        assertEquals(
-            ConnectionOperation.SetModelsEnabled(EngineBindingId("home"), setOf(ModelId("llama"), ModelId("qwen"))),
-            loaded.operationFor(EngineConnectionsScreenIntent.SetAllModels(true)),
+            ConnectionOperation.SetModelsEnabled(
+                EngineBindingId("home"),
+                setOf(ModelId("llama"), ModelId("qwen")),
+                previous = setOf(ModelId("llama")),
+            ),
+            edited.operationFor(EngineConnectionsScreenIntent.SaveModels),
         )
         assertEquals(
             ConnectionOperation.Disconnect(EngineBindingId("home")),
@@ -121,6 +123,84 @@ class EngineConnectionsPresentationTest {
         )
         assertNull(loaded.operationFor(EngineConnectionsScreenIntent.ConfirmDisconnect))
         assertNull(EngineConnectionsScreenState().operationFor(EngineConnectionsScreenIntent.RefreshModels))
+    }
+
+    @Test
+    fun `save requires a draft owned by the focused binding and its baseline`() {
+        assertNull(loaded.operationFor(EngineConnectionsScreenIntent.SaveModels))
+        val edited = loaded.editModel("qwen", true)
+        assertNull(edited.copy(selectedConnection = "work").operationFor(EngineConnectionsScreenIntent.SaveModels))
+        assertNull(edited.copy(modelDraftBaseline = null).operationFor(EngineConnectionsScreenIntent.SaveModels))
+    }
+
+    @Test
+    fun `model draft survives pending and clears after its saved snapshot arrives`() {
+        val edited = loaded.editModel("qwen", true)
+        val operation = ConnectionOperation.SetModelsEnabled(
+            EngineBindingId("home"),
+            setOf(ModelId("llama"), ModelId("qwen")),
+            previous = setOf(ModelId("llama")),
+        )
+        val pending = edited.reflect(
+            EngineConnectionsState.Active(settingsSnapshot(), pending = operation),
+        )
+        assertEquals<Set<String>?>(setOf("llama", "qwen"), pending.modelDraft)
+        assertTrue(pending.isModelSavePending)
+        val savedSnapshot = settingsSnapshot().let { snapshot ->
+            val target = modelInfo(EngineBindingId("home"), "qwen").target
+            snapshot.copy(selection = snapshot.selection.withModel(target, true))
+        }
+        val saved = pending.reflect(EngineConnectionsState.Active(savedSnapshot))
+        assertNull(saved.modelDraft)
+        assertFalse(saved.isModelSavePending)
+    }
+
+    @Test
+    fun `pending draft rebases onto concurrent changes and clears only after its delta is saved`() {
+        val binding = EngineBindingId("home")
+        val removed = modelInfo(binding, "llama").target
+        val concurrent = modelInfo(binding, "qwen").target
+        val edited = loaded.editModel(removed.model.value, false)
+        val operation = ConnectionOperation.SetModelsEnabled(
+            binding,
+            emptySet(),
+            previous = setOf(removed.model),
+        )
+        val concurrentSnapshot = settingsSnapshot().let { snapshot ->
+            snapshot.copy(selection = snapshot.selection.withModel(concurrent, true))
+        }
+
+        val pending = edited.reflect(EngineConnectionsState.Active(concurrentSnapshot, pending = operation))
+
+        assertEquals<Set<String>?>(setOf(concurrent.model.value), pending.modelDraft)
+        assertEquals(setOf(removed.model.value, concurrent.model.value), pending.selectedModels)
+        assertTrue(pending.isModelSavePending)
+        assertEquals(
+            ConnectionOperation.SetModelsEnabled(
+                binding,
+                setOf(concurrent.model),
+                previous = setOf(removed.model, concurrent.model),
+            ),
+            pending.operationFor(EngineConnectionsScreenIntent.SaveModels),
+        )
+        assertEquals(
+            ConnectionOperation.SetModelsEnabled(
+                binding,
+                emptySet(),
+                previous = setOf(removed.model, concurrent.model),
+            ),
+            pending.editModel(concurrent.model.value, false)
+                .operationFor(EngineConnectionsScreenIntent.SaveModels),
+        )
+
+        val savedSnapshot = concurrentSnapshot.copy(
+            selection = concurrentSnapshot.selection.withModel(removed, false),
+        )
+        val saved = pending.reflect(EngineConnectionsState.Active(savedSnapshot))
+        assertEquals(setOf(concurrent.model.value), saved.selectedModels)
+        assertNull(saved.modelDraft)
+        assertNull(saved.modelDraftBaseline)
+        assertFalse(saved.isModelSavePending)
     }
 
     @Test

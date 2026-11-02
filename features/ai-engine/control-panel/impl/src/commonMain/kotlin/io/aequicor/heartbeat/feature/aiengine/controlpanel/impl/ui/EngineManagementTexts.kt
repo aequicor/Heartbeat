@@ -168,9 +168,10 @@ internal fun confirmationTexts(action: EngineActionUi, panel: EnginePanelUi): Tr
                 stringResource(Res.string.engine_confirm_revert),
             )
         } else {
+            val installation = listOfNotNull(panel.title, panel.installation.managedVersion).joinToString(" ")
             Triple(
-                stringResource(Res.string.engine_confirm_uninstall_title),
-                stringResource(Res.string.engine_confirm_uninstall_body),
+                stringResource(Res.string.engine_confirm_uninstall_title, panel.title),
+                stringResource(Res.string.engine_confirm_uninstall_body, installation),
                 stringResource(Res.string.engine_confirm_uninstall),
             )
         }

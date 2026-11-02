@@ -13,15 +13,19 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.CompactCommand
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.compactCommand
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubmissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.acceptSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.compactedChat
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.endSentPrompts
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.finishDiagramSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isHarnessSelectionReady
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pendingSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.prepareSubmission
@@ -30,6 +34,9 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.rejectSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withoutPane
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueChoice
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 import pro.respawn.flowmvi.api.PipelineContext
 import kotlin.uuid.Uuid
@@ -46,6 +53,7 @@ internal suspend fun submitStudioDraft(
     paneId: Int,
     environment: StudioChatEnvironment? = null,
     isDirectHumanSubmission: Boolean = false,
+    isCorrection: Boolean = false,
     isCurrent: (AiStudioScreenState) -> Boolean = { true },
 ) = with(pipeline) {
     withState {
@@ -55,9 +63,8 @@ internal suspend fun submitStudioDraft(
         val pending = pendingSubmission(paneId, submissionId)
         log.i { "Submit pane draft with attachments count=${pending.attachments.size}" }
         harnesses.claim(submissionId, pending.harnesses)
-        updateState {
-            queueSubmission(submissionId, pending).copy(harnessChoices = harnessChoices.withoutPane(paneId))
-        }
+        val isQueued = shouldQueueSubmission(pending.sessionId)
+        updateState { capturedSubmission(submissionId, pending, isQueued) }
         val result = sendTo(
             machine,
             AiStudioIntent.Public.Submit(
@@ -67,6 +74,8 @@ internal suspend fun submitStudioDraft(
                 submissionId,
                 environment,
                 userInstruction = pending.text.takeIf { isDirectHumanSubmission },
+                autoContinue = pending.autoContinue?.toAutoContinueChoice(),
+                isCorrection = isCorrection,
             ),
         )
         if (result != SendResult.Accepted) {
@@ -78,6 +87,7 @@ internal suspend fun submitStudioDraft(
 
 /** Only the selected primary chat accepts composer submissions. */
 private fun AiStudioScreenState.canSubmitDraft(paneId: Int): Boolean {
+    if (submissions.values.any { it.paneId == paneId }) return false
     val pane = panes.firstOrNull { it.id == paneId } ?: return false
     if (!isHarnessSelectionReady(pane)) return false
     val chat = pane.sessionId
@@ -117,6 +127,13 @@ internal suspend fun handleStudioSubmissionOutput(
     output: AiStudioOutput,
 ) = with(pipeline) {
     when (output) {
+        is AiStudioOutput.SubmitQueued -> {
+            harnesses.release(output.submissionId)
+            updateState { acceptSubmission(output.submissionId, output.sessionId) }
+        }
+
+        is AiStudioOutput.QueueActionFailed -> Unit
+
         // A new chat's harness claim travels with its submission; the turn uses and releases it. A chat
         // that failed to start, or whose session another request owns, runs no turn, so its claim is
         // released and the choice returns to the pane.
@@ -162,3 +179,78 @@ internal suspend fun handleStudioSubmissionOutput(
 }
 
 private val log = Log.tag("StudioDraftSubmission")
+
+/** The immutable submission snapshot owns this choice, independently of later pane selection. */
+private fun AutoContinueUi.toAutoContinueChoice() = AutoContinueChoice(
+    mode = AutoContinueMode.valueOf(mode.name),
+    continuerTarget = modelId?.let(::studioModelTarget),
+)
+
+private fun AiStudioScreenState.shouldQueueSubmission(chat: String?): Boolean =
+    isMessageQueueEnabled && chat != null && (chat in running || messageQueues[chat]?.messages?.isNotEmpty() == true)
+
+/** Commands are handled before ordinary human submission, using the exact captured environment. */
+internal suspend fun submitComposerDraft(
+    pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
+    machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
+    harnesses: StudioHarnesses,
+    compactions: StudioCompactionPort,
+    paneId: Int,
+    environment: StudioChatEnvironment? = null,
+    isCorrection: Boolean = false,
+) {
+    var isPending = false
+    pipeline.withState { isPending = isAttachmentPending(paneId) }
+    if (isPending || compactStudioDraft(pipeline, compactions, paneId)) return
+    submitStudioDraft(
+        pipeline,
+        machine,
+        harnesses,
+        paneId,
+        environment,
+        isDirectHumanSubmission = true,
+        isCorrection = isCorrection,
+    )
+}
+
+/** Queue failure leaves the current run and draft ownership unchanged. */
+internal suspend fun manageStudioQueue(
+    pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
+    machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
+    intent: AiStudioScreenIntent.ManageQueue,
+) = with(pipeline) {
+    sendTo(
+        machine,
+        AiStudioIntent.Public.ManageQueue(
+            intent.sessionId,
+            io.aequicor.heartbeat.feature.aistudio.api.StudioQueueAction.valueOf(intent.action.name),
+            intent.message,
+        ),
+    )
+    Unit
+}
+
+/** Delegates attachment gestures and explicit queue actions without merging their ownership. */
+internal suspend fun manageStudioInput(
+    pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
+    machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
+    attachments: StudioAttachmentInputs,
+    intent: AiStudioScreenIntent,
+) {
+    if (intent is AiStudioScreenIntent.Attachment) {
+        attachments.handle(pipeline, intent)
+    } else {
+        require(intent is AiStudioScreenIntent.ManageQueue)
+        manageStudioQueue(pipeline, machine, intent)
+    }
+}
+
+private fun AiStudioScreenState.capturedSubmission(
+    id: String,
+    pending: SubmissionUi,
+    isQueued: Boolean,
+): AiStudioScreenState {
+    val captured = queueSubmission(id, pending)
+    val result = if (isQueued) captured.copy(sentPrompts = (captured.sentPrompts - id).toImmutableMap()) else captured
+    return result.copy(harnessChoices = harnessChoices.withoutPane(pending.paneId))
+}

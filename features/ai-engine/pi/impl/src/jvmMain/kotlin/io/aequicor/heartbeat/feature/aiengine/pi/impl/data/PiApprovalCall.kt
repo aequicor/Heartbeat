@@ -100,7 +100,10 @@ internal fun approvalRequest(
         PermissionRequestId(id),
         turn,
         if (target.isBlank()) call.tool else "${call.tool}: $target",
-        listOf(PermissionOption(PiApprovalAllow, allow), PermissionOption(PiApprovalDeny, DENY_TITLE)),
+        listOf(
+            PermissionOption(PiApprovalAllow, allow, isOneTime = true),
+            PermissionOption(PiApprovalDeny, DENY_TITLE, isOneTime = true),
+        ),
     )
 }
 

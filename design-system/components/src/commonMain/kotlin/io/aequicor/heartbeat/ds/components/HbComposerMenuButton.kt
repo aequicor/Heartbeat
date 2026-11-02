@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.ds.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +34,8 @@ public enum class HbComposerMenuStyle { Standard, Circle, AccentCircle, Pill, Ac
  * Escape and outside clicks dismiss the menu and restore focus to its trigger.
  * [icon] uses the shared vector style with the separate [accessibleLabel] announced.
  * [isIcon] retains support for custom text glyphs; prefer [icon] for design-system actions.
+ * [isAnchoredBelow] anchors selectors below their own trigger, independently of the surrounding composer.
+ * [isFullWidth] stretches a selector trigger to the supplied width; ordinary composer chips stay compact.
  * [closeOnAction] is false when the owner switches between pages of commands inside the same popup.
  */
 @Composable
@@ -50,6 +53,8 @@ public fun HbComposerMenuButton(
     icon: ImageVector? = null,
     style: HbComposerMenuStyle = HbComposerMenuStyle.Standard,
     closeOnAction: Boolean = true,
+    isAnchoredBelow: Boolean = false,
+    isFullWidth: Boolean = false,
 ) {
     require(actions.map { it.id }.distinct().size == actions.size) { "Composer action ids must be unique" }
     val triggerFocus = remember { FocusRequester() }
@@ -70,7 +75,7 @@ public fun HbComposerMenuButton(
                 accessibleLabel = accessibleLabel,
                 onClick = { changeExpanded(!isOpen) },
                 onOpen = { changeExpanded(true) },
-                modifier = Modifier.focusRequester(triggerFocus),
+                modifier = (if (isFullWidth) Modifier.fillMaxWidth() else Modifier).focusRequester(triggerFocus),
                 enabled = enabled && actions.isNotEmpty(),
                 isIcon = isIcon,
                 icon = icon,
@@ -88,6 +93,7 @@ public fun HbComposerMenuButton(
                     onAction(action)
                 },
                 headerLabel = headerLabel,
+                isAnchoredBelow = isAnchoredBelow,
             )
         }
     }

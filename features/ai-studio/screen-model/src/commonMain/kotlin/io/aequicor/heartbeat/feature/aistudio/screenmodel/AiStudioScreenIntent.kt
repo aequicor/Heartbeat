@@ -359,7 +359,12 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Switches the auto-continue [mode] of [sessionId]. */
     @Serializable
     @SerialName("AiStudioScreenIntent.SetAutoContinue")
-    data class SetAutoContinue(override val sessionId: String, val mode: AutoContinueModeUi) : AutoContinue
+    data class SetAutoContinue(
+        override val sessionId: String,
+        val mode: AutoContinueModeUi,
+        val paneId: Int? = null,
+        val modelId: String? = null,
+    ) : AutoContinue
 
     /** Asks the continuer again for [sessionId]. */
     @Serializable
@@ -408,7 +413,12 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Sends the composer text of a pane. */
     @Serializable
     @SerialName("AiStudioScreenIntent.Submit")
-    data class Submit(val paneId: Int) : Composer
+    data class Submit(val paneId: Int, val isCorrection: Boolean = false) : Composer
+
+    /** Acts on one captured queue row or dismisses one feedback notice. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.ManageQueue")
+    data class ManageQueue(val sessionId: String, val action: QueueActionUi, val message: String = "") : Composer
 
     /** Stops the running agent of a session. */
     @Serializable

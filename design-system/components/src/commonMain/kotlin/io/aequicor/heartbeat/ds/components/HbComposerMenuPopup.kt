@@ -44,8 +44,9 @@ internal fun ComposerMenuPopup(
     onAction: (String) -> Unit,
     modifier: Modifier = Modifier,
     headerLabel: String? = null,
+    isAnchoredBelow: Boolean = false,
 ) {
-    val anchor = LocalComposerAnchor.current?.value
+    val anchor = LocalComposerAnchor.current?.value.takeUnless { isAnchoredBelow }
     val density = LocalDensity.current
     val dimensions = HbTheme.dimensions
     val gutter = maxOf(dimensions.composerMenuGutter, dimensions.popupShadowRadius + dimensions.popupShadowOffset)
@@ -57,8 +58,13 @@ internal fun ComposerMenuPopup(
     val menuWidth = minOf(dimensions.composerMenuMaxWidth, availableWidth.coerceAtLeast(dimensions.touchTarget))
     val menuHeight = minOf(dimensions.composerMenuMaxHeight, availableHeight.coerceAtLeast(dimensions.touchTarget))
     val position = with(density) {
-        remember(anchor, gutter, dimensions.composerMenuOffset, this) {
-            ComposerPopupPosition(anchor, gutter.roundToPx(), dimensions.composerMenuOffset.roundToPx())
+        remember(anchor, gutter, dimensions.composerMenuOffset, isAnchoredBelow, this) {
+            ComposerPopupPosition(
+                anchor,
+                gutter.roundToPx(),
+                dimensions.composerMenuOffset.roundToPx(),
+                isAnchoredBelow,
+            )
         }
     }
     HbMenuPopup(position, onDismiss) {

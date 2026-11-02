@@ -50,10 +50,6 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineItemUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_engine_builtin
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_engine_builtin_status
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_engine_connected
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_engine_disconnected
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_engine_select
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_list_empty
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_list_engines
@@ -178,12 +174,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.engineBrowserList(
 /** One engine: the connection status has its own color and is separate from selection. */
 @Composable
 private fun EngineBrowserRow(engine: EngineItemUi, isSelected: Boolean, onOpen: (String) -> Unit) {
-    val title = if (engine.isBuiltIn) stringResource(Res.string.control_engine_builtin) else engine.title
-    val status = when {
-        engine.isBuiltIn -> stringResource(Res.string.control_engine_builtin_status)
-        engine.isConnected -> stringResource(Res.string.control_engine_connected)
-        else -> stringResource(Res.string.control_engine_disconnected)
-    }
     HbPressableRow(
         { onOpen(engine.id) },
         Modifier.padding(horizontal = HbTheme.spacing.s)
@@ -191,17 +181,8 @@ private fun EngineBrowserRow(engine: EngineItemUi, isSelected: Boolean, onOpen: 
             .semantics { selected = isSelected }.testTag("engine-control:${engine.id}"),
     ) {
         HbColumn(Modifier.weight(1f), gap = HbTheme.spacing.xxs) {
-            HbText(title, style = HbTheme.typography.label, maxLines = 1)
-            HbText(
-                status,
-                style = HbTheme.typography.caption,
-                color = if (engine.isConnected && !engine.isBuiltIn) {
-                    HbTheme.surfaces.success
-                } else {
-                    HbTheme.colors.textSecondary
-                },
-                maxLines = 1,
-            )
+            HbText(engine.title, style = HbTheme.typography.label, maxLines = 1)
+            EngineConnectionStatus(engine.status, engine.id)
         }
     }
 }

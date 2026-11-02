@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpInitialization
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionOutcome
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSessionUpdate
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
@@ -25,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -75,6 +77,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
@@ -176,9 +179,7 @@ internal class KimiRuntime(
         }
     }
 
-    suspend fun discoverCatalog(
-        binding: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId,
-    ): KimiModelCatalog {
+    suspend fun discoverCatalog(binding: EngineBindingId): KimiModelCatalog {
         val target = EngineTarget(identity.engine, binding, ModelId("catalog"))
         val native = connection.newSession(directory(CreateSessionRequest(target)))
         return kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
@@ -251,7 +252,7 @@ internal class KimiRuntime(
     private suspend fun session(
         nativeId: String,
         target: EngineTarget,
-        workspace: io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef?,
+        workspace: WorkspaceRef?,
         metadata: JsonObject,
         workingDirectory: String,
         hosted: KimiHosted,
@@ -284,7 +285,7 @@ internal class KimiRuntime(
 
     private suspend fun hosted(
         target: EngineTarget,
-        workspace: io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef?,
+        workspace: WorkspaceRef?,
         ref: SessionRef?,
         enabled: Boolean,
         preselected: Map<String, Set<String>>,
@@ -379,7 +380,7 @@ internal class KimiRuntime(
         @Suppress("LongParameterList", "ThrowsCount", "LongMethod") // Failures close the owned transport and scope.
         suspend fun open(
             identity: RuntimeIdentity,
-            transport: io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport,
+            transport: AcpTransport,
             clients: AcpClientFactory,
             scope: CoroutineScope,
             directory: suspend (CreateSessionRequest) -> String,
@@ -750,7 +751,12 @@ internal class KimiSession(
                 return@withLock null
             }
             val options = request.options.map {
-                PermissionOption(PermissionOptionId(it.optionId), it.name, it.kind.startsWith("reject"))
+                PermissionOption(
+                    PermissionOptionId(it.optionId),
+                    it.name,
+                    it.kind.startsWith("reject"),
+                    isOneTime = it.kind in setOf("allow_once", "reject_once"),
+                )
             }
             if (options.isEmpty() || options.map { it.id }.distinct().size != options.size) {
                 return@withLock null
@@ -787,9 +793,10 @@ internal class KimiSession(
                 turn,
                 approval.title,
                 listOf(
-                    PermissionOption(PermissionOptionId("allow"), "Allow", false),
-                    PermissionOption(PermissionOptionId("deny"), "Deny", true),
+                    PermissionOption(PermissionOptionId("allow"), "Allow", false, isOneTime = true),
+                    PermissionOption(PermissionOptionId("deny"), "Deny", true, isOneTime = true),
                 ),
+                description = approval.description,
             )
             val answer = CompletableDeferred<AcpPermissionOutcome>()
             pending[id] = PendingPermission(normalized, answer)

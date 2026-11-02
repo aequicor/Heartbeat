@@ -53,7 +53,6 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.afterNavigation
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.dismissNotice
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneNoticeDismissals
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.revealNotice
@@ -495,7 +494,7 @@ class AiStudioModel(
         is AiStudioScreenIntent.Plan -> plans.handle(pipeline, intent)
 
         is AiStudioScreenIntent.AutoContinue -> autoContinue.handle(pipeline, intent) {
-            submit(pipeline, it, environment)
+            submitComposerDraft(pipeline, machine, harnesses, compactions, it, environment)
         }
     }
 
@@ -544,24 +543,6 @@ class AiStudioModel(
         }
     }
 
-    /** A draft typed as `/compact` compacts the chat; anything else is sent as a prompt. */
-    private suspend fun submit(pipeline: StudioPipeline, paneId: Int, environment: StudioChatEnvironment?) {
-        var isPending = false
-        pipeline.withState { isPending = isAttachmentPending(paneId) }
-        if (isPending) {
-            log.i { "Submission waits for attachment import" }
-            return
-        }
-        if (!compactStudioDraft(
-                pipeline,
-                compactions,
-                paneId,
-            )
-        ) {
-            submitStudioDraft(pipeline, machine, harnesses, paneId, environment, isDirectHumanSubmission = true)
-        }
-    }
-
     private suspend fun compose(
         pipeline: StudioPipeline,
         intent: AiStudioScreenIntent.Composer,
@@ -580,9 +561,18 @@ class AiStudioModel(
 
             AiStudioScreenIntent.ReloadHarnesses -> harnessSelection.reload(pipeline)
 
-            is AiStudioScreenIntent.Submit -> submit(pipeline, intent.paneId, environment)
+            is AiStudioScreenIntent.Submit -> submitComposerDraft(
+                pipeline,
+                machine,
+                harnesses,
+                compactions,
+                intent.paneId,
+                environment,
+                intent.isCorrection,
+            )
 
-            is AiStudioScreenIntent.Attachment -> attachmentInputs.handle(pipeline, intent)
+            is AiStudioScreenIntent.ManageQueue, is AiStudioScreenIntent.Attachment ->
+                manageStudioInput(pipeline, machine, attachmentInputs, intent)
 
             is AiStudioScreenIntent.Stop -> stop(pipeline, intent.sessionId)
 

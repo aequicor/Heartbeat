@@ -39,6 +39,7 @@ fun AiStudioScreenState.afterNavigation(
     is AiStudioScreenIntent.NewSession, is AiStudioScreenIntent.OpenSession, is AiStudioScreenIntent.OpenBeside ->
         copy(
             sidebar = sidebar.copy(isDrawerOpen = false),
+            newChatAutoContinue = (newChatAutoContinue - replacedPanes).toImmutableMap(),
             harnessChoices = harnessChoices.copy(panes = (harnessChoices.panes - replacedPanes).toImmutableMap()),
             noticeDismissals = noticeDismissals.filterNot { it.paneId in replacedPanes }.toImmutableSet(),
             submissions = submissions.mapValues { (_, pending) ->
@@ -48,6 +49,7 @@ fun AiStudioScreenState.afterNavigation(
 
     is AiStudioScreenIntent.ClosePane -> copy(
         harnessChoices = harnessChoices.withoutPane(intent.paneId),
+        newChatAutoContinue = (newChatAutoContinue - intent.paneId).toImmutableMap(),
         drafts = (drafts - "pane:${intent.paneId}").toImmutableMap(),
         draftAttachments = (draftAttachments - "pane:${intent.paneId}").toImmutableMap(),
         submissions = submissions.mapValues { (_, pending) ->
