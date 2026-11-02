@@ -239,6 +239,7 @@ internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmi
 
     override val isCancelled: Boolean get() = phase.value in setOf(Phase.Cancelled, Phase.Deferred, Phase.Dropped)
     override val hasBegun: Boolean get() = phase.value == Phase.Submitted
+    override val isNativeRetentionSupported: Boolean get() = true
 
     override suspend fun begin() {
         admission?.first()?.let(::revoke)
@@ -249,9 +250,10 @@ internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmi
     }
 
     /** Already accepted native work retains profile ownership independently of admission for new submissions. */
-    fun adopt() {
+    override suspend fun retainNative(): Boolean {
         check(phase.compareAndSet(Phase.Preparing, Phase.Submitted)) { "Native recovery ownership was revoked" }
         log.v { "Recovered native turn retained profile ownership" }
+        return false
     }
 
     override suspend fun cancel(): Boolean {

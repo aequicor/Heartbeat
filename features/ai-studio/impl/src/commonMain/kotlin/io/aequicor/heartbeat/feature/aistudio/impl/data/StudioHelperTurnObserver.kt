@@ -53,4 +53,38 @@ internal class StudioHelperTurnObserver(
             }
         }
     }
+
+    /** Recovery may enrich an existing R receipt, never create one from a graph's recovery list. */
+    override suspend fun adoptedTurn(request: StudioTurnRequest, active: ActiveSession, native: StudioNativeTurn) {
+        val helper = HelperId(request.id)
+        val receipt = attempts.receipt(helper, native.request) ?: return
+        if (receipt.session == active.ref && receipt.turn == native.turn) {
+            attempts.accepted(helper, native.request, active.ref, native.turn)
+        }
+    }
+
+    override suspend fun terminalAdoptedTurn(
+        request: StudioTurnRequest,
+        active: ActiveSession,
+        native: StudioNativeTurn,
+        outcome: TurnOutcome,
+        isHistoryCurrent: Boolean,
+    ) {
+        val helper = HelperId(request.id)
+        val receipt = attempts.receipt(helper, native.request) ?: return
+        if (receipt.session != active.ref || receipt.turn != native.turn) return
+        nativeRemember(request.id, active, native, outcome)
+    }
+
+    private suspend fun nativeRemember(
+        id: String,
+        active: ActiveSession,
+        observed: StudioNativeTurn,
+        outcome: TurnOutcome,
+    ) {
+        val record = access.value.helperRecord(HelperId(id))
+        native.remember(record, observed.request, active.ref, observed.turn, outcome) {
+            native.read(active.features.requireFeature(SessionHistory))
+        }
+    }
 }

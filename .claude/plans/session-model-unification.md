@@ -597,3 +597,47 @@ generated-serializer/inference диагностики; полнота анали
 Read-only архитектурное ревью origin consistency — APPROVE.
 Последнее уточнение пользователя принято: заголовок «Сессия · Субагент», остальные
 макеты согласованы; через MCP проверены все шесть сохранённых заголовков session-model.pen.
+
+### Graph recovery: execution и actual native request
+
+StudioNativeTurn отделяет actual R/turn от нового recovery execution Q. Preflight читает
+existing native context до RunStarted и outside routing: только GraphWork может использовать
+recoveryRequests. Submit после подтверждённого idle идёт через обычную worktree preparation
+и заново открывает prepared route. Adopt не создаёт RunStarted/Accepted Q, не применяет
+Q.environment к R и не вызывает обычные acceptance callbacks или compaction settlement.
+Progress сохраняет actual identity до suspending retention/checkpoint callback; terminal,
+ошибки, остановка и worktree reconciliation адресуются R. Graph checkpoint запрашивается
+для R. Terminal-only inspection сохраняет request/outcome без выдуманного TurnId.
+
+Новый retention hook проходит через интерфейс StudioSubmissionGate, без downcast.
+Поддержка явная (isNativeRetentionSupported, false по умолчанию). RunSubmission сохраняет
+profile ownership и permissions observation после закрытия допуска новых отправок.
+Journaled HelperSubmission намеренно не объявляет эту capability: preflight отказывает ДО
+open/inspect, не меняя receipt и не останавливая существующий native R. Это закрывает
+ложный поздний Stop(Q), когда unused Q уже NotSubmitted, а R ещё работает.
+
+До включения universal root journal ОБЯЗАТЕЛЬНО: готовить receipt только в Submit branch;
+сохранять отдельную exact observation binding execution Q→native R для stop/recovery,
+не подменяя coordinator execution identity и не создавая принятую квитанцию Q. Для legacy
+unjournaled R нужен exact native cancellation fallback; отсутствие receipt не является
+доказательством NotSubmitted. Только после этого journaled gates могут объявить retention.
+Current graph producers создают ordinary root chats и используют RunSubmission; tracked
+graph recovery пока отклоняется явно. Это ограничение этапа внедрения, не стандарта.
+
+Adopted observer обновляет только существующую receipt R с совпадающими session/turn;
+recovery list сама не создаёт provenance. Целевые JVM-тесты: 71/71. Полный Studio прогон
+после этого изменения: 958/958; финальная проверка typed-detekt отдельно после исправления
+имени boolean capability. Архитектурное ревью ограниченного retention-контракта — APPROVE.
+Итог: `build/verification/graph-native-recovery-final2.log` — 958/958, DI, detekt и
+typed-detekt успешны (прежние три serializer/inference диагностики сохраняются).
+
+Следующий UI этап согласован с feature-architect: nullable versioned hierarchy envelope
+с raw kind и typed accessor, projector всегда заполняет explicit current Unknown для
+повреждённых/future записей; null означает только старый DTO. Legacy interactive хранится
+отдельным known kind, без guessed ancestry. Source: canonical record→StudioSession→SessionUi.
+Сначала projection/predicates и pure 0/1 hierarchy, затем одним UI шагом hide executors во
+всех разделах + owner dropdown/open + viewer controls. Скрытие до появления owner menu
+сделало бы hosted executor недоступным. Selected executor сохраняет настоящий sessionId,
+sidebar/dropdown используют отдельный проверенный ownerAnchorId. Native selection не
+смешивается с logical executor id; отсутствующие native model/stop capability не берутся
+от корня. Обязательны serializer unknown/legacy, owner isolation и render-регрессии.
