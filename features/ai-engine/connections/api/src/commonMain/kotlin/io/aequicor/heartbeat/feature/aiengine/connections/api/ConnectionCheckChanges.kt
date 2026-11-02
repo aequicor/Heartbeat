@@ -8,12 +8,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 /** Explicit network retry needs a selected, enabled exact route. Writes may preserve unavailable choices. */
 internal fun ConnectionsSnapshot?.acceptsCheck(operation: ConnectionOperation): Boolean {
     if (operation !is ConnectionOperation.CheckModel) return true
-    val snapshot = this ?: return false
-    val target = operation.target
-    val engine = snapshot.engines.singleOrNull { it.descriptor.id == target.engine }
+    return this?.isModelCheckAvailable(operation.target) == true
+}
+
+/** Cached affordance for an explicit check; the machine and facade still revalidate on use. Never performs IO. */
+public fun ConnectionsSnapshot.isModelCheckAvailable(target: EngineTarget): Boolean {
+    val engine = engines.singleOrNull { it.descriptor.id == target.engine }
     val binding = engine?.bindings?.singleOrNull { it.id == target.binding && it.engine == target.engine }
-    return snapshot.selection.isEnabled(target) && engine?.availability == EngineAvailability.Available &&
-        binding?.isEnabled == true && snapshot.sources.count { it.info.id == binding.authSource } == 1
+    return selection.isEnabled(target) && engine?.availability == EngineAvailability.Available &&
+        binding?.isEnabled == true && sources.count { it.info.id == binding.authSource } == 1
 }
 
 /** Snapshot-derived intent delta. Storage rebases it against the actual latest choices before writing. */

@@ -50,7 +50,7 @@ class EngineConnectionsUiTest {
         onNodeWithTag("settings-add-engine").performClick()
         runOnIdle {
             assertEquals(
-                listOf(
+                listOf<EngineConnectionsScreenIntent>(
                     EngineConnectionsScreenIntent.SelectConnection("work"),
                     EngineConnectionsScreenIntent.SetModelEnabled("qwen", true),
                 ),

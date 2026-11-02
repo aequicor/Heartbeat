@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.EngineCo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ModelDescriptions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import kotlinx.collections.immutable.toImmutableSet
 import pro.respawn.flowmvi.api.MVIAction
@@ -32,11 +33,14 @@ sealed interface EngineConnectionsScreenIntent : MVIIntent {
     /** A request executed by the machine as a [ConnectionOperation]. */
     sealed interface Change : EngineConnectionsScreenIntent
 
+    /** Local view state only; these events never start IO. */
+    sealed interface Local : EngineConnectionsScreenIntent
+
     /** Focuses an engine. */
-    data class SelectEngine(val id: String) : EngineConnectionsScreenIntent
+    data class SelectEngine(val id: String) : Local
 
     /** Focuses a connection of the focused engine. */
-    data class SelectConnection(val id: String) : EngineConnectionsScreenIntent
+    data class SelectConnection(val id: String) : Local
 
     /** Probes the focused engine's installation. */
     data object ProbeEngine : Change
@@ -45,25 +49,25 @@ sealed interface EngineConnectionsScreenIntent : MVIIntent {
     data class SetConnectionEnabled(val id: String, val isEnabled: Boolean) : Change
 
     /** Asks to confirm disconnecting a connection. */
-    data class RequestDisconnect(val id: String) : EngineConnectionsScreenIntent
+    data class RequestDisconnect(val id: String) : Local
 
     /** Confirms the pending disconnect. */
     data object ConfirmDisconnect : Change
 
     /** Keeps the connection. */
-    data object DismissDisconnect : EngineConnectionsScreenIntent
+    data object DismissDisconnect : Local
 
     /** Explicit model discovery for the focused connection. */
     data object RefreshModels : Change
 
     /** Filters models. */
-    data class SearchModels(val query: String) : EngineConnectionsScreenIntent
+    data class SearchModels(val query: String) : Local
 
     /** Drafts offering or hiding a model of the focused connection. */
-    data class SetModelEnabled(val id: String, val isEnabled: Boolean) : EngineConnectionsScreenIntent
+    data class SetModelEnabled(val id: String, val isEnabled: Boolean) : Local
 
     /** Drafts all cached models, or none. */
-    data class SetAllModels(val isEnabled: Boolean) : EngineConnectionsScreenIntent
+    data class SetAllModels(val isEnabled: Boolean) : Local
 
     /** Saves the drafted model choice of the focused connection. */
     data object SaveModels : Change
@@ -79,6 +83,15 @@ sealed interface EngineConnectionsScreenIntent : MVIIntent {
 
     /** Hides the change failure. */
     data object DismissError : EngineConnectionsScreenIntent
+
+    /** Opens current diagnostic data locally, without a request. */
+    data class ShowCheckDetails(val target: ModelCheckTargetUi) : Local
+
+    /** Closes details locally without changing model choices or invoking a check. */
+    data object DismissCheckDetails : Local
+
+    /** Explicit retry of the exact route in the current details. */
+    data object RetryModelCheck : Change
 }
 
 /** The settings space has no one-off screen actions. */
@@ -103,7 +116,13 @@ class EngineConnectionsModel(
         "EngineConnections",
         EngineConnectionsScreenState().reflect(machine.state.value),
         onError = {
-            copy(isLoading = false, isSaving = false, isModelSavePending = false, failure = FailureUi.Unknown)
+            copy(
+                isLoading = false,
+                isSaving = false,
+                isModelSavePending = false,
+                failure = FailureUi.Unknown,
+                checkDetails = null,
+            )
         },
     ) {
         init { sendTo(machine, EngineConnectionsIntent.Public.Start) }
@@ -134,29 +153,7 @@ class EngineConnectionsModel(
         intent: EngineConnectionsScreenIntent,
     ) {
         when (intent) {
-            is EngineConnectionsScreenIntent.SelectEngine -> updateState {
-                copy(selectedEngine = intent.id, selectedConnection = null, confirmDisconnect = null)
-                    .clearModelDraft()
-                    .reflect(machine.state.value)
-            }
-
-            is EngineConnectionsScreenIntent.SelectConnection -> updateState {
-                val selected = copy(selectedConnection = intent.id, confirmDisconnect = null)
-                (if (selectedConnection == intent.id) selected else selected.clearModelDraft())
-                    .reflect(machine.state.value)
-            }
-
-            is EngineConnectionsScreenIntent.RequestDisconnect -> updateState { copy(confirmDisconnect = intent.id) }
-
-            EngineConnectionsScreenIntent.DismissDisconnect -> updateState { copy(confirmDisconnect = null) }
-
-            is EngineConnectionsScreenIntent.SearchModels -> updateState { copy(modelQuery = intent.query) }
-
-            is EngineConnectionsScreenIntent.SetModelEnabled -> updateState {
-                editModel(intent.id, intent.isEnabled)
-            }
-
-            is EngineConnectionsScreenIntent.SetAllModels -> updateState { editAllModels(intent.isEnabled) }
+            is EngineConnectionsScreenIntent.Local -> updateState { localChange(intent, machine.state.value) }
 
             EngineConnectionsScreenIntent.RetryLoad -> sendTo(machine, EngineConnectionsIntent.Public.RetryLoad)
 
@@ -223,6 +220,12 @@ internal fun EngineConnectionsScreenState.operationFor(
         EngineConnectionsScreenIntent.SaveModels -> modelSaveOperation()
 
         is EngineConnectionsScreenIntent.SetDefaultModel -> target(intent.id)?.let(ConnectionOperation::SetDefaultModel)
+
+        EngineConnectionsScreenIntent.RetryModelCheck -> checkDetails?.check?.target?.let {
+            ConnectionOperation.CheckModel(
+                EngineTarget(EngineId(it.engine), EngineBindingId(it.binding), ModelId(it.model)),
+            )
+        }
     }
 }
 
@@ -235,4 +238,32 @@ private fun EngineConnectionsScreenState.modelSaveOperation(): ConnectionOperati
         models = draft.map(::ModelId).toSet(),
         previous = baseline.map(::ModelId).toSet(),
     )
+}
+
+private fun EngineConnectionsScreenState.localChange(
+    intent: EngineConnectionsScreenIntent.Local,
+    current: EngineConnectionsState,
+): EngineConnectionsScreenState = when (intent) {
+    is EngineConnectionsScreenIntent.SelectEngine ->
+        copy(selectedEngine = intent.id, selectedConnection = null, confirmDisconnect = null)
+            .clearModelDraft().reflect(current)
+
+    is EngineConnectionsScreenIntent.SelectConnection -> {
+        val selected = copy(selectedConnection = intent.id, confirmDisconnect = null)
+        (if (selectedConnection == intent.id) selected else selected.clearModelDraft()).reflect(current)
+    }
+
+    is EngineConnectionsScreenIntent.RequestDisconnect -> copy(confirmDisconnect = intent.id)
+
+    EngineConnectionsScreenIntent.DismissDisconnect -> copy(confirmDisconnect = null)
+
+    is EngineConnectionsScreenIntent.SearchModels -> copy(modelQuery = intent.query)
+
+    is EngineConnectionsScreenIntent.SetModelEnabled -> editModel(intent.id, intent.isEnabled)
+
+    is EngineConnectionsScreenIntent.SetAllModels -> editAllModels(intent.isEnabled)
+
+    is EngineConnectionsScreenIntent.ShowCheckDetails -> reflect(current).openCheckDetails(intent.target)
+
+    EngineConnectionsScreenIntent.DismissCheckDetails -> copy(checkDetails = null)
 }

@@ -21,9 +21,47 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EngineConnectionsModelTest {
+    @Test
+    fun `opening and closing check details never sends a machine change`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(checkedSettingsSnapshot())
+        val model = model()
+        val screen = subscribe(model.store)
+        val target = assertNotNull(screen.states.value.models?.models?.first()?.check).target
+        model.store.intent(EngineConnectionsScreenIntent.ShowCheckDetails(target))
+        runCurrent()
+        assertNotNull(screen.states.value.checkDetails)
+        model.store.intent(EngineConnectionsScreenIntent.DismissCheckDetails)
+        runCurrent()
+        assertNull(screen.states.value.checkDetails)
+        assertEquals(listOf<EngineConnectionsIntent>(EngineConnectionsIntent.Public.Start), machine.sent)
+    }
+
+    @Test
+    fun `explicit detail retry sends CheckModel and does not save an unrelated draft`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(checkedSettingsSnapshot())
+        val model = model()
+        val screen = subscribe(model.store)
+        val target = assertNotNull(screen.states.value.models?.models?.first()?.check).target
+        model.store.intent(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true))
+        model.store.intent(EngineConnectionsScreenIntent.ShowCheckDetails(target))
+        model.store.intent(EngineConnectionsScreenIntent.RetryModelCheck)
+        runCurrent()
+        val route = requireNotNull(
+            (machine.state.value as EngineConnectionsState.Active).snapshot,
+        ).selection.defaultTarget
+        assertEquals(
+            listOf<EngineConnectionsIntent>(
+                EngineConnectionsIntent.Public.Apply(ConnectionOperation.CheckModel(requireNotNull(route))),
+            ),
+            machine.sent.drop(1),
+        )
+        assertEquals<Set<String>?>(setOf("llama", "qwen"), screen.states.value.modelDraft)
+    }
     private val binding = EngineBinding(EngineBindingId("binding-1"), KoogId, AuthSourceId("source-1"))
     private val snapshot = ConnectionsSnapshot(
         listOf(engineInfo(listOf(binding))),

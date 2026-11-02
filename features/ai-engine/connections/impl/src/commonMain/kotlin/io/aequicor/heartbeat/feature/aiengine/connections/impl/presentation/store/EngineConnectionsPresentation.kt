@@ -57,6 +57,7 @@ data class EngineConnectionsScreenState(
     val isModelSavePending: Boolean = false,
     val loadFailure: FailureUi? = null,
     val failure: FailureUi? = null,
+    val checkDetails: ModelCheckDetailsUi? = null,
     /** Models described for adaptive subagents; null while that feature is off. */
     val descriptions: ImmutableSet<DescribedModel>? = null,
 ) : MVIState {
@@ -66,7 +67,12 @@ data class EngineConnectionsScreenState(
 /** Rebuilds the three levels, keeping focus and an unsaved model draft while their connection remains selected. */
 internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState): EngineConnectionsScreenState =
     when (state) {
-        EngineConnectionsState.Idle -> copy(isLoading = true, isModelSavePending = false, loadFailure = null)
+        EngineConnectionsState.Idle -> copy(
+            isLoading = true,
+            isModelSavePending = false,
+            loadFailure = null,
+            checkDetails = null,
+        )
 
         is EngineConnectionsState.Active -> {
             val base = copy(
@@ -87,6 +93,7 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
                     models = null,
                     confirmDisconnect = null,
                     isManaged = false,
+                    checkDetails = null,
                 )
 
                 else -> base
@@ -144,7 +151,7 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
         modelDraftBaseline = enabled.toImmutableSet().takeIf { draft != null },
         confirmDisconnect = confirmDisconnect?.takeIf { id -> connectionRows.any { it.id == id } },
         isManaged = management != null,
-    )
+    ).refreshCheckDetails()
 }
 
 private fun EngineConnectionsScreenState.modelsPane(
@@ -158,7 +165,7 @@ private fun EngineConnectionsScreenState.modelsPane(
             model.toRow(
                 model.target.model.value in enabled,
                 model.target == snapshot.selection.defaultTarget,
-            ).copy(description = descriptionOf(model.target))
+            ).copy(description = descriptionOf(model.target), check = snapshot.modelCheck(model.target))
         }.toImmutableList(),
         isStale = cached?.observation?.isStale ?: true,
         isNeverSynced = cached?.observation?.checkedAt == null,

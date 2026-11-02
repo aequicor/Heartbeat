@@ -64,6 +64,7 @@ data class ModelRowUi(
     val isEnabled: Boolean,
     val isDefault: Boolean = false,
     val description: ModelDescriptionUi? = null,
+    val check: ModelCheckUi? = null,
 )
 
 /** Whether a model has a description for adaptive subagents. */
