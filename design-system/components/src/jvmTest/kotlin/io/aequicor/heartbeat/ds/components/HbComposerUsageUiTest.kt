@@ -66,6 +66,7 @@ class HbComposerUsageUiTest {
             }
             onNodeWithText("—").assertIsDisplayed()
             onNodeWithTag("usage-limits").assertDoesNotExist()
+            assertEquals(62f, onNodeWithTag("usage-meter").fetchSemanticsNode().boundsInRoot.width)
             runOnIdle { known = true }
             onNodeWithTag("usage-context").assertIsDisplayed()
             onNodeWithTag("usage-limits").assertIsDisplayed()
@@ -292,16 +293,18 @@ class HbComposerUsageUiTest {
     }
 
     @Test
-    fun `quota bar survives compaction and every state keeps fixed geometry`() =
+    fun `quota survives purple compaction and empty telemetry shrinks to one cell`() =
         runSkikoComposeUiTest(size = Size(620f, 500f)) {
             var context by mutableStateOf<Int?>(null)
             var quota by mutableStateOf<Int?>(null)
             var compacting by mutableStateOf(false)
             var loading by mutableStateOf(false)
             var quotaColor = 0
+            var compactionColor = 0
             setContent {
                 UsageTestHost {
                     quotaColor = HbTheme.colors.usageCritical.toArgb()
+                    compactionColor = HbTheme.colors.brand.toArgb()
                     HbComposerUsageButton(
                         context,
                         "Usage",
@@ -326,6 +329,9 @@ class HbComposerUsageUiTest {
             onNodeWithText("64%").assertDoesNotExist()
             onNodeWithText("5h").assertIsDisplayed()
             assertTrue(usageImage().hasUsageColor(quotaColor))
+            assertTrue(usageImage().hasUsageColor(compactionColor))
+            runOnIdle { context = null }
+            assertTrue(usageImage().hasUsageColor(compactionColor))
             assertEquals(bounds, onNodeWithTag("usage-meter").fetchSemanticsNode().boundsInRoot)
             runOnIdle {
                 compacting = false
@@ -334,7 +340,7 @@ class HbComposerUsageUiTest {
             }
             onNodeWithText("0%").assertDoesNotExist()
             assertFalse(usageImage().hasUsageColor(quotaColor))
-            assertEquals(bounds, onNodeWithTag("usage-meter").fetchSemanticsNode().boundsInRoot)
+            assertEquals(62f, onNodeWithTag("usage-meter").fetchSemanticsNode().boundsInRoot.width)
             runOnIdle { loading = true }
             onNodeWithText("…").assertIsDisplayed()
             assertEquals(bounds, onNodeWithTag("usage-meter").fetchSemanticsNode().boundsInRoot)

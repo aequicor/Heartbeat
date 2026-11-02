@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -134,8 +136,13 @@ private fun UsageIndicator(
 ) {
     val dimensions = HbTheme.dimensions
     val height = maxOf(dimensions.composerUsageHeight, dimensions.touchTarget)
+    val width = if (isEmpty) {
+        dimensions.composerUsageMinWidth * CONTEXT_WEIGHT / TOTAL_WEIGHT
+    } else {
+        dimensions.composerUsageMinWidth
+    }
     Row(
-        Modifier.size(dimensions.composerUsageMinWidth, height)
+        Modifier.size(width, height)
             .testTag("usage-meter")
             .background(HbTheme.surfaces.composerPill, HbTheme.shapes.small),
         verticalAlignment = Alignment.CenterVertically,
@@ -147,7 +154,7 @@ private fun UsageIndicator(
             { open(HbUsageSection.Context) },
             Modifier.width(
                 if (isEmpty) {
-                    dimensions.composerUsageMinWidth
+                    width
                 } else {
                     (dimensions.composerUsageMinWidth - dimensions.borderWidth) * CONTEXT_WEIGHT / TOTAL_WEIGHT
                 },
@@ -245,7 +252,7 @@ private fun ContextMeter(percent: Int?, compacting: Boolean, loading: Boolean, e
     )
     val isSpinning = compacting || loading
     val ringProgress = progress.takeUnless { isSpinning || value == null } ?: 0f
-    val ringColor = if (value == null) HbTheme.colors.textSecondary else accent
+    val ringColor = contextRingColor(value, accent, compacting, enabled)
     val text = contextText(value, loading)
     val textColor = if (enabled) HbTheme.colors.textPrimary else HbTheme.colors.textSecondary
     HbRow(gap = HbTheme.spacing.xs) {
@@ -263,6 +270,15 @@ private fun ContextMeter(percent: Int?, compacting: Boolean, loading: Boolean, e
             )
         }
     }
+}
+
+@Composable
+@ReadOnlyComposable
+private fun contextRingColor(value: Int?, accent: Color, compacting: Boolean, enabled: Boolean): Color = when {
+    !enabled -> HbTheme.colors.textSecondary
+    compacting -> HbTheme.colors.brand
+    value == null -> HbTheme.colors.textSecondary
+    else -> accent
 }
 
 private fun contextText(value: Int?, loading: Boolean): String = if (loading) "…" else value?.let { "$it%" } ?: "—"
