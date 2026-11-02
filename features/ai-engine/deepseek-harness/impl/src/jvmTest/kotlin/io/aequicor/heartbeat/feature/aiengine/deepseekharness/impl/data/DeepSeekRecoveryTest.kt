@@ -135,6 +135,24 @@ class DeepSeekRecoveryTest {
     }
 
     @Test
+    fun `concurrent resumes of the same stored session share a single new process`() = runTest {
+        val h = groupHarness()
+        val original = h.group.create(CreateSessionRequest(h.target("a")))
+        val ref = original.ref
+        original.close()
+        val first = async { h.group.attach(ref, ResumeSessionRequest(h.target("a"))) }
+        val second = async { h.group.attach(ref, ResumeSessionRequest(h.target("a"))) }
+        runCurrent()
+        val a = first.await()
+        val b = second.await()
+        assertEquals(2, h.connections.size)
+        a.close()
+        assertFalse(h.connections.last().closed.isCompleted)
+        b.close()
+        assertTrue(h.connections.last().closed.isCompleted)
+    }
+
+    @Test
     fun `reattaching while the last lease retires waits for old process closure`() = runTest {
         val h = groupHarness()
         val a = h.group.create(CreateSessionRequest(h.target("a")))

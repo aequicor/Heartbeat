@@ -39,27 +39,47 @@ internal class DeepSeekRuntimeGroup(
     private val children = mutableMapOf<SessionRef, DeepSeekRuntime>()
     private val opening = mutableSetOf<DeepSeekRuntime>()
     private val openingJobs = mutableSetOf<Job>()
-    private val attaching = mutableMapOf<SessionRef, Mutex>()
+    private val attaching = mutableMapOf<SessionRef, AttachLock>()
 
     override suspend fun create(request: CreateSessionRequest): ActiveSession = child { it.create(request) }
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
-        val lock = mutex.withLock { attaching.getOrPut(ref) { Mutex() } }
-        return lock.withLock {
-            val existing = mutex.withLock { children[ref] }
-            if (existing != null) {
-                if (!existing.isClosed) {
-                    try {
-                        return@withLock existing.attach(ref, request)
-                    } catch (error: EngineException) {
-                        if (!existing.isClosed) throw error
-                        log.w(error) { "DSH session retired during attachment; wait for process closure" }
-                    }
+        val guard = mutex.withLock { attaching.getOrPut(ref) { AttachLock() }.also { it.retain() } }
+        try {
+            return guard.mutex.withLock { attachCurrent(ref, request) }
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    if (guard.release()) attaching.remove(ref)
                 }
-                existing.awaitRetired()
             }
-            child { it.attach(ref, request) }
         }
+    }
+
+    private suspend fun attachCurrent(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
+        val existing = mutex.withLock { children[ref] }
+        if (existing != null) {
+            if (!existing.isClosed) {
+                try {
+                    return existing.attach(ref, request)
+                } catch (error: EngineException) {
+                    if (!existing.isClosed) throw error
+                    log.w(error) { "DSH session retired during attachment; wait for process closure" }
+                }
+            }
+            existing.awaitRetired()
+        }
+        return child { it.attach(ref, request) }
+    }
+
+    private class AttachLock {
+        val mutex = Mutex()
+        private var users = 0
+
+        fun retain() {
+            users++
+        }
+        fun release(): Boolean = --users == 0
     }
 
     private suspend fun child(start: suspend (DeepSeekRuntime) -> ActiveSession): ActiveSession {
