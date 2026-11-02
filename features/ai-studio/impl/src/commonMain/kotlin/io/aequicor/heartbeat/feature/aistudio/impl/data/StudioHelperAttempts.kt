@@ -5,7 +5,6 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
-import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
@@ -13,7 +12,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
@@ -478,15 +476,12 @@ internal class StudioHelperAttempts(
         val receipt = checkNotNull(records[request.value]) { "The helper request was not journaled" }
         receipt.requireNativeIdentity(evidence.session, evidence.turn)
         check(receipt.phase in NATIVE_PHASES) { "A revoked helper request cannot have a native result" }
-        if (receipt.phase == StudioHelperPhase.Terminal) {
-            check(receipt.terminal == evidence) { "A confirmed helper result cannot change" }
-            return@withLock
-        }
+        val terminal = receipt.terminal?.enrichedBy(evidence) ?: evidence.copy(turn = receipt.turn ?: evidence.turn)
         val completed = receipt.copy(
             phase = StudioHelperPhase.Terminal,
             session = evidence.session,
-            turn = evidence.turn,
-            terminal = evidence,
+            turn = terminal.turn,
+            terminal = terminal,
         )
         write(helper, records + (request.value to completed))
         log.v { "Journaled confirmed helper terminal result" }
@@ -638,13 +633,13 @@ internal class StudioHelperAttempts(
     }
 
     suspend fun awaitSubmissionBoundary(helper: HelperId, request: RequestId): StudioHelperPhase =
-        store.observe(key(helper)).map { decode(it)[request.value]?.phase }.first {
+        store.observe(helperReceiptKey(helper)).map { decodeHelperReceipts(it)[request.value]?.phase }.first {
             it != null && it != StudioHelperPhase.Preparing
         }.let { checkNotNull(it) }
 
     /** New senders remain revocable throughout policy preparation, until their actual native entry is journaled. */
     suspend fun awaitNativeEntryBoundary(helper: HelperId, request: RequestId): StudioHelperPhase =
-        store.observe(key(helper)).map { decode(it)[request.value] }.first { receipt ->
+        store.observe(helperReceiptKey(helper)).map { decodeHelperReceipts(it)[request.value] }.first { receipt ->
             receipt != null && when (receipt.phase) {
                 StudioHelperPhase.Preparing -> false
                 StudioHelperPhase.Submitting -> !receipt.isNativeEntryTracked || receipt.nativeEntryClaim != null
@@ -652,7 +647,9 @@ internal class StudioHelperAttempts(
             }
         }.let { checkNotNull(it).phase }
 
-    private suspend fun read(helper: HelperId): Map<String, StudioHelperReceipt> = decode(store.get(key(helper)))
+    private suspend fun read(helper: HelperId): Map<String, StudioHelperReceipt> = decodeHelperReceipts(
+        store.get(helperReceiptKey(helper)),
+    )
 
     /** Missing old evidence preserves readable history, but cannot authorize another send or a safe tombstone. */
     private suspend fun requireNativeAdmission(
@@ -661,17 +658,7 @@ internal class StudioHelperAttempts(
         request: RequestId,
         incoming: StudioAttemptPolicy? = null,
     ) {
-        val chain = continuationChain(receipts, request)
-        if (chain.size > 1 && chain.any { it.isContinuationFenced }) {
-            throw CancellationException("Execution lineage was stopped")
-        }
-        val recoveries = store.readRecoveryWitnesses(helper)
-        val policy = receipts[request.value]?.policy ?: incoming
-        val root = recoveries[request.value]?.root ?: (policy as? StudioAttemptPolicy.GraphWork)?.recoveryRoot
-        if (root != null && store.readLegacyObservations(helper)[root.value]?.isStopRequested == true) {
-            throw CancellationException("Legacy work root was explicitly stopped")
-        }
-        requireRecoveryAdmission(recoveries.values, receipts, request)
+        store.requireNativeAdmission(helper, receipts, request, incoming)
     }
 
     private suspend fun requireRecordedHistory(helper: HelperId, records: Map<String, StudioHelperReceipt>) {
@@ -682,33 +669,11 @@ internal class StudioHelperAttempts(
 
     private suspend fun hasRecordedHistory(helper: HelperId, records: Map<String, StudioHelperReceipt>): Boolean {
         val record = chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value }
-        val isTracked = record?.hasAttemptJournal == true || record?.helper != null ||
-            record?.identity?.context?.kind in setOf(
-                SessionKind.Subsession,
-                SessionKind.Subagent,
-            )
-        val known = record?.lastRunRequest
-        return !isTracked || known == null || known.value in records
+        return record.hasRecordedAttemptHistory(records)
     }
 
     private suspend fun write(helper: HelperId, records: Map<String, StudioHelperReceipt>) {
-        store.set(key(helper), Json.encodeToString(records))
-    }
-
-    private fun key(helper: HelperId) = stringKey("helper_${helper.value.encodeUtf8().sha256().hex()}")
-
-    private fun decode(raw: String?): Map<String, StudioHelperReceipt> {
-        if (raw == null) return emptyMap()
-        return try {
-            Json.decodeFromString<Map<String, StudioHelperReceipt>>(raw).also { records ->
-                check(records.all { (key, receipt) -> key == receipt.request.value }) {
-                    "Mismatched helper receipt key"
-                }
-            }
-        } catch (e: IllegalArgumentException) {
-            // Decoder diagnostics can contain an answer; expose only its kind, without the original text/cause.
-            throw e.withoutHelperReceiptText()
-        }
+        store.set(helperReceiptKey(helper), Json.encodeToString(records))
     }
 
     /**
@@ -733,7 +698,3 @@ internal fun HelperPrompt.fingerprint(): String {
     val directed = directives.joinToString("") { "\u0000$it" }
     return "$isRecovery:$text$directed".encodeUtf8().sha256().hex()
 }
-
-/** Receipt decoder errors can include a persisted answer; omit its text and cause. */
-private fun Exception.withoutHelperReceiptText(): IllegalStateException =
-    IllegalStateException("Unreadable helper receipts (${this::class.simpleName.orEmpty()})")

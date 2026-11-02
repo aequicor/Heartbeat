@@ -265,13 +265,13 @@ class StudioHelperNativeTest {
     }
 }
 
-internal class NativeHelperFixture :
+internal class NativeHelperFixture(stores: ChecklistTestStores = ChecklistTestStores(), nativeId: String = "native") :
     ActiveSession,
     SessionHistory {
-    val attempts = StudioHelperAttempts(ChecklistTestStores())
+    val attempts = StudioHelperAttempts(stores)
     val target = EngineTarget(EngineId("engine"), EngineBindingId("binding"), ModelId("model"))
     val turn = Turn(TurnId("turn"), RequestId("request"), target, TurnOutcome.Completed)
-    override val ref = SessionRef(target.engine, SessionSourceId("local"), "native")
+    override val ref = SessionRef(target.engine, SessionSourceId("local"), nativeId)
     override val route = ExecutionRoute(
         target.engine,
         target.binding,

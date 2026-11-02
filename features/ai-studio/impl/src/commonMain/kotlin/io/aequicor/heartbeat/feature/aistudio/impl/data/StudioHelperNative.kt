@@ -37,7 +37,7 @@ internal class StudioHelperNative(
     private val log = Log.tag("StudioHelperNative")
 
     /**
-     * Saves terminal evidence of a journaled helper request. History is read only for an unresolved receipt; a
+     * Saves terminal evidence of a journaled helper request. History enriches unresolved or terminal receipts; a
      * failure leaves the receipt for later reconciliation and never fails the observed turn.
      */
     suspend fun remember(
@@ -53,6 +53,7 @@ internal class StudioHelperNative(
             val receipt = attempts.receipt(helper, request)
             if (receipt == null) log.w { "Helper turn has no journaled request; terminal evidence is not saved" }
             if (receipt == null || receipt.phase !in NATIVE_PHASES) return@evidence null
+            receipt.requireNativeIdentity(session, turn)
             check(record.ref == session) { "Helper native identity changed" }
             val settled = confirmed(record, Turn(turn, request, checkNotNull(record.target), outcome))
                 ?: return@evidence null
@@ -83,6 +84,8 @@ internal class StudioHelperNative(
     suspend fun stop(record: StudioChatRecord, request: RequestId, active: ActiveSession?): StudioHelperTerminal? =
         evidence {
             val receipt = attempts.receipt(HelperId(record.id), request) ?: return@evidence null
+            val session = record.ref ?: return@evidence null
+            receipt.requireNativeIdentity(session, receipt.turn)
             stopExact(record, request, receipt.turn, active)
         }
 
@@ -238,7 +241,7 @@ internal class StudioHelperNative(
     private companion object {
         const val STOP_WAIT_MILLIS = 30_000L
 
-        /** Unresolved native phases; terminal, revoked or missing receipts never read history again. */
-        val NATIVE_PHASES = setOf(StudioHelperPhase.Submitting, StudioHelperPhase.Accepted)
+        /** Unresolved native phases; revoked or missing receipts never read history. */
+        val NATIVE_PHASES = setOf(StudioHelperPhase.Submitting, StudioHelperPhase.Accepted, StudioHelperPhase.Terminal)
     }
 }

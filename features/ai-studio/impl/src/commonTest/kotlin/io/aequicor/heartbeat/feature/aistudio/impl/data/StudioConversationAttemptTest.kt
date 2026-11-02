@@ -74,7 +74,7 @@ class StudioConversationAttemptTest {
         assertTrue(stopping.isStopRequested)
         assertFalse(journal.enterNative(helper, prompt.request, "sender"))
         assertFailsWith<IllegalStateException> { journal.prepare(helper, prompt.copy(request = RequestId("new"))) }
-        journal.accepted(helper, prompt.request, session, terminal.turn)
+        journal.accepted(helper, prompt.request, session, checkNotNull(terminal.turn))
         journal.terminal(helper, prompt.request, terminal.copy(outcome = StudioHelperTerminalOutcome.Cancelled))
         val restored = StudioHelperAttempts(stores)
         assertTrue(restored.prepare(helper, prompt.copy(request = RequestId("new"))).isNew)

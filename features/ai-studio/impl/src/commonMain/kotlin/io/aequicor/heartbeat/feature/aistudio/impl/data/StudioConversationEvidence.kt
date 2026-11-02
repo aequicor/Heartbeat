@@ -15,7 +15,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
-import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 
 internal interface StudioConversationObservations {
     suspend fun snapshot(record: StudioChatRecord): HostConversationSnapshot
@@ -185,6 +184,5 @@ internal fun StudioHelperTerminal.conversationResult(request: RequestId): HostCo
             StudioHelperTerminalOutcome.Unknown -> TurnOutcome.Unknown
         },
         answer,
-        isAnswerComplete = answer.length < SchedulerLimits.MAX_PAYLOAD &&
-            outcome != StudioHelperTerminalOutcome.Unknown,
+        isAnswerComplete = isAnswerComplete,
     )

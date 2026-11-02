@@ -58,9 +58,8 @@ internal class StudioHelperTurnObserver(
     override suspend fun adoptedTurn(request: StudioTurnRequest, active: ActiveSession, native: StudioNativeTurn) {
         val helper = HelperId(request.id)
         val receipt = attempts.receipt(helper, native.request) ?: return
-        if (receipt.session == active.ref && receipt.turn == native.turn) {
-            attempts.accepted(helper, native.request, active.ref, native.turn)
-        }
+        receipt.requireNativeIdentity(active.ref, native.turn)
+        if (receipt.canReconcileNativeEntry()) attempts.accepted(helper, native.request, active.ref, native.turn)
     }
 
     override suspend fun terminalAdoptedTurn(
@@ -72,7 +71,8 @@ internal class StudioHelperTurnObserver(
     ) {
         val helper = HelperId(request.id)
         val receipt = attempts.receipt(helper, native.request) ?: return
-        if (receipt.session != active.ref || receipt.turn != native.turn) return
+        receipt.requireNativeIdentity(active.ref, native.turn)
+        if (!receipt.canReconcileNativeEntry()) return
         nativeRemember(request.id, active, native, outcome)
     }
 
@@ -88,3 +88,8 @@ internal class StudioHelperTurnObserver(
         }
     }
 }
+
+/** Fresh exact native inspection can recover a lost acceptance ACK, but cannot resurrect a proven unsent receipt. */
+private fun StudioHelperReceipt.canReconcileNativeEntry(): Boolean =
+    phase in setOf(StudioHelperPhase.Accepted, StudioHelperPhase.Terminal) ||
+        (phase == StudioHelperPhase.Submitting && (!isNativeEntryTracked || nativeEntryClaim != null))
