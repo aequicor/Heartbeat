@@ -254,8 +254,9 @@ private suspend fun StudioTurnRequest.workModel(record: StudioChatRecord): Helpe
     check(gate == null || gate.matches(HelperId(record.id), request)) { "Conversation request binding does not match" }
     return when (val policy = gate?.policy()) {
         StudioAttemptPolicy.Conversation -> null
+        is StudioAttemptPolicy.GraphWork -> null
         is StudioAttemptPolicy.OwnedHelperWork -> policy.model
-        null -> record.helper?.model
+        StudioAttemptPolicy.UnknownService, null -> record.helper?.model
     }
 }
 

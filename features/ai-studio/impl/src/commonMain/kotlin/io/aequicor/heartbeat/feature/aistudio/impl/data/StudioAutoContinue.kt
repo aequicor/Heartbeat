@@ -324,6 +324,7 @@ internal class StudioAutoContinue(
             settings = hostRunSettings(record, applied, runtime.value.defaults()),
             kind = WorktreeRunKind.Coding,
             request = RequestId("$AUTOPILOT_PREFIX${Uuid.random()}"),
+            origin = StudioTurnOrigin.Conversation,
             onTurnAccepted = { _, turn -> mark(chat, turn.value) },
             onAccepted = { accepted.complete(Unit) },
         )

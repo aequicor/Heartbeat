@@ -71,6 +71,7 @@ internal class EngineStudioHelperRuns(
                 },
                 directives = prompt.directives,
                 submission = submission,
+                origin = StudioTurnOrigin.HelperWork,
                 onTurnAccepted = { active, turn -> accepted = active.ref to turn },
             ),
             waitForIdle = true,

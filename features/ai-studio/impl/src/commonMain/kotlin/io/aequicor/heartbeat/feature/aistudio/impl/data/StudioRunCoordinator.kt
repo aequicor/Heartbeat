@@ -312,4 +312,5 @@ internal fun studioTurnRequest(
         environment = environment,
         isUserPrompt = isUserPrompt,
         userInstruction = userInstruction,
+        origin = if (isUserPrompt) StudioTurnOrigin.Conversation else StudioTurnOrigin.UnknownService,
     )

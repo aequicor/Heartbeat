@@ -155,7 +155,7 @@ internal class EngineStudioHelperChats(
         val actual = runs.value.virtualResultRequest(helper, request) ?: return null
         val receipt = attempts.receipt(helper, request)
         val result = when {
-            receipt?.policy == StudioAttemptPolicy.Conversation -> null
+            receipt?.policy != null && receipt.policy !is StudioAttemptPolicy.OwnedHelperWork -> null
 
             actual != request -> continuedResult(helper, request, actual)
 
@@ -182,7 +182,7 @@ internal class EngineStudioHelperChats(
 
     private suspend fun continuedResult(helper: HelperId, request: RequestId, actual: RequestId): HelperResult? {
         val receipt = attempts.receipt(helper, actual)
-        if (receipt?.policy == StudioAttemptPolicy.Conversation) return null
+        if (receipt?.policy != null && receipt.policy !is StudioAttemptPolicy.OwnedHelperWork) return null
         val terminal = receipt?.terminal ?: runs.value.helperTerminal(helper, actual)?.also {
             attempts.accepted(helper, actual, it.session, it.turn, isVirtualContinuation = true)
             attempts.terminal(helper, actual, it)
@@ -223,7 +223,9 @@ internal class EngineStudioHelperChats(
         val metadata = checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
         val previous = attempts.receipt(helper, request)
         val policy = previous?.policy
-        if (policy == StudioAttemptPolicy.Conversation || (previous?.isUnresolved == true && policy == null)) {
+        val hasOtherPolicy = policy != null && policy !is StudioAttemptPolicy.OwnedHelperWork
+        val isUnclassified = previous?.isUnresolved == true && policy == null
+        if (hasOtherPolicy || isUnclassified) {
             return HelperCancellation.Unconfirmed(request)
         }
         check(policy !is StudioAttemptPolicy.OwnedHelperWork || policy.binding.owner == metadata.owner) {

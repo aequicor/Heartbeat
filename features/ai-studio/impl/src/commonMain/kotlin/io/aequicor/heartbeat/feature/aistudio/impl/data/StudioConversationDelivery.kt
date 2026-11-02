@@ -112,6 +112,7 @@ internal class StudioConversationDelivery(
                     prompt.request,
                     directives = prompt.directives,
                     causes = causes,
+                    origin = StudioTurnOrigin.Conversation,
                     submission = StudioHelperSubmission(attempts, admissions, helper, prompt.request),
                     onTurnAccepted = { active, turn ->
                         if (attempts.receipt(helper, prompt.request)?.phase == StudioHelperPhase.Submitting) {

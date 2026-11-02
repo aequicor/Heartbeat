@@ -142,7 +142,7 @@ internal class EngineStudioPlanHost(
             settings = settings,
             kind = WorktreeRunKind.Coding,
             request = checkNotNull(runs.currentRequest(id)) { "The plan turn has no execution reservation" },
-        ).copy(isUserPrompt = true)
+        ).copy(isUserPrompt = true, origin = StudioTurnOrigin.Conversation)
         return runHost.value.executeRun(request)
     }
 

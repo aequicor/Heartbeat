@@ -19,13 +19,18 @@ internal class StudioHelperAdmission(
     private val log = Log.tag("StudioHelperAdmission")
 
     suspend fun prepare(record: StudioChatRecord, request: StudioTurnRequest): StudioTurnRequest {
-        if (record.helper == null && record.logicalSession?.kind != SessionKind.Subsession) return request
         val helper = HelperId(record.id)
         val supplied = request.submission as? StudioHelperSubmission
         if (supplied != null) {
             check(supplied.matches(helper, request.request)) { "The helper submission belongs to another request" }
+            check(request.origin.accepts(supplied.policy())) { "The submission origin contradicts its request journal" }
             return request
         }
+        check(
+            request.origin != StudioTurnOrigin.HelperWork,
+        ) { "Helper work requires an authenticated lease submission" }
+        if (record.helper == null && record.logicalSession?.kind != SessionKind.Subsession) return request
+        val policy = request.origin.deliveryPolicy()
         val previous = attempts.unresolved(helper)
         if (previous != null && previous != request.request) {
             val terminal = runs?.value?.helperTerminal(helper, previous)
@@ -33,7 +38,7 @@ internal class StudioHelperAdmission(
             attempts.terminal(helper, previous, terminal)
         }
         // A scheduled wake keeps its request id across deliveries; a revoked earlier preparation may be redone.
-        val prepared = attempts.prepareDelivery(helper, HelperPrompt(request.request, request.prompt))
+        val prepared = attempts.prepareDelivery(helper, HelperPrompt(request.request, request.prompt), policy)
         check(prepared.isNew) { "The helper request is already owned" }
         log.v { "Reserved helper request through common admission" }
         return request.copy(

@@ -117,6 +117,8 @@ internal data class StudioTurnRequest(
     val userInstruction: String? = null,
     /** Executor-owned evidence recorded at the native send boundary, after preparation. */
     val delivery: StudioPromptDelivery? = null,
+    /** Trusted producer declaration; it grants no logical owner or human capability. */
+    val origin: StudioTurnOrigin = StudioTurnOrigin.UnknownService,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }

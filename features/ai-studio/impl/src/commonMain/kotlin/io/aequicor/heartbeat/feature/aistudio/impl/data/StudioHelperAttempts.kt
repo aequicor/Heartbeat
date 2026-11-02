@@ -68,8 +68,14 @@ internal class StudioHelperAttempts(
      * Callers are serialized by the chat's execution reservation, so the earlier sender has already left;
      * Submitting and later phases are never prepared again and keep their text immutable.
      */
-    suspend fun prepareDelivery(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
-        prepare(helper, prompt, isRedelivery = true, policy = StudioAttemptPolicy.Conversation)
+    suspend fun prepareDelivery(
+        helper: HelperId,
+        prompt: HelperPrompt,
+        policy: StudioAttemptPolicy = StudioAttemptPolicy.Conversation,
+    ): StudioHelperPreparation {
+        check(policy !is StudioAttemptPolicy.OwnedHelperWork) { "Helper work requires lease preparation" }
+        return prepare(helper, prompt, isRedelivery = true, policy = policy)
+    }
 
     private suspend fun prepare(
         helper: HelperId,
@@ -337,7 +343,7 @@ internal class StudioHelperAttempts(
             val pending = records.values.filter { it.isUnresolved }
             check(pending.size <= 1) { "Contradictory conversation attempts" }
             val owned = pending.singleOrNull()?.policy as? StudioAttemptPolicy.OwnedHelperWork
-            val isResolved = pending.all { it.policy != null } &&
+            val isResolved = pending.all { it.policy != null && it.policy != StudioAttemptPolicy.UnknownService } &&
                 (lastKnown == null || lastKnown.value in records) &&
                 (owned == null || owned.binding.owner == owner)
             StudioWorkOwnership(pending.singleOrNull()?.request?.takeIf { owned?.binding?.owner == owner }, isResolved)
@@ -363,7 +369,7 @@ internal class StudioHelperAttempts(
         val records = read(helper)
         val existing = records[request.value]
         val prior = existing?.policy
-        if (prior == StudioAttemptPolicy.Conversation) return@withLock false
+        if (prior != null && prior !is StudioAttemptPolicy.OwnedHelperWork) return@withLock false
         if (prior is StudioAttemptPolicy.OwnedHelperWork) {
             val old = prior.binding
             val incoming = policy.binding

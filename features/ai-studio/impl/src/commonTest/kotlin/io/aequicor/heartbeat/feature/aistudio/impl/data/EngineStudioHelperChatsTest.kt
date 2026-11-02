@@ -38,6 +38,23 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class EngineStudioHelperChatsTest {
     @Test
+    fun `old helper leases cannot read stop or adopt explicitly classified graph and service requests`() = runTest {
+        for (policy in listOf(
+            StudioAttemptPolicy.GraphWork(RequestId("graph-root")),
+            StudioAttemptPolicy.UnknownService,
+        )) {
+            val fixture = HelperFixture(backgroundScope)
+            fixture.attempts.prepareDelivery(HelperChat, HelperInput, policy)
+            assertNull(fixture.host.result(HelperChat, HelperInput.request))
+            assertNull(fixture.host.progress(HelperChat, HelperInput.request))
+            assertIs<HelperCancellation.Unconfirmed>(fixture.host.cancel(HelperChat, HelperInput.request))
+            assertEquals(StudioHelperPhase.Preparing, fixture.attempts.receipt(HelperChat, HelperInput.request)?.phase)
+            assertEquals(policy, fixture.attempts.receipt(HelperChat, HelperInput.request)?.policy)
+            assertEquals(0, fixture.sends)
+        }
+    }
+
+    @Test
     fun `switching helper A cannot delay helper B or duplicate A submission`() = runTest {
         val fixture = HelperFixture(backgroundScope)
         val gate = CompletableDeferred<Unit>()

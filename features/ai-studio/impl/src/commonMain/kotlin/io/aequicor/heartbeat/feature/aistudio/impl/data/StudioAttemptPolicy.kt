@@ -14,6 +14,18 @@ internal sealed interface StudioAttemptPolicy {
     @SerialName("conversation")
     data object Conversation : StudioAttemptPolicy
 
+    /** Owned graph execution; it is not a helper lease and never authorizes adoption by one. */
+    @Serializable
+    @SerialName("graph_work")
+    data class GraphWork(val recoveryRoot: RequestId) : StudioAttemptPolicy {
+        override fun toString(): String = "GraphWork(***)"
+    }
+
+    /** An explicit unknown service origin is not legacy null and cannot be promoted by a helper journal. */
+    @Serializable
+    @SerialName("unknown_service")
+    data object UnknownService : StudioAttemptPolicy
+
     /** Immutable helper-specific policy; profile security remains live and is not replaced by a trust cap. */
     @Serializable
     @SerialName("helper_work")
@@ -28,6 +40,10 @@ internal data class StudioWorkOwnership(val request: RequestId?, val isResolved:
 /** A later read may have a new model seed; an existing attempt always retains its original snapshot. */
 internal fun StudioAttemptPolicy.hasSameOrigin(other: StudioAttemptPolicy?): Boolean = when (this) {
     StudioAttemptPolicy.Conversation -> other == StudioAttemptPolicy.Conversation
+
+    StudioAttemptPolicy.UnknownService -> other == StudioAttemptPolicy.UnknownService
+
+    is StudioAttemptPolicy.GraphWork -> other is StudioAttemptPolicy.GraphWork && recoveryRoot == other.recoveryRoot
 
     is StudioAttemptPolicy.OwnedHelperWork ->
         other is StudioAttemptPolicy.OwnedHelperWork && binding.owner == other.binding.owner && (

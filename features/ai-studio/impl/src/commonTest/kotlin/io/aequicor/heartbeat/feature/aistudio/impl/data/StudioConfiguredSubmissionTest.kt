@@ -406,6 +406,26 @@ class StudioConfiguredSubmissionTest {
     }
 
     @Test
+    fun `graph work never inherits the reviewer and directive of an old helper lease`() = runTest {
+        val fixture = SubmissionFixture(this)
+        val reviewer = fixture.configuration.target.copy(model = ModelId("old-reviewer"))
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+            helper = StudioHelperIdentity(
+                ActionId("old-owner"),
+                null,
+                null,
+                TrustLevel.Ask,
+                HelperModelOptions(reviewTarget = reviewer),
+            ),
+        )
+        val gate = fixture.gate("graph", StudioAttemptPolicy.GraphWork(RequestId("graph-root")))
+        fixture.submit("graph", isUserPrompt = false, gate = gate)
+        val sent = fixture.session.requests.single()
+        assertNull(sent.reviewTarget)
+        assertFalse(sent.text().contains(HELPER_DIRECTIVE))
+    }
+
+    @Test
     fun `a foreign chat or request gate never selects policy or reaches native send`() = runTest {
         for ((chat, request) in listOf("foreign" to "expected", "chat" to "different")) {
             val fixture = SubmissionFixture(this)
@@ -667,6 +687,8 @@ private class SubmissionFixture(
         when (policy) {
             StudioAttemptPolicy.Conversation -> attempts.prepareConversation(helper, prompt)
             is StudioAttemptPolicy.OwnedHelperWork -> attempts.prepareWork(helper, prompt, policy)
+            is StudioAttemptPolicy.GraphWork -> attempts.prepareDelivery(helper, prompt, policy)
+            StudioAttemptPolicy.UnknownService -> attempts.prepareDelivery(helper, prompt, policy)
             null -> attempts.prepare(helper, prompt)
         }
         return StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, prompt.request)

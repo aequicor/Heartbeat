@@ -108,6 +108,7 @@ internal class EngineStudioScheduledChats(
                 },
                 directives = listOf(prompt.directive),
                 causes = prompt.causes,
+                origin = StudioTurnOrigin.Conversation,
             ),
             waitForIdle = true,
             cancelBeforeSubmission = true,

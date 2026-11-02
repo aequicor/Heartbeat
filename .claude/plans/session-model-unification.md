@@ -572,3 +572,28 @@ capacity до подтверждённого stop, restored lease R / actual adm
 ordinary new root и доказанный legacy human root. Сначала эту основу, затем расширять
 planning/compact/rollover/engine-switch и autopilot; прежний helper marker не является
 постоянным типом, а old Work не становится независимым chat turn.
+
+### Provenance новых запросов — подготовительный шаг
+
+StudioTurnOrigin отделяет host-declared Conversation, HelperWork, GraphWork(recoveryRoot)
+и UnknownService от логической роли чата. HelperWork требует аутентифицированный lease
+gate; явная декларация сверяется с immutable policy точной квитанции, включая ordinary
+root. Graph origin берётся из сохранённой graph attempt, а не из непроверенного replay.
+Новый GraphWork/UnknownService нельзя восстановить или прочитать как прежнюю helper work;
+неизвестная служебная работа не получает автоматически происхождение диалога.
+Новые поля сериализуются совместимо; старый null policy остаётся отдельным legacy случаем.
+
+Производители human/creator/scheduled conversation, helper lease и graph помечены явно.
+Структурные worktree/context-maintenance запросы пока UnknownService: происхождение
+не выводится из текста. Общий root journal, virtual continuation lineage и расширение
+capabilities ещё не включены. Перед universal admission нужно исправить graph recovery:
+execution Q может наблюдать прежний native request R; нельзя создать Accepted Q на turn R,
+checkpoint должен адресовать R, а gate wrapper обязан передавать retention уже принятого
+native ownership. Terminal-only TurnInspection не позволяет выдумать TurnId.
+
+Проверка: `build/verification/turn-origin-final.log` — Studio impl 948/948, JVM DI-граф,
+обычный detekt и typed-detekt успешны. Typed analysis сохраняет три ранее установленные
+generated-serializer/inference диагностики; полнота анализа этим ограничена.
+Read-only архитектурное ревью origin consistency — APPROVE.
+Последнее уточнение пользователя принято: заголовок «Сессия · Субагент», остальные
+макеты согласованы; через MCP проверены все шесть сохранённых заголовков session-model.pen.
