@@ -1523,21 +1523,62 @@ class StudioNativeRecoveryTest {
     }
 
     @Test
-    fun `a failed adopted callback recovers terminal evidence under the actual request`() = runTest {
+    fun `a failed adopted checkpoint retains terminal evidence under the actual request`() = runTest {
         val f = TurnFixture()
         f.tools.release.complete(Unit)
         val execution = recovery(f).copy(onNativeTurn = { _, _ -> error("Checkpoint write failed") })
-        assertEquals(RunOutcome.Failed, f.executor.execute(f.host, execution))
+        assertEquals(RunOutcome.Completed, f.executor.execute(f.host, execution))
         assertEquals(
             listOf<Pair<StudioNativeTurn, TurnOutcome>>(
                 StudioNativeTurn(f.request.request, f.turn.id) to TurnOutcome.Completed,
             ),
             f.host.adoptedTerminalReceipts,
         )
-        assertEquals(false, f.host.isTerminalHistoryCurrent)
+        assertEquals(true, f.host.isTerminalHistoryCurrent)
         assertTrue(f.host.acceptedReceipts.isEmpty())
         assertTrue(f.host.terminalReceipts.isEmpty())
         assertTrue(f.machine.sent.isEmpty())
+    }
+
+    @Test
+    fun `a failed live adopted checkpoint never cancels the native turn`() = runTest {
+        val f = TurnFixture()
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        val execution = recovery(f).copy(onNativeTurn = { _, _ -> error("Checkpoint unavailable") })
+
+        val run = async { f.executor.execute(f.host, execution) }
+        runCurrent()
+
+        assertFalse(run.isCompleted)
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(listOf(StudioNativeTurn(f.request.request, f.turn.id)), f.host.adoptedReceipts)
+        assertTrue(f.host.adoptedTerminalReceipts.isEmpty())
+        f.tools.release.complete(Unit)
+        f.active.state.value = ActiveSessionState.Ready(f.turn)
+        assertEquals(RunOutcome.Completed, run.await())
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(StudioNativeTurn(f.request.request, f.turn.id), f.host.adoptedTerminalReceipts.single().first)
+    }
+
+    @Test
+    fun `a failed fresh acceptance checkpoint cannot cancel an accepted native turn`() = runTest {
+        val f = TurnFixture()
+        f.host.isIsolated = false
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        val request = f.request.copy(onTurnAccepted = { _, _ -> error("Acceptance checkpoint unavailable") })
+
+        val run = async { f.executor.execute(f.host, request) }
+        runCurrent()
+
+        assertFalse(run.isCompleted)
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(listOf(f.request.request to f.turn.id), f.host.acceptedReceipts)
+        f.tools.release.complete(Unit)
+        f.active.state.value = ActiveSessionState.Ready(f.turn)
+        assertEquals(RunOutcome.Completed, run.await())
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(f.request.request, f.host.terminalReceipts.single().first)
     }
 
     @Test

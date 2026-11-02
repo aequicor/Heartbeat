@@ -81,6 +81,15 @@ continuation. Новый observer получает binding и Stop одним jo
 snapshot/result ещё не подключены. Сам transfer storage не доказывает корректность старого executor после
 отказа stale hook. Следующий production-срез ниже остаётся обязательным; capability всё ещё не включена.
 
+External checkpoint callbacks `onNativeTurn` / `onTurnAccepted` теперь изолируют обычные ошибки: не уходят в
+`recover()` и не вызывают Stop принятого R. Live-регрессии удерживают наблюдение до native terminal proof и
+проверяют actual request в evidence. `CancellationException` сохраняет отмену executor. Будущие обязательные
+journal hooks нельзя помещать в best-effort `observe`: успешный внешний callback не доказывает сохранение binding.
+
+При production wiring отдельно исправить recovery open: текущий `preflightRecovery → openTurn →
+StudioSessionOpening.open` способен вызвать `SwitchesModels` и `carry.prepareHarnesses` с настройками Q.
+Нужен recovery-only open точного сохранённого ref/target, без смены модели/manifest/environment старого R.
+
 ### 1. Закончить production recovery одним согласованным слоем
 
 **Первый следующий шаг.** `EngineStudioRepository` пока не реализует `StudioRecoveryRunHost`, а `StudioHelperAdmission.requireNativeRecovery` сохраняет прежний запрет helper/Subsession adoption. Не снимать guard только потому, что unit foundation зелёный.
