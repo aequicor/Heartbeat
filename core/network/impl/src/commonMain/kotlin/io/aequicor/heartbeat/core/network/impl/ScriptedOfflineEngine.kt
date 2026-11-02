@@ -9,26 +9,29 @@ import io.ktor.client.engine.HttpClientEngineConfig
 import io.ktor.client.engine.callContext
 import io.ktor.client.engine.mergeHeaders
 import io.ktor.client.plugins.HttpTimeoutCapability
+import io.ktor.client.plugins.sse.SSECapability
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.Headers
-import io.ktor.http.HttpProtocolVersion
-import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
-import io.ktor.util.date.GMTDate
-import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.InternalAPI
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 
 /** A finite byte responder, not a wrapper around any platform engine. There is no network-capable dependency. */
 internal class ScriptedOfflineEngine(private val script: List<OfflineHttpExchange>, dispatcher: CoroutineDispatcher) :
     HttpClientEngineBase("heartbeat-offline") {
     override val config = HttpClientEngineConfig().apply { this.dispatcher = dispatcher }
-    override val supportedCapabilities = setOf(HttpTimeoutCapability)
+    override val supportedCapabilities = setOf(HttpTimeoutCapability, SSECapability)
     private val mutex = Mutex()
     private var received = 0
     private var isMatched = true
@@ -37,8 +40,25 @@ internal class ScriptedOfflineEngine(private val script: List<OfflineHttpExchang
         OfflineHttpProgress(script.size, received, isMatched)
     }
 
-    @OptIn(InternalAPI::class)
+    @OptIn(InternalAPI::class, InternalCoroutinesApi::class)
     override suspend fun execute(data: HttpRequestData): HttpResponseData {
+        val call = callContext()
+        // Acquisition belongs to the engine; cancellation of the caller must still interrupt it immediately.
+        return withContext(coroutineContext) {
+            val owned = currentCoroutineContext().job
+            val link = call.job.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { cause ->
+                if (cause != null) owned.cancel()
+            }
+            try {
+                currentCoroutineContext().ensureActive()
+                executeOwned(data, call)
+            } finally {
+                link.dispose()
+            }
+        }
+    }
+
+    private suspend fun executeOwned(data: HttpRequestData, call: CoroutineContext): HttpResponseData {
         val exchange = mutex.withLock {
             val next = script.getOrNull(received)
             received++
@@ -50,15 +70,7 @@ internal class ScriptedOfflineEngine(private val script: List<OfflineHttpExchang
         }
         return when (val response = exchange.response) {
             OfflineHttpResponse.AwaitCancellation -> awaitCancellation()
-
-            is OfflineHttpResponse.Reply -> HttpResponseData(
-                HttpStatusCode.fromValue(response.status),
-                GMTDate(),
-                Headers.build { response.headers.forEach { (key, value) -> append(key, value) } },
-                HttpProtocolVersion.HTTP_1_1,
-                ByteReadChannel(response.body.encodeToByteArray()),
-                callContext(),
-            )
+            is OfflineHttpResponse.Reply -> offlineReply(data, response, call, coroutineContext.job)
         }
     }
 }
