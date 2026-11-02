@@ -1,0 +1,40 @@
+{
+    "title": "Heartbeat: issues + e2e",
+    "description": "Берёт одну открытую issue Heartbeat и готовит PR с e2e-проверкой. Таймер срабатывает после каждых 24 часов непрерывной активности; перезапуск или повторная активация начинают отсчёт заново. Ревью и merge выполняются отдельно.",
+    "items": [
+        {
+            "name": "process_backlog",
+            "kind": "workflow",
+            "description": "Передайте issue_number строкой с положительным номером или не передавайте параметр для выбора из очереди. Некорректное значение отклоняется до запуска помощника.",
+            "input": {
+                "type": "object",
+                "properties": {
+                    "issue_number": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        {
+            "name": "daily_backlog",
+            "kind": "script"
+        },
+        {
+            "name": "issue_policy",
+            "kind": "instruction"
+        },
+        {
+            "name": "process_next",
+            "kind": "template",
+            "description": "Промпт одного периодического прохода по очереди открытых issues.",
+            "arguments": [
+                "run_mode"
+            ]
+        },
+        {
+            "name": "process_issue",
+            "kind": "skill",
+            "description": "Загружай при выборе, исправлении и проверке одной issue aequicor/Heartbeat."
+        }
+    ]
+}

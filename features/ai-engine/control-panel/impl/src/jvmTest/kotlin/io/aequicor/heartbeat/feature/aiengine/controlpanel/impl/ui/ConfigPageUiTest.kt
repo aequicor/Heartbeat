@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigSectionUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EnginePanelTabUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EntryUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FieldEditorUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FieldInputUi
@@ -76,13 +77,14 @@ class ConfigPageUiTest {
     private val overview = EngineControlPanelState(
         "pi",
         title = "Pi",
+        openTab = EnginePanelTabUi.Settings,
         pages = persistentListOf(PageItemUi("network", text("Network"))),
         config = form,
         isLoading = false,
     )
 
     @Test
-    fun `a page opens from the overview`() = runSkikoComposeUiTest {
+    fun `a page opens from settings`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
         setContent { HbTheme { EngineControlPanelContent(overview, { intents += it }) } }
 
@@ -197,7 +199,7 @@ class ConfigPageUiTest {
     }
 
     @Test
-    fun `a file opens from the overview and its editor sends the whole text`() = runSkikoComposeUiTest {
+    fun `a file opens from settings and its editor sends the whole text`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
         val file = ConfigFileUi("settings", text("Settings"), "s.json", "{}", "json")
         var state by mutableStateOf(overview.copy(config = form.copy(files = persistentListOf(file))))

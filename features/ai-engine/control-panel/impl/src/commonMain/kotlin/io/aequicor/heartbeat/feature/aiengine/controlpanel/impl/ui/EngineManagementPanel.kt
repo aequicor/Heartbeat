@@ -3,7 +3,12 @@ package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -39,12 +44,13 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_cancel
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_dismiss
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_engine_builtin
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_probe
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_status_off
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_status_on
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_check_updates
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_copy_failed
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_enabled
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_enabled_hint
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_disabled_profile
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_enable
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_install
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_installation
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_job_status
@@ -65,17 +71,42 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_exited
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_stale
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_section
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_switch_label
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_uninstall
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_uninstall_blocked
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_unverified
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_update
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_update_available
 import org.jetbrains.compose.resources.stringResource
 
+/** The profile switch stays in the panel header in both enabled and disabled states. */
+@Composable
+internal fun EngineSwitchHeader(
+    panel: EnginePanelUi,
+    isIdle: Boolean,
+    onIntent: (EngineManagementIntent) -> Unit,
+    modifier: Modifier = Modifier,
+    isVisuallyIdle: Boolean = isIdle,
+) {
+    HbRow(modifier, gap = HbTheme.spacing.s) {
+        HbText(
+            stringResource(if (panel.isEnabled) Res.string.control_status_on else Res.string.control_status_off),
+            style = HbTheme.typography.label,
+        )
+        HbSwitch(
+            panel.isUserEnabled,
+            { onIntent(EngineManagementIntent.SetEngineEnabled(it)) },
+            stringResource(Res.string.engine_switch_label, panel.title),
+            Modifier.testTag("engine-enabled"),
+            enabled = isIdle && panel.isSwitchable,
+            visualEnabled = isVisuallyIdle && panel.isSwitchable,
+        )
+    }
+}
+
 /**
- * Management of the selected engine, between the engine list and its connections: the profile switch with the
- * reasons that keep the engine off, the installation with its update and removal actions, the host application, the
- * CLI sign-in, the running job, the runtimes and the launch settings. Every action waits while another change or a
- * job runs.
+ * Enabled engines show all applicable management blocks. A disabled overview keeps only its reason, enabling and a
+ * safe managed-copy removal; an already running job remains visible and cancellable. Every action waits for other work.
  */
 @Composable
 internal fun EngineManagementSection(
@@ -88,14 +119,13 @@ internal fun EngineManagementSection(
 ) {
     val isIdle = !isSaving && panel.job?.isRunning != true
     val isVisuallyIdle = !isSavingVisible && panel.job?.isRunning != true
+    if (!panel.isEnabled) {
+        DisabledEngineContent(panel, isIdle, isSaving, onIntent, modifier, isVisuallyIdle)
+        return
+    }
     HbSettingsSection(
         stringResource(Res.string.engine_section),
         modifier.testTag("engine-panel"),
-        description = if (panel.isBuiltIn) {
-            stringResource(Res.string.control_engine_builtin)
-        } else {
-            panel.title
-        },
         trailingContent = {
             HbButton(
                 stringResource(Res.string.control_probe),
@@ -108,8 +138,6 @@ internal fun EngineManagementSection(
             )
         },
     ) {
-        EngineSwitchRow(panel, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
-        HbDivider()
         InstallationBlock(panel, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         panel.hostApp?.let { hostApp ->
             HbDivider()
@@ -146,6 +174,49 @@ internal fun EngineManagementSection(
     }
 }
 
+@Composable
+private fun DisabledEngineContent(
+    panel: EnginePanelUi,
+    isIdle: Boolean,
+    isSaving: Boolean,
+    onIntent: (EngineManagementIntent) -> Unit,
+    modifier: Modifier = Modifier,
+    isVisuallyIdle: Boolean = isIdle,
+) {
+    HbColumn(modifier.fillMaxWidth().testTag("engine-panel"), gap = HbTheme.spacing.m) {
+        val reason = if (!panel.isUserEnabled) {
+            stringResource(Res.string.engine_disabled_profile, panel.title)
+        } else {
+            panel.reasons.map { reasonText(it) }.joinToString(" ")
+        }
+        HbBanner(reason, tone = HbTone.Neutral)
+        HbFlowRow(Modifier.fillMaxWidth()) {
+            if (!panel.isUserEnabled) {
+                ActionButton(
+                    stringResource(Res.string.engine_enable),
+                    "engine-enable",
+                    isIdle && panel.isSwitchable,
+                    visualEnabled = isVisuallyIdle && panel.isSwitchable,
+                ) {
+                    onIntent(EngineManagementIntent.SetEngineEnabled(true))
+                }
+            }
+            if (panel.isUninstallAllowed) {
+                ActionButton(
+                    stringResource(Res.string.engine_uninstall),
+                    "engine-uninstall",
+                    isIdle,
+                    visualEnabled = isVisuallyIdle,
+                    style = HbButtonStyle.Danger,
+                ) {
+                    onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Uninstall))
+                }
+            }
+        }
+        panel.job?.let { JobBlock(it, isSaving, onIntent, isSavingVisible = isSaving) }
+    }
+}
+
 /** Saved native MCP permission, separate from any launch draft currently being edited. */
 @Composable
 private fun EngineMcpRow(panel: EnginePanelUi, isIdle: Boolean, onIntent: (EngineManagementIntent) -> Unit) {
@@ -165,32 +236,6 @@ private fun EngineMcpRow(panel: EnginePanelUi, isIdle: Boolean, onIntent: (Engin
             stringResource(Res.string.engine_mcp_title),
             Modifier.testTag("engine-mcp-enabled"),
             enabled = isIdle && !launch.isEditing && panel.runtime.activeTurns == 0,
-        )
-    }
-}
-
-@Composable
-private fun EngineSwitchRow(
-    panel: EnginePanelUi,
-    isIdle: Boolean,
-    onIntent: (EngineManagementIntent) -> Unit,
-    modifier: Modifier = Modifier,
-    isVisuallyIdle: Boolean = isIdle,
-) {
-    val title = stringResource(Res.string.engine_enabled)
-    val reasons = panel.reasons.map { reasonText(it) }
-    HbSettingsRow(
-        title,
-        modifier,
-        description = reasons.joinToString(" ").ifEmpty { stringResource(Res.string.engine_enabled_hint) },
-    ) {
-        HbSwitch(
-            panel.isUserEnabled,
-            { onIntent(EngineManagementIntent.SetEngineEnabled(it)) },
-            title,
-            Modifier.testTag("engine-enabled"),
-            enabled = isIdle && panel.isSwitchable,
-            visualEnabled = isVisuallyIdle && panel.isSwitchable,
         )
     }
 }
@@ -293,12 +338,13 @@ private fun InstallationActions(
             isIdle && EngineActionKindUi.CheckForUpdates in actions,
             visualEnabled = isVisuallyIdle && EngineActionKindUi.CheckForUpdates in actions,
         ) { onIntent(EngineManagementIntent.CheckUpdates) }
-        if (EngineActionKindUi.Uninstall in actions) {
+        if (panel.isUninstallAllowed) {
             ActionButton(
                 stringResource(if (isBundled) Res.string.engine_revert else Res.string.engine_uninstall),
                 "engine-uninstall",
                 isIdle,
                 visualEnabled = isVisuallyIdle,
+                style = HbButtonStyle.Danger,
             ) { onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Uninstall)) }
         }
     }
@@ -436,6 +482,12 @@ internal fun EngineActionDialog(
     onIntent: (EngineManagementIntent) -> Unit,
 ) {
     val (title, body, confirm) = confirmationTexts(action, panel) ?: return
+    val cancelFocus = remember { FocusRequester() }
+    LaunchedEffect(action) {
+        withFrameNanos { }
+        withFrameNanos { }
+        cancelFocus.requestFocus()
+    }
     HbDialog(
         title,
         onDismissRequest = { onIntent(EngineManagementIntent.DismissEngineAction) },
@@ -443,6 +495,7 @@ internal fun EngineActionDialog(
             HbButton(
                 stringResource(Res.string.control_cancel),
                 { onIntent(EngineManagementIntent.DismissEngineAction) },
+                Modifier.testTag("engine-action-cancel").focusRequester(cancelFocus),
                 style = HbButtonStyle.Ghost,
             )
             HbButton(
@@ -450,11 +503,14 @@ internal fun EngineActionDialog(
                 { onIntent(EngineManagementIntent.ConfirmEngineAction) },
                 Modifier.testTag("engine-action-confirm"),
                 style = if (action == EngineActionUi.Update) HbButtonStyle.Primary else HbButtonStyle.Danger,
-                enabled = isEnabled,
+                enabled = isEnabled && (action != EngineActionUi.Uninstall || panel.isUninstallAllowed),
             )
         },
     ) {
         HbText(body, color = HbTheme.colors.textSecondary)
+        if (action == EngineActionUi.Uninstall && !panel.isUninstallAllowed) {
+            HbBanner(stringResource(Res.string.engine_uninstall_blocked), tone = HbTone.Warning)
+        }
     }
 }
 

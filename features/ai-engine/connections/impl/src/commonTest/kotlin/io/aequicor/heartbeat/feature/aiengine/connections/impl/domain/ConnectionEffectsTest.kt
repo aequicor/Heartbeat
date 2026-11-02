@@ -545,6 +545,60 @@ class ConnectionEffectsTest {
     }
 
     @Test
+    fun `bulk save atomically rebases a removal over a concurrent addition`() = runTest {
+        val binding = EngineBindingId("binding-1")
+        val removed = modelInfo(binding, "gpt-a").target
+        val concurrent = modelInfo(binding, "gpt-c").target
+        selections.update { it.withDefault(removed) }
+        val operation = ConnectionOperation.SetModelsEnabled(
+            binding,
+            emptySet(),
+            previous = setOf(removed.model),
+        )
+        selections.update { it.withDefault(concurrent) }
+
+        settings.handle(EngineConnectionsEffect.Execute(operation), settingsScope)
+
+        assertEquals(setOf(concurrent.model), selections.state.value.enabled(binding))
+        assertEquals(concurrent, selections.state.value.defaultTarget)
+    }
+
+    @Test
+    fun `bulk save atomically rebases a newly selected model over concurrent changes`() = runTest {
+        val binding = EngineBindingId("binding-1")
+        val previous = modelInfo(binding, "gpt-a").target
+        val selected = modelInfo(binding, "gpt-b").target
+        val concurrent = modelInfo(binding, "gpt-c").target
+        selections.update { it.withModel(previous, true) }
+        val operation = ConnectionOperation.SetModelsEnabled(
+            binding,
+            setOf(selected.model),
+            previous = setOf(previous.model),
+        )
+        selections.update { it.withModel(concurrent, true) }
+
+        settings.handle(EngineConnectionsEffect.Execute(operation), settingsScope)
+
+        assertEquals(setOf(selected.model, concurrent.model), selections.state.value.enabled(binding))
+    }
+
+    @Test
+    fun `bulk save without a baseline keeps replacement semantics`() = runTest {
+        val binding = EngineBindingId("binding-1")
+        val previous = modelInfo(binding, "gpt-a").target
+        val concurrent = modelInfo(binding, "gpt-c").target
+        val selected = ModelId("gpt-b")
+        selections.update { it.withModel(previous, true).withModel(concurrent, true) }
+
+        settings.handle(
+            EngineConnectionsEffect.Execute(ConnectionOperation.SetModelsEnabled(binding, setOf(selected))),
+            settingsScope,
+        )
+
+        assertEquals(setOf(selected), selections.state.value.enabled(binding))
+    }
+
+    @Test
     fun `model operations update the selection`() = runTest {
         val target = modelInfo(EngineBindingId("binding-1"), "gpt-a").target
         settings.handle(EngineConnectionsEffect.Execute(ConnectionOperation.SetDefaultModel(target)), settingsScope)

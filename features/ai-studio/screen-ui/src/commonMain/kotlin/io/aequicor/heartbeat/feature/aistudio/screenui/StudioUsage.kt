@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbButton
@@ -20,13 +21,15 @@ import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_all_models
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_chip_hours
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_chip_month
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_chip_week
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compact
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compacting
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context_unavailable
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_credits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_expires
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_last_measurement
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limit_unknown
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_percent
@@ -40,6 +43,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens_unknow
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_unlimited
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_window_hours
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_window_minutes
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_window_month
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_window_week
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
@@ -54,7 +58,8 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent a
 internal fun StudioUsage(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     val context = content.contextUsage
     val provider = content.providerUsage?.takeIf { it.isVisible }
-    if (context == null && content.providerUsage == null) return
+    if (context == null && content.providerUsage == null && !content.isCompacting) return
+    val window = provider?.indicatorWindow()
     val modelId = content.settings.modelId
     var isOpen by remember(content.pane.id, content.pane.sessionId, modelId) { mutableStateOf(false) }
     val title = stringResource(Res.string.usage_title)
@@ -64,7 +69,15 @@ internal fun StudioUsage(content: PaneContent, onIntent: (StudioIntent) -> Unit)
         percent == null -> stringResource(Res.string.usage_tokens_unknown_limit, context.usedTokens.toString())
         else -> "$title: ${stringResource(Res.string.usage_percent, percent)}"
     }
-    val accessible = if (content.isCompacting) "$detail · ${stringResource(Res.string.usage_compacting)}" else detail
+    val quotaDetail = window?.let {
+        "${windowTitle(it)}: ${stringResource(Res.string.usage_percent, it.percent)}"
+    }
+    val combinedDetail = listOfNotNull(detail, quotaDetail).joinToString(" · ")
+    val accessible = if (content.isCompacting) {
+        "$combinedDetail · ${stringResource(Res.string.usage_compacting)}"
+    } else {
+        combinedDetail
+    }
     HbComposerUsageButton(
         contextPercent = context?.percent,
         label = stringResource(
@@ -78,6 +91,8 @@ internal fun StudioUsage(content: PaneContent, onIntent: (StudioIntent) -> Unit)
         modifier = Modifier.testTag("usage-${content.pane.id}"),
         accessibleLabel = accessible,
         isCompacting = content.isCompacting,
+        quotaPercent = window?.percent,
+        quotaLabel = window?.let { windowChip(it) },
     ) {
         UsageDetails(content, context, provider) {
             isOpen = false
@@ -94,6 +109,8 @@ private fun UsageDetails(
     onCompact: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(HbTheme.spacing.l)) {
+        HbText(stringResource(Res.string.usage_title), style = HbTheme.typography.title)
+        HbDivider()
         if (context != null) {
             ContextDetails(context)
         } else {
@@ -122,11 +139,12 @@ private fun CompactButton(content: PaneContent, onClick: () -> Unit) {
 @Composable
 private fun ContextDetails(usage: ContextUsageUi) {
     val percent = usage.percent
-    UsageRow(
-        stringResource(Res.string.usage_context),
+    SecondaryText(stringResource(Res.string.usage_context))
+    HbText(
         percent?.let { "$it%" } ?: stringResource(Res.string.usage_limit_unknown),
+        style = HbTheme.typography.display,
+        color = HbTheme.colors.usageColor(percent),
     )
-    if (percent != null) UsageProgress(percent)
     val capacity = usage.capacityTokens
     val tokens = if (capacity == null) {
         stringResource(Res.string.usage_tokens_unknown_limit, usage.usedTokens.toString())
@@ -134,7 +152,7 @@ private fun ContextDetails(usage: ContextUsageUi) {
         stringResource(Res.string.usage_tokens, usage.usedTokens.toString(), capacity.toString())
     }
     SecondaryText(tokens)
-    SecondaryText(stringResource(Res.string.usage_last_measurement))
+    if (percent != null) UsageProgress(percent)
 }
 
 @Composable
@@ -142,7 +160,7 @@ private fun ProviderDetails(usage: ProviderUsageUi, calendar: StudioCalendar) {
     HbText(listOfNotNull(stringResource(Res.string.usage_limits), usage.planName).joinToString(" · "))
     usage.windows.forEach { window ->
         Column(verticalArrangement = Arrangement.spacedBy(HbTheme.spacing.xs)) {
-            UsageRow(windowTitle(window), "${window.percent}%")
+            UsageRow(windowTitle(window), "${window.percent}%", window.percent)
             UsageProgress(window.percent)
             window.resetsAt?.let { SecondaryText(stringResource(Res.string.usage_resets, calendar.usageDate(it))) }
         }
@@ -167,6 +185,8 @@ private fun windowTitle(window: UsageWindowUi): String {
     }
     val minutes = window.windowDurationMinutes
     val duration = when {
+        minutes == MINUTES_PER_MONTH -> stringResource(Res.string.usage_window_month)
+
         minutes == MINUTES_PER_WEEK -> stringResource(Res.string.usage_window_week)
 
         minutes != null && minutes > 0 && minutes % MINUTES_PER_HOUR == 0L ->
@@ -177,6 +197,22 @@ private fun windowTitle(window: UsageWindowUi): String {
         else -> null
     }
     return listOfNotNull(duration, scope).joinToString(" · ")
+}
+
+/** The chip uses a localized period only; unknown durations never masquerade as a five-hour limit. */
+@Composable
+private fun windowChip(window: UsageWindowUi): String {
+    val minutes = window.chipPeriodMinutes()
+    return when {
+        minutes == MINUTES_PER_WEEK -> stringResource(Res.string.usage_chip_week)
+
+        minutes == MINUTES_PER_MONTH -> stringResource(Res.string.usage_chip_month)
+
+        minutes != null && minutes > 0 && minutes % MINUTES_PER_HOUR == 0L ->
+            stringResource(Res.string.usage_chip_hours, minutes / MINUTES_PER_HOUR)
+
+        else -> "—"
+    }
 }
 
 @Composable
@@ -191,15 +227,22 @@ private fun CreditsDetails(credits: UsageCreditsUi, calendar: StudioCalendar) {
             stringResource(Res.string.usage_remaining, remaining)
         }
     }
-    UsageRow(stringResource(Res.string.usage_credits), label)
+    SecondaryText(stringResource(Res.string.usage_credits))
+    val percent = credits.consumedPercent()
+    UsageRow(label, percent?.let { "$it%" }.orEmpty(), percent)
+    if (percent != null) UsageProgress(percent)
     credits.expiresAt?.let { SecondaryText(stringResource(Res.string.usage_expires, calendar.usageDate(it))) }
 }
 
 @Composable
-private fun UsageRow(title: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(HbTheme.spacing.m)) {
+private fun UsageRow(title: String, value: String, percent: Int? = null) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(HbTheme.spacing.m),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         HbText(title, modifier = Modifier.weight(1f), maxLines = 1)
-        HbText(value, color = HbTheme.colors.textSecondary)
+        HbText(value, color = HbTheme.colors.usageColor(percent))
     }
 }
 
@@ -208,11 +251,7 @@ private fun UsageProgress(percent: Int) {
     HbProgressBar(
         progress = percent / PERCENT_MAX,
         contentDescription = stringResource(Res.string.usage_percent, percent),
-        color = when {
-            percent >= CRITICAL_PERCENT -> HbTheme.colors.error
-            percent >= WARNING_PERCENT -> HbTheme.colors.warning
-            else -> HbTheme.colors.brand
-        },
+        color = HbTheme.colors.usageColor(percent),
     )
 }
 
@@ -229,8 +268,3 @@ private fun creditAmount(value: Double?, currency: String?): String {
 }
 
 private const val PERCENT_MAX = 100f
-private const val WARNING_PERCENT = 80
-private const val CRITICAL_PERCENT = 100
-
-private const val MINUTES_PER_HOUR = 60L
-private const val MINUTES_PER_WEEK = 10080L

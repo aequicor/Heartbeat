@@ -5,7 +5,7 @@ sealed interface ProjectIntent : EngineControlPanelIntent {
     /** Reads the files of the saved project [project] and shows them. */
     data class Open(val project: String) : ProjectIntent
 
-    /** Returns to the panel overview, dropping unsaved changes of the project. */
+    /** Returns to the selected engine tab, dropping unsaved changes of the project. */
     data object Close : ProjectIntent
 
     /** Shows the project file [file] as a whole. */

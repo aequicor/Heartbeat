@@ -1,0 +1,1 @@
+В PowerShell передавай rg существующий каталог и маску через -g (например, rg -n 'pattern' path/to/dir -g 'EngineConfig*.kt'). Не передавай путь с * как позиционный аргумент: PowerShell не раскрывает такую маску для rg, и Windows возвращает os error 123.

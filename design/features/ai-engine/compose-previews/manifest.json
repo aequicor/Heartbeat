@@ -1,0 +1,53 @@
+{
+  "source": "EngineBrowserUiTest",
+  "images": [
+    {
+      "file": "browser-light.png",
+      "width": 1016,
+      "height": 800,
+      "sha256": "d97be5cd2dccd4b8faa0d55395e9308c8334b675ed092bbfd332cbad434630cc"
+    },
+    {
+      "file": "browser-dark.png",
+      "width": 1016,
+      "height": 800,
+      "sha256": "6a3daec99213a164523941638d7c1bc884008c89498ee1710592da51fc4aed9a"
+    },
+    {
+      "file": "disabled-light.png",
+      "width": 1016,
+      "height": 800,
+      "sha256": "4eaf8221fa8a7138286850c2552662c60e3bba6e09c7df3ea0d2860f04e6fd2c"
+    },
+    {
+      "file": "disabled-dark.png",
+      "width": 1016,
+      "height": 800,
+      "sha256": "a00bdf229395f07e3504caa8fbcb71b9a8a9cb042935021dc6dcdd24ad96974a"
+    },
+    {
+      "file": "settings-light.png",
+      "width": 1016,
+      "height": 800,
+      "sha256": "42b263083fc714cd867970a068121bf0a680f3c5b6c7b075695287162b7ce0dc"
+    },
+    {
+      "file": "settings-dark.png",
+      "width": 1016,
+      "height": 800,
+      "sha256": "56f44c0dc4a4d567fbdeed7e36a3460d5c6840e86757e846f0ef12594295ca11"
+    },
+    {
+      "file": "removal-light.png",
+      "width": 1016,
+      "height": 800,
+      "sha256": "ad5c99356fbf968e217d597e3920e752cb67dc671574f5c8618396b09c824de1"
+    },
+    {
+      "file": "removal-dark.png",
+      "width": 1016,
+      "height": 800,
+      "sha256": "60cc5cb75b8df207329e2319f356b342b413b7d5834ba0083fe0109db3c963bf"
+    }
+  ]
+}

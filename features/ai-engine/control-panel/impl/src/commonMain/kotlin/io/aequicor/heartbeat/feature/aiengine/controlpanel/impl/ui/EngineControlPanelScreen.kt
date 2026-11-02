@@ -8,6 +8,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
@@ -18,12 +19,14 @@ import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
+import io.aequicor.heartbeat.ds.components.HbNavigationItem
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.components.rememberHbBusyReveal
 import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigFormUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigIntent
@@ -31,13 +34,13 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelModel
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EnginePanelTabUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.fileOf
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.filePage
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_unsaved
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_dismiss
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_engine_builtin
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_body
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_discard
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_stay
@@ -48,8 +51,10 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.contro
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_files_description
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_missing
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_no_settings
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_overview
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_settings
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_settings_description
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_tab_settings
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
@@ -72,8 +77,8 @@ internal fun EngineControlPanelScreen(
 }
 
 /**
- * One engine: its management block, then the pages of its configuration. An open page, file or project replaces the
- * overview; back (the header, Esc, the system) returns to it and then leaves the panel, asking about unsaved changes.
+ * One engine: management in the overview and declared configuration in settings. An open page, file or saved project
+ * replaces the tabs; back returns to them and then leaves the panel, asking about unsaved changes.
  */
 @Composable
 internal fun EngineControlPanelContent(
@@ -82,8 +87,9 @@ internal fun EngineControlPanelContent(
     modifier: Modifier = Modifier,
     isEmbedded: Boolean = false,
 ) {
-    // The overview keeps its place while a page, a file or a project is open.
+    // The tab column keeps its place while a page, a file or a saved project is open; drafts stay in the store.
     val overview = rememberScrollState()
+    val isSavingVisible = rememberHbBusyReveal(state.isBusy)
     if (state.isLeaving) LeaveDialog(onIntent)
     if (state.openProject != null) {
         ProjectScreen(state, onIntent, modifier)
@@ -96,45 +102,92 @@ internal fun EngineControlPanelContent(
         return
     }
     val back = { onIntent(EngineControlPanelIntent.Back) }
-    val engineTitle = if (state.panel?.isBuiltIn == true) {
-        stringResource(Res.string.control_engine_builtin)
-    } else {
-        state.title.ifEmpty { state.engine }
-    }
+    val engineTitle = state.title.ifEmpty { state.engine }
     ControlColumn(
-        engineTitle.takeUnless { isEmbedded },
+        engineTitle,
         back.takeUnless { isEmbedded },
         modifier.testTag("engine-control-panel"),
         overview,
+        headerActions = state.panel?.let { panel ->
+            {
+                EngineSwitchHeader(
+                    panel,
+                    isIdle = !state.isBusy && panel.job?.isRunning != true,
+                    onIntent = { onIntent(it) },
+                    isVisuallyIdle = !isSavingVisible && panel.job?.isRunning != true,
+                )
+            }
+        },
     ) {
-        if (isEmbedded) {
-            io.aequicor.heartbeat.ds.components.HbText(
-                engineTitle,
-                style = io.aequicor.heartbeat.ds.theme.HbTheme.typography.title,
-            )
-        }
         when {
             state.hasLoadFailure -> LoadFailure({ onIntent(EngineControlPanelIntent.RetryLoad) })
+
             state.isLoading -> HbLoadingState(stringResource(Res.string.control_loading))
+
             state.isMissing -> HbEmptyState(stringResource(Res.string.control_panel_missing))
-            else -> Overview(state, onIntent)
+
+            else -> {
+                PanelTabs(state.openTab, onIntent)
+                when (state.openTab) {
+                    EnginePanelTabUi.Overview -> Overview(state, onIntent, isSavingVisible)
+                    EnginePanelTabUi.Settings -> SettingsContent(state, onIntent)
+                }
+            }
         }
     }
     OverviewDialogs(state, onIntent)
 }
 
-/** The management block, the configuration pages and files, the projects and the import of the engine. */
 @Composable
-private fun Overview(state: EngineControlPanelState, onIntent: (EngineControlPanelIntent) -> Unit) {
-    // Input follows the actual write immediately; only its visual feedback waits to avoid a brief flash.
-    val isSavingVisible = rememberHbBusyReveal(state.isBusy)
+private fun PanelTabs(selected: EnginePanelTabUi, onIntent: (EngineControlPanelIntent) -> Unit) {
+    HbRow(Modifier.fillMaxWidth().testTag("engine-panel-tabs"), gap = HbTheme.spacing.xs) {
+        EnginePanelTabUi.entries.forEach { tab ->
+            val label = stringResource(
+                when (tab) {
+                    EnginePanelTabUi.Overview -> Res.string.control_panel_overview
+                    EnginePanelTabUi.Settings -> Res.string.control_panel_tab_settings
+                },
+            )
+            HbNavigationItem(
+                label,
+                { onIntent(EngineControlPanelIntent.SelectTab(tab)) },
+                Modifier.weight(1f).testTag(
+                    when (tab) {
+                        EnginePanelTabUi.Overview -> "engine-tab-overview"
+                        EnginePanelTabUi.Settings -> "engine-tab-settings"
+                    },
+                ),
+                icon = HbIcons.ChevronRight,
+                isSelected = tab == selected,
+                role = Role.Tab,
+                minHeight = HbTheme.dimensions.navigationRowHeight,
+                selectedBackground = HbTheme.surfaces.selected,
+                selectedForeground = HbTheme.surfaces.onSelected,
+                contentColor = HbTheme.colors.textPrimary,
+            )
+        }
+    }
+}
+
+/** The management block and its honest runtime state. */
+@Composable
+private fun Overview(
+    state: EngineControlPanelState,
+    onIntent: (EngineControlPanelIntent) -> Unit,
+    isSavingVisible: Boolean,
+) {
     state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
     state.panel?.let {
         EngineManagementSection(it, state.loginCode, state.isBusy, onIntent, isSavingVisible = isSavingVisible)
     }
+}
+
+/** Dynamic ConfigPage widgets, whole files and import declared by this engine's capabilities. */
+@Composable
+private fun SettingsContent(state: EngineControlPanelState, onIntent: (EngineControlPanelIntent) -> Unit) {
+    state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
     SettingsPages(state, onIntent)
     state.config?.takeIf { it.files.isNotEmpty() }?.let { ConfigFiles(it, onIntent) }
-    if (state.projects.isNotEmpty()) ProjectsSection(state.projects, !state.isBusy, onIntent)
     if (state.isImportable) ImportSection(isEnabled = !state.isBusy, onIntent)
 }
 
@@ -148,7 +201,7 @@ private fun OverviewDialogs(state: EngineControlPanelState, onIntent: (EngineCon
     state.importReport?.let { ImportReportDialog(it, onIntent) }
 }
 
-/** An open configuration page or file editor in place of the overview; back returns to the overview. */
+/** An open configuration page or file editor in place of the settings tab; back returns to settings. */
 @Composable
 private fun ConfigScreen(
     state: EngineControlPanelState,

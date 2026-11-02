@@ -10,9 +10,11 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsS
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -42,6 +44,72 @@ class EngineConnectionsModelTest {
         assertEquals(EngineConnectionsIntent.Public.Start, machine.sent.first())
         assertEquals(KoogId.value, screen.states.value.selectedEngine)
         assertEquals(binding.id.value, screen.states.value.selectedConnection)
+    }
+
+    @Test
+    fun `model checkboxes edit a draft and save sends one rebased replacement`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(settingsSnapshot())
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true))
+        runCurrent()
+        assertTrue(machine.sent.none { it is EngineConnectionsIntent.Public.Apply })
+        assertEquals<Set<String>?>(setOf("llama", "qwen"), screen.states.value.modelDraft)
+        model.store.intent(EngineConnectionsScreenIntent.SaveModels)
+        runCurrent()
+        val apply = machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Apply>().single()
+        assertEquals(
+            ConnectionOperation.SetModelsEnabled(
+                EngineBindingId("home"),
+                setOf(ModelId("llama"), ModelId("qwen")),
+                previous = setOf(ModelId("llama")),
+            ),
+            apply.operation,
+        )
+    }
+
+    @Test
+    fun `editing one connection never saves its draft to another`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(settingsSnapshot())
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true))
+        runCurrent()
+        assertEquals("home", screen.states.value.modelDraftBinding)
+
+        model.store.intent(EngineConnectionsScreenIntent.SelectConnection("work"))
+        runCurrent()
+        assertEquals(null, screen.states.value.modelDraft)
+        assertEquals(null, screen.states.value.modelDraftBaseline)
+        assertEquals(false, screen.states.value.isModelSavePending)
+
+        model.store.intent(EngineConnectionsScreenIntent.SaveModels)
+        runCurrent()
+        assertTrue(machine.sent.none { it is EngineConnectionsIntent.Public.Apply })
+    }
+
+    @Test
+    fun `delayed save after the draft is observed as saved sends no replacement`() = runTest {
+        val initial = settingsSnapshot()
+        machine.state.value = EngineConnectionsState.Active(initial)
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true))
+        runCurrent()
+        model.store.intent(EngineConnectionsScreenIntent.SaveModels)
+        runCurrent()
+        val sent = machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Apply>().single()
+        val target = modelInfo(EngineBindingId("home"), "qwen").target
+        machine.state.value = EngineConnectionsState.Active(
+            initial.copy(selection = initial.selection.withModel(target, true)),
+        )
+        runCurrent()
+        assertEquals(null, screen.states.value.modelDraft)
+
+        model.store.intent(EngineConnectionsScreenIntent.SaveModels)
+        runCurrent()
+
+        assertEquals(listOf(sent), machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Apply>())
     }
 
     @Test

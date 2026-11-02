@@ -32,7 +32,10 @@ public data class ModelSelection(
     /** Whether [target] is offered to model pickers. */
     public fun isEnabled(target: EngineTarget): Boolean = target.model in enabled(target.binding)
 
-    /** Replaces the models of [binding]; a default that is no longer enabled is cleared. */
+    /**
+     * Replaces the models of [binding] without rebasing concurrent edits. A default that is no longer enabled is
+     * cleared; a default of another binding is kept, and no replacement default is chosen implicitly.
+     */
     public fun withEnabled(binding: EngineBindingId, models: Set<ModelId>): ModelSelection {
         val rest = bindings.filterNot { it.binding == binding }
         val updated = if (models.isEmpty()) rest else rest + BindingModels(binding, models)

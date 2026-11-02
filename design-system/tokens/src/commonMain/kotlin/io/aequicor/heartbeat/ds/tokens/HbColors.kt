@@ -30,6 +30,27 @@ data class HbColors(
 ) {
     /** Red error text and icons on neutral surfaces and inputs, with AA text contrast in every host preset. */
     val errorForeground: Color = if (isDark) Color(0xFFFFB4AB) else Color(0xFF9C2733)
+
+    /** Context and quota consumption below 60%; also readable as text on neutral surfaces. */
+    val usageLow: Color = if (isDark) Color(0xFF69D9B0) else Color(0xFF076B4C)
+
+    /** Early consumption warning from 60% through 79%. */
+    val usageWarning: Color = if (isDark) Color(0xFFFFCD70) else Color(0xFF925400)
+
+    /** High consumption from 80% through 89%, before the critical band. */
+    val usageHigh: Color = if (isDark) Color(0xFFFFBEA6) else Color(0xFFAC3D22)
+
+    /** Critical consumption from 90%, including a completely exhausted limit. */
+    val usageCritical: Color = if (isDark) Color(0xFFFFB5BE) else Color(0xFFB32135)
+
+    /** Independent occupancy scales share the same bands; null is unknown, never zero. */
+    fun usageColor(percent: Int?): Color = when {
+        percent == null -> textSecondary
+        percent >= 90 -> usageCritical
+        percent >= 80 -> usageHigh
+        percent >= 60 -> usageWarning
+        else -> usageLow
+    }
     val textSecondary: Color = textPrimary.copy(alpha = 0.72f).compositeOver(surface)
 
     /** Text of an interactive link in reading content; underlined as well, so color is never the only cue. */

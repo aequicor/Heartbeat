@@ -6,7 +6,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbEmptyState
@@ -24,14 +23,11 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlListState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineItemUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_configurable
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_list_description
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_list_empty
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_list_engines
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_loading
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_off
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_version
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_version_unknown
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
@@ -92,12 +88,9 @@ private fun EngineRow(engine: EngineItemUi, onClick: () -> Unit, modifier: Modif
     HbSettingsRow(
         engine.title,
         modifier.testTag("engine-control:${engine.id}"),
-        description = engine.version?.let { stringResource(Res.string.control_version, it) }
-            ?: stringResource(Res.string.control_version_unknown),
         onClick = onClick,
     ) {
-        if (engine.isConfigurable) HbBadge(stringResource(Res.string.control_configurable), tone = HbTone.Brand)
-        StatusBadge(engine.status)
+        EngineConnectionStatus(engine.status, engine.id)
         HbIcon(HbIcons.ChevronRight, contentDescription = null)
     }
 }

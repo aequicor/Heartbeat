@@ -178,7 +178,6 @@
     <string name="usage_unlimited">Без ограничений</string>
     <string name="usage_expires">Действуют до %1$s</string>
     <string name="usage_stale">Обновлено %1$s · данные могли устареть</string>
-    <string name="usage_last_measurement">Последнее подтверждённое измерение; без неотправленного черновика</string>
     <string name="usage_window_week">За неделю</string>
     <string name="usage_window_hours">Лимит на %1$d ч</string>
     <string name="usage_window_minutes">Лимит на %1$d мин</string>
@@ -405,4 +404,8 @@
     <string name="file_preview_unavailable_hint">Возможно, он перемещён, удалён или недоступен для чтения.</string>
     <string name="file_preview_binary">Это не текстовый файл</string>
     <string name="file_preview_too_large">Файл больше 1 МБ</string>
+    <string name="usage_chip_hours">%1$dч</string>
+    <string name="usage_chip_week">Нед.</string>
+    <string name="usage_chip_month">Мес</string>
+    <string name="usage_window_month">За месяц</string>
 </resources>

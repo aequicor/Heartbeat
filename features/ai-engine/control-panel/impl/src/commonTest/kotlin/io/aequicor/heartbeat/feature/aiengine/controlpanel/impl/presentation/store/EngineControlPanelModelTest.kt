@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimeSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -138,6 +139,7 @@ class EngineControlPanelModelTest {
 
     @Test
     fun `an uninstall waits for confirmation and a dismissed one is forgotten`() = runTest {
+        machine.state.value = managedSnapshot(managedCodexWithCopy())
         val model = model()
         val screen = subscribe(model.store)
         model.store.intent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Uninstall))
@@ -156,6 +158,26 @@ class EngineControlPanelModelTest {
             machine.sent.filterIsInstance<EngineControlIntent.Public.Apply>(),
         )
         assertEquals(null, screen.states.value.confirmAction)
+    }
+
+    @Test
+    fun `a stale uninstall confirmation does not interrupt an active turn`() = runTest {
+        machine.state.value = managedSnapshot(managedCodexWithCopy())
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Uninstall))
+        runCurrent()
+        assertEquals(EngineActionUi.Uninstall, screen.states.value.confirmAction)
+
+        machine.state.value = managedSnapshot(
+            managedCodexWithCopy().copy(runtime = RuntimeSummary(activeTurns = 1)),
+        )
+        runCurrent()
+        model.store.intent(EngineManagementIntent.ConfirmEngineAction)
+        runCurrent()
+
+        assertTrue(machine.sent.none { it is EngineControlIntent.Public.Apply })
+        assertEquals(EngineActionUi.Uninstall, screen.states.value.confirmAction)
     }
 
     @Test
@@ -186,6 +208,27 @@ class EngineControlPanelModelTest {
         model.store.intent(ConfigIntent.ClosePage)
         runCurrent()
         assertEquals(null, screen.states.value.openPage)
+    }
+
+    @Test
+    fun `settings tabs retain drafts and page back returns to settings`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Settings))
+        model.store.intent(ConfigIntent.EditField("retries", FieldInputUi.Number("3")))
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Overview))
+        runCurrent()
+        assertEquals(EnginePanelTabUi.Overview, screen.states.value.openTab)
+        assertEquals(true, screen.states.value.config?.isDirty)
+
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Settings))
+        model.store.intent(ConfigIntent.OpenPage("network"))
+        model.store.intent(EngineControlPanelIntent.Back)
+        runCurrent()
+        assertEquals(EnginePanelTabUi.Settings, screen.states.value.openTab)
+        assertEquals(null, screen.states.value.openPage)
+        assertEquals(true, screen.states.value.config?.isDirty)
     }
 
     @Test

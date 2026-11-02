@@ -124,12 +124,21 @@ data class HbDimensions(
     val composerMenuMaxWidth: Dp = 360.dp,
     val composerMenuGutter: Dp = 16.dp,
     val composerMenuOffset: Dp = 8.dp,
-    /** Minimum width of the context meter; leaves room for three-digit percentages. */
-    val composerUsageMinWidth: Dp = 44.dp,
+    /** Host-sized context and quota pill, including three-digit percentages; dense desktop uses 80dp. */
+    val composerUsageMinWidth: Dp = 96.dp,
+    /** Visual height; touch hosts retain their larger minimum hit target around the pill. */
+    val composerUsageHeight: Dp = 44.dp,
+    /** Height of the quota period chip overlapping the top edge by half its height. */
+    val usageQuotaChipHeight: Dp = 18.dp,
+    /** Stroke of the quota consumption path around the pill. */
+    val usageQuotaStrokeWidth: Dp = 2.5.dp,
+    /** Preferred width and bounded height of the upward-opening usage disclosure. */
+    val composerUsagePopupWidth: Dp = 420.dp,
+    val composerUsagePopupMaxHeight: Dp = 560.dp,
     /** Stroke of the context ring in the composer meter. */
-    val usageRingStrokeWidth: Dp = 2.dp,
+    val usageRingStrokeWidth: Dp = 3.dp,
     /** Diameter of the context ring next to the percentage in the composer meter. */
-    val usageRingSize: Dp = 14.dp,
+    val usageRingSize: Dp = 24.dp,
     /** Height of determinate usage bars in detail panels. */
     val usageBarHeight: Dp = 4.dp,
     /** Amber attention strip above a newly presented questionnaire. */
@@ -267,6 +276,10 @@ data class HbDimensions(
             toolPadding = 8.dp,
             composerActionSize = 32.dp,
             composerPillHeight = 32.dp,
+            composerUsageMinWidth = 80.dp,
+            composerUsageHeight = 32.dp,
+            usageRingSize = 18.dp,
+            usageRingStrokeWidth = 2.dp,
             navigationRowHeight = 28.dp,
             titlebarInset = 0.dp,
             editorMaxHeight = 168.dp,

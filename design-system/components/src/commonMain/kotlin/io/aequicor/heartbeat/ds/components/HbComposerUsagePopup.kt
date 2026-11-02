@@ -43,8 +43,8 @@ internal fun ComposerUsagePopup(
     val availableWidth = with(density) { window.width.toDp() } - gutter * 2
     val availableHeight = with(density) { (anchor?.top ?: window.height).toDp() } -
         gutter - dimensions.composerMenuOffset
-    val width = minOf(dimensions.composerMenuMaxWidth, availableWidth.coerceAtLeast(dimensions.touchTarget))
-    val height = minOf(dimensions.composerMenuMaxHeight, availableHeight.coerceAtLeast(dimensions.touchTarget))
+    val width = minOf(dimensions.composerUsagePopupWidth, availableWidth.coerceAtLeast(dimensions.touchTarget))
+    val height = minOf(dimensions.composerUsagePopupMaxHeight, availableHeight.coerceAtLeast(dimensions.touchTarget))
     val position = with(density) {
         remember(anchor, gutter, dimensions.composerMenuOffset, this) {
             ComposerPopupPosition(anchor, gutter.roundToPx(), dimensions.composerMenuOffset.roundToPx())

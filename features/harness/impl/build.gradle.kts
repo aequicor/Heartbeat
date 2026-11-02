@@ -68,7 +68,8 @@ tasks.withType<Test>().configureEach {
     maxHeapSize = "2g"
 }
 
-// The repository-owned harness is compiled and executed by LifecycleBoardTest.
+// Repository-owned harness sources are compiled and exercised by JVM regression tests.
 tasks.named<Test>("jvmTest") {
     inputs.dir(rootProject.layout.projectDirectory.dir(".heartbeat/harnesses/product_lifecycle"))
+    inputs.dir(rootProject.layout.projectDirectory.dir(".heartbeat/harnesses/issue_e2e_closer"))
 }

@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import kotlinx.collections.immutable.persistentListOf
@@ -74,6 +75,16 @@ internal fun managedCodex(
     installation = installation,
     login = login,
     job = job,
+)
+
+/** Codex with an actual Heartbeat-managed copy that can be uninstalled. */
+internal fun managedCodexWithCopy(enablement: EngineEnablement = EngineEnablement()) = managedCodex(
+    enablement = enablement,
+    installation = InstallationState(
+        current = Installation(InstallSource.Managed, "0.1.0"),
+        managed = ManagedInstall("0.1.0", "/managed/codex", Instant.fromEpochSeconds(1)),
+        compatibility = Compatibility.Verified,
+    ),
 )
 
 /** The panel machine observing engine management with [codex] (configuration off). */
@@ -233,7 +244,8 @@ class EngineManagementPresentationTest {
 
     @Test
     fun `engine requests become management commands and risky ones ask first`() {
-        val panel = selected(managedCodex(installation = InstallationState(latest = "0.2.0")))
+        val engine = managedCodexWithCopy()
+        val panel = selected(engine.copy(installation = engine.installation.copy(latest = "0.2.0")))
 
         assertEquals(
             EngineCommand.Start(EngineAction.Login(LoginMethod.DeviceCode)),
@@ -258,6 +270,12 @@ class EngineManagementPresentationTest {
         assertTrue(panel.needsConfirmation(EngineActionUi.SyncPackages))
         assertFalse(panel.needsConfirmation(EngineActionUi.UpdatePackages))
         assertFalse(panel.needsConfirmation(EngineActionUi.Update))
+        val activeTurn = panel.copy(
+            panel = panel.panel!!.copy(runtime = RuntimeUi(activeTurns = 1)),
+            confirmAction = EngineActionUi.Uninstall,
+        )
+        assertFalse(activeTurn.needsConfirmation(EngineActionUi.Uninstall))
+        assertNull(activeTurn.commandFor(EngineManagementIntent.ConfirmEngineAction))
         val bundled = panel.copy(panel = panel.panel!!.copy(installation = InstallationUi(InstallSupportUi.Bundled)))
         assertTrue(bundled.needsConfirmation(EngineActionUi.Update))
     }
