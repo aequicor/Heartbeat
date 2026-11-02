@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.isVisibleTo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigSchema
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -86,6 +87,23 @@ public class EngineRegistration(
 
 /** Adapter factory. Facade applies ownership/toggle gates before delegating. No method silently changes sources. */
 public interface EngineFactory {
+    /**
+     * Researched launch policy of this connector build. Static and IO-free; null means unestablished policy,
+     * never legacy version approval. The facade assesses candidate evidence against this policy itself.
+     */
+    public val runtimeRequirements: EngineCompatibilityRequirements? get() = null
+
+    /**
+     * Acquires only a restricted candidate for the exact [request]. No ordinary runtime preparation, real
+     * credentials or user/project configuration may be accessed here. The same absolute [deadline] also covers
+     * promotion; cancellation must propagate and release resources acquired before the candidate is returned.
+     * Null refuses admission without falling back to [prepareRuntime] or [createRuntime].
+     */
+    public suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? = null
+
     /** Current first-use preparation, emitted immediately; observing never starts preparation or a process. */
     public val preparation: Flow<EnginePreparation> get() = flowOf(EnginePreparation.Ready)
 
