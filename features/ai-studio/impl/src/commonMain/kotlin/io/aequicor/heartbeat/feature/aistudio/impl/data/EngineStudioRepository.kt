@@ -174,6 +174,8 @@ internal data class StudioChatRecord(
     val identityIssue: String? = null,
     /** Durable creator request and original source for idempotent subsession creation. */
     val subsessionCreation: JsonElement? = null,
+    /** Permanent instance retirement is separate from the terminal evidence of its native attempts. */
+    val executor: StudioExecutorState? = null,
 ) {
     /** Whether [session] is this chat's current or an earlier native session. */
     fun owns(session: SessionRef): Boolean = ref == session || session in previousRefs
@@ -218,6 +220,7 @@ internal class EngineStudioRepository(
     private val recoveryOpening: StudioRecoveryOpening,
     override val recoveryJournal: StudioRecoveryJournal,
     private val conversationStops: StudioConversationStops,
+    private val executorLifecycle: StudioExecutorLifecycle,
     private val chatRecords: StudioChatRecords,
     private val humanQueue: StudioHumanQueueCommands,
     private val harnesses: StudioHarnessAttach,
@@ -772,9 +775,8 @@ internal class EngineStudioRepository(
         if (handles[id] === active) handles.remove(id)
     }
 
-    override suspend fun cancel(sessionId: String) {
+    override suspend fun cancel(sessionId: String) = executorLifecycle.cancel(sessionId, messageQueue::pauseForStop) {
         log.i { "Stop the selected conversation's exact request" }
-        messageQueue.pauseForStop(sessionId)
         if (!conversationStops.cancel(chatRecords.record(sessionId))) cancelNative(sessionId)
     }
 
@@ -995,6 +997,7 @@ internal fun studioCreateRequest(
     workspace: WorkspaceRef?,
     preselected: ToolChoices,
     logicalSession: LogicalSessionContext? = null,
+    execution: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding? = null,
 ): CreateSessionRequest = CreateSessionRequest(
     target,
     workspace,
@@ -1002,6 +1005,7 @@ internal fun studioCreateRequest(
     areSessionHooksEnabled = true,
     preselected = preselected,
     logicalSession = logicalSession,
+    execution = execution,
 )
 
 /** Resuming another segment retains the same Studio ownership contract. */
@@ -1009,12 +1013,14 @@ internal fun studioResumeRequest(
     target: EngineTarget,
     workspace: WorkspaceRef?,
     logicalSession: LogicalSessionContext? = null,
+    execution: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding? = null,
 ): ResumeSessionRequest = ResumeSessionRequest(
     target,
     workspace,
     areDetachedToolsEnabled = true,
     areSessionHooksEnabled = true,
     logicalSession = logicalSession,
+    execution = execution,
 )
 
 private suspend fun LocalWorkspaces.requireExecutionWorkspace(workspace: WorkspaceRef?, isSupported: Boolean) {

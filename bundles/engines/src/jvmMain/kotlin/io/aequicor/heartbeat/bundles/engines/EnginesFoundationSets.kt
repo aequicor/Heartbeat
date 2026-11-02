@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
@@ -107,6 +108,11 @@ internal object EnginesFoundationSets {
     @ElementsIntoSet
     fun foundationOffloads(foundation: FoundationProfileBindings): Set<ToolOutputOffload> =
         foundation.engineSets.toolOutputOffloads
+
+    @Provides
+    @ElementsIntoSet
+    fun foundationExecutionAuthorities(foundation: FoundationProfileBindings): Set<SessionExecutionAuthority> =
+        foundation.engineSets.executionAuthorities
 
     @Provides
     @ElementsIntoSet

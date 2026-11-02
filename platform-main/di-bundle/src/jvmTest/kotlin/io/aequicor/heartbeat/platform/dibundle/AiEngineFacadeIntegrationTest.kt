@@ -72,6 +72,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionControl
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionInstance
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOrigin
@@ -90,6 +93,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -101,6 +107,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import org.junit.Assume.assumeTrue
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
@@ -117,6 +124,8 @@ import kotlin.test.assertTrue
 @ContributesTo(ProfileScope::class)
 interface AiEngineTestAccessors {
     val engineFacade: EngineFacade
+    val executionControl: SessionExecutionControl
+    val helperAgents: HelperAgents
     val agentSecuritySettings: AgentSecuritySettings
     val engineAuthSources: AuthSources
     val studioRepository: StudioRepository
@@ -491,6 +500,44 @@ class AiEngineFacadeIntegrationTest {
         nonVendor.forEach { descriptor ->
             assertTrue(declaresCompatibleProviders(descriptor), "${descriptor.id.value} lacks compatible providers")
         }
+    }
+
+    @Test
+    fun executorAuthorityCrossesBundleBoundaries() = runTest {
+        val toggles = app as TestToggleAccessors
+        toggles.toggleControl.setOverride(AiEngines, true)
+        toggles.toggleControl.setOverride(TestAdapter.toggle, true)
+        val accessors = app.profileSessions.open(ProfileId("executor-bundles")).graph as AiEngineTestAccessors
+        val facade = accessors.engineFacade
+        val source = Secret("sk-test".toCharArray()).use {
+            accessors.engineAuthSources.addManagedKey("work", scope, it)
+        }
+        val connection = facade.bindings.connect(TestAdapter.engine, source.info.id)
+        facade.models.refresh(TestAdapter.engine, connection.id)
+        val target = EngineTarget(TestAdapter.engine, connection.id, ModelId("m1"))
+        val lease = accessors.helperAgents.acquire(ActionId("executor-bundles"))
+        val helper = accessors.helperAgents.create(
+            lease,
+            null,
+            target,
+            "Executor",
+            role = HelperConversationRole.Executor,
+        )
+        val execution = SessionExecutionBinding(SessionExecutionInstance("studio", helper.value))
+        val creates = assertIs<FeatureAccess.Available<CreatesSessions>>(
+            facade.engines.features(TestAdapter.engine).resolve(CreatesSessions),
+        ).feature
+        val session = creates.create(CreateSessionRequest(target, execution = execution))
+        assertEquals(setOf(session.ref), accessors.executionControl.references(execution))
+        // The production graph uses disk IO; its bounded Stop must run on real time.
+        withContext(Dispatchers.Default) { accessors.studioRuntime.cancel(helper.value) }
+        val sender = assertIs<FeatureAccess.Available<SendsPrompts>>(session.features.resolve(SendsPrompts)).feature
+        assertFailsWith<IllegalStateException> {
+            sender.send(PromptRequest(RequestId("after-retirement"), listOf(ContentPart.Text("Work"))))
+        }
+        assertFailsWith<IllegalStateException> { creates.create(CreateSessionRequest(target, execution = execution)) }
+        session.close()
+        lease.release()
     }
 
     @Test

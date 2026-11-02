@@ -86,6 +86,11 @@ internal fun newStudioHelperRecord(
         at,
         target = target,
         identity = helperConversationIdentity(id, parent, request.role),
+        executor = if (request.role == io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole.Executor) {
+            StudioExecutorState(id)
+        } else {
+            null
+        },
         projectId = parent?.projectId,
         executionWorkspace = if (parent == null) request.workspace else parent.resolvedExecutionWorkspace(),
         helper = StudioHelperIdentity(

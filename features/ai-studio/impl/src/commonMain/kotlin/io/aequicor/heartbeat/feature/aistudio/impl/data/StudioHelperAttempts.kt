@@ -689,6 +689,8 @@ internal class StudioHelperAttempts(
         request: RequestId,
         incoming: StudioAttemptPolicy? = null,
     ) {
+        resolvedStudioIdentities(chats.get(ChatsKey).orEmpty()).singleOrNull { it.id == helper.value }
+            ?.requireLiveExecutor()
         store.requireNativeAdmission(helper, receipts, request, incoming)
         requireAutomaticAncestors(receipts, request)
         receipts[request.value]?.automaticSource?.let {

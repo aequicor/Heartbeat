@@ -87,6 +87,7 @@ internal class EngineStudioScheduledChats(
             clock.now(),
             projectId = projectId,
             executionWorkspace = workspace,
+            executor = StudioExecutorState(id),
             identity = helperConversationIdentity(
                 id,
                 parent,

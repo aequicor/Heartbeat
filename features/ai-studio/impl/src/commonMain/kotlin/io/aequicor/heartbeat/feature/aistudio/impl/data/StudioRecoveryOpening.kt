@@ -18,6 +18,7 @@ internal class StudioRecoveryOpening(private val facade: EngineFacade, private v
 
     suspend fun open(record: StudioChatRecord, current: ActiveSession?): ActiveSession {
         log.i { "Observe the saved native context without changing its configuration" }
+        record.requireLiveExecutor()
         val ref = checkNotNull(record.ref) { "Native recovery needs a saved session" }
         val target = checkNotNull(record.target) { "Native recovery needs its saved target" }
         check(ref.engine == target.engine) { "Recovery target belongs to another engine" }
@@ -33,7 +34,7 @@ internal class StudioRecoveryOpening(private val facade: EngineFacade, private v
             return current
         }
         val active = facade.sessions.get(ref).features.requireFeature(ResumesSessions)
-            .resume(studioResumeRequest(target, workspace, record.logicalSession))
+            .resume(studioResumeRequest(target, workspace, record.logicalSession, record.executorBinding()))
         var isValid = false
         try {
             requireRecoveryRoute(record, active, workspace)

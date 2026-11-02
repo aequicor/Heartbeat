@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeInteractionDemand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionControl
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnections
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngine
@@ -40,6 +41,9 @@ public interface EnginesProfileExports {
 
     /** Sessions and models of the AI engines. */
     public val engineFacade: EngineFacade
+
+    /** Shared executor admission and durable retirement barrier. */
+    public val sessionExecutionControl: SessionExecutionControl
 
     /** Web search that research runs use. */
     public val searchEngine: SearchEngine

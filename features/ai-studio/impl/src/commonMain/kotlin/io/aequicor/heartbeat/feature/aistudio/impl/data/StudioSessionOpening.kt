@@ -34,6 +34,7 @@ internal class StudioSessionOpening(
 
     suspend fun open(id: String, target: EngineTarget, chosen: ToolChoices): ActiveSession {
         val record = carry.prepareHarnesses(id, harnesses)
+        record.requireLiveExecutor()
         val workspace = record.validatedExecutionWorkspace(
             workspaces,
             isLocalWorkspaceSupported = facade.engines.state.value.any {
@@ -56,14 +57,20 @@ internal class StudioSessionOpening(
         val active = if (record.ref == null) {
             facade.engines.features(target.engine).requireFeature(CreatesSessions)
                 .create(
-                    studioCreateRequest(target, workspace, record.withCarriedHarnesses(chosen), record.logicalSession),
+                    studioCreateRequest(
+                        target,
+                        workspace,
+                        record.withCarriedHarnesses(chosen),
+                        record.logicalSession,
+                        record.executorBinding(),
+                    ),
                 )
         } else {
             check(
                 record.target?.engine == target.engine && record.target.binding == target.binding,
             ) { "The stored session uses another connection" }
             facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
-                .resume(studioResumeRequest(target, workspace, record.logicalSession))
+                .resume(studioResumeRequest(target, workspace, record.logicalSession, record.executorBinding()))
         }
         // Register before persisting: the stored ref recomputes continuability, which must see the live handle.
         storage.registerHandle(id, active)

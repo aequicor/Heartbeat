@@ -126,7 +126,9 @@ public class BundleHost internal constructor(
             }
             isSealed = true
         }
-        log.i { "Bundles sealed: ${health.entries.joinToString { "${it.key}=${it.value::class.simpleName}" }}" }
+        log.i {
+            "Bundles sealed: ${health.entries.joinToString { "${it.key}=${it.value::class.simpleName.orEmpty()}" }}"
+        }
     }
 
     /**
@@ -191,7 +193,7 @@ public class BundleHost internal constructor(
             view.close()
             synchronized(profileViews) { profileViews.remove(scope) }
         }
-        val summary = profileHealth.entries.joinToString { "${it.key}=${it.value::class.simpleName}" }
+        val summary = profileHealth.entries.joinToString { "${it.key}=${it.value::class.simpleName.orEmpty()}" }
         log.i { "Profile graphs of bundles: $summary" }
         lastProfileHealth = profileHealth.toMap()
         return profileHealth
@@ -250,9 +252,11 @@ public class BundleHost internal constructor(
         synchronized(view.exporters) {
             fun existing(key: BindingKey) = view.exporters[key].orEmpty() + parent?.exporters?.get(key).orEmpty()
             val conflict = own.firstOrNull { new -> !new.method.isSetAccessor() && existing(new.key).isNotEmpty() }
-            check(conflict == null) {
-                "$id exports ${conflict?.key}, already exported by " +
-                    existing(conflict!!.key).joinToString { it.owner.value }
+            if (conflict != null) {
+                error(
+                    "$id exports ${conflict.key}, already exported by " +
+                        existing(conflict.key).joinToString { it.owner.value },
+                )
             }
             own.forEach { view.exporters.getOrPut(it.key) { ArrayList() }.add(it) }
         }
@@ -261,17 +265,17 @@ public class BundleHost internal constructor(
 
     private fun checkSetOwnership(entry: BundleEntry, importsType: KClass<*>?, exportTypes: List<KClass<*>>) {
         val imported = importsType?.let { accessorsOf(it.java) }.orEmpty()
-        val exportedSets = exportTypes.flatMap { accessorsOf(it.java) }.filter { it.isSetAccessor() }
+        val exportedSets = exportTypes.asSequence().flatMap { accessorsOf(it.java) }.filter { it.isSetAccessor() }
             .map { bindingKeyOf(it.genericReturnType) }.toSet()
-        val doubled = imported.filter { it.isSetAccessor() }.map { bindingKeyOf(it.genericReturnType) }
-            .filter { it in exportedSets }
+        val doubled = imported.asSequence().filter { it.isSetAccessor() }.map { bindingKeyOf(it.genericReturnType) }
+            .filter { it in exportedSets }.toList()
         check(doubled.isEmpty()) { "${entry.id} both imports and exports sets $doubled" }
     }
 
     private fun markMissingImports(id: BundleId, view: View, importsType: KClass<*>?): BundleHealth? {
         val imported = importsType?.let { accessorsOf(it.java) }.orEmpty()
-        val missing = imported.filterNot { it.isSetAccessor() }.map { bindingKeyOf(it.genericReturnType) }
-            .filter { view.find(it, appView).isEmpty() }
+        val missing = imported.asSequence().filterNot { it.isSetAccessor() }.map { bindingKeyOf(it.genericReturnType) }
+            .filter { view.find(it, appView).isEmpty() }.toList()
         if (missing.isEmpty()) return null
         log.w { "Bundle $id is degraded, nobody exports $missing" }
         return BundleHealth.Degraded(missing)

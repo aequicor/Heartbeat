@@ -13,6 +13,24 @@
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
 
+## Studio executor retirement — продолжение шага 4
+
+- Новые helper/graph executors сохраняют incarnation и permanent retired marker. Native create/resume передают
+  immutable binding; canonical Studio authority проверяет strict record и полную identity. Queue preparation,
+  native opening/recovery и cached facade mutation отказывают после retirement, в том числе после restart.
+- Stop сохраняет fence до native cancellation, ждёт admitted handoffs и повторяет точный Stop после drain.
+  Orphan executor разрешено завершить по сохранённой incarnation даже без владельца; admission остаётся закрытым.
+  Retirement не объявляет native terminal: unknown opening и неподтверждённый Stop остаются ошибкой/Unknown.
+- Desktop wiring проводит canonical authority из foundation в engines, а общий SessionExecutionControl обратно
+  ленивым импортом. Integration test создаёт executor через canonical host и facade, затем проверяет cached send
+  и новую create после Studio Stop. Исправлены typed lint findings в затронутом core bundles.
+- Verify: Studio 1148, core bundles 33 теста, исходные выбранные интеграционные 19 и расширенный facade suite 6
+  без failures/errors/skips. Ordinary/typed detekt, JVM DI и Studio iOS compile прошли. Production graph smoke
+  после shrink и obfuscate зелёный. Architecture review текущего участка без блокеров.
+- Следующее: точный cold native cleanup без ordinary resume; organic durable incarnation/strict journal lookup,
+  canonical authority и persist ACK до Drive/Judge; internal producers. Затем owner mediation, background,
+  согласованный UI, полный verify/E2E и pr-review-and-fix. PR остаётся draft, /reviewed не поставлен.
+
 ## Facade execution authority — проверенная инфраструктура шага 4
 
 - Добавлены host-only `SessionExecutionBinding`/instance, immutable permanent strict KV и lazy canonical authority
