@@ -699,3 +699,31 @@ worktree API 39/39, DI и оба режима Studio detekt успешны (тр
 `virtual-source-final3.log` — worktree API JVM и оба режима detekt успешны.
 Read-only архитектурное ревью source-only шага — без блокеров; immutable receipt lineage
 этими результатами не подтверждается и остаётся следующим обязательным этапом.
+
+### Admission только для нового native send
+
+StudioTurnHost.prepareNewTurn — обязательная граница. Executor вызывает её только
+после GraphRecovery.Submit, до RunStarted и openEnvironmentSession. Production hook
+сначала создаёт/проверяет admission, затем записывает startedRun/runRevision; adoption
+и terminal-only inspection не записывают Q вместо actual R. Изменяться могут только
+settings/gate, остальная host provenance проверяется перед подготовкой. Возвращённый
+wrapper очищается executor в finally; если запись startedRun падает до возврата,
+StudioHelperAdmission отменяет wrapper сама.
+
+При ревью найдено взаимодействие: прежний отказ helper-backed recovery обеспечивался
+побочно wrapper без retention. После переноса его нужно сохранять ЯВНО через
+host.requireNativeRecovery до open/inspect. Production проверка сохраняет прежний запрет
+для helper/full Subsession, даже если внешний StudioRunSubmission поддерживает retention.
+Без него Stop(Q) мог бы подтвердить NotSubmitted Q при продолжающемся R. Новый regression
+проверяет отсутствие открытия, stop R, adoption и receipt Q при таком отказе.
+Это временный сохранённый предел реализации, не замена требуемого recovery: следующий
+шаг — atomic reservation Q→actual R stop binding, включая stop до и во время перехода,
+потом universal root journal и immutable continuation receipt lineage.
+
+Проверка admission move: `submit-only-admission-final.log` — JVM DI, Studio tests и
+обычный/typed detekt успешны; `submit-only-admission-final2.log` после добавления
+cancellation regression — 974/974 Studio tests, оба режима detekt успешны. Typed analysis
+сохраняет те же три прежние generated/inference diagnostics. Проверены Submit ordering,
+adopt/terminal-only без подготовки Q, отказ open/worktree, защита provenance envelope,
+bookkeeping failure и cancellation до native entry. Read-only архитектурное ревью
+после восстановления явного host recovery guard — APPROVE.

@@ -46,6 +46,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
@@ -58,6 +59,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.NoStudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
@@ -1389,6 +1391,28 @@ class StudioSubmissionRecoveryTest {
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioNativeRecoveryTest {
     @Test
+    fun `host refuses journaled recovery even when the outer gate supports retention`() = runTest {
+        val f = TurnFixture()
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val record = StudioChatRecord(
+            f.request.id,
+            "Helper",
+            Instant.fromEpochMilliseconds(0),
+            helper = StudioHelperIdentity(ActionId("owner"), null, null, TrustLevel.Ask),
+        )
+        f.host.requireRecovery = { admission.requireNativeRecovery(record) }
+        val execution = recovery(f).copy(submission = StudioRunSubmission())
+        assertTrue(checkNotNull(execution.submission).isNativeRetentionSupported)
+        assertEquals(RunOutcome.Failed, f.executor.execute(f.host, execution))
+        assertEquals(0, f.host.openCount)
+        assertTrue(f.host.preparations.isEmpty())
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertTrue(f.host.adoptedReceipts.isEmpty())
+        assertNull(attempts.receipt(HelperId(record.id), execution.request))
+    }
+
+    @Test
     fun `wrapped graph adoption retains actual native ownership when admission closes`() = runTest {
         var settlements = 0
         val f = TurnFixture(settlement = StudioTurnSettlement { _, _, _ -> settlements++ })
@@ -1421,6 +1445,7 @@ class StudioNativeRecoveryTest {
         }
         runCurrent()
         assertEquals(listOf(native), f.host.adoptedReceipts)
+        assertTrue(f.host.preparations.isEmpty())
         assertTrue(f.host.acceptedReceipts.isEmpty())
         assertTrue(f.machine.sent.isEmpty())
         assertNull(f.host.submitted)
@@ -1527,7 +1552,44 @@ class StudioNativeRecoveryTest {
         assertTrue(f.host.terminalReceipts.isEmpty())
         assertTrue(f.host.adoptedTerminalReceipts.isEmpty())
         assertTrue(f.machine.sent.isEmpty())
+        assertTrue(f.host.preparations.isEmpty())
         assertEquals(0, settlements)
+    }
+
+    @Test
+    fun `admitted wrapper is revoked when worktree or native opening fails or provenance changes`() = runTest {
+        for (failure in listOf("worktree", "open", "provenance")) {
+            val f = TurnFixture()
+            val attempts = StudioHelperAttempts(ChecklistTestStores())
+            val helper = HelperId(f.request.id)
+            attempts.prepareConversation(helper, HelperPrompt(f.request.request, f.request.prompt))
+            val gate = StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, f.request.request)
+            f.host.prepareNew = {
+                it.copy(submission = gate, id = if (failure == "provenance") "foreign" else it.id)
+            }
+            if (failure == "worktree") f.machine.isPrepared = false
+            if (failure == "open") f.host.openFailure = IllegalStateException("Open failed")
+            assertEquals(RunOutcome.Failed, f.executor.execute(f.host, f.request))
+            assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(helper, f.request.request)?.phase)
+            assertNull(f.host.submitted)
+        }
+    }
+
+    @Test
+    fun `caller cancellation after admission retires the returned gate before native entry`() = runTest {
+        val f = TurnFixture()
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val helper = HelperId(f.request.id)
+        attempts.prepareConversation(helper, HelperPrompt(f.request.request, f.request.prompt))
+        val gate = StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, f.request.request)
+        f.host.prepareNew = { it.copy(submission = gate) }
+        f.host.beforeSubmit = { awaitCancellation() }
+        val execution = async { f.executor.execute(f.host, f.request) }
+        runCurrent()
+        assertEquals(StudioHelperPhase.Preparing, attempts.receipt(helper, f.request.request)?.phase)
+        execution.cancelAndJoin()
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(helper, f.request.request)?.phase)
+        assertNull(f.host.submitted)
     }
 
     @Test
@@ -1555,12 +1617,19 @@ class StudioNativeRecoveryTest {
         f.active.state.value = ActiveSessionState.Ready()
         f.active.inspection = TurnInspection.Idle
         val execution = recovery(f)
+        f.host.prepareNew = {
+            assertEquals(listOf("open"), f.events)
+            f.events += "admit"
+            it
+        }
         val replacement = ExecutorSession(f.turn.copy(request = execution.request), "prepared-worktree")
         f.host.replacement = replacement
         f.host.openReplacementAt = 2
         f.tools.release.complete(Unit)
         assertEquals(RunOutcome.Completed, f.executor.execute(f.host, execution))
         assertEquals(2, f.host.openCount)
+        assertEquals(listOf("open", "admit", "started", "open"), f.events.take(4))
+        assertEquals(listOf(execution), f.host.preparations)
         assertEquals(replacement.ref to f.turn.id, f.tools.finished)
         val started = f.machine.sent.filterIsInstance<WorktreeIntent.Public.RunStarted>().single()
         assertEquals(execution.request, started.request)
@@ -1726,6 +1795,14 @@ private class ExecutorHost(
     var isTerminalHistoryCurrent: Boolean? = null
     var acceptedFailure: Exception? = null
     var terminalFailure: Exception? = null
+    val preparations = mutableListOf<StudioTurnRequest>()
+    var prepareNew: suspend (StudioTurnRequest) -> StudioTurnRequest = { it }
+    var requireRecovery: suspend (StudioTurnRequest) -> Unit = {}
+    override suspend fun requireNativeRecovery(request: StudioTurnRequest) = requireRecovery(request)
+    override suspend fun prepareNewTurn(request: StudioTurnRequest): StudioTurnRequest {
+        preparations += request
+        return prepareNew(request)
+    }
     override suspend fun acceptedTurn(request: StudioTurnRequest, active: ActiveSession, turn: TurnId) {
         acceptedReceipts += request.request to turn
         acceptedFailure?.let { throw it }

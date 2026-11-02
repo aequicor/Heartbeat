@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /** The repository calls this for every run, including manual and scheduled runs in a marked helper chat. */
 @Inject
@@ -17,6 +19,33 @@ internal class StudioHelperAdmission(
     private val runs: Lazy<StudioHelperRuns>? = null,
 ) {
     private val log = Log.tag("StudioHelperAdmission")
+
+    /**
+     * Keeps the existing refusal explicit after new-send admission moves behind recovery. Until the coordinator
+     * binds execution Q to actual native R, stop in these chats would otherwise retire Q while R keeps running.
+     */
+    fun requireNativeRecovery(record: StudioChatRecord) {
+        check(record.helper == null && record.logicalSession?.kind != SessionKind.Subsession) {
+            "Journaled recovery requires exact adopted-request stop routing"
+        }
+    }
+
+    /** Bookkeeping follows durable admission; a failed record write cannot strand an unreturned wrapper. */
+    suspend fun prepareNewTurn(
+        record: StudioChatRecord,
+        request: StudioTurnRequest,
+        recordStarted: suspend () -> Unit,
+    ): StudioTurnRequest {
+        val admitted = prepare(record, request)
+        var isRecorded = false
+        try {
+            recordStarted()
+            isRecorded = true
+            return admitted
+        } finally {
+            if (!isRecorded) withContext(NonCancellable) { (admitted.submission as? StudioHelperSubmission)?.cancel() }
+        }
+    }
 
     suspend fun prepare(record: StudioChatRecord, request: StudioTurnRequest): StudioTurnRequest {
         val helper = HelperId(record.id)

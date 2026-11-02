@@ -521,18 +521,24 @@ internal class EngineStudioRepository(
                 settings = hostRunSettings(current, current.configuration, request.settings),
             )
         }
-        val admitted = helperAdmission.prepare(current, fresh)
-        try {
+        val result = turns.execute(this, fresh)
+        update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
+        val isBriefed = request.compaction != null && request.isBriefed
+        if (result == RunOutcome.Completed && isBriefed) carry.brief(request.id)
+        releaseArchived(request.id)
+        return result
+    }
+
+    override suspend fun prepareNewTurn(request: StudioTurnRequest): StudioTurnRequest {
+        log.v { "Prepare new native request after recovery selected submission" }
+        return helperAdmission.prepareNewTurn(configurationRecord(request.id), request) {
             update(request.id) { startedRun(request.request) }
-            val result = turns.execute(this, admitted)
-            update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
-            val isBriefed = request.compaction != null && request.isBriefed
-            if (result == RunOutcome.Completed && isBriefed) carry.brief(request.id)
-            releaseArchived(request.id)
-            return result
-        } finally {
-            withContext(NonCancellable) { (admitted.submission as? StudioHelperSubmission)?.cancel() }
         }
+    }
+
+    override suspend fun requireNativeRecovery(request: StudioTurnRequest) {
+        log.v { "Check native recovery stop routing before opening the saved context" }
+        helperAdmission.requireNativeRecovery(configurationRecord(request.id))
     }
 
     override suspend fun helperRecord(helper: HelperId): StudioChatRecord {

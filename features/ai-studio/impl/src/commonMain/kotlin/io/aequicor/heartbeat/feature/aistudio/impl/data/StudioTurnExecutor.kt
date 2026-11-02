@@ -39,6 +39,16 @@ import kotlinx.coroutines.withTimeoutOrNull
 internal interface StudioTurnHost : StudioSessionHost {
     suspend fun isWorktree(id: String): Boolean
 
+    /**
+     * Journals a new send and updates its chat revision, only after recovery chooses Submit. Runs before worktree
+     * preparation and environment carry. May replace settings and the submission gate, never request provenance.
+     * If bookkeeping fails after journal admission, the host must revoke its newly created gate before throwing.
+     */
+    suspend fun prepareNewTurn(request: StudioTurnRequest): StudioTurnRequest
+
+    /** Checks host stop routing before opening an older native turn; a new-send gate alone cannot prove this. */
+    suspend fun requireNativeRecovery(request: StudioTurnRequest)
+
     suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId
     suspend fun shouldStop(id: String): Boolean
     suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId)
@@ -154,15 +164,22 @@ internal class StudioTurnExecutor(
     suspend fun execute(host: StudioTurnHost, request: StudioTurnRequest): RunOutcome {
         val progress = Progress()
         var environment: AutoCloseable? = null
+        var admitted = request
         try {
             val preselected = request.submissionId.takeIf { it.isNotEmpty() }?.let(harnesses::preselected).orEmpty() +
                 request.environment?.preselected.orEmpty()
             val recovered = preflightRecovery(host, request, preselected, progress)
+            if (recovered == GraphRecovery.Submit) {
+                admitted = host.prepareNewTurn(request)
+                check(admitted.copy(settings = request.settings, submission = request.submission) == request) {
+                    "New-send admission cannot change the request or its provenance"
+                }
+            }
             progress.isIsolated = recovered == GraphRecovery.Submit &&
                 request.compaction == null && host.isWorktree(request.id)
-            if (progress.isIsolated) prepare(host, request, progress, preselected)
+            if (progress.isIsolated) prepare(host, admitted, progress, preselected)
             val opened = if (recovered == GraphRecovery.Submit) {
-                host.openEnvironmentSession(request, preselected, tools)
+                host.openEnvironmentSession(admitted, preselected, tools)
             } else {
                 // Recovery observes the existing turn, never binds Q's outside routing to R.
                 StudioEnvironmentSession(checkNotNull(progress.active), null)
@@ -170,15 +187,21 @@ internal class StudioTurnExecutor(
             val active = opened.active
             progress.active = active
             environment = opened.lease
-            val boundRequest = request.copy(delivery = progress.delivery)
+            val boundRequest = admitted.copy(delivery = progress.delivery)
             return runNative(host, boundRequest, active, progress, recovered)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             log.e(error) { "Studio execution failed" }
-            if (progress.isPrepared || progress.active != null) recover(host, request, progress)
+            if (progress.isPrepared || progress.active != null) recover(host, admitted, progress)
             return host.failedTurn(request.id, error)
         } finally {
+            withContext(NonCancellable) { finishExecution(admitted, environment, progress) }
+        }
+    }
+
+    private suspend fun finishExecution(request: StudioTurnRequest, environment: AutoCloseable?, progress: Progress) {
+        try {
             // An interrupted/uncertain native submission must never regain embedded tools.
             if (!progress.delivery.isPending || progress.isTerminal) environment?.close()
             if (request.submissionId.isNotEmpty()) harnesses.release(request.submissionId)
@@ -187,6 +210,8 @@ internal class StudioTurnExecutor(
                     worktrees.failed(request.id, request.request, session = null, turn = null)
                 }
             }
+        } finally {
+            withContext(NonCancellable) { (request.submission as? StudioHelperSubmission)?.cancel() }
         }
     }
 
@@ -199,6 +224,7 @@ internal class StudioTurnExecutor(
     ): GraphRecovery {
         if (request.recoveryRequests.isEmpty()) return GraphRecovery.Submit
         check(request.origin is StudioTurnOrigin.GraphWork) { "Only proven graph work may recover native requests" }
+        host.requireNativeRecovery(request)
         check(request.submission?.isNativeRetentionSupported != false) {
             "A journaled recovery request requires exact native stop routing before adoption"
         }

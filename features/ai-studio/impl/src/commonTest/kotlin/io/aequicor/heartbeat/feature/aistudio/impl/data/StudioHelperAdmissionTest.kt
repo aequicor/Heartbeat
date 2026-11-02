@@ -14,6 +14,20 @@ import kotlin.test.assertSame
 import kotlin.time.Instant
 
 class StudioHelperAdmissionTest {
+    @Test
+    fun `failed chat bookkeeping retires new admission before the executor can receive its gate`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val request = runRequest("record-fails").copy(id = record.id)
+        assertFailsWith<IllegalStateException> {
+            admission.prepareNewTurn(record, request) {
+                assertEquals(StudioHelperPhase.Preparing, attempts.receipt(HelperId(record.id), request.request)?.phase)
+                error("Record write failed")
+            }
+        }
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(HelperId(record.id), request.request)?.phase)
+    }
+
     private val record = StudioChatRecord(
         "helper",
         "Helper",
