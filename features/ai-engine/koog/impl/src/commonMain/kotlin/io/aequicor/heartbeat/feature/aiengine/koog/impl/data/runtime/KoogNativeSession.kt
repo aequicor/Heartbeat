@@ -727,7 +727,12 @@ internal class KoogNativeSession(
     /** Hosted tools use only the shared TrustLevel gate, independent of the legacy auto-approve setting. */
     private suspend fun approveHosted(turn: Turn, action: AgentToolApproval): Boolean {
         if (active?.id != turn.id || handles.isEmpty() || current is ActiveSessionState.Interrupting) return false
-        val request = koogPermissionRequest(turn.id, action.title, action.description)
+        val request = koogPermissionRequest(
+            turn.id,
+            action.title,
+            action.description,
+            operationBinding = action.binding,
+        )
         val pending = PendingApproval(request, CompletableDeferred())
         approval = pending
         val running = active ?: turn

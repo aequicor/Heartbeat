@@ -236,11 +236,15 @@ public data class PermissionRequest(
     val description: String? = null,
     /** Answer the engine expects together with the chosen option; null for a plain button choice. */
     val input: PermissionInput? = null,
+    /** Opaque exact host action snapshot, preserved by adapters and owner relays; never displayed or logged. */
+    val operationBinding: String? = null,
 ) {
     init {
         require(options.isNotEmpty())
         require(options.map { it.id }.distinct().size == options.size)
     }
+
+    override fun toString(): String = "PermissionRequest"
 }
 
 /** One selectable value of a choice input. */

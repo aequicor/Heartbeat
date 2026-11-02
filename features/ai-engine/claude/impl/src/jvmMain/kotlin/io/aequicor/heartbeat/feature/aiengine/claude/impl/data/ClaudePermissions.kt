@@ -44,6 +44,7 @@ internal class ClaudePermissions(
                     PermissionOption(DENY, "Deny", isOneTime = true),
                 ),
                 approval.description,
+                operationBinding = approval.binding,
             )
             Pending(request).also {
                 pending[request.id] = it

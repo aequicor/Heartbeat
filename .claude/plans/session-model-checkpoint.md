@@ -13,6 +13,21 @@
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
 
+## Exact action binding in permission snapshots
+
+- PermissionRequest сохраняет opaque operationBinding; Claude, Codex, Pi, DeepSeek Harness, Koog и Kimi
+  переносят AgentToolApproval.binding. Pi native без host binding сохраняет fingerprint exact envelope
+  (tool/arguments/path/target/call/executor). toString не раскрывает snapshot.
+- Regression: одинаковые title/options при изменённом binding отзывают relay; реальные permission publishers
+  сохраняют binding, Pi отличает изменённые аргументы/исполнителя при прежней подписи.
+- Полные offline suites: facade API 155 / impl 666 (12 skips); Claude 265 (23 skips), Codex 406, Pi 441,
+  DSH 85, Koog 163, Kimi 73 (1 skip), Studio 1155; DI 218 (19 skips), failures/errors 0.
+  Ordinary/typed lint, common iOS, shrink + obfuscate smoke PASS. Typed analysis: Koog 10 / Claude 2 diagnostics.
+- Собственное scoped review не нашло обхода authority. Повторное делегированное ревью недоступно:
+  сервис reviewer возвращает HTTP403; это не verdict. Полный architecture review остаётся перед /reviewed.
+- Следующий этап — background normalization и оставшиеся шаги 6–8 целиком. Pinned Claude SDK evidence
+  исследовано без установки/исполнения или live LLM; это ещё не готовая runtime интеграция.
+
 ## Owner permission mediation — продолжение шага 5
 
 - Facade commit `90f7f9223`: exact owner/child/binding/ref/original-R/target/full pending snapshot,

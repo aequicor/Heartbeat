@@ -16,6 +16,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * A tool call awaiting approval (`resources/pi/heartbeat-approval.ts`): its name, the command or path shown to the
@@ -93,6 +95,7 @@ internal fun approvalRequest(
     turn: TurnId,
     call: PiApprovalCall,
     isHostTermination: Boolean,
+    operationBinding: String? = null,
 ): PermissionRequest {
     val target = visible(call.target)
     val allow = if (isHostTermination) ALLOW_HOST_TITLE else ALLOW_TITLE
@@ -104,8 +107,21 @@ internal fun approvalRequest(
             PermissionOption(PiApprovalAllow, allow, isOneTime = true),
             PermissionOption(PiApprovalDeny, DENY_TITLE, isOneTime = true),
         ),
+        operationBinding = operationBinding ?: call.permissionBinding(),
     )
 }
+
+/** Includes the exact extension envelope, not merely its visible title. */
+private fun PiApprovalCall.permissionBinding(): String = fingerprint(
+    buildJsonObject {
+        put("tool", tool)
+        put("target", target)
+        put("path", path)
+        put("arguments", arguments)
+        put("call", toolCallId?.value)
+        put("executor", executorBinding)
+    }.toString(),
+)
 
 /** Makes line breaks, control and bidirectional formatting characters visible in the approval text. */
 private fun visible(text: String): String = buildString {

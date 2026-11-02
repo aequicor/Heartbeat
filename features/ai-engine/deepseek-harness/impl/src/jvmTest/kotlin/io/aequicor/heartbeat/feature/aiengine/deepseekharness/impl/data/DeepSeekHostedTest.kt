@@ -113,12 +113,15 @@ class DeepSeekHostedTest {
             """{"command":"git diff --check","arguments":{"command":"git diff --check"},""" +
                 "\"workingDirectory\":\"C:/workspace/app\"}"
         val approval = async {
-            context.permissions.request(AgentToolApproval("run_command", "Run command", description))
+            context.permissions.request(
+                AgentToolApproval("run_command", "Run command", description, binding = "operation-A"),
+            )
         }
         runCurrent()
         val pending = assertIs<ActiveSessionState.AwaitingUserAction>(lease.state.value).requests.single()
         assertEquals("Run command", pending.title)
         assertEquals(description, pending.description)
+        assertEquals("operation-A", pending.operationBinding)
         assertEquals(turn, pending.turn)
         assertTrue(pending.options.all { it.isOneTime })
         lease.features.requireFeature(RequestsPermissions).respond(

@@ -13,6 +13,7 @@ internal fun koogPermissionRequest(
     title: String,
     description: String?,
     isSessionOptionEnabled: Boolean = false,
+    operationBinding: String? = null,
 ): PermissionRequest = PermissionRequest(
     PermissionRequestId(Uuid.random().toString()),
     turn,
@@ -23,6 +24,7 @@ internal fun koogPermissionRequest(
         add(PermissionOption(Deny, "Запретить", isOneTime = true))
     },
     description = description,
+    operationBinding = operationBinding,
 )
 
 internal val AllowOnce = PermissionOptionId("allow")

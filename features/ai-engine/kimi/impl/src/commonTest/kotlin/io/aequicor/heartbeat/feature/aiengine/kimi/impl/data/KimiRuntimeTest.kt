@@ -444,6 +444,7 @@ class KimiRuntimeTest {
         testScheduler.advanceUntilIdle()
         val waiting = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value)
         assertEquals(TEST_APPROVAL_DESCRIPTION, waiting.requests.single().description)
+        assertEquals("operation-A", waiting.requests.single().operationBinding)
         assertEquals("Kimi CLI requests permission", waiting.requests.single().title)
         session.permissions().respond(
             PermissionDecision(
@@ -977,7 +978,12 @@ private object TestAgentTools : ProfileAgentTools {
         AgentToolResult("Unsupported", isError = true)
 
     override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
-        val approval = AgentToolApproval(call.name, "Kimi CLI requests permission", TEST_APPROVAL_DESCRIPTION)
+        val approval = AgentToolApproval(
+            call.name,
+            "Kimi CLI requests permission",
+            TEST_APPROVAL_DESCRIPTION,
+            binding = "operation-A",
+        )
         return if (context.permissions.request(approval)) {
             NativeVerdict.Allow
         } else {

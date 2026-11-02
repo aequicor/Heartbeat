@@ -187,10 +187,11 @@ class PiHostedSessionTest {
         assertEquals(fixture.session.ref, context.session)
         val toolScope = CoroutineScope(coroutineContext + requireNotNull(context.lifetime))
         val answer = toolScope.async {
-            context.permissions.request(AgentToolApproval("run_build", "Build project"))
+            context.permissions.request(AgentToolApproval("run_build", "Build project", binding = "operation-A"))
         }
         runCurrent()
         val request = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value).requests.single()
+        assertEquals("operation-A", request.operationBinding)
         fixture.session.respond(PermissionDecision(turn, request.id, PermissionOptionId("hosted.allow")))
         assertTrue(answer.await())
         assertTrue(fixture.connection.sent.isEmpty())

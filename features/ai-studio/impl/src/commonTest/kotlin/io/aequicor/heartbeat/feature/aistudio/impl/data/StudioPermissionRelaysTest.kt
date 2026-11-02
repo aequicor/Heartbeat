@@ -53,6 +53,20 @@ class StudioPermissionRelaysTest {
     }
 
     @Test
+    fun `same visible question with changed action binding cannot consume an old relay`() = runTest {
+        val f = Fixture()
+        f.prepare()
+        val old = f.project().single().relay!!
+        f.native.state.value = f.pending.copy(requests = listOf(f.permission.copy(operationBinding = "operation-B")))
+        assertFalse(f.relays.enter(old, f.decision))
+        val fresh = f.project().single().relay!!
+        assertEquals(old.permission.title, fresh.permission.title)
+        assertEquals(old.permission.options, fresh.permission.options)
+        assertNotEquals(old.nonce, fresh.nonce)
+        assertTrue(f.relays.enter(fresh, f.decision))
+    }
+
+    @Test
     fun `retirement or missing owner denies an otherwise matching native question`() = runTest {
         val f = Fixture()
         f.prepare()
