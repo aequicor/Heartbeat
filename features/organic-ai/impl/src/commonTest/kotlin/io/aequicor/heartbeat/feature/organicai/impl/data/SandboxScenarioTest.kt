@@ -46,9 +46,9 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiEffects
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganismJournal
 import io.aequicor.heartbeat.feature.organicai.impl.domain.ReleaseOutcome
+import io.aequicor.heartbeat.feature.organicai.impl.domain.TestOrganicExecutors
 import io.aequicor.heartbeat.feature.organicai.impl.request
 import io.aequicor.heartbeat.feature.organicai.impl.session
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -80,6 +80,7 @@ class SandboxScenarioTest {
     private val project = WorkspaceRef("project")
     private val worktree = WorktreeFake(isCutting = true)
     private val journal = MemoryJournal()
+    private val nativeJournal = MemoryNativeJournal()
     private val natives = Natives()
     private val conception =
         Conception(
@@ -97,7 +98,7 @@ class SandboxScenarioTest {
         val scope = CoroutineScope(
             backgroundScope.coroutineContext + SupervisorJob(backgroundScope.coroutineContext[Job]),
         )
-        return Process(scope, initial, journal, natives, WorktreeCellWorkspaces(registry(worktree)))
+        return Process(scope, initial, journal, natives, WorktreeCellWorkspaces(registry(worktree)), nativeJournal)
     }
 
     private suspend fun Process.grow(): Process {
@@ -198,7 +199,7 @@ class SandboxScenarioTest {
     }
 
     @Test
-    fun `after a restart the same sandboxes and live turns are taken over and a lost turn gets a new run`() = runTest {
+    fun `restart observes surviving turns and keeps a lost native request unresolved`() = runTest {
         val first = process(OrganicAiState.Living()).grow()
         runCurrent()
         val sandboxes = worktree.tasks().mapValues { it.value.executionWorkspace }
@@ -229,25 +230,11 @@ class SandboxScenarioTest {
             assertEquals(identities.getValue(key(cell)), task.run, cell.value)
             assertEquals(1, natives.handle(cell).submitted.size)
         }
-        // The lost turn's old run was closed as unknown and a new run follows the recovery turn.
-        val old = checkNotNull(identities.getValue(key(C2)))
-        assertTrue(
-            worktree.sent.any {
-                it is WorktreeIntent.Public.RunSettled && it.chatId == key(C2) &&
-                    it.request == old.request && it.outcome == TurnOutcome.Unknown
-            },
-        )
-        val renewed = worktree.task(key(C2))
-        assertEquals(WorktreePhase.Working, renewed.phase)
-        assertEquals(request(C2, 2), renewed.run?.request)
-        assertEquals(2, natives.handle(C2).submitted.size)
-
-        natives.finish(ZYGOTE)
-        natives.finish(C1)
-        natives.finish(C2)
-        runCurrent()
-        assertEquals(TurnOutcome.Completed, worktree.task(key(C1)).run?.outcome)
-        assertEquals(identities.getValue(key(C1))?.request, worktree.task(key(C1)).run?.request)
+        // Absence is not quiescence: the lost request keeps its recovery barrier and is never submitted again.
+        val unresolved = worktree.task(key(C2))
+        assertEquals(WorktreePhase.RecoveryRequired, unresolved.phase)
+        assertEquals(identities.getValue(key(C2)), unresolved.run)
+        assertEquals(1, natives.handle(C2).submitted.size)
     }
 
     private class Process(
@@ -256,19 +243,16 @@ class SandboxScenarioTest {
         private val journal: MemoryJournal,
         natives: Natives,
         workspaces: WorktreeCellWorkspaces,
+        nativeJournal: MemoryNativeJournal,
     ) : OrganicAiMachine {
         private val sessions = Sessions(natives)
         private val effects = OrganicAiEffects(
-            journal,
             { TARGET },
             sessions,
-            CellDriver(sessions, journal, workspaces, NoHarnesses),
-            ImmunityCourt(
-                { _, _, _, _, _ -> error("no judges in this scenario") },
-                { emptyList() },
-                MemoryNativeJournal(),
-            ),
+            CellDriver(sessions, journal, workspaces, NoHarnesses, nativeJournal),
+            ImmunityCourt({ _, _, _, _, _ -> error("no judges in this scenario") }, { emptyList() }, nativeJournal),
             workspaces,
+            TestOrganicExecutors(journal, sessions),
         )
         private val log = Log.tag("SandboxScenario")
         override val name: String = "scenario"

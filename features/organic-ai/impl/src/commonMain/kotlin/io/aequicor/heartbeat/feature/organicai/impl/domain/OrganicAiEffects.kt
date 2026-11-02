@@ -3,7 +3,6 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
@@ -27,12 +26,12 @@ import kotlinx.coroutines.withContext
 
 /** Executes organic AI effects; failures are mapped by the spec's `onEffectFailure`. */
 internal class OrganicAiEffects(
-    private val journal: OrganismJournal,
     private val targets: DefaultTargets,
     private val cells: CellSessions,
     private val driver: CellDriver,
     private val court: ImmunityCourt,
     private val workspaces: CellWorkspaces,
+    private val executors: OrganicExecutors,
 ) : EffectHandler<OrganicAiEffect, OrganicAiIntent> {
     private val log = Log.tag("OrganicAiEffects")
 
@@ -53,12 +52,15 @@ internal class OrganicAiEffects(
             is OrganicAiEffect.Hibernate -> hibernate(effect.organisms, machine)
 
             // An ending has no later change to carry it: its write must outlive a sleep that leaves Living.
-            is OrganicAiEffect.Persist -> withContext(NonCancellable) { journal.save(effect.organism) }
+            is OrganicAiEffect.Persist -> {
+                withContext(NonCancellable) { executors.persist(effect.organism) }
+                executors.reconcileJudges(effect.organism)
+            }
 
             is OrganicAiEffect.Resolve -> resolve(effect, machine)
 
             is OrganicAiEffect.Drive -> {
-                journal.save(effect.organism)
+                executors.persist(effect.organism)
                 driver.drive(effect.organism, effect.cell, effect.request, machine)
             }
 
@@ -68,7 +70,7 @@ internal class OrganicAiEffects(
             }
 
             is OrganicAiEffect.Judge -> {
-                journal.save(effect.organism)
+                executors.persist(effect.organism)
                 val ruling = court.judge(effect.organism, effect.case) { session ->
                     machine.send(OrganicAiIntent.Internal.JudgeConvened(effect.organism.id, effect.case, session))
                 }
@@ -89,7 +91,7 @@ internal class OrganicAiEffects(
     }
 
     private suspend fun restore(machine: EffectScope<OrganicAiIntent>) {
-        val organisms = journal.load().map { organism ->
+        val organisms = executors.load().map { organism ->
             if (!organism.isDeveloping && cells.hasPendingRelease(organism.id)) {
                 organism.copy(sessions = SessionRelease.Unconfirmed)
             } else {
@@ -125,6 +127,11 @@ internal class OrganicAiEffects(
 
     /** What a restored organism needs: its model, the turns of its working cells and its open cases. */
     private fun revival(organism: Organism): List<OrganicAiEffect> = buildList {
+        if (!organism.isDeveloping) {
+            val mode = if (organism.cells.any { it.phase is CellPhase.Dead }) ReleaseMode.Lyse else ReleaseMode.Retire
+            add(OrganicAiEffect.Release(organism, organism.cells.map { it.id }, mode))
+            return@buildList
+        }
         if (organism.target == null) {
             if (organism.zygote.phase is CellPhase.Working) add(OrganicAiEffect.Resolve(organism.id))
         } else {
@@ -157,8 +164,11 @@ internal class OrganicAiEffects(
     }
 
     private suspend fun hibernate(organisms: List<Organism>, machine: EffectScope<OrganicAiIntent>) {
-        organisms.forEach { saveQuietly(it) }
-        cells.releaseAll()
+        cells.freezeAdmissions()
+        organisms.forEach { organism ->
+            saveQuietly(organism)
+            executors.hibernate(organism)
+        }
         log.i { "hibernated ${organisms.size} developing organisms" }
         machine.send(OrganicAiIntent.Internal.Hibernated)
     }
@@ -168,29 +178,28 @@ internal class OrganicAiEffects(
      * reported to the machine, confirmed only when every cell was seen to stop.
      */
     private suspend fun release(effect: OrganicAiEffect.Release, machine: EffectScope<OrganicAiIntent>) {
-        val releases = coroutineScope {
-            effect.cells.map { id ->
+        coroutineScope {
+            effect.cells.mapNotNull { effect.organism.cell(it) }.map { cell ->
                 async {
-                    val cell = effect.organism.cell(id) ?: return@async ReleaseOutcome.Stopped to null
-                    val mode = if (cell.phase is CellPhase.Dead) ReleaseMode.Lyse else effect.mode
-                    if (mode == ReleaseMode.Retire) captureResult(effect.organism, id)
-                    val key = CellKey(effect.organism.id, id)
-                    val outcome = cells.release(key, cell.session, mode, cell.turns)
-                    val ended = cell.session?.takeIf { outcome == ReleaseOutcome.Stopped }
-                        ?.let { Ended(key, it, cell.turns) }
-                    outcome to ended
+                    if (cell.phase !is CellPhase.Dead && effect.mode == ReleaseMode.Retire) {
+                        captureResult(effect.organism, cell.id)
+                    }
                 }
             }.awaitAll()
         }
-        val unconfirmed = releases.count { it.first != ReleaseOutcome.Stopped }
-        val isConfirmed = unconfirmed == 0
+        val release = executors.release(effect.organism, effect.cells, effect.mode)
         val summary = "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})"
-        if (isConfirmed) log.i { summary } else log.w { "$summary, $unconfirmed not confirmed" }
+        if (release.isConfirmed) log.i { summary } else log.w { "$summary, native release not confirmed" }
         if (effect.organism.sessions == SessionRelease.Releasing) {
-            machine.send(OrganicAiIntent.Internal.SessionsReleased(effect.organism.id, isConfirmed))
+            machine.send(OrganicAiIntent.Internal.SessionsReleased(effect.organism.id, release.isConfirmed))
         }
-        releases.mapNotNull { it.second }.forEach {
-            driver.disconnect(effect.organism, it.session) { cells.isReleased(it.key, it.generation) }
+        release.stopped.forEach { id ->
+            val cell = effect.organism.cell(id) ?: return@forEach
+            val key = CellKey(effect.organism.id, id)
+            val refs = release.references[id].orEmpty() + listOfNotNull(cell.session)
+            refs.forEach { ref ->
+                driver.disconnect(effect.organism, ref) { cells.isReleased(key, cell.turns) }
+            }
         }
     }
 
@@ -215,7 +224,8 @@ internal class OrganicAiEffects(
     /** A snapshot that cannot be written now is written by the next change of its organism or the next sleep. */
     private suspend fun saveQuietly(organism: Organism) {
         try {
-            journal.save(organism)
+            executors.persist(organism)
+            executors.reconcileJudges(organism)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -223,6 +233,3 @@ internal class OrganicAiEffects(
         }
     }
 }
-
-/** A cell session that was let go, with the turn generation it was released as. */
-private data class Ended(val key: CellKey, val session: SessionRef, val generation: Int)

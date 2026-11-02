@@ -664,7 +664,10 @@ public enum class ReleaseMode {
     /** The cell completed: close the handle, keep the session. */
     Retire,
 
-    /** The cell was killed: cancel its turn, close the handle and archive the session. */
+    /**
+     * Stops the killed cell's exact turn and closes its handle.
+     * Archives only an executor session; its human conversation remains available.
+     */
     Lyse,
 }
 

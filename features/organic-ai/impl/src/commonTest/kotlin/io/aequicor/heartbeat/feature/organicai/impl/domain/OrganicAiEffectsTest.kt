@@ -41,6 +41,43 @@ import kotlin.test.assertTrue
 
 internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
     @Test
+    fun `lost machine acknowledgement restores the durable terminal result without reopening native work`() = runTest {
+        val source = organism(cell(C1))
+        machine.refuse = { it is OrganicAiIntent.Internal.TurnSettled }
+        effects.handle(OrganicAiEffect.Drive(source, C1, request(C1)), machine)
+        cells.handle.observed.clear()
+        cells.opened.clear()
+        machine.sent.clear()
+        machine.refuse = { false }
+        val restored = organism(cell(C1, phase = working(C1, turn = 2, isRecovery = true)))
+        effects.handle(OrganicAiEffect.Drive(restored, C1, request(C1, 2)), machine)
+        assertTrue(cells.opened.isEmpty())
+        assertEquals(1, cells.handle.submitted.size)
+        assertEquals(
+            Settlement.Answered("the answer"),
+            (machine.sent.last() as OrganicAiIntent.Internal.TurnSettled).settlement,
+        )
+    }
+
+    @Test
+    fun `an uncertain send cannot be retried by another driver for the same request`() = runTest {
+        var sends = 0
+        cells.handle.onSubmit = {
+            sends++
+            error("lost native acknowledgement")
+        }
+        val source = organism(cell(C1))
+        repeat(2) {
+            assertFailsWith<IllegalStateException> {
+                effects.handle(OrganicAiEffect.Drive(source, C1, request(C1)), machine)
+            }
+        }
+        assertEquals(1, sends)
+        assertTrue(machine.sent.none { it is OrganicAiIntent.Internal.TurnSettled })
+        assertEquals(OrganicNativeStage.Entered, native.attempts(source.id, source.incarnation!!).single().stage)
+    }
+
+    @Test
     fun `failed durable admission prevents native opening before any send`() = runTest {
         journal.failure = IllegalStateException("storage unavailable")
         val source = organism(cell(C1))
@@ -65,7 +102,10 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
                 assertEquals(AgentToolDecisionMode.AutomaticSafety, cells.routes.last().decisionMode)
             }
         }
-        effects.handle(OrganicAiEffect.Drive(organism(cell(C1)), C1, request(C1)), machine)
+        effects.handle(
+            OrganicAiEffect.Drive(organism(cell(C1)).copy(incarnation = "interactive"), C1, request(C1)),
+            machine,
+        )
         assertEquals(AgentToolDecisionMode.Interactive, cells.routes.last().decisionMode)
     }
 
@@ -105,7 +145,9 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
         }
         val letter = Letter.ChildFinished(C1, "child", "answer")
         val work = Work.Letters(listOf(letter))
-        val organism = organism(cell(C1, phase = working(C1, work = work))).copy(attachments = images)
+        val organism = organism(
+            cell(C1, phase = working(C1, work = work)),
+        ).copy(attachments = images, incarnation = "letters")
         effects.handle(OrganicAiEffect.Drive(organism, C1, request(C1)), machine)
         assertEquals(emptyList(), cells.handle.inputs.last())
     }
@@ -137,42 +179,45 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
     }
 
     @Test
-    fun `a cell that ended before its session was bound releases the new session`() = runTest {
+    fun `a refused session binding leaves its exact receipt for lifecycle cleanup`() = runTest {
         machine.refuse = { it is OrganicAiIntent.Internal.SessionBound }
         effects.handle(OrganicAiEffect.Drive(organism(cell(C1).copy(session = null)), C1, request(C1)), machine)
         assertEquals(emptyList(), cells.handle.submitted)
-        assertEquals(
-            listOf<Released>(Triple(CellKey(ORGANISM, C1), cells.handle.session, ReleaseMode.Lyse)),
-            cells.released,
-        )
+        assertEquals(emptyList(), cells.released)
+        assertEquals(OrganicNativeStage.Opened, native.attempts(ORGANISM, "test-incarnation").single().stage)
     }
 
     @Test
-    fun `a turn the machine no longer takes is cancelled and its session released`() = runTest {
+    fun `an obsolete observer cannot cancel or lyse a newer cell request`() = runTest {
         machine.refuse = { it is OrganicAiIntent.Internal.TurnAccepted }
         effects.handle(OrganicAiEffect.Drive(organism(cell(C1)), C1, request(C1)), machine)
-        assertEquals(listOf(TurnId("t1")), cells.handle.cancelled)
-        assertEquals(ReleaseMode.Lyse, cells.released.single().third)
+        assertEquals(emptyList(), cells.handle.cancelled)
+        assertEquals(emptyList(), cells.released)
     }
 
     @Test
     fun `a recovery adopts a native turn that is still running`() = runTest {
         cells.handle.active = TurnId("native")
         val recovering = organism(cell(C1, phase = working(C1, turn = 2, isRecovery = true)))
+        seedRecovery(recovering, C1, TurnId("native"))
         effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1, 2)), machine)
         assertEquals(emptyList(), cells.handle.submitted)
         assertEquals(
             OrganicAiIntent.Internal.TurnAccepted(ORGANISM, C1, request(C1, 2), TurnId("native")),
             machine.sent.first(),
         )
-        assertEquals(listOf<Pair<CellKey, SessionRef?>>(CellKey(ORGANISM, C1) to session("c1")), cells.opened)
+        assertEquals(listOf<Pair<CellKey, SessionRef?>>(CellKey(ORGANISM, C1) to cells.handle.session), cells.opened)
     }
 
     @Test
-    fun `a recovery without a running turn resubmits its work with a restart notice`() = runTest {
+    fun `legacy recovery without a durable native claim never resubmits`() = runTest {
+        native.hasTracking = false
         val recovering = organism(cell(C1, phase = working(C1, turn = 2, isRecovery = true)))
-        effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1, 2)), machine)
-        assertTrue("Heartbeat restarted" in cells.handle.submitted.single().second)
+        assertFailsWith<IllegalStateException> {
+            effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1, 2)), machine)
+        }
+        assertTrue(cells.handle.submitted.isEmpty())
+        assertTrue(cells.opened.isEmpty())
     }
 
     @Test
@@ -282,7 +327,7 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
         machine.refuse = { it is OrganicAiIntent.Internal.SessionBound }
         val germinating = organism(cell(C1).copy(session = null)).copy(harnesses = setOf("compose"))
         effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
-        assertEquals(1, cells.released.size)
+        assertEquals(0, cells.released.size)
         assertEquals(emptyList(), harnesses.connected)
         assertEquals(emptyList(), harnesses.disconnected)
     }
@@ -314,24 +359,18 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
     }
 
     @Test
-    fun `an abandoned turn lets go of the connections it made`() = runTest {
+    fun `an obsolete observer leaves connections for the canonical lifecycle owner`() = runTest {
         machine.refuse = { it is OrganicAiIntent.Internal.TurnAccepted }
         val germinating = organism(cell(C1)).copy(harnesses = setOf("compose"))
         effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
-        assertEquals(listOf(cells.handle.session to setOf("compose")), harnesses.disconnected)
+        assertEquals(emptyList(), harnesses.disconnected)
     }
 
     @Test
-    fun `a recovery turn connects again but adopting a running turn does not`() = runTest {
+    fun `a recovered native request does not reconnect harnesses or resend`() = runTest {
         val chosen = setOf("compose")
         val recovering = organism(cell(C1, phase = working(C1, turn = 2, isRecovery = true))).copy(harnesses = chosen)
-        effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1, 2)), machine)
-        assertEquals(listOf(session("new") to chosen), harnesses.connected)
-        assertEquals(1, cells.handle.submitted.size)
-
-        harnesses.connected.clear()
-        cells.handle.submitted.clear()
-        cells.handle.active = TurnId("native")
+        seedRecovery(recovering, C1, TurnId("native"))
         effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1, 2)), machine)
         assertEquals(emptyList(), harnesses.connected)
         assertEquals(emptyList(), cells.handle.submitted)
@@ -346,7 +385,12 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
 
         harnesses.failure = null
         machine.sent.clear()
-        effects.handle(OrganicAiEffect.Drive(organism, ZYGOTE, request(ZYGOTE)), machine)
+        val resumed = organism.copy(
+            cells = organism.cells.map {
+                if (it.id == ZYGOTE) it.copy(phase = working(ZYGOTE, turn = 2), turns = 2) else it
+            },
+        )
+        effects.handle(OrganicAiEffect.Drive(resumed, ZYGOTE, request(ZYGOTE, 2)), machine)
         assertEquals(1, cells.handle.submitted.size)
         val settled = machine.sent.last() as OrganicAiIntent.Internal.TurnSettled
         assertEquals(Settlement.Answered("the answer"), settled.settlement)
@@ -359,22 +403,23 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
             Triple(TurnOutcome.Failed(failure), null, Settlement.Broke(Breakdown.Engine(failure))),
             Triple(TurnOutcome.Cancelled, null, Settlement.Broke(Breakdown.Interrupted)),
             Triple(TurnOutcome.Unknown, null, Settlement.Broke(Breakdown.Unconfirmed)),
-            Triple(TurnOutcome.Unknown, "found", Settlement.Answered("found")),
+            Triple(TurnOutcome.Unknown, "found", Settlement.Broke(Breakdown.Unconfirmed)),
             Triple(
                 TurnOutcome.Completed,
                 null,
                 Settlement.Answered("(The cell ended its turn without a written answer.)"),
             ),
         )
-        expected.forEach { (outcome, answer, settlement) ->
+        expected.forEachIndexed { index, (outcome, answer, settlement) ->
             cells.handle.outcome = outcome
             cells.handle.answer = answer
             machine.sent.clear()
-            effects.handle(OrganicAiEffect.Drive(organism(cell(C1)), C1, request(C1)), machine)
+            val source = organism(cell(C1)).copy(incarnation = "outcome-$index")
+            effects.handle(OrganicAiEffect.Drive(source, C1, request(C1)), machine)
             assertEquals(settlement, (machine.sent.last() as OrganicAiIntent.Internal.TurnSettled).settlement)
         }
         // The handle hears whether the end of the turn was confirmed.
-        assertEquals(listOf(true, true, false), cells.handle.unconfirmed)
+        assertEquals(listOf(false), cells.handle.unconfirmed)
     }
 
     @Test
@@ -399,7 +444,7 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
     @Test
     fun `an unreadable transcript is noted in the dossier instead of failing the case`() = runTest {
         val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "it loops")
-        val court = ImmunityCourt(judges, { throw EngineException(EngineFailure.Unknown()) }, MemoryNativeJournal())
+        val court = ImmunityCourt(judges, { throw EngineException(EngineFailure.Unknown()) }, native)
         judges.answer = "VERDICT {\"decision\":\"spare\",\"reason\":\"no evidence\"}"
         val ruling = court.judge(organism(cell(C1), cases = listOf(complaint)), complaint.id)
         assertEquals(Ruling.Spare("no evidence"), ruling)
@@ -442,12 +487,12 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
         effects.handle(OrganicAiEffect.Revive(listOf(organism(target = null))), machine)
         assertEquals(listOf<OrganicAiIntent>(OrganicAiIntent.Internal.Targeted(ORGANISM, TARGET)), machine.sent)
         val missing = OrganicAiEffects(
-            journal,
             { null },
             cells,
-            CellDriver(cells, journal, workspaces, harnesses),
-            ImmunityCourt(judges, transcripts, MemoryNativeJournal()),
+            CellDriver(cells, journal, workspaces, harnesses, MemoryNativeJournal()),
+            ImmunityCourt(judges, transcripts, native),
             workspaces,
+            TestOrganicExecutors(journal, cells),
         )
         machine.sent.clear()
         missing.handle(OrganicAiEffect.Resolve(ORGANISM), machine)
@@ -468,6 +513,7 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
         effects.handle(OrganicAiEffect.Release(ended, listOf(ZYGOTE, C1), ReleaseMode.Lyse), machine)
         assertEquals(
             listOf<Released>(
+                Triple(CellKey(ORGANISM, ZYGOTE), session("z"), ReleaseMode.Retire),
                 Triple(CellKey(ORGANISM, ZYGOTE), session("z"), ReleaseMode.Lyse),
                 Triple(CellKey(ORGANISM, C1), session("c1"), ReleaseMode.Lyse),
             ),

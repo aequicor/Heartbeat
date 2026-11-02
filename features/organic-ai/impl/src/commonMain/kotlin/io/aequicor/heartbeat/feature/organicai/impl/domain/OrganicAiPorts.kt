@@ -279,7 +279,7 @@ internal interface CellHandle {
     suspend fun answer(turn: TurnId, isUnconfirmed: Boolean = false): String?
 }
 
-/** Judge sessions: each call is a new session with no tools and one turn, released afterwards. */
+/** One frozen native request per case; retries return recorded outcomes without replaying the dossier. */
 internal fun interface JudgeSessions {
     /** The judge's whole answer to [prompt]; [onSession] learns the new session before the turn starts. */
     suspend fun deliberate(

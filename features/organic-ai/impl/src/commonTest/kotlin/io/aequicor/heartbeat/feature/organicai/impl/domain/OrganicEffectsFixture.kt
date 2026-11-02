@@ -34,18 +34,19 @@ import io.aequicor.heartbeat.feature.organicai.impl.session
 /** Shared in-memory ports for the organic effect scenarios. */
 internal open class OrganicEffectsFixture {
     protected val journal = Journal()
+    protected val native = MemoryNativeJournal()
     protected val cells = Cells()
     protected val workspaces = Workspaces()
     protected val judges = Judges()
     protected val harnesses = Harnesses()
     protected val transcripts = SessionTranscripts { listOf(message(MessageRole.Assistant, "looping again")) }
     protected val effects = OrganicAiEffects(
-        journal,
         { TARGET },
         cells,
-        CellDriver(cells, journal, workspaces, harnesses),
-        ImmunityCourt(judges, transcripts, MemoryNativeJournal()),
+        CellDriver(cells, journal, workspaces, harnesses, native),
+        ImmunityCourt(judges, transcripts, native),
         workspaces,
+        TestOrganicExecutors(journal, cells),
     )
     protected val machine = Recorder()
 
@@ -64,6 +65,25 @@ internal open class OrganicEffectsFixture {
             sent += intent
             return if (refuse(intent)) SendResult.Ignored else SendResult.Accepted
         }
+    }
+
+    protected fun seedRecovery(source: Organism, cell: CellId, turn: TurnId, workspace: WorkspaceRef? = null) {
+        val request = io.aequicor.heartbeat.feature.organicai.impl.request(cell)
+        val claim = OrganicNativeClaim(
+            request.value,
+            source.executor(OrganicExecutorAddress.Kind.Cell, cell.value).id,
+            source.cellExecution(cell),
+            TARGET,
+            workspace,
+            request,
+            "original prompt",
+        )
+        native.seed(
+            source.id,
+            source.incarnation!!,
+            OrganicNativeAttempt(claim, OrganicNativeStage.Accepted, cells.handle.session, turn),
+        )
+        cells.handle.observed[request] = Turn(turn, request, TARGET)
     }
 
     protected class Journal : OrganismJournal {
