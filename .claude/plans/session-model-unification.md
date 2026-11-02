@@ -766,3 +766,40 @@ ref, захваченный до замены. Регрессии покрыва
 recovery witness 14/14; DI, обычный и typed detekt успешны с прежними тремя диагностическими
 ограничениями typed analysis. Read-only архитектурное ревью после исправления route race,
 legacy stop ordering и generic cleanup bypass — APPROVE. Production wiring не включено.
+
+### Staged reservation до публикации recovery Q
+
+StudioRecoveryRunHost — явная capability host, который сохраняет witness до публикации.
+Координатор сначала резервирует busy и private pending Q; profile child устанавливает
+finally и ждёт release. Release завершается вне coordinator lock. Затем host.reserveRecovery
+может взять route→journal, после чего Q публикуется атомарно. Таким образом отсутствует
+цикл coordinator→route→coordinator. Обычные host без capability сохраняют прежний путь.
+Production EngineStudioRepository эту capability пока НЕ включает: переключение должно
+идти вместе с native bind/stop и узким журналом recovery→Submit, а не выдавать готовность
+только по наличию тестовой возможности.
+
+requestRecoveryStop захватывает Q и монотонный pending stop под coordinator lock ДО
+ожидания ready. Publisher переносит флаг через host.recordRecoveryStop в durable witness
+вне coordinator lock и повторно проверяет состояние перед публикацией. Тест executeRun
+без дополнительной suspension немедленно пробует Submit; ранний Stop уже обязан его
+запретить, независимо от того, получил ли ожидающий Stop процессор после ready.
+Возврат captured Q после ошибки инициализации — только адрес наблюдения, НЕ подтверждение
+остановки, NotSubmitted или native acceptance. Runtime обязан проверить witness/evidence,
+не перенаправлять старый Q на новый текущий turn. После publication actual Stop и bind
+также должны сериализоваться через точный Q с записью intent до подтверждения результата.
+
+Cleanup установлен до возможной отмены; ошибка reserve/journal и caller cancellation
+освобождают ожидающий Stop даже без опубликованного Q. Обычный queue settlement→gate cancel→
+finishedRun→reservation release порядок сохранён. При ошибке тестовый профиль использует
+SupervisorJob, как производственный профиль и существующие coordinator error tests.
+
+Проверка staged reservation: `build/verification/recovery-reservation-final4.log` —
+Studio impl 991/991, DI, обычный и typed detekt успешны (три прежние typed diagnostics).
+Архитектурное ревью после добавления pendingStop latch и persist-before-publish — без
+блокеров. Pending snapshots immutable, обновляются copy под coordinator lock, ready
+сохраняется общим Deferred. Дополнительно formatter довёл вложенные listOf в двух
+предыдущих witness fixtures до устойчивого форматирования; поведение тестов не менялось.
+Следующий шаг — production opt-in вместе с exact native stop/bind, без преждевременного
+снятия requireNativeRecovery guard. Сначала определить маршрутизацию Stop для captured Q
+с отсутствующим witness после initialization failure: всегда Unconfirmed, без fallback
+на поздний current turn, затем late Stop и callback failure под exact native identity.

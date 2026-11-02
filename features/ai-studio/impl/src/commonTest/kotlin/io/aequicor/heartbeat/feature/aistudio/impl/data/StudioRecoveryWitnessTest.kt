@@ -43,13 +43,13 @@ class StudioRecoveryWitnessTest {
                 stores.keyValue(ChatSpec).set(
                     ChatsKey,
                     listOf(
-                    StudioChatRecord(
-                        helper.value,
-                        "Chat",
-                        Instant.fromEpochMilliseconds(0),
-                        ref = session.copy(nativeId = "replacement"),
+                        StudioChatRecord(
+                            helper.value,
+                            "Chat",
+                            Instant.fromEpochMilliseconds(0),
+                            ref = session.copy(nativeId = "replacement"),
+                        ),
                     ),
-                )
                 )
             }
         }
@@ -72,15 +72,15 @@ class StudioRecoveryWitnessTest {
         stores.keyValue(ChatSpec).set(
             ChatsKey,
             listOf(
-            StudioChatRecord(
-                helper.value,
-                "Chat",
-                Instant.fromEpochMilliseconds(0),
-                ref = session,
-                helper = StudioHelperIdentity(ActionId("owner"), null, null, TrustLevel.Ask),
-                lastRunRequest = source,
+                StudioChatRecord(
+                    helper.value,
+                    "Chat",
+                    Instant.fromEpochMilliseconds(0),
+                    ref = session,
+                    helper = StudioHelperIdentity(ActionId("owner"), null, null, TrustLevel.Ask),
+                    lastRunRequest = source,
+                ),
             ),
-        )
         )
         attempts.prepareRecovery(helper, initial)
         assertFailsWith<EngineException> { attempts.requestStop(helper, execution) }
