@@ -38,6 +38,31 @@ class StudioPermissionDeliveryTest {
     )
 
     @Test
+    fun `steering requires a supported running turn and preserves other chats`() {
+        val initial = io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState(steerable = setOf("other"))
+        val running = ActiveSessionState.Running(turn)
+        val supported = initial.withPermissionState("chat", running, false, true, true)
+        assertEquals(setOf("other", "chat"), supported.steerable)
+        assertEquals(initial.steerable, supported.withPermissionState("chat", running, false, true, false).steerable)
+        assertEquals(initial.steerable, supported.withPermissionState("chat", running, true, true, true).steerable)
+        val states = listOf(
+            ActiveSessionState.Ready(),
+            ActiveSessionState.Interrupting(turn),
+            ActiveSessionState.Unavailable(EngineFailure.Unknown(), activeTurn = turn),
+            ActiveSessionState.Closing(),
+            ActiveSessionState.Closed,
+        )
+        for (state in states) {
+            assertEquals(initial.steerable, supported.withPermissionState("chat", state, false, true, true).steerable)
+        }
+        assertEquals(
+            supported.steerable,
+            initial.withPermissionState("chat", pending().value, false, true, true).steerable,
+        )
+        assertEquals(initial.steerable, supported.withoutFinishedRun("chat").steerable)
+    }
+
+    @Test
     fun `command admission is not acknowledgement and a late failure reaches the waiter`() = runTest {
         val state = pending()
         val result = async { assertFailsWith<IllegalStateException> { deliverStudioPermission(state, decision) {} } }

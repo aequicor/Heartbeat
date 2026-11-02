@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasSetTextAction
@@ -65,6 +66,7 @@ class StudioQueueUiTest {
         panes = persistentListOf(pane),
         models = StudioModelOptions,
         isMessageQueueEnabled = true,
+        steerable = persistentSetOf("chat"),
         running = kotlinx.collections.immutable.persistentSetOf("chat"),
         sessions = persistentListOf(
             SessionUi("chat", "Queue", null, Instant.fromEpochMilliseconds(0), isRunning = true),
@@ -162,6 +164,31 @@ class StudioQueueUiTest {
                     listOf(StudioIntent.Submit(0), StudioIntent.Submit(0)),
                     events.filterIsInstance<StudioIntent.Submit>(),
                 )
+            }
+        }
+
+    @Test
+    fun `engine without steering queues shortcuts and disables correction for its own chat`() =
+        runSkikoComposeUiTest(size = Size(1000f, 700f)) {
+            val events = mutableListOf<StudioIntent>()
+            var snapshot by mutableStateOf(state.withDraft(0, "Next message"))
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    StudioComposer(snapshot.paneContent(pane), events::add, isCompact = false)
+                }
+            }
+            onNodeWithTag("queued-correct-1").assertIsEnabled()
+            // Another chat's supported engine must not enable steering for this pane.
+            runOnIdle { snapshot = snapshot.copy(steerable = persistentSetOf("other")) }
+            onNodeWithTag("queued-correct-1").assertIsNotEnabled()
+            onNode(hasSetTextAction()).performClick()
+            onNode(hasSetTextAction()).performKeyInput {
+                keyDown(Key.CtrlLeft)
+                pressKey(Key.Enter)
+                keyUp(Key.CtrlLeft)
+            }
+            runOnIdle {
+                assertEquals(listOf(StudioIntent.Submit(0)), events.filterIsInstance<StudioIntent.Submit>())
             }
         }
 

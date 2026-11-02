@@ -61,6 +61,8 @@ public data class StudioRuntimeState(
     val permissions: List<StudioPermission> = emptyList(),
     val stopFailures: Set<String> = emptySet(),
     val uncancellable: Set<String> = emptySet(),
+    /** Chats whose current native turn accepts additional user input. */
+    val steerable: Set<String> = emptySet(),
     val runStartedAt: Map<String, Instant> = emptyMap(),
     /** Last measured context by conversation; missing entries have no telemetry. */
     val contexts: Map<String, ContextUsage> = emptyMap(),

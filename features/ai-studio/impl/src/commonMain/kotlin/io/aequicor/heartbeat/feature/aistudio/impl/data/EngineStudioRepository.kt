@@ -39,6 +39,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SteersTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -781,7 +782,8 @@ internal class EngineStudioRepository(
         log.v { "Update pending permission projection" }
         val (handle, isStopRequested) = handlesLock.withLock { handles[id] to (id in stopRequests) }
         val isStopSupported = handle?.features?.resolve(CancelsTurns) != FeatureAccess.Unsupported
-        mutableState.update { it.withPermissionState(id, state, isStopRequested, isStopSupported) }
+        val isSteeringSupported = handle?.features?.resolve(SteersTurns) is FeatureAccess.Available
+        mutableState.update { it.withPermissionState(id, state, isStopRequested, isStopSupported, isSteeringSupported) }
     }
 
     override suspend fun edit(sessionId: String, edit: SessionEdit) {

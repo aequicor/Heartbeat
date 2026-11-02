@@ -190,7 +190,7 @@ private fun QueueRowContent(
     val label = message.text.ifBlank { file?.name?.ifBlank { null } ?: stringResource(Res.string.queue_file) }
     val correct = stringResource(Res.string.queue_correct)
     val isPrimary = content.subSession == io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
-    val isCorrectable = content.host.isTurnSteeringAvailable && isPrimary &&
+    val isCorrectable = content.host.isTurnSteeringAvailable && content.isTurnSteeringAvailable && isPrimary &&
         content.session?.isRunning == true && message.isPending &&
         content.queue.messages.all { it.isPending }
     HbRow(
