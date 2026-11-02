@@ -7968,7 +7968,20 @@
     },
     "dimensions.composerUsageMinWidth": {
       "type": "number",
-      "value": 44
+      "value": [
+        {
+          "value": 80,
+          "theme": {
+            "host": "desktop"
+          }
+        },
+        {
+          "value": 96,
+          "theme": {
+            "host": "mobile"
+          }
+        }
+      ]
     },
     "dimensions.computerUseBadgeOffset": {
       "type": "number",
@@ -8512,11 +8525,37 @@
     },
     "dimensions.usageRingSize": {
       "type": "number",
-      "value": 14
+      "value": [
+        {
+          "value": 18,
+          "theme": {
+            "host": "desktop"
+          }
+        },
+        {
+          "value": 24,
+          "theme": {
+            "host": "mobile"
+          }
+        }
+      ]
     },
     "dimensions.usageRingStrokeWidth": {
       "type": "number",
-      "value": 2
+      "value": [
+        {
+          "value": 2,
+          "theme": {
+            "host": "desktop"
+          }
+        },
+        {
+          "value": 3,
+          "theme": {
+            "host": "mobile"
+          }
+        }
+      ]
     },
     "dimensions.verticalInset": {
       "type": "number",
@@ -9168,6 +9207,107 @@
           "value": 240,
           "theme": {
             "host": "mobile"
+          }
+        }
+      ]
+    },
+    "dimensions.composerUsageHeight": {
+      "type": "number",
+      "value": [
+        {
+          "value": 32,
+          "theme": {
+            "host": "desktop"
+          }
+        },
+        {
+          "value": 44,
+          "theme": {
+            "host": "mobile"
+          }
+        }
+      ]
+    },
+    "dimensions.usageQuotaChipHeight": {
+      "type": "number",
+      "value": 18
+    },
+    "dimensions.usageQuotaStrokeWidth": {
+      "type": "number",
+      "value": 2.5
+    },
+    "dimensions.composerUsagePopupWidth": {
+      "type": "number",
+      "value": 420
+    },
+    "dimensions.composerUsagePopupMaxHeight": {
+      "type": "number",
+      "value": 560
+    },
+    "colors.usageLow": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#076B4C",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#69D9B0",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "colors.usageWarning": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#925400",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#FFCD70",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "colors.usageHigh": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#AC3D22",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#FFBEA6",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "colors.usageCritical": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#B32135",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#FFB5BE",
+          "theme": {
+            "mode": "dark"
           }
         }
       ]
