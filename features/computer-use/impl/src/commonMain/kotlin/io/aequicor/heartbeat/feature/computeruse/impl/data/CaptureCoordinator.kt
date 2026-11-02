@@ -98,11 +98,12 @@ internal class CaptureCoordinator(
             operations.withLock {
                 capturer.failure(mode)?.let { return@withLock it }
                 val bounds = capturer.currentBounds(mode) ?: return@withLock ComputerUseFailure.TargetClosed
+                val captureInjector = injector.forCapture(mode) ?: injector
                 val previous = active
                 if (previous != null) cache.forgetSession(previous.session)
                 sessions += session
                 mutex.withLock {
-                    active = ActiveCapture(session, mode, bounds)
+                    active = ActiveCapture(session, mode, bounds, captureInjector)
                     log.i {
                         "capture opened session=$session mode=${mode.label()} area=${bounds.widthPx}x${bounds.heightPx}"
                     }
@@ -370,18 +371,18 @@ internal class CaptureCoordinator(
             session.bounds = bounds
             Frames(session.masterReference, session.preview)
         }
-        if (!injector.isAvailable) return InputOutcome.Rejected(ComputerUseFailure.Unavailable)
+        if (!session.injector.isAvailable) return InputOutcome.Rejected(ComputerUseFailure.Unavailable)
         if (frames.leavesRoi(action, bounds, binding.roi)) return InputOutcome.Rejected(ComputerUseFailure.OutsideRoi)
         val map: (FramePoint) -> ScreenPoint? = { point -> mapPoint(point, action.space, bounds, frames) }
         val feedback = InputFeedback { step -> onProgress(session.session, recordProgress(session, bounds, step)) }
         val outcome = guard()?.let(InputOutcome::Rejected)
             ?: runLogged("input injection") {
-                injector.applyObserved(
+                session.injector.applyObserved(
                     action,
                     map,
                     onProgress = { point -> feedback.report(point, isEffect = false) },
                     onEffect = {
-                        val refusal = arrivalFailure(session.mode, bounds, guard)
+                        val refusal = arrivalFailure(session, bounds, guard)
                         if (refusal == null) feedback.effect(action.gesture())
                         refusal
                     },
@@ -445,7 +446,7 @@ internal class CaptureCoordinator(
         }
         return capturer.failure(
             session.mode,
-        ) ?: activationFailure(session.mode) ?: guard() ?: capturer.failure(session.mode)
+        ) ?: activationFailure(session) ?: guard() ?: capturer.failure(session.mode)
     }
 
     /**
@@ -453,10 +454,11 @@ internal class CaptureCoordinator(
      * changed, and the target must still be where the action's points were mapped, or the effect would land elsewhere.
      */
     private suspend fun arrivalFailure(
-        mode: ComputerUseMode,
+        session: ActiveCapture,
         authorized: ScreenBounds,
         guard: suspend () -> ComputerUseFailure?,
     ): ComputerUseFailure? {
+        val mode = session.mode
         val current = capturer.currentBounds(mode)
         val placement = when {
             current == null -> ComputerUseFailure.TargetClosed
@@ -466,11 +468,12 @@ internal class CaptureCoordinator(
 
             else -> null
         }
-        return guard() ?: capturer.failure(mode) ?: placement ?: activationFailure(mode)
+        return guard() ?: capturer.failure(mode) ?: placement ?: activationFailure(session)
     }
 
-    private suspend fun activationFailure(mode: ComputerUseMode): ComputerUseFailure? {
-        if (mode !is ComputerUseMode.Window) return null
+    private suspend fun activationFailure(session: ActiveCapture): ComputerUseFailure? {
+        val mode = session.mode
+        if (!session.injector.isForegroundRequired || mode !is ComputerUseMode.Window) return null
         val outcome = runLogged("window activation") {
             windows.activationFailure(mode.target, mode.isClientAreaOnly)?.let(InputOutcome::Rejected)
                 ?: InputOutcome.Applied
@@ -717,6 +720,7 @@ internal class CaptureCoordinator(
         val session: CaptureSessionId,
         val mode: ComputerUseMode,
         var bounds: ScreenBounds,
+        val injector: InputInjector,
         var masterReference: CaptureRef? = null,
         var preview: CaptureRef? = null,
         var crop: CaptureRef? = null,

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.data
 
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import java.awt.GraphicsEnvironment
 import kotlin.math.roundToInt
 
@@ -47,4 +48,14 @@ private fun overlap(native: ScreenBounds, display: ScreenBounds): Long {
     val bottom = display.y + (display.heightPx * display.scale).roundToInt()
     return (minOf(right, native.right) - maxOf(display.x, native.x)).coerceAtLeast(0).toLong() *
         (minOf(bottom, native.bottom) - maxOf(display.y, native.y)).coerceAtLeast(0)
+}
+
+/** Inverts the selected window's single-monitor AWT coordinate map for HWND messages. */
+internal fun windowsNativePoint(point: ScreenPoint, window: ScreenBounds, displays: List<ScreenBounds>): ScreenPoint? {
+    if (windowsUserBounds(window, displays, requiresSingleDisplay = true) == null) return null
+    val display = displays.maxByOrNull { overlap(window, it) } ?: return null
+    return ScreenPoint(
+        display.x + ((point.x - display.x) * display.scale).roundToInt(),
+        display.y + ((point.y - display.y) * display.scale).roundToInt(),
+    )
 }

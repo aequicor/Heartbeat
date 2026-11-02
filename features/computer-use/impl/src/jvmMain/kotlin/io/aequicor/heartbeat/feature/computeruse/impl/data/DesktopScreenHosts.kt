@@ -214,7 +214,8 @@ internal class DesktopScreenCapturer(
 
             HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios -> null
         }
-        if (native != null) return native
+        // A desktop crop would contain the covering user's window during background Windows input.
+        if (native != null || platform.host == HostPlatform.Windows) return native
         log.w { "window capture falls back to a desktop crop" }
         return captureScreen(bounds)
     }

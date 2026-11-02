@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
@@ -33,6 +34,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 
 /** Native input calls, separated from action policy so cancellation can be verified without real input. */
+@Suppress("TooManyFunctions") // One serialized native input device owns pointer, keys and ordered text semantics.
 internal interface DesktopInputDriver {
     fun move(point: ScreenPoint)
     fun pressButton(mask: Int)
@@ -42,6 +44,15 @@ internal interface DesktopInputDriver {
     fun wheel(notches: Int)
     fun pause()
     fun idle()
+
+    /** Refuses key combinations the driver cannot deliver without changing global keyboard state. */
+    fun supportsKeys(codes: List<Int>): Boolean = true
+
+    /** Validates backend-specific text limits before any part of the string is sent. */
+    fun supportsText(text: String): Boolean = true
+
+    /** Queues an ordered text control character; false keeps the platform's key press semantics. */
+    fun typeControlCharacter(code: Int): Boolean = false
 
     /** The pointer's current host position, where a glide starts; `null` when the platform cannot tell. */
     fun location(): ScreenPoint? = null
@@ -54,13 +65,18 @@ internal interface DesktopInputDriver {
      * `false` means the system refused the events, possibly after some of them arrived, so the caller reports the
      * failure instead of typing the text again.
      */
-    fun typeUnicode(text: String): Boolean = false
+    fun typeUnicode(text: String, checkpoint: () -> Unit = {}): Boolean = false
 }
 
 /** Creates an input device only after the host has authorized an action. */
 internal interface DesktopInputDevices {
     val isAvailable: Boolean
     fun create(): DesktopInputDriver
+
+    /** A capture-local window device, or null when this host uses foreground input. */
+    fun forWindow(mode: ComputerUseMode.Window): DesktopInputDevices? = null
+
+    val isWindowScoped: Boolean get() = false
 }
 
 /** AWT devices; Robot coordinates are the operating system's logical screen coordinates. */
@@ -73,6 +89,9 @@ internal class AwtInputDevices(private val platform: PlatformInfo) : DesktopInpu
         Robot().apply { autoDelay = AUTO_DELAY_MILLIS },
         platform.host,
     )
+
+    override fun forWindow(mode: ComputerUseMode.Window): DesktopInputDevices? =
+        if (platform.host == HostPlatform.Windows) WindowsWindowInputDevices(mode.target.id) else null
 
     private companion object {
         const val AUTO_DELAY_MILLIS = 8
@@ -93,7 +112,10 @@ private class AwtInputDriver(private val robot: Robot, private val host: HostPla
 
     override val isUnicodeAvailable: Boolean get() = host == HostPlatform.Windows && WindowsTextBackend.isAvailable
 
-    override fun typeUnicode(text: String): Boolean = isUnicodeAvailable && WindowsTextBackend.type(text)
+    override fun typeUnicode(text: String, checkpoint: () -> Unit): Boolean {
+        checkpoint()
+        return isUnicodeAvailable && WindowsTextBackend.type(text)
+    }
 
     private companion object {
         const val STEP_DELAY_MILLIS = 12
@@ -136,6 +158,12 @@ internal class DesktopInputInjector(
     private var glideArea: ScreenBounds? = null
 
     override val isAvailable: Boolean get() = devices.isAvailable
+    override val isForegroundRequired: Boolean get() = !devices.isWindowScoped
+
+    override suspend fun forCapture(mode: ComputerUseMode): InputInjector = when (mode) {
+        is ComputerUseMode.Window -> devices.forWindow(mode)?.let { DesktopInputInjector(dispatchers, it) } ?: this
+        is ComputerUseMode.Desktop -> this
+    }
 
     override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome =
         applyObserved(action, map, onProgress = { })
@@ -325,6 +353,7 @@ internal class DesktopInputInjector(
             log.w { "typed text refused: over the limit chars=${text.length}" }
             return ComputerUseFailure.InputRejected
         }
+        if (!driver.supportsText(text)) return ComputerUseFailure.UnsupportedCharacter
         val isUnicodeCapable = driver.isUnicodeAvailable
         val isMappable = segments.filterIsInstance<TextSegment.Literal>().all { segment ->
             segment.text.all { character ->
@@ -347,7 +376,8 @@ internal class DesktopInputInjector(
             currentCoroutineContext().ensureActive()
             when (segment) {
                 is TextSegment.Literal -> if (isUnicodeCapable) {
-                    if (!driver.typeUnicode(segment.text)) return false
+                    val context = currentCoroutineContext()
+                    if (!driver.typeUnicode(segment.text) { context.ensureActive() }) return false
                     onProgress(null)
                 } else {
                     // Validated upfront, so the key-code path always carries the whole run.
@@ -369,7 +399,11 @@ internal class DesktopInputInjector(
         code: Int,
         onProgress: suspend (ScreenPoint?) -> Unit,
     ) {
-        pressKeys(driver, listOf(code), onProgress)
+        if (driver.typeControlCharacter(code)) {
+            onProgress(null)
+        } else {
+            pressKeys(driver, listOf(code), onProgress)
+        }
         driver.pause()
     }
 
@@ -400,6 +434,7 @@ internal class DesktopInputInjector(
             log.w { "key combination refused: unknown key name count=${keys.size}" }
             return InputOutcome.Rejected(ComputerUseFailure.UnsupportedKey)
         }
+        if (!driver.supportsKeys(codes)) return InputOutcome.Rejected(ComputerUseFailure.UnsupportedKey)
         onEffect()?.let { return InputOutcome.Rejected(it) }
         pressKeys(driver, codes, onProgress)
         driver.idle()

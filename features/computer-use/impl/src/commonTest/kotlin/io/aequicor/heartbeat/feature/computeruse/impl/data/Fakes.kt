@@ -151,6 +151,9 @@ internal class FakeWindowCatalog(
 
 /** Input recorder; refuses on demand. */
 internal class FakeInputInjector(override val isAvailable: Boolean = true) : InputInjector {
+    var captureInjector: InputInjector? = null
+    override var isForegroundRequired: Boolean = true
+    override suspend fun forCapture(mode: ComputerUseMode): InputInjector? = captureInjector
     val applied = mutableListOf<InputAction>()
     val points = mutableListOf<ScreenPoint>()
     var refusal: ComputerUseFailure? = null

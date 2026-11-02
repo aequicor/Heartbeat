@@ -44,3 +44,8 @@ kotlin {
         }
     }
 }
+
+// Native probe failures need their message and cause in module-build logs on the other desktop OS.
+tasks.withType<Test>().configureEach {
+    testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+}

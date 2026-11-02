@@ -459,6 +459,31 @@ class CaptureCoordinatorTest {
     }
 
     @Test
+    fun `window addressed capture keeps its driver and never activates the target`() = runTest {
+        val fixture = fixture()
+        val addressed = FakeInputInjector().apply {
+            isForegroundRequired = false
+            isProgressReported = true
+        }
+        fixture.injector.captureInjector = addressed
+        fixture.windows.isActivationAllowed = false
+        fixture.coordinator.open(Session, ComputerUseMode.Window(windowTarget()))
+        fixture.injector.captureInjector = null
+        fixture.coordinator.capture(CaptureRequest())
+        assertEquals(InputOutcome.Applied, fixture.coordinator.input(InputAction.Click(FramePoint(1.0, 1.0))))
+        assertEquals(0, fixture.windows.activations)
+        assertEquals(1, addressed.applied.size)
+        assertTrue(fixture.injector.applied.isEmpty())
+        val refused = fixture.coordinator.input(InputAction.Type("text"), guard = { ComputerUseFailure.PermissionLost })
+        assertEquals(ComputerUseFailure.PermissionLost, assertIs<InputOutcome.Rejected>(refused).reason)
+        assertEquals(1, addressed.applied.size)
+        fixture.coordinator.open(Session, Desktop)
+        fixture.coordinator.capture(CaptureRequest())
+        assertEquals(InputOutcome.Applied, fixture.coordinator.input(InputAction.Click(FramePoint(1.0, 1.0))))
+        assertEquals(1, fixture.injector.applied.size)
+    }
+
+    @Test
     fun `window input activates the window first`() = runTest {
         val fixture = fixture()
         fixture.coordinator.open(Session, ComputerUseMode.Window(windowTarget()))
