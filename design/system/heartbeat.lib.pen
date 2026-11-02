@@ -7923,7 +7923,7 @@
     },
     "dimensions.composerMenuMaxHeight": {
       "type": "number",
-      "value": 320
+      "value": 420
     },
     "dimensions.composerMenuMaxWidth": {
       "type": "number",

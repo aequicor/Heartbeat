@@ -125,10 +125,30 @@ class EngineManagementUiTest {
     }
 
     @Test
+    fun `an unchecked installation is inspected when its panel opens`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<EngineManagementIntent>()
+        setContent { Host(selected(managedCodex(installation = InstallationState()))) { intents += it } }
+        runOnIdle {
+            assertEquals(listOf<EngineManagementIntent>(EngineManagementIntent.InspectEngine), intents)
+        }
+    }
+
+    @Test
+    fun `a checked installation is not inspected again`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<EngineManagementIntent>()
+        setContent { Host(selected(managedCodex())) { intents += it } }
+        runOnIdle { assertEquals(emptyList<EngineManagementIntent>(), intents) }
+    }
+
+    @Test
     fun `a missing engine is installed from the panel`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineManagementIntent>()
         val codex = managedCodex(
-            installation = InstallationState(Installation(InstallSource.Missing), latest = "0.2.0"),
+            installation = InstallationState(
+                Installation(InstallSource.Missing),
+                latest = "0.2.0",
+                checkedAt = Instant.fromEpochSeconds(1),
+            ),
         )
         setContent { Host(selected(codex)) { intents += it } }
 
