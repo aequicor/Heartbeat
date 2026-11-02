@@ -72,8 +72,7 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
             val base = copy(
                 isLoading = state.snapshot == null && state.loadFailure == null,
                 isSaving = state.pending != null,
-                isModelSavePending = state.pending is ConnectionOperation.SetModelsEnabled ||
-                    (isModelSavePending && state.failed?.operation !is ConnectionOperation.SetModelsEnabled),
+                isModelSavePending = state.pending is ConnectionOperation.SetModelsEnabled,
                 loadFailure = state.loadFailure?.toUi(),
                 failure = state.failed?.failure?.toUi(),
             )
@@ -143,7 +142,6 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
         modelDraft = draft,
         modelDraftBinding = connectionId.takeIf { draft != null },
         modelDraftBaseline = enabled.toImmutableSet().takeIf { draft != null },
-        isModelSavePending = isModelSavePending && draft != null,
         confirmDisconnect = confirmDisconnect?.takeIf { id -> connectionRows.any { it.id == id } },
         isManaged = management != null,
     )

@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.EngineConnectionsScope
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineConnectionsEffects
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineServices
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ModelChecksCoordinator
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.component.EngineConnectionsComponent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ui.EngineConnectionsUiComponent
 
@@ -55,13 +56,14 @@ object EngineConnectionsBindings {
     /** Launches the machine for the lifetime of the settings space. */
     @Provides
     @SingleIn(EngineConnectionsScope::class)
-    fun machine(
+    internal fun machine(
         launcher: MachineLauncher,
         @ForScope(EngineConnectionsScope::class) scope: ScopeHandle,
         services: EngineServices,
         selections: ModelSelections,
+        checks: ModelChecksCoordinator,
     ): Machine<EngineConnectionsState, EngineConnectionsIntent, EngineConnectionsOutput> =
-        launcher.launch(EngineConnectionsMachineSpec, scope, EngineConnectionsEffects(services, selections))
+        launcher.launch(EngineConnectionsMachineSpec, scope, EngineConnectionsEffects(services, selections, checks))
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

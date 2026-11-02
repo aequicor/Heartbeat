@@ -40,10 +40,10 @@ class ModelCheckBatchTest {
         val result = assertIs<ModelCheckBatchResult.TimedOut<String>>(
             executor.execute(
                 request().copy(onSaved = {
-            callbacks++
-            delay(10.seconds)
-        })
-            )
+                    callbacks++
+                    delay(10.seconds)
+                }),
+            ),
         )
         assertEquals(1, callbacks)
         assertEquals("saved", result.saved)

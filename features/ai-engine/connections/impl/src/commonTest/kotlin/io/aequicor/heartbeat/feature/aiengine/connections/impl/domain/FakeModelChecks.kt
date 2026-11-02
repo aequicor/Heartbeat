@@ -14,6 +14,8 @@ internal class FakeModelChecks : ModelChecks {
     var result: ModelCheckBatchResult<ModelSelection>? = null
 
     override fun observe(): Flow<List<ModelCheckReceipt>> = flowOf(emptyList())
+    override fun current(receipts: List<ModelCheckReceipt>, context: ModelCheckContext): List<ModelCheckReceipt> =
+        receipts
     override suspend fun saveAndCheck(
         targets: Set<EngineTarget>,
         onSaved: suspend () -> Unit,

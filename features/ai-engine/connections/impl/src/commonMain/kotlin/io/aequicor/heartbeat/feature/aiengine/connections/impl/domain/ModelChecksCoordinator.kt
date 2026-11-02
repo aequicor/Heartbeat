@@ -42,9 +42,12 @@ internal class ModelChecksCoordinator(
             services.sources.state,
         ) { selection, engines, bindings, sources -> ModelCheckContext(selection, engines, bindings, sources) }
         return combine(contexts, reports.observe(), owner.changes) { context, history, _ ->
-            history.filter { owner.accepts(it, context) }
+            current(history, context)
         }
     }
+
+    override fun current(receipts: List<ModelCheckReceipt>, context: ModelCheckContext): List<ModelCheckReceipt> =
+        receipts.filter { owner.accepts(it, context) }
 
     override suspend fun saveAndCheck(
         targets: Set<EngineTarget>,

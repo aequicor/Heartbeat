@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 /** Internal machine-effect port. Returned execution reports remain provisional; observe supplies current receipts. */
 internal interface ModelChecks {
     fun observe(): Flow<List<ModelCheckReceipt>>
+    fun current(receipts: List<ModelCheckReceipt>, context: ModelCheckContext): List<ModelCheckReceipt>
     suspend fun saveAndCheck(
         targets: Set<EngineTarget>,
         onSaved: suspend () -> Unit = {},

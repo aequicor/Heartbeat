@@ -29,6 +29,7 @@ public data class ConnectionsSnapshot(
     val models: Map<EngineBindingId, ModelCatalogSnapshot>,
     val selection: ModelSelection,
     val management: EngineManagementState = EngineManagementState.Off,
+    val checks: List<ModelCheckReceipt> = emptyList(),
 )
 
 /** A change requested in the settings space; one runs at a time. */
@@ -65,6 +66,9 @@ public sealed interface ConnectionOperation {
 
     /** Sets or clears the profile default model. */
     public data class SetDefaultModel(val target: EngineTarget?) : ConnectionOperation
+
+    /** Repeats the two probes for this exact selected route without changing choices or the default. */
+    public data class CheckModel(val target: EngineTarget) : ConnectionOperation
 }
 
 /** An operation that failed, kept until retried or dismissed. */
@@ -84,6 +88,10 @@ public sealed interface EngineConnectionsState : MachineState {
         val pending: ConnectionOperation? = null,
         val failed: FailedOperation? = null,
         val loadFailure: EngineFailure? = null,
+        val operationSequence: Long = 0,
+        val phase: ModelSavePhase? = null,
+        /** Most recent bounded save ended before its write outcome was known; snapshots show actual choices. */
+        val isSavePending: Boolean = false,
     ) : EngineConnectionsState
 }
 
@@ -112,11 +120,14 @@ public sealed interface EngineConnectionsIntent : MachineIntent {
         /** A fresh snapshot. */
         public data class Snapshot(val snapshot: ConnectionsSnapshot) : Internal
 
-        /** The pending change completed. */
-        public data object Applied : Internal
+        /** The choice was saved; checking remains part of the same effect and uses stay. */
+        public data class Checking(val operation: ConnectionOperationId) : Internal
+
+        /** The pending operation ended its UI wait; pending save is not a rollback or a success claim. */
+        public data class Applied(val operation: ConnectionOperationId, val isSavePending: Boolean = false) : Internal
 
         /** The pending change failed. */
-        public data class ApplyFailed(val failure: EngineFailure) : Internal
+        public data class ApplyFailed(val failure: EngineFailure, val operation: ConnectionOperationId) : Internal
 
         /** Observation failed. */
         public data class ObserveFailed(val failure: EngineFailure) : Internal
@@ -129,7 +140,12 @@ public sealed interface EngineConnectionsEffect : MachineEffect {
     public data object Observe : EngineConnectionsEffect
 
     /** Executes one change. */
-    public data class Execute(val operation: ConnectionOperation) : EngineConnectionsEffect
+    public data class Execute(
+        val operation: ConnectionOperation,
+        val id: ConnectionOperationId = ConnectionOperationId(1),
+        val checkTargets: Set<EngineTarget> = emptySet(),
+        val removedTargets: Set<EngineTarget> = emptySet(),
+    ) : EngineConnectionsEffect
 }
 
 /** The settings space emits no one-off results. */
@@ -153,7 +169,8 @@ public object EngineConnectionsMachineKey :
  * | Idle | Start | | Active | Observe |
  * | Active | Snapshot | | stay (load failure cleared) | |
  * | Active | Apply | observed, nothing pending | stay (pending) | Execute |
- * | Active | Applied / ApplyFailed | | stay | |
+ * | Active | Checking | same pending operation | stay (phase Checking) | |
+ * | Active | Applied / ApplyFailed | same pending operation | stay | |
  * | Active | RetryFailed | observed, nothing pending, has failure | stay (pending) | Execute |
  * | Active | DismissError | | stay | |
  * | Active | ObserveFailed | | stay (snapshot dropped, load failure) | |
@@ -176,19 +193,57 @@ public val EngineConnectionsMachineSpec:
             on<EngineConnectionsIntent.Internal.Snapshot> {
                 stay { state.copy(snapshot = intent.snapshot, loadFailure = null) }
             }
-            on<EngineConnectionsIntent.Public.Apply>(guard = { state.pending == null && state.snapshot != null }) {
-                stay { state.copy(pending = intent.operation, failed = null) }
-                effect { EngineConnectionsEffect.Execute(intent.operation) }
+            on<EngineConnectionsIntent.Public.Apply>(
+                guard = {
+                    state.pending == null && state.snapshot != null &&
+                        state.snapshot.acceptsCheck(intent.operation)
+                },
+            ) {
+                stay {
+                    state.copy(
+                        pending = intent.operation,
+                        failed = null,
+                        operationSequence = state.operationSequence + 1,
+                        phase = intent.operation.modelPhase(),
+                        isSavePending = false,
+                    )
+                }
+                effect { state.execute(intent.operation) }
             }
-            on<EngineConnectionsIntent.Internal.Applied> { stay { state.copy(pending = null) } }
-            on<EngineConnectionsIntent.Internal.ApplyFailed> {
-                stay { state.copy(pending = null, failed = state.pending?.let { FailedOperation(it, intent.failure) }) }
+            on<EngineConnectionsIntent.Internal.Checking>(
+                guard = { state.matches(intent.operation) && state.phase != null },
+            ) {
+                stay { state.copy(phase = ModelSavePhase.Checking) }
+            }
+            on<EngineConnectionsIntent.Internal.Applied>(guard = { state.matches(intent.operation) }) {
+                stay { state.copy(pending = null, phase = null, isSavePending = intent.isSavePending) }
+            }
+            on<EngineConnectionsIntent.Internal.ApplyFailed>(guard = { state.matches(intent.operation) }) {
+                stay {
+                    state.copy(
+                        pending = null,
+                        failed = state.pending?.let { FailedOperation(it, intent.failure) },
+                        phase = null,
+                        isSavePending = false,
+                    )
+                }
             }
             on<EngineConnectionsIntent.Public.RetryFailed>(
-                guard = { state.pending == null && state.failed != null && state.snapshot != null },
+                guard = {
+                    state.pending == null && state.failed != null && state.snapshot != null &&
+                        state.failed?.operation?.let { state.snapshot.acceptsCheck(it) } == true
+                },
             ) {
-                stay { state.copy(pending = state.failed?.operation, failed = null) }
-                effect { state.failed?.operation?.let(EngineConnectionsEffect::Execute) }
+                stay {
+                    state.copy(
+                        pending = state.failed?.operation,
+                        failed = null,
+                        operationSequence = state.operationSequence + 1,
+                        phase = state.failed?.operation?.modelPhase(),
+                        isSavePending = false,
+                    )
+                }
+                effect { state.failed?.operation?.let { state.execute(it) } }
             }
             on<EngineConnectionsIntent.Public.DismissError> { stay { state.copy(failed = null) } }
             on<EngineConnectionsIntent.Internal.ObserveFailed> {
@@ -207,7 +262,26 @@ public val EngineConnectionsMachineSpec:
 
                 is EngineConnectionsEffect.Execute -> EngineConnectionsIntent.Internal.ApplyFailed(
                     error.toEngineFailure(),
+                    effect.id,
                 )
             }
         }
     }
+
+private fun EngineConnectionsState.Active.matches(id: ConnectionOperationId): Boolean =
+    pending != null && id.value == operationSequence
+
+private fun ConnectionOperation.modelPhase(): ModelSavePhase? = when (this) {
+    is ConnectionOperation.SetModelEnabled,
+    is ConnectionOperation.SetModelsEnabled,
+    is ConnectionOperation.SetDefaultModel,
+    -> ModelSavePhase.Saving
+
+    is ConnectionOperation.CheckModel -> ModelSavePhase.Checking
+
+    is ConnectionOperation.ProbeEngine,
+    is ConnectionOperation.SetConnectionEnabled,
+    is ConnectionOperation.Disconnect,
+    is ConnectionOperation.RefreshModels,
+    -> null
+}

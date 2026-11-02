@@ -156,6 +156,34 @@ class EngineConnectionsPresentationTest {
     }
 
     @Test
+    fun `bounded wait ends the pending label while an unconfirmed draft and actual choices stay separate`() {
+        val edited = loaded.editModel("qwen", true)
+        val operation = requireNotNull(edited.operationFor(EngineConnectionsScreenIntent.SaveModels))
+        val waiting = edited.reflect(EngineConnectionsState.Active(settingsSnapshot(), pending = operation))
+        val ended = waiting.reflect(EngineConnectionsState.Active(settingsSnapshot(), isSavePending = true))
+        assertFalse(ended.isSaving)
+        assertFalse(ended.isModelSavePending)
+        assertEquals<Set<String>?>(setOf("llama", "qwen"), ended.modelDraft)
+        assertEquals(setOf("llama"), ended.selectedModels)
+    }
+
+    @Test
+    fun `pending label remains while checks run even after the saved choices clear the draft`() {
+        val edited = loaded.editModel("qwen", true)
+        val operation = requireNotNull(edited.operationFor(EngineConnectionsScreenIntent.SaveModels))
+        val saved = settingsSnapshot().let { snapshot ->
+            snapshot.copy(
+                selection = snapshot.selection.withModel(modelInfo(EngineBindingId("home"), "qwen").target, true),
+            )
+        }
+        val checking = edited.reflect(EngineConnectionsState.Active(saved, pending = operation))
+        assertNull(checking.modelDraft)
+        assertTrue(checking.isSaving)
+        assertTrue(checking.isModelSavePending)
+        assertFalse(checking.reflect(EngineConnectionsState.Active(saved)).isModelSavePending)
+    }
+
+    @Test
     fun `pending draft rebases onto concurrent changes and clears only after its delta is saved`() {
         val binding = EngineBindingId("home")
         val removed = modelInfo(binding, "llama").target

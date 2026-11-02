@@ -65,7 +65,7 @@ class ConnectionEffectsTest {
     private val management = FakeEngineManagement()
     private val services = EngineServices(facade, sources, management)
     private val wizard = ConnectWizardEffects(services, selections, FakeModelChecks())
-    private val settings = EngineConnectionsEffects(services, selections)
+    private val settings = EngineConnectionsEffects(services, selections, FakeModelChecks())
     private val wizardScope = RecordingScope<ConnectWizardIntent>()
     private val settingsScope = RecordingScope<EngineConnectionsIntent>()
 
@@ -428,7 +428,7 @@ class ConnectionEffectsTest {
         assertTrue(facade.bindingsState.value.isEmpty())
         assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
         assertEquals(null, selections.state.value.defaultTarget)
-        assertEquals(EngineConnectionsIntent.Internal.Applied, settingsScope.intents.last())
+        assertEquals(EngineConnectionsIntent.Internal.Applied(ConnectionOperationId(1)), settingsScope.intents.last())
     }
 
     @Test
@@ -475,7 +475,7 @@ class ConnectionEffectsTest {
         assertEquals(2, facade.calls.count { it == "disconnect" })
         assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
         assertTrue(selections.state.value.bindings.isEmpty())
-        assertEquals(EngineConnectionsIntent.Internal.Applied, settingsScope.intents.last())
+        assertEquals(EngineConnectionsIntent.Internal.Applied(ConnectionOperationId(1)), settingsScope.intents.last())
     }
 
     @Test
@@ -527,7 +527,7 @@ class ConnectionEffectsTest {
         settings.handle(disconnect, settingsScope)
         assertTrue(selections.state.value.bindings.isEmpty())
         assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
-        assertEquals(EngineConnectionsIntent.Internal.Applied, settingsScope.intents.last())
+        assertEquals(EngineConnectionsIntent.Internal.Applied(ConnectionOperationId(1)), settingsScope.intents.last())
     }
 
     @Test
