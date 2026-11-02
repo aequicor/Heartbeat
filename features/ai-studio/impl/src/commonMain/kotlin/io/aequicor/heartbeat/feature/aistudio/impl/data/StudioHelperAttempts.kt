@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -69,13 +70,34 @@ internal class StudioHelperAttempts(
                 previous.root == witness.root && previous.candidates == witness.candidates &&
                     previous.session == witness.session,
             ) { "Recovery execution identity changed" }
+            check(previous.observerSuccessor == null) { "Recovery observation ownership was transferred" }
             return@withLock previous
         }
         val receipts = read(helper)
-        check(records.values.none { it.blocksContext(receipts) }) { "Previous recovery must be reconciled first" }
-        writeRecoveries(helper, records + (witness.execution.value to witness))
+        val unresolved = records.values.filter { it.blocksContext(receipts) }
+        val old = unresolved.singleOrNull()
+        check(unresolved.isEmpty() || old != null) { "Contradictory recovery observation ownership" }
+        val prepared = if (old == null) {
+            // Finishing R after an explicit Stop does not authorize a new observer to revive the same work root.
+            witness.copy(isStopRequested = records.values.any { it.root == witness.root && it.isStopRequested })
+        } else {
+            check(old.phase in TransferableRecoveryPhases) { "A native send must be reconciled through its receipt" }
+            check(old.root == witness.root && old.session == witness.session) { "Recovery ownership context changed" }
+            check(witness.candidates.containsAll(old.candidates)) { "Recovery ownership lost native candidates" }
+            check(receipts[witness.execution.value] == null) { "Recovery successor already has a native send journal" }
+            witness.copy(
+                phase = old.phase,
+                observed = old.observed,
+                turn = old.turn,
+                outcome = old.outcome,
+                isStopRequested = old.isStopRequested,
+            )
+        }
+        val transferred = old?.let { records + (it.execution.value to it.copy(observerSuccessor = witness.execution)) }
+            ?: records
+        writeRecoveries(helper, transferred + (witness.execution.value to prepared))
         log.v { "Journaled recovery observation intent" }
-        witness
+        prepared
     }
 
     suspend fun recovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness? = lock.withLock {
@@ -84,8 +106,11 @@ internal class StudioHelperAttempts(
     }
 
     /** Missing recovery evidence is uncertainty, never a NotSubmitted tombstone. */
-    suspend fun stopRecovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness =
-        changeRecovery(helper, execution) { it.stopped() }
+    suspend fun stopRecovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness {
+        val targets = stopRecoveryTargets(helper, execution)
+        check(targets.isNotEmpty()) { "Recovery observation evidence is missing" }
+        return checkNotNull(recovery(helper, execution))
+    }
 
     /**
      * Resolves cold Stop by execution or proven native request under the same lock as send cancellation. Candidate
@@ -94,12 +119,12 @@ internal class StudioHelperAttempts(
      */
     suspend fun stopRecoveryTargets(helper: HelperId, request: RequestId): List<StudioRecoveryWitness> = lock.withLock {
         val records = readRecoveries(helper)
-        val targets = recoveryTargets(records, request).map { it.stopped() }
+        val targets = recoveryStopChain(records, request).map { it.stopped() }
         if (targets.isNotEmpty()) {
             writeRecoveries(helper, records + targets.associateBy { it.execution.value })
         }
         log.v { "Journaled exact recovery stop targets" }
-        targets
+        targets.filter { it.observerSuccessor == null }
     }
 
     suspend fun submitRecovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness =
@@ -124,7 +149,11 @@ internal class StudioHelperAttempts(
     ): StudioRecoveryWitness = lock.withLock {
         val records = readRecoveries(helper)
         val previous = checkNotNull(records[execution.value]) { "Recovery observation evidence is missing" }
-        val changed = change(previous)
+        if (previous.observerSuccessor != null) {
+            throw CancellationException("Recovery observation ownership was transferred")
+        }
+        val isStopped = records.values.any { it.root == previous.root && it.isStopRequested }
+        val changed = change(if (isStopped) previous.stopped() else previous)
         if (changed != previous) writeRecoveries(helper, records + (execution.value to changed))
         log.v { "Journaled recovery observation transition" }
         changed
@@ -217,6 +246,7 @@ internal class StudioHelperAttempts(
      */
     suspend fun bindSession(helper: HelperId, request: RequestId, session: SessionRef): StudioHelperReceipt? =
         lock.withLock {
+            requireRecoveryOwner(helper, request)
             val records = read(helper)
             val receipt = checkNotNull(records[request.value]) { "The helper request was not journaled" }
             if (receipt.phase != StudioHelperPhase.Preparing) return@withLock null
@@ -233,6 +263,7 @@ internal class StudioHelperAttempts(
     /** A successful return owns the only permission to send R; persistence precedes any native side effect. */
     suspend fun begin(helper: HelperId, request: RequestId, claim: String? = null): Boolean = lock.withLock {
         val records = read(helper)
+        requireRecoveryAdmission(readRecoveries(helper).values, records, request)
         val receipt = records[request.value]
         if (receipt?.phase != StudioHelperPhase.Preparing) return@withLock false
         check(receipt.handoff == null || receipt.preparedSession != null) { "Helper context has no bound target" }
@@ -252,6 +283,7 @@ internal class StudioHelperAttempts(
      */
     suspend fun cancelBeforeNative(helper: HelperId, request: RequestId, session: SessionRef?, claim: String): Boolean =
         lock.withLock {
+            requireRecoveryOwner(helper, request)
             val records = read(helper)
             val receipt = checkNotNull(records[request.value]) { "Missing helper preparation" }
             if (receipt.phase == StudioHelperPhase.NotSubmitted) return@withLock true
@@ -361,6 +393,7 @@ internal class StudioHelperAttempts(
     /** The actual sender boundary: an external stop before it prevents all later native delivery. */
     suspend fun enterNative(helper: HelperId, request: RequestId, claim: String): Boolean = lock.withLock {
         val records = read(helper)
+        requireRecoveryAdmission(readRecoveries(helper).values, records, request)
         val receipt = checkNotNull(records[request.value]) { "The conversation request was not journaled" }
         val isOwned = receipt.phase == StudioHelperPhase.Submitting && receipt.submissionClaim == claim
         if (!isOwned || receipt.isStopRequested || receipt.nativeEntryClaim != null) return@withLock false
@@ -404,7 +437,7 @@ internal class StudioHelperAttempts(
         isExplicitStop: Boolean,
     ) {
         val records = readRecoveries(helper)
-        val targets = recoveryTargets(records, request).filterNot {
+        val targets = recoveryStopChain(records, request).filterNot {
             it.execution == request && it.phase == StudioRecoveryPhase.Submit && request.value in receipts
         }
         if (targets.isEmpty()) return
@@ -414,13 +447,11 @@ internal class StudioHelperAttempts(
         throw EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request))
     }
 
-    private fun recoveryTargets(
-        records: Map<String, StudioRecoveryWitness>,
-        request: RequestId,
-    ): List<StudioRecoveryWitness> = records.values.filter {
-        it.execution == request || it.observed == request || (
-            it.observed == null && it.phase != StudioRecoveryPhase.Submit && request in it.candidates
-        )
+    /** Called under the journal lock; a retired observer cannot bind or retire its former send preparation. */
+    private suspend fun requireRecoveryOwner(helper: HelperId, request: RequestId) {
+        if (readRecoveries(helper)[request.value]?.observerSuccessor != null) {
+            throw CancellationException("Recovery observation ownership was transferred")
+        }
     }
 
     suspend fun unresolved(helper: HelperId): RequestId? = lock.withLock {
@@ -525,9 +556,7 @@ internal class StudioHelperAttempts(
         val raw = store.get(recoveryKey(helper)) ?: return emptyMap()
         return try {
             Json.decodeFromString<Map<String, StudioRecoveryWitness>>(raw).also { records ->
-                check(records.all { (key, witness) -> key == witness.execution.value }) {
-                    "Mismatched recovery witness key"
-                }
+                validateRecoveryLineage(records)
             }
         } catch (e: IllegalArgumentException) {
             throw e.withoutHelperReceiptText()
@@ -535,6 +564,7 @@ internal class StudioHelperAttempts(
     }
 
     private suspend fun writeRecoveries(helper: HelperId, records: Map<String, StudioRecoveryWitness>) {
+        validateRecoveryLineage(records)
         store.set(recoveryKey(helper), Json.encodeToString(records))
     }
 

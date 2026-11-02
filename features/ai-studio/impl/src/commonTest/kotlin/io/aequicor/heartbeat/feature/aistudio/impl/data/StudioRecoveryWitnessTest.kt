@@ -32,6 +32,183 @@ class StudioRecoveryWitnessTest {
     private val initial = StudioRecoveryWitness(execution, source, setOf(source), session)
 
     @Test
+    fun `restart transfers one observer while preserving exact native binding and stop`() = runTest {
+        val stores = ChecklistTestStores()
+        val attempts = StudioHelperAttempts(stores)
+        attempts.prepareRecovery(helper, initial)
+        attempts.observeRecovery(helper, execution, session, source, turn)
+        attempts.stopRecovery(helper, execution)
+        attempts.loseRecovery(helper, execution)
+        val successor = RequestId("successor")
+        val restored = StudioHelperAttempts(stores)
+        val next = initial.copy(execution = successor)
+
+        val transferred = restored.prepareRecovery(helper, next)
+
+        assertEquals(source, transferred.observed)
+        assertEquals(turn, transferred.turn)
+        assertTrue(transferred.isStopRequested)
+        assertEquals(StudioRecoveryPhase.Unknown, transferred.phase)
+        assertEquals(successor, restored.recovery(helper, execution)?.observerSuccessor)
+        assertEquals(transferred, StudioHelperAttempts(stores).prepareRecovery(helper, next))
+        assertEquals(listOf(successor), restored.stopRecoveryTargets(helper, source).map { it.execution })
+        assertFalse(restored.isContextIdle(helper))
+        assertFailsWith<CancellationException> { restored.observeRecovery(helper, execution, session, source, turn) }
+        assertFailsWith<CancellationException> { restored.loseRecovery(helper, execution) }
+        assertFailsWith<CancellationException> { restored.submitRecovery(helper, execution) }
+        assertFailsWith<CancellationException> {
+            restored.prepareConversation(helper, HelperPrompt(execution, "stale send"))
+        }
+        assertFailsWith<CancellationException> { restored.begin(helper, execution) }
+        assertFailsWith<CancellationException> { restored.enterNative(helper, execution, "stale") }
+        assertFailsWith<CancellationException> { restored.bindSession(helper, execution, session) }
+        assertFailsWith<CancellationException> { restored.cancelBeforeNative(helper, execution, session, "stale") }
+        assertNull(restored.receipt(helper, execution))
+        assertNull(restored.receipt(helper, successor))
+    }
+
+    @Test
+    fun `stop of any alias reaches a single owner through multiple transfers`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        attempts.prepareRecovery(helper, initial)
+        attempts.observeRecovery(helper, execution, session, source, turn)
+        val middle = RequestId("middle")
+        val latest = RequestId("latest")
+        attempts.prepareRecovery(helper, initial.copy(execution = middle))
+        attempts.prepareRecovery(helper, initial.copy(execution = latest))
+
+        assertEquals(listOf(latest), attempts.stopRecoveryTargets(helper, execution).map { it.execution })
+
+        for (request in listOf(execution, middle, latest)) {
+            assertTrue(checkNotNull(attempts.recovery(helper, request)).isStopRequested)
+        }
+        attempts.observeRecovery(helper, latest, session, source, turn, StudioHelperTerminalOutcome.Cancelled)
+        assertTrue(attempts.isContextIdle(helper))
+        assertFailsWith<CancellationException> { attempts.submitRecovery(helper, latest) }
+    }
+
+    @Test
+    fun `an uncertain new send never transfers the older cancelled observation`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        attempts.prepareRecovery(helper, initial)
+        attempts.observeRecovery(helper, execution, session, source, turn, StudioHelperTerminalOutcome.Cancelled)
+        attempts.submitRecovery(helper, execution)
+
+        assertFailsWith<IllegalStateException> {
+            attempts.prepareRecovery(helper, initial.copy(execution = RequestId("successor")))
+        }
+        assertNull(attempts.recovery(helper, RequestId("successor")))
+        assertNull(attempts.recovery(helper, execution)?.observerSuccessor)
+    }
+
+    @Test
+    fun `terminal cancellation does not clear an explicit stop for the same work root`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        attempts.prepareRecovery(helper, initial)
+        attempts.observeRecovery(helper, execution, session, source, turn)
+        attempts.stopRecovery(helper, execution)
+        attempts.observeRecovery(helper, execution, session, source, turn, StudioHelperTerminalOutcome.Cancelled)
+        val next = RequestId("next")
+
+        assertTrue(attempts.prepareRecovery(helper, initial.copy(execution = next)).isStopRequested)
+        assertFailsWith<CancellationException> { attempts.submitRecovery(helper, next) }
+        assertNull(attempts.receipt(helper, next))
+    }
+
+    @Test
+    fun `failed transfer write leaves the previous observer as the only owner`() = runTest {
+        val stores = ChecklistTestStores()
+        val attempts = StudioHelperAttempts(stores)
+        attempts.prepareRecovery(helper, initial)
+        val next = initial.copy(execution = RequestId("next"))
+        stores.keyValue(HelperAttemptsSpec).failWrites = true
+
+        assertFailsWith<IllegalStateException> { attempts.prepareRecovery(helper, next) }
+
+        stores.keyValue(HelperAttemptsSpec).failWrites = false
+        assertNull(attempts.recovery(helper, execution)?.observerSuccessor)
+        assertNull(attempts.recovery(helper, next.execution))
+        assertEquals(next, attempts.prepareRecovery(helper, next))
+        assertEquals(next, StudioHelperAttempts(stores).prepareRecovery(helper, next))
+    }
+
+    @Test
+    fun `late stop of a terminal predecessor fences an already prepared successor send`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        attempts.prepareRecovery(helper, initial)
+        attempts.observeRecovery(helper, execution, session, source, turn, StudioHelperTerminalOutcome.Cancelled)
+        val next = RequestId("next")
+        attempts.prepareRecovery(helper, initial.copy(execution = next))
+        attempts.submitRecovery(helper, next)
+        attempts.prepareConversation(helper, HelperPrompt(next, "continuation"))
+
+        attempts.stopRecovery(helper, execution)
+
+        assertFailsWith<CancellationException> { attempts.begin(helper, next) }
+        assertFailsWith<CancellationException> { attempts.enterNative(helper, next, "late") }
+        assertEquals(StudioHelperPhase.Preparing, attempts.receipt(helper, next)?.phase)
+    }
+
+    @Test
+    fun `a new independent work root does not inherit a stopped terminal predecessor`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        attempts.prepareRecovery(helper, initial)
+        attempts.stopRecovery(helper, execution)
+        attempts.observeRecovery(helper, execution, session, source, turn, StudioHelperTerminalOutcome.Cancelled)
+        val independent = RequestId("independent")
+        val next = RequestId("next")
+
+        val reserved = attempts.prepareRecovery(
+            helper,
+            StudioRecoveryWitness(next, independent, setOf(independent), session),
+        )
+
+        assertFalse(reserved.isStopRequested)
+        attempts.submitRecovery(helper, next)
+        attempts.prepareDelivery(helper, HelperPrompt(next, "new work"), StudioAttemptPolicy.GraphWork(independent))
+        assertTrue(attempts.begin(helper, next, "new-claim"))
+        assertTrue(attempts.enterNative(helper, next, "new-claim"))
+    }
+
+    @Test
+    fun `ownership transfer cannot change root session or remove candidates`() = runTest {
+        for (next in listOf(
+            initial.copy(execution = RequestId("next"), session = session.copy(nativeId = "other")),
+            initial.copy(
+                execution = RequestId("next"),
+                root = RequestId("different"),
+                candidates = setOf(RequestId("different")),
+            ),
+        )) {
+            val attempts = StudioHelperAttempts(ChecklistTestStores())
+            attempts.prepareRecovery(helper, initial)
+            assertFailsWith<IllegalStateException> { attempts.prepareRecovery(helper, next) }
+            assertNull(attempts.recovery(helper, execution)?.observerSuccessor)
+            assertNull(attempts.recovery(helper, next.execution))
+        }
+    }
+
+    @Test
+    fun `broken or cyclic ownership cannot discard the original witness`() {
+        val next = RequestId("next")
+        val transferred = initial.copy(observerSuccessor = next)
+        assertFailsWith<IllegalStateException> { validateRecoveryLineage(mapOf(execution.value to transferred)) }
+        assertFailsWith<IllegalStateException> {
+            validateRecoveryLineage(
+                mapOf(
+                    execution.value to transferred,
+                    next.value to initial.copy(execution = next, observerSuccessor = execution),
+                ),
+            )
+        }
+        assertFailsWith<IllegalStateException> {
+            validateRecoveryLineage(
+                mapOf(execution.value to transferred.stopped(), next.value to initial.copy(execution = next)),
+            )
+        }
+    }
+
+    @Test
     fun `recovery cannot bind a stale native reference captured before replacement`() = runTest {
         val stores = ChecklistTestStores()
         val routes = StudioHelperRoutes()

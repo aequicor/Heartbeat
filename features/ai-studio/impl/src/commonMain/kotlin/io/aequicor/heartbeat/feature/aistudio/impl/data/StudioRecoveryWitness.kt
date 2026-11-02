@@ -26,9 +26,13 @@ internal data class StudioRecoveryWitness(
     val turn: TurnId? = null,
     val outcome: StudioHelperTerminalOutcome? = null,
     val isStopRequested: Boolean = false,
+    /** Observation ownership only; never a native continuation or permission to replay this execution. */
+    val observerSuccessor: RequestId? = null,
 ) {
     init {
         require(candidates.isNotEmpty() && root in candidates)
+        require(observerSuccessor != execution)
+        require(observerSuccessor == null || phase in TransferableRecoveryPhases)
         require(observed == null || observed in candidates)
         require(turn == null || observed != null)
         require(outcome == null || observed != null)
@@ -105,11 +109,12 @@ private val RecoveryKnownOutcomes = setOf(
 )
 
 /** Submit delegates to Q's send receipt; a missing receipt still bars context replacement. */
-internal fun StudioRecoveryWitness.blocksContext(receipts: Map<String, StudioHelperReceipt>): Boolean = when (phase) {
-    StudioRecoveryPhase.Terminal -> false
-    StudioRecoveryPhase.Submit -> execution.value !in receipts
-    StudioRecoveryPhase.Inspecting, StudioRecoveryPhase.Observing, StudioRecoveryPhase.Unknown -> true
-}
+internal fun StudioRecoveryWitness.blocksContext(receipts: Map<String, StudioHelperReceipt>): Boolean =
+    observerSuccessor == null && when (phase) {
+        StudioRecoveryPhase.Terminal -> false
+        StudioRecoveryPhase.Submit -> execution.value !in receipts
+        StudioRecoveryPhase.Inspecting, StudioRecoveryPhase.Observing, StudioRecoveryPhase.Unknown -> true
+    }
 
 /** New sends cannot bypass an unresolved observation or revive its explicit stop. Called under the journal lock. */
 internal fun requireRecoveryAdmission(
@@ -117,11 +122,17 @@ internal fun requireRecoveryAdmission(
     receipts: Map<String, StudioHelperReceipt>,
     request: RequestId,
 ) {
-    if (recoveries.any { it.execution == request && it.isStopRequested }) {
-        throw CancellationException("Recovery was stopped before new submission")
+    val root = recoveries.singleOrNull { it.execution == request }?.root
+        ?: (receipts[request.value]?.policy as? StudioAttemptPolicy.GraphWork)?.recoveryRoot
+    val isRevoked = recoveries.any {
+        (it.execution == request && (it.isStopRequested || it.observerSuccessor != null)) ||
+            (root != null && it.root == root && it.isStopRequested)
+    }
+    if (isRevoked) {
+        throw CancellationException("Recovery was stopped or its observation ownership was transferred")
     }
     check(
-        recoveries.all {
+        recoveries.filter { it.observerSuccessor == null }.all {
             it.phase == StudioRecoveryPhase.Terminal || (
                 it.phase == StudioRecoveryPhase.Submit &&
                     (it.execution == request || receipts[it.execution.value]?.isUnresolved == false)
@@ -129,3 +140,9 @@ internal fun requireRecoveryAdmission(
         },
     ) { "Native recovery must be reconciled before another send" }
 }
+
+internal val TransferableRecoveryPhases = setOf(
+    StudioRecoveryPhase.Inspecting,
+    StudioRecoveryPhase.Observing,
+    StudioRecoveryPhase.Unknown,
+)

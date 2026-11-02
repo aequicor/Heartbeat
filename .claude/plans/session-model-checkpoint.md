@@ -69,6 +69,18 @@ UI-решения пользователя: единое ровное выдел
 - Пользователь подтвердил: после реализации обязателен `pr-review-and-fix`; цель достигнута только после публикации
   `/reviewed <полный фактический head SHA>` без блокеров. Merge/release не разрешены.
 
+Продолжение foundation: `observerSuccessor` передаёт только ownership незавершённого наблюдения, не native
+continuation. Новый observer получает binding и Stop одним journal write со ссылкой у предшественника. Читатели
+проверяют всю цепь до исключения retired witness из context barrier; Stop дедуплицирует aliases по текущему leaf.
+Старый observer не меняет evidence, не готовит send, не делает bind/native entry/rollback. Submit не переносится:
+его новая native отправка требует отдельной квитанции и reconciliation. Stop terminal-предшественника сохраняет
+запрет автоматического запуска для того же work root, включая уже подготовленный sender до native entry;
+независимый новый root не наследует этот Stop.
+
+Ограничение: обязательные production hooks executor, cancellation потомка **после** native entry и projection
+snapshot/result ещё не подключены. Сам transfer storage не доказывает корректность старого executor после
+отказа stale hook. Следующий production-срез ниже остаётся обязательным; capability всё ещё не включена.
+
 ### 1. Закончить production recovery одним согласованным слоем
 
 **Первый следующий шаг.** `EngineStudioRepository` пока не реализует `StudioRecoveryRunHost`, а `StudioHelperAdmission.requireNativeRecovery` сохраняет прежний запрет helper/Subsession adoption. Не снимать guard только потому, что unit foundation зелёный.

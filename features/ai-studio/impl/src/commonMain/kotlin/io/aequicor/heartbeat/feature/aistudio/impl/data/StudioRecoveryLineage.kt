@@ -1,0 +1,52 @@
+package io.aequicor.heartbeat.feature.aistudio.impl.data
+
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+
+/** Validates observation transfers before any reader may disregard a retired witness. */
+internal fun validateRecoveryLineage(records: Map<String, StudioRecoveryWitness>) {
+    check(records.all { (key, witness) -> key == witness.execution.value }) { "Mismatched recovery witness key" }
+    val successors = records.values.mapNotNull { it.observerSuccessor }
+    check(successors.distinct().size == successors.size) { "Recovery observation has multiple predecessors" }
+    for (start in records.values) {
+        val visited = mutableSetOf<RequestId>()
+        var current = start
+        while (true) {
+            check(visited.add(current.execution)) { "Cyclic recovery observation ownership" }
+            val successor = current.observerSuccessor ?: break
+            val next = checkNotNull(records[successor.value]) { "Recovery observation successor is missing" }
+            check(current.phase in TransferableRecoveryPhases) { "A native send cannot transfer observation" }
+            check(current.root == next.root && current.session == next.session) { "Recovery ownership context changed" }
+            check(next.candidates.containsAll(current.candidates)) { "Recovery ownership lost native candidates" }
+            check(
+                current.observed == null || current.observed == next.observed,
+            ) { "Recovery ownership lost native request" }
+            check(current.turn == null || current.turn == next.turn) { "Recovery ownership lost native turn" }
+            check(!current.isStopRequested || next.isStopRequested) { "Recovery ownership lost stop intent" }
+            current = next
+        }
+    }
+}
+
+/**
+ * Selects aliases and their complete ownership chains. Candidate membership fences uncertainty only. All callers
+ * validate the journal first; a broken transfer must never make the old execution appear safely absent.
+ */
+internal fun recoveryStopChain(
+    records: Map<String, StudioRecoveryWitness>,
+    request: RequestId,
+): List<StudioRecoveryWitness> {
+    validateRecoveryLineage(records)
+    fun leaf(start: StudioRecoveryWitness): RequestId {
+        var current = start
+        while (current.observerSuccessor != null) {
+            current = checkNotNull(records[current.observerSuccessor.value])
+        }
+        return current.execution
+    }
+    val leaves = records.values.filter {
+        it.execution == request || it.observed == request || (
+            it.observed == null && it.phase != StudioRecoveryPhase.Submit && request in it.candidates
+        )
+    }.map(::leaf).toSet()
+    return records.values.filter { leaf(it) in leaves }
+}
