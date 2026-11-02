@@ -55,7 +55,8 @@ internal val CodexFlag = FeatureToggle.Flag("ai.codex", "Codex")
 /** Codex as engine management lists it: a managed CLI with a browser or device sign-in and launch settings. */
 internal fun managedCodex(
     enablement: EngineEnablement = EngineEnablement(),
-    installation: InstallationState = InstallationState(),
+    // Checked with an empty result by default: an unchecked panel asks for an inspection when it opens.
+    installation: InstallationState = InstallationState(checkedAt = Instant.fromEpochSeconds(1)),
     login: LoginState = LoginState.SignedOut,
     job: EngineJob? = null,
 ) = ManagedEngine(
@@ -84,6 +85,7 @@ internal fun managedCodexWithCopy(enablement: EngineEnablement = EngineEnablemen
         current = Installation(InstallSource.Managed, "0.1.0"),
         managed = ManagedInstall("0.1.0", "/managed/codex", Instant.fromEpochSeconds(1)),
         compatibility = Compatibility.Verified,
+        checkedAt = Instant.fromEpochSeconds(1),
     ),
 )
 
