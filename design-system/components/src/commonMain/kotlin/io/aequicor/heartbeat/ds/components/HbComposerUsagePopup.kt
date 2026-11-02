@@ -33,6 +33,7 @@ internal fun ComposerUsagePopup(
     label: String,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    onAnchorClick: (Float) -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val anchor = LocalComposerAnchor.current?.value
@@ -55,7 +56,7 @@ internal fun ComposerUsagePopup(
         withFrameNanos { }
         focus.requestFocus()
     }
-    HbMenuPopup(position, onDismiss) {
+    UsagePopupLayer(position, onDismiss, onAnchorClick) {
         Box(modifier.padding(gutter)) {
             HbColumn(
                 Modifier.width(width).heightIn(max = height)

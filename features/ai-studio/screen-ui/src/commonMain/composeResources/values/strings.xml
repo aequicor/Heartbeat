@@ -414,4 +414,22 @@
     <string name="usage_chip_week">Wk</string>
     <string name="usage_chip_month">Mo</string>
     <string name="usage_window_month">Monthly</string>
+    <string name="usage_context_tab">Context</string>
+    <string name="usage_empty">No data yet</string>
+    <string name="usage_limits_unavailable">The engine has not reported limits.</string>
+    <string name="usage_breakdown_unavailable">Breakdown unavailable</string>
+    <string name="usage_breakdown_hint">The engine reports only total usage.</string>
+    <string name="usage_free_tokens">%1$s tokens free</string>
+    <string name="usage_breakdown">Contents</string>
+    <string name="usage_instructions">Instructions</string>
+    <string name="usage_history">History</string>
+    <string name="usage_tools">Tools</string>
+    <string name="usage_files">Files</string>
+    <string name="usage_unallocated">Unallocated</string>
+    <string name="usage_reset_unknown">Reset time unavailable</string>
+    <string name="usage_window_unknown">Limit</string>
+    <string name="usage_stale_unknown">Data may be outdated</string>
+    <string name="usage_compact_short">Compact</string>
+    <string name="usage_token_unit">Tokens</string>
+    <string name="usage_consumed">%1$d% consumed</string>
 </resources>
