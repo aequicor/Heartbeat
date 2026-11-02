@@ -28,8 +28,11 @@ internal sealed interface RuntimeAdmissionResult {
     data class Rejected(val decision: EngineCompatibilityDecision) : RuntimeAdmissionResult
 
     /** Ownership of this exact runtime passes to the caller, which must pool or close it. */
-    data class Accepted(val runtime: EngineRuntime, val decision: EngineCompatibilityDecision) :
-        RuntimeAdmissionResult {
+    data class Accepted(
+        val runtime: EngineRuntime,
+        val decision: EngineCompatibilityDecision,
+        val isNew: Boolean = true,
+    ) : RuntimeAdmissionResult {
         init {
             require(decision.isBaselineAllowed)
         }
@@ -41,8 +44,9 @@ internal sealed interface RuntimeAdmissionResult {
 }
 
 /**
- * Two-phase acquisition seam. Not yet used by RuntimePool: pool reuse, create/resume gating and adapter opt-in
- * are separate integration work. No legacy runtime method is called here. Cleanup is awaited even past the
+ * Two-phase acquisition, including a borrowed-runtime reuse branch. No legacy runtime method is called here.
+ * Only new promotions belong to the orphan cleanup path; failed reuse never closes accepted pooled work.
+ * Cleanup is awaited even past the
  * deadline; a caller requiring bounded UI wait must retain a separate worker owner until cleanup completes.
  */
 internal class RuntimeAdmission(private val context: FacadeContext, private val cleanup: RuntimeAdmissionCleanup) {
@@ -57,6 +61,7 @@ internal class RuntimeAdmission(private val context: FacadeContext, private val 
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
         recheck: suspend () -> Unit,
+        reuseOrRetire: suspend (EngineCompatibilityDecision) -> EngineRuntime? = { null },
     ): RuntimeAdmissionResult {
         currentCoroutineContext().ensureActive()
         checkDeadline(deadline)
@@ -83,11 +88,19 @@ internal class RuntimeAdmission(private val context: FacadeContext, private val 
                     val stamp = requireNotNull(decision.stamp)
                     recheck()
                     checkDeadline(deadline)
+                    val reused = reuseOrRetire(decision)
+                    recheck()
+                    checkDeadline(deadline)
+                    if (reused != null) {
+                        requireRuntime(reused, request.identity, stamp)
+                        return@withTimeout RuntimeAdmissionResult.Accepted(reused, decision, isNew = false)
+                    }
                     adapterCall(log, "promote restricted candidate") {
                         withContext(context.io) { promotion = acquired.promote(stamp, deadline) }
                     }
                     val promoted = requireNotNull(promotion)
-                    requireProtocol(promoted.runtime.identity == request.identity && promoted.stamp == stamp)
+                    requireProtocol(promoted.stamp == stamp)
+                    requireRuntime(promoted.runtime, request.identity, stamp)
                     RuntimeAdmissionResult.Accepted(promoted.runtime, decision)
                 } finally {
                     val owned = candidate
@@ -98,6 +111,7 @@ internal class RuntimeAdmission(private val context: FacadeContext, private val 
             checkDeadline(deadline)
             if (result is RuntimeAdmissionResult.Accepted) {
                 withTimeout(-deadline.elapsedNow()) { recheck() }
+                requireRuntime(result.runtime, request.identity, result.stamp)
             }
             checkDeadline(deadline)
             currentCoroutineContext().ensureActive()
@@ -117,6 +131,10 @@ internal class RuntimeAdmission(private val context: FacadeContext, private val 
 
     private suspend fun closeRuntime(runtime: EngineRuntime, expected: RuntimeIdentity) {
         adapterCall(log, "close untransferred runtime") { cleanup.close(runtime, expected) }
+    }
+
+    private fun requireRuntime(runtime: EngineRuntime, identity: RuntimeIdentity, stamp: EngineCompatibilityStamp) {
+        requireProtocol(runtime.identity == identity && runtime.compatibilityStamp == stamp && !runtime.isClosed)
     }
 
     private fun checkDeadline(deadline: TimeMark) {

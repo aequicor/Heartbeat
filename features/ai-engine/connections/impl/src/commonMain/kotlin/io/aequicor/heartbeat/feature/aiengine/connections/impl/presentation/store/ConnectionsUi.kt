@@ -123,7 +123,9 @@ internal fun EngineFailure.toUi(): FailureUi = when (this) {
     is EngineFailure.Engine -> when (reason) {
         EngineFailureReason.UnsupportedCapability -> FailureUi.Rejected
 
-        EngineFailureReason.Unavailable, EngineFailureReason.RequirementsNotMet, EngineFailureReason.Crashed ->
+        EngineFailureReason.Unavailable, EngineFailureReason.RequirementsNotMet, EngineFailureReason.Crashed,
+        EngineFailureReason.CompatibilityUnknown, EngineFailureReason.Incompatible,
+        ->
             FailureUi.EngineUnavailable
     }
 

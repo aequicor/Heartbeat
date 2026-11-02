@@ -45,7 +45,9 @@ private fun AuthFailureReason.toRunFailureKind(): RunFailureKind = when (this) {
 }
 
 private fun EngineFailureReason.toRunFailureKind(): RunFailureKind = when (this) {
-    EngineFailureReason.Unavailable, EngineFailureReason.RequirementsNotMet, EngineFailureReason.Crashed ->
+    EngineFailureReason.Unavailable, EngineFailureReason.RequirementsNotMet, EngineFailureReason.Crashed,
+    EngineFailureReason.CompatibilityUnknown, EngineFailureReason.Incompatible,
+    ->
         RunFailureKind.EngineUnavailable
 
     EngineFailureReason.UnsupportedCapability -> RunFailureKind.Unknown

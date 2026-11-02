@@ -313,6 +313,27 @@ class SessionLauncherTest {
     }
 
     @Test
+    fun `unknown compatibility refuses create and resume without native or provenance writes`() = runTest {
+        val (fixture, launcher) = launcher()
+        factory.runtimeRequirements = null
+        factory.routes.clear()
+        assertEquals(
+            EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown),
+            assertFailsWith<EngineException> { launcher.create(CreateSessionRequest(fixture.target)) }.failure,
+        )
+        assertEquals(
+            EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown),
+            assertFailsWith<EngineException> {
+                launcher.resume(sessionRef("stored"), ResumeSessionRequest(fixture.target))
+            }.failure,
+        )
+        assertTrue(factory.routes.isEmpty())
+        assertTrue(runtimes.isEmpty())
+        assertTrue(index.entries.isEmpty())
+        assertEquals(0, factory.preparations)
+    }
+
+    @Test
     fun `a runtime created for a cancelled request is closed not leaked`() = runTest {
         val (fixture, launcher, _) = launcher()
         val gate = CompletableDeferred<Unit>().also { factory.createGate = it }

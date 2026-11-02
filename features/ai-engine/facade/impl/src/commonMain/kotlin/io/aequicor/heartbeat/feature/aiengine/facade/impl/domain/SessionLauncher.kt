@@ -45,6 +45,8 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 /**
  * Creates and resumes sessions through explicit routes and the pooled runtime. Heartbeat provenance and the last
@@ -63,8 +65,13 @@ class SessionLauncher(
     suspend fun create(request: CreateSessionRequest): ActiveSession = context.observeAuthentication {
         val target = request.target
         log.i { "create session engine=${target.engine.value} binding=${target.binding.value}" }
-        val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
-        val creator = pool.runtime(resolved).features.resolve(CreatesSessions).orFail()
+        val resolved = routes.resolveSession(target.engine, target.binding, request.workspace, target.model)
+        val creator = pool.sessionRuntime(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = { routes.recheckSession(resolved) },
+            prepare = { routes.bindAdmitted(resolved) },
+        ).features.resolve(CreatesSessions).orFail()
         val native = adapterCall(log, "create") { creator.create(request) }
         open(native, resolved.route, target.model, request.areSessionHooksEnabled, request.isTextOnlyService) {
             if (native.ref.engine != target.engine) fail(EngineFailure.Unknown())
@@ -86,8 +93,13 @@ class SessionLauncher(
         val target = request.target
         log.i { "resume session engine=${ref.engine.value} binding=${target.binding.value}" }
         if (target.engine != ref.engine) fail(InvalidRequest)
-        val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
-        val attacher = pool.runtime(resolved).features.resolve(AttachesSessions).orFail()
+        val resolved = routes.resolveSession(target.engine, target.binding, request.workspace, target.model)
+        val attacher = pool.sessionRuntime(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = { routes.recheckSession(resolved) },
+            prepare = { routes.bindAdmitted(resolved) },
+        ).features.resolve(AttachesSessions).orFail()
         val native = adapterCall(log, "attach") { attacher.attach(ref, request) }
         open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
             if (native.ref != ref) fail(EngineFailure.Unknown())

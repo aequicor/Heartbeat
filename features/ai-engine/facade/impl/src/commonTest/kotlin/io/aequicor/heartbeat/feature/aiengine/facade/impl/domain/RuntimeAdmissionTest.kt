@@ -84,9 +84,13 @@ class RuntimeAdmissionTest {
     }
 
     @Test
-    fun `default factory implementation refuses without legacy preparation or creation`() = runTest {
+    fun `factory without restricted candidate refuses without legacy preparation or creation`() = runTest {
         val noCandidate = object : EngineFactory by legacy {
             override val runtimeRequirements = policy
+            override suspend fun openRuntimeCandidate(
+                request: EngineRuntimeCandidateRequest,
+                deadline: TimeMark,
+            ): EngineRuntimeCandidate? = null
         }
         val result = RuntimeAdmission(facadeContext(), cleanupOwner()).acquire(
             registration(noCandidate),
@@ -146,7 +150,7 @@ class RuntimeAdmissionTest {
         assertSame(candidate.runtime, verified.runtime)
         assertEquals(0, candidate.runtime.closes)
         assertEquals(1, candidate.closes)
-        assertEquals(3, checks)
+        assertEquals(4, checks)
         candidate = Candidate()
         candidate.facts = candidate.facts.copy(identity = stamp.copy(runtime = "1.1.0").identity())
         candidate.promotedStamp = stamp.copy(runtime = "1.1.0")
@@ -187,7 +191,7 @@ class RuntimeAdmissionTest {
     fun `route revocation after probe cleanup closes runtime before returning`() = runTest {
         recheck = {
             checks++
-            if (checks == 3) throw EngineException(OperationNotAllowed)
+            if (checks == 4) throw EngineException(OperationNotAllowed)
         }
         assertEquals(OperationNotAllowed, assertFailsWith<EngineException> { acquire() }.failure)
         assertEquals(1, candidate.runtime.closes)
@@ -198,7 +202,7 @@ class RuntimeAdmissionTest {
     fun `a hanging final route validation expires and closes the untransferred runtime`() = runTest {
         recheck = {
             checks++
-            if (checks == 3) awaitCancellation()
+            if (checks == 4) awaitCancellation()
         }
         assertFailsWith<kotlinx.coroutines.TimeoutCancellationException> { acquire() }
         assertEquals(5_000L, testScheduler.currentTime)
@@ -314,6 +318,7 @@ class RuntimeAdmissionTest {
             promotions++
             assertEquals(facts.identity, expected.identity())
             beforePromotion()
+            runtime.compatibilityStamp = promotedStamp
             return EngineRuntimePromotion(runtime, promotedStamp)
         }
 

@@ -264,6 +264,7 @@ internal class FakeNativeSession(
 
 /** Runtime handing out [FakeNativeSession]s for creation and attachment. */
 internal class FakeRuntime(override val identity: RuntimeIdentity, supports: Boolean = true) : EngineRuntime {
+    override var compatibilityStamp: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp? = null
     val sessions = mutableListOf<FakeNativeSession>()
     var closes = 0
     var closeFailure: Exception? = null

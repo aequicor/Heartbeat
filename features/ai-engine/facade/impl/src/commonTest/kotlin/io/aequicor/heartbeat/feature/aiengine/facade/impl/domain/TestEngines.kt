@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId
@@ -34,6 +35,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CompletableDeferred
@@ -46,6 +49,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlin.time.Clock
 import kotlin.time.Instant
+import kotlin.time.TimeMark
 
 internal val TestEngine = EngineId("test")
 internal val TestOwner = AuthOwnerId("test-cli")
@@ -63,6 +67,24 @@ internal class FixedClock(var now: Instant = Instant.fromEpochSeconds(1_000)) : 
 
 /** Adapter factory whose answers are set by the test. */
 internal class FakeEngineFactory : EngineFactory {
+    override var runtimeRequirements: EngineCompatibilityRequirements? = testRuntimePolicy()
+    var runtimeEvidence = testRuntimeEvidence()
+    var isCandidateAvailable = true
+    var candidates = 0
+    var promotions = 0
+    var candidateCloses = 0
+    var beforeCandidate: suspend () -> Unit = {}
+    var closeCandidate: suspend () -> Unit = {}
+
+    override suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? {
+        candidates++
+        beforeCandidate()
+        return if (isCandidateAvailable) TestRuntimeCandidate(this, request, runtimeEvidence) else null
+    }
+
     override val preparation = MutableStateFlow<EnginePreparation>(EnginePreparation.Ready)
     var prepare: suspend () -> Unit = {}
     var preparations = 0

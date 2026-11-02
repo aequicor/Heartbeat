@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigSchema
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -181,6 +182,14 @@ public interface EngineFactory {
 public interface EngineRuntime {
     /** Fixed credential identity; workspace and model belong to individual sessions. */
     public val identity: RuntimeIdentity
+
+    /**
+     * Actual admitted process/client contract. Null means this runtime has not been admitted. A restart or any
+     * artifact/configuration/history contract change invalidates the stamp before operations can continue;
+     * adapters must mark the runtime closed and obtain new admission instead of retaining an obsolete stamp.
+     * This getter is IO-free, never an inspection of a different executable selected for a future launch.
+     */
+    public val compatibilityStamp: EngineCompatibilityStamp? get() = null
 
     /** Runtime operations use the same capability contracts as facade handles. */
     public val features: EngineFeatures

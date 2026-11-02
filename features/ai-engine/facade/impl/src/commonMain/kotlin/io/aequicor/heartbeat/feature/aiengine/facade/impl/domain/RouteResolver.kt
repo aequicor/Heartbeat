@@ -58,6 +58,30 @@ class RouteResolver(
         return resolved
     }
 
+    /** Reads a session route without restoring an adapter binding before compatibility admission. */
+    suspend fun resolveSession(
+        engine: EngineId,
+        binding: EngineBindingId,
+        workspace: WorkspaceRef? = null,
+        model: ModelId? = null,
+    ): ResolvedRoute = checkedRoute(engine, binding, workspace, model)
+
+    /** Revalidates the complete source snapshot without adapter writes, including unknown auth revisions. */
+    suspend fun recheckSession(expected: ResolvedRoute): ResolvedRoute {
+        val context = expected.context
+        val current = checkedRoute(context.engine, context.binding, context.workspace, context.model)
+        if (current.source.withoutLabel() != expected.source.withoutLabel()) {
+            fail(authFailure(AuthFailureReason.SourceChanged, expected.source.info.id))
+        }
+        return current
+    }
+
+    /** Restores a canonical route only after the selected candidate passed baseline admission. */
+    suspend fun bindAdmitted(expected: ResolvedRoute) {
+        val current = recheckSession(expected)
+        current.registration.factory.value.bind(current.binding.id, current.source)
+    }
+
     /** Checks the complete strict source context without mutating adapter routes or opening a runtime. */
     suspend fun resolveIsolated(target: EngineTarget, expectedSource: AuthSource): ResolvedRoute {
         val current = checkedRoute(target.engine, target.binding, model = target.model)
