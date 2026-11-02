@@ -76,14 +76,37 @@ internal data class StudioRecoveryWitness(
     fun stopped(): StudioRecoveryWitness = copy(isStopRequested = true)
 
     /** A replay never changes native context, candidate provenance or the meaning of a closed delivery. */
-    fun repeatDelivery(incoming: StudioRecoveryWitness): StudioRecoveryWitness {
+    fun repeatDelivery(
+        incoming: StudioRecoveryWitness,
+        receipts: Map<String, StudioHelperReceipt> = emptyMap(),
+    ): StudioRecoveryWitness {
         check(
             execution == incoming.execution && root == incoming.root &&
-                incoming.candidates.containsAll(candidates) && session == incoming.session && route == incoming.route,
+                incoming.candidates.containsAll(candidates),
         ) {
             "Recovery execution identity changed"
         }
         check(observerSuccessor == null) { "Recovery observation ownership was transferred" }
+        val transfer = recoveryObservationTransfer(this, incoming, receipts)
+        if (transfer == StudioObservationTransfer.ReceiptContinuation) {
+            check(delivery != incoming.delivery) { "A reserved delivery cannot change its native target" }
+            requireSamePayload(checkNotNull(incoming.delivery))
+            return copy(
+                session = incoming.session,
+                route = incoming.route,
+                inspectionTarget = incoming.inspectionTarget,
+                predecessorExecution = incoming.predecessorExecution,
+                refusal = null,
+                delivery = incoming.delivery,
+                candidates = incoming.candidates,
+                phase = StudioRecoveryPhase.Inspecting,
+                observed = null,
+                turn = null,
+                outcome = null,
+                isIdleConfirmed = false,
+                isInspectionCurrent = false,
+            )
+        }
         return when {
             delivery == incoming.delivery -> {
                 check(candidates == incoming.candidates) { "A reserved recovery delivery cannot change candidates" }

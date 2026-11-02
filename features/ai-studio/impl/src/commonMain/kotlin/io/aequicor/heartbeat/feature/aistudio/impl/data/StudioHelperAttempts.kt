@@ -112,7 +112,7 @@ internal class StudioHelperAttempts(
         }
         val isStopped = records.values.any { it.root == previous.root && it.isStopRequested } ||
             store.readLegacyObservations(helper)[previous.root.value]?.isStopRequested == true
-        val repeated = (if (isStopped) previous.stopped() else previous).repeatDelivery(incoming)
+        val repeated = (if (isStopped) previous.stopped() else previous).repeatDelivery(incoming, read(helper))
         val changed = records + (incoming.execution.value to repeated)
         validateRecoveryWorkLineage(changed, read(helper))
         if (repeated != previous) store.writeRecoveryWitnesses(helper, changed)
@@ -550,7 +550,7 @@ internal class StudioHelperAttempts(
             store.readLegacyObservations(helper)[request.value]
         }
         val records = store.readRecoveryWitnesses(helper)
-        val linked = recoveryStopChain(records, request)
+        val linked = recoveryStopChain(records, request, read(helper))
         if (isExplicitStop && linked.isNotEmpty()) {
             store.writeRecoveryWitnesses(helper, records + linked.associate { it.execution.value to it.stopped() })
         }

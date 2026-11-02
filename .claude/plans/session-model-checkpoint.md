@@ -5,7 +5,7 @@
 - PR: https://github.com/aequicor/Heartbeat/pull/640 — **draft, фича не завершена**.
 - Ветка: `codex/unified-session-model`, целевая ветка `master`.
 - Свежий `origin/master` проверен при checkpoint: `b410de582c4a32a740d882d4ee986f24df9dd4a1` входит в HEAD через merge `4426537ae`.
-- Последний слой этого checkpoint — atomic observation hold в `StudioRunSubmission` и его runtime-тесты. Код прошёл verify до коммита.
+- Текущий слой — production recovery: native work lineage, перенос наблюдателей, Stop aliases и immutable execution configuration. Полный объём шагов 1–8 остаётся обязательным.
 - Продолжать в этом же PR. Force push, merge PR и выпуск не разрешены. Пользователь поручил после реализации и регрессии перевести PR в ready через `open-pr`, затем выполнить `pr-review-and-fix`.
 - Стандарт и макеты согласованы; повторного решения по дизайну не требуется, если реализация следует согласованным кадрам.
 - Весь оставшийся объём ниже обязателен: foundation и зелёные unit-тесты не означают соответствие стандарту.
@@ -66,6 +66,42 @@
   compile прошли; typed analysis сохраняет прежние diagnostics. Architecture review участка — без блокеров.
   Production recovery всё ещё не включён; дальнейшие шаги 1–8
   обязательны, включая native graph work lineage, producer/consumer contracts, approved UI и E2E.
+
+## Продолжение: production recovery и точная цепочка запусков
+
+- `b6fc08e88`: terminal-only evidence допускает отсутствующий native TurnId, но Accepted по-прежнему требует его.
+  Полнота ответа хранится явно; skeleton не является полным ответом. Marked history обогащает уже Terminal receipt.
+  Извлечённые storage helpers сохраняют прежние ключи и общий journal mutex.
+- `773304eb8`: отдельные graph receipt edges связывают R→Q по exact Cancelled/FreshIdle evidence. Fresh Idle не
+  выдумывает terminal R. Immutable policy/settings/authority/causes проходят по всей цепочке. Native launch route
+  хранится на фактическом узле, отдельно от наследуемого execution snapshot.
+- Исторический sender после появления преемника больше не получает native admission даже после terminal преемника.
+  Его обе rollback операции сохраняют source evidence; explicit Stop fencing всей цепочки не превращает ancestor
+  в NotSubmitted. Повтор после serialize/restore покрыт регрессией.
+- Production `EngineStudioRepository` подключает `StudioJournaledRecoveryHost`; reservation проверяет canonical
+  actual route. Graph root сохраняет исходные target/settings/effort, а future preferences не меняют текущую работу.
+- Текущий native head определяется receipt ancestry, отдельно от observer ownership. D после Q наблюдает Q;
+  Q→virtual C с другим native context требует exact C binding/route. Typed observation transfer различает тот же
+  native target и подтверждённого потомка: новый target не наследует старые turn/outcome, даже в прежнем контексте.
+  Same-execution redelivery не повторяет send; обновляет только доказанный inspection target/predecessor.
+- Stop R/Q/C/D сначала fencing всей цепочки, затем exact native Stop actual C. Unconfirmed удерживает ownership;
+  подтверждённый terminal закрывает соответствующего observer. Final pre-entry NotSubmitted C завершает его
+  observation ownership без выдуманного Terminal(C); поздний callback такого observer отклоняется.
+- Graph cache принимает результат только для actual native head. Потерянный graph-result ACK восстанавливается
+  из exact terminal receipt; старый terminal R не подменяет активный Q/C. Terminal-only не получает чужой answer.
+- Проверки включают durable restart, same-Q и D→E transfer, новый native context, NoSend rearm, поздний sender,
+  Stop по всем алиасам и реальный adapter Stop IO с удержанием capacity до подтверждения.
+- Локальный итоговый verify production integration: **1110 Studio JVM tests**, failures/errors/skips 0;
+  ordinary/typed detekt, JVM DI и iOS Simulator compile прошли. Typed analysis сохраняет прежние 3 diagnostics.
+  Read-only architecture review интегрированного слоя — без блокеров. Staged размеры двух подготовительных
+  коммитов: 8528 и 24824 токена; каждый проверен отдельно в собираемом состоянии. PR остаётся draft.
+- Graph Stop учитывает exact legacy Idle/Terminal как доказательство отсутствия активности старого root,
+  отдельно сохраняет его Stop intent и не придумывает outcome/receipt. Unknown старого root остаётся
+  неподтверждённым, но не мешает выполнить Stop остальных roots; миграционный сценарий покрыт regression.
+- Следующий обязательный объём: завершить legacy source snapshot reconciliation и проверить все production
+  consumers/lease restore, затем шаги 3–8: полноценные Subsession capabilities/FIFO, Subagent writers/termination,
+  mediation, background adapters, согласованный UI, итоговые verify/E2E и pr-review-and-fix. Этот слой не означает
+  завершения фичи и не разрешает ready или `/reviewed` до полного выполнения оставшихся шагов.
 
 ## Утверждённое поведение
 

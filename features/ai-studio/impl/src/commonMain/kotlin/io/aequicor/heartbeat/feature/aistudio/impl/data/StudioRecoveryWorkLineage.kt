@@ -61,7 +61,7 @@ internal fun validateRecoveryWorkLineage(
     recoveries: Map<String, StudioRecoveryWitness>,
     receipts: Map<String, StudioHelperReceipt>,
 ) {
-    validateRecoveryLineage(recoveries)
+    validateRecoveryLineage(recoveries, receipts)
     for (start in recoveries.values) {
         val visited = mutableSetOf(start.execution)
         var current = start
@@ -102,7 +102,7 @@ internal fun requireRecoveryContextEdge(
     receipts: Map<String, StudioHelperReceipt>,
 ) {
     if (previous.session == current.session && previous.route == current.route) return
-    val source = if (previous.hasNativeSend) previous.execution else previous.inspectionTarget ?: previous.root
+    val source = previous.nativeObservationTarget(receipts)
     val chain = continuationChain(receipts, source)
     val start = chain.indexOfFirst { it.request == source }
     val end = chain.indexOfFirst { it.request == current.inspectionTarget }

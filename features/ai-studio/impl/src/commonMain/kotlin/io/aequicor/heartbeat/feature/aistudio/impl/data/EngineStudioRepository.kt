@@ -216,6 +216,7 @@ internal class EngineStudioRepository(
     private val configuredSubmission: StudioConfiguredSubmission,
     private val helperAdmission: StudioHelperAdmission,
     private val recoveryOpening: StudioRecoveryOpening,
+    override val recoveryJournal: StudioRecoveryJournal,
     private val conversationStops: StudioConversationStops,
     private val chatRecords: StudioChatRecords,
     private val humanQueue: StudioHumanQueueCommands,
@@ -227,8 +228,7 @@ internal class EngineStudioRepository(
     private val messageQueue: StudioQueuePort = NoStudioQueue,
 ) : NativeStudioRepository(preferences, selections, efforts),
     StudioLiveConversations,
-    StudioTurnHost,
-    StudioRunHost,
+    StudioJournaledRecoveryHost,
     StudioConfigurationAccess,
     StudioChatResolver,
     StudioHelperChatWriter,
@@ -523,7 +523,7 @@ internal class EngineStudioRepository(
 
     override suspend fun requireNativeRecovery(request: StudioTurnRequest) {
         log.v { "Check native recovery stop routing before opening the saved context" }
-        helperAdmission.requireNativeRecovery(configurationRecord(request.id))
+        recoveryJournal.requireReserved(request, chatRecords.record(request.id))
     }
 
     override suspend fun helperRecord(helper: HelperId): StudioChatRecord {

@@ -165,6 +165,157 @@ class StudioGraphContinuationProofTest {
     }
 
     @Test
+    fun `redelivered observer follows the later recovery sender as its native predecessor`() = runTest {
+        val stores = ChecklistTestStores()
+        val helper = HelperId(request.id)
+        val record = native.record.copy(id = request.id, lastRunRequest = RequestId("C"))
+        val original = acceptedChild()
+        val q = original.getValue(request.request.value)
+        val ancestors = original + (
+            q.request.value to q.copy(
+                phase = StudioHelperPhase.Terminal,
+                terminal = StudioHelperTerminal(native.ref, q.turn, StudioHelperTerminalOutcome.Cancelled, ""),
+            )
+        )
+        val childRequest = request.copy(request = RequestId("C")).let {
+            it.copy(submission = StudioRunSubmission(recoveryDelivery = it.newRecoveryDelivery()))
+        }
+        val childWitness = witness.copy(
+            execution = childRequest.request,
+            delivery = childRequest.submission?.recoveryDelivery,
+            inspectionTarget = q.request,
+            predecessorExecution = q.request,
+        )
+        val child = prepareGraphContinuationReceipt(ancestors, childWitness, childRequest).receipt.copy(
+            phase = StudioHelperPhase.Accepted,
+            session = native.ref,
+            turn = TurnId("C-turn"),
+        )
+        val observerRequest = request.copy(request = RequestId("D"))
+        val old = witness.copy(
+            execution = observerRequest.request,
+            delivery = observerRequest.newRecoveryDelivery(),
+            phase = StudioRecoveryPhase.Inspecting,
+            inspectionTarget = q.request,
+            predecessorExecution = q.request,
+            isNativeSendAuthorized = false,
+            submittedSource = null,
+        ).observed(q.request, native.ref, q.turn, StudioHelperTerminalOutcome.Cancelled)
+        stores.keyValue(ChatSpec).set(ChatsKey, listOf(record))
+        stores.keyValue(HelperAttemptsSpec).set(
+            helperReceiptKey(helper),
+            Json.encodeToString(ancestors + (child.request.value to child)),
+        )
+        stores.keyValue(HelperAttemptsSpec).writeRecoveryWitnesses(
+            helper,
+            mapOf(q.request.value to witness, "C" to childWitness, "D" to old),
+        )
+        val attempts = StudioHelperAttempts(stores)
+        val replay = observerRequest.copy(
+            submission = StudioRunSubmission(recoveryDelivery = observerRequest.newRecoveryDelivery()),
+        )
+        val resumed = StudioRecoveryJournal(attempts).reserve(replay, record)
+        assertEquals(child.request, resumed.predecessorExecution)
+        assertEquals(child.request, resumed.inspectionTarget)
+        assertNull(resumed.outcome)
+        assertEquals(resumed, attempts.recoveryWork(helper, root).observer)
+    }
+
+    @Test
+    fun `closed observer delivery can inspect a later continuation without retaining its refusal`() {
+        val records = virtualChildRecords(native.ref)
+        val observerRequest = request.copy(request = RequestId("D"))
+        val old = witness.copy(
+            delivery = observerRequest.newRecoveryDelivery(),
+            execution = RequestId("D"),
+            phase = StudioRecoveryPhase.Inspecting,
+            inspectionTarget = request.request,
+            predecessorExecution = request.request,
+            isNativeSendAuthorized = false,
+            submittedSource = null,
+        ).observed(request.request, native.ref, TurnId("Q-turn"), StudioHelperTerminalOutcome.Cancelled)
+        val closed = old.noSend(
+            StudioRecoveryNoSendProof(checkNotNull(old.delivery), StudioRecoveryRefusal.Deferred),
+            isNewSendRevoked = false,
+        )
+        val incoming = closed.copy(
+            phase = StudioRecoveryPhase.Inspecting,
+            observed = null,
+            turn = null,
+            outcome = null,
+            refusal = null,
+            inspectionTarget = RequestId("C"),
+            delivery = observerRequest.newRecoveryDelivery(),
+        )
+        val resumed = closed.repeatDelivery(incoming, records)
+        assertEquals(StudioRecoveryPhase.Inspecting, resumed.phase)
+        assertNull(resumed.refusal)
+        assertNull(resumed.observed)
+        assertNull(resumed.outcome)
+    }
+
+    @Test
+    fun `new observer after a virtual continuation never inherits the old native observation`() = runTest {
+        for (nextSession in listOf(native.ref, native.ref.copy(nativeId = "virtual-context"))) {
+            val stores = ChecklistTestStores()
+            val helper = HelperId(request.id)
+            val record = native.record.copy(id = request.id, ref = nextSession, lastRunRequest = RequestId("C"))
+            val records = virtualChildRecords(nextSession)
+            val observer = witness.copy(
+                execution = RequestId("D"),
+                phase = StudioRecoveryPhase.Inspecting,
+                delivery = null,
+                inspectionTarget = request.request,
+                predecessorExecution = request.request,
+                isNativeSendAuthorized = false,
+                submittedSource = null,
+            ).observed(request.request, native.ref, TurnId("Q-turn"))
+            stores.keyValue(ChatSpec).set(ChatsKey, listOf(record))
+            stores.keyValue(HelperAttemptsSpec).set(helperReceiptKey(helper), Json.encodeToString(records))
+            stores.keyValue(HelperAttemptsSpec).writeRecoveryWitnesses(
+                helper,
+                mapOf(request.request.value to witness, "D" to observer),
+            )
+            val attempts = StudioHelperAttempts(stores)
+            val successor = request.copy(request = RequestId("E")).let {
+                it.copy(submission = StudioRunSubmission(recoveryDelivery = it.newRecoveryDelivery()))
+            }
+            val resumed = StudioRecoveryJournal(attempts).reserve(successor, record)
+            assertEquals(RequestId("C"), resumed.inspectionTarget)
+            assertEquals(StudioRecoveryPhase.Inspecting, resumed.phase)
+            assertNull(resumed.observed)
+            assertNull(resumed.turn)
+            assertNull(resumed.outcome)
+            assertFailsWith<CancellationException> {
+                attempts.observeRecovery(helper, observer.execution, native.ref, request.request, TurnId("Q-turn"))
+            }
+            assertEquals(RequestId("C"), attempts.recoveryWork(helper, root).nativeRequest)
+        }
+    }
+
+    @Test
+    fun `same sender redelivery follows a virtual context without replaying its old native send`() = runTest {
+        val stores = ChecklistTestStores()
+        val helper = HelperId(request.id)
+        val nextSession = native.ref.copy(nativeId = "virtual-context")
+        val record = native.record.copy(id = request.id, ref = nextSession, lastRunRequest = RequestId("C"))
+        stores.keyValue(ChatSpec).set(ChatsKey, listOf(record))
+        stores.keyValue(
+            HelperAttemptsSpec,
+        ).set(helperReceiptKey(helper), Json.encodeToString(virtualChildRecords(nextSession)))
+        stores.keyValue(HelperAttemptsSpec).writeRecoveryWitnesses(helper, mapOf(request.request.value to witness))
+        val attempts = StudioHelperAttempts(stores)
+        val replay = request.copy(submission = StudioRunSubmission(recoveryDelivery = request.newRecoveryDelivery()))
+        val resumed = StudioRecoveryJournal(attempts).reserve(replay, record)
+        assertEquals(RequestId("C"), resumed.inspectionTarget)
+        assertEquals(nextSession, resumed.session)
+        assertNull(resumed.observed)
+        assertFailsWith<IllegalStateException> { resumed.submitting() }
+        assertEquals(native.ref, attempts.receipt(helper, request.request)?.session)
+        assertEquals(RequestId("C"), attempts.recoveryWork(helper, root).nativeRequest)
+    }
+
+    @Test
     fun `virtual native context handoff survives restart and every stop alias fences its actual child`() = runTest {
         val nextSession = native.ref.copy(nativeId = "virtual-context")
         val childId = RequestId("C")

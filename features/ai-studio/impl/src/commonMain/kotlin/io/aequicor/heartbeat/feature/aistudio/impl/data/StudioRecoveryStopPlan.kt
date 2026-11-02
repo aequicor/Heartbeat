@@ -15,7 +15,7 @@ internal fun recoveryStopPlan(
     request: RequestId,
 ): StudioRecoveryStopPlan {
     validateRecoveryWorkLineage(records, receipts)
-    val roots = recoveryStopChain(records, request).mapTo(mutableSetOf()) { it.root }
+    val roots = recoveryStopChain(records, request, receipts).mapTo(mutableSetOf()) { it.root }
     (receipts[request.value]?.policy as? StudioAttemptPolicy.GraphWork)?.let { roots.add(it.recoveryRoot) }
     val targets = records.values.filter { it.root in roots || it.root == request }.map { it.stopped() }
     val changed = records + targets.associateBy { it.execution.value }

@@ -3,7 +3,10 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 
 /** Validates observation transfers before any reader may disregard a retired witness. */
-internal fun validateRecoveryLineage(records: Map<String, StudioRecoveryWitness>) {
+internal fun validateRecoveryLineage(
+    records: Map<String, StudioRecoveryWitness>,
+    receipts: Map<String, StudioHelperReceipt> = emptyMap(),
+) {
     check(records.all { (key, witness) -> key == witness.execution.value }) { "Mismatched recovery witness key" }
     val successors = records.values.mapNotNull { it.observerSuccessor }
     check(successors.distinct().size == successors.size) { "Recovery observation has multiple predecessors" }
@@ -15,14 +18,20 @@ internal fun validateRecoveryLineage(records: Map<String, StudioRecoveryWitness>
             val successor = current.observerSuccessor ?: break
             val next = checkNotNull(records[successor.value]) { "Recovery observation successor is missing" }
             check(current.phase in TransferableRecoveryPhases) { "A native send cannot transfer observation" }
-            check(current.root == next.root && current.session == next.session && current.route == next.route) {
-                "Recovery ownership context changed"
-            }
+            check(current.root == next.root) { "Recovery ownership root changed" }
             check(next.candidates.containsAll(current.candidates)) { "Recovery ownership lost native candidates" }
-            check(
-                current.observed == null || current.observed == next.observed,
-            ) { "Recovery ownership lost native request" }
-            check(current.turn == null || current.turn == next.turn) { "Recovery ownership lost native turn" }
+            when (recoveryObservationTransfer(current, next, receipts)) {
+                StudioObservationTransfer.SameNativeTarget -> {
+                    check(current.observed == null || current.observed == next.observed) {
+                        "Recovery ownership lost native request"
+                    }
+                    check(current.turn == null || current.turn == next.turn) { "Recovery ownership lost native turn" }
+                }
+
+                StudioObservationTransfer.ReceiptContinuation -> check(
+                    next.observed == null || next.observed == next.inspectionTarget,
+                ) { "Continuation inherited an obsolete observation" }
+            }
             check(!current.isStopRequested || next.isStopRequested) { "Recovery ownership lost stop intent" }
             current = next
         }
@@ -36,8 +45,9 @@ internal fun validateRecoveryLineage(records: Map<String, StudioRecoveryWitness>
 internal fun recoveryStopChain(
     records: Map<String, StudioRecoveryWitness>,
     request: RequestId,
+    receipts: Map<String, StudioHelperReceipt> = emptyMap(),
 ): List<StudioRecoveryWitness> {
-    validateRecoveryLineage(records)
+    validateRecoveryLineage(records, receipts)
     fun leaf(start: StudioRecoveryWitness): RequestId {
         var current = start
         while (current.observerSuccessor != null) {
@@ -74,21 +84,26 @@ internal fun prepareRecoveryTransfer(
         witness.copy(isStopRequested = old.isStopRequested || isLegacyStopped)
     } else {
         check(old.phase in TransferableRecoveryPhases) { "A native send must be reconciled through its receipt" }
-        check(old.root == witness.root && old.session == witness.session && old.route == witness.route) {
-            "Recovery ownership context changed"
-        }
+        check(old.root == witness.root) { "Recovery ownership root changed" }
         check(witness.candidates.containsAll(old.candidates)) { "Recovery ownership lost native candidates" }
         check(receipts[witness.execution.value] == null) { "Recovery successor already has a native send journal" }
-        witness.copy(
-            phase = old.phase,
-            observed = old.observed,
-            turn = old.turn,
-            outcome = old.outcome,
-            isStopRequested = old.isStopRequested || isLegacyStopped,
-        )
+        when (recoveryObservationTransfer(old, witness, receipts)) {
+            StudioObservationTransfer.SameNativeTarget -> witness.copy(
+                phase = old.phase,
+                observed = old.observed,
+                turn = old.turn,
+                outcome = old.outcome,
+                isStopRequested = old.isStopRequested || isLegacyStopped,
+            )
+
+            StudioObservationTransfer.ReceiptContinuation -> witness.copy(
+                isStopRequested = old.isStopRequested || isLegacyStopped,
+            )
+        }
     }
     val transferred = old?.takeUnless { it.hasNativeSend }?.let {
         records + (it.execution.value to it.copy(observerSuccessor = witness.execution))
-    } ?: records
+    }
+        ?: records
     return transferred + (witness.execution.value to prepared)
 }

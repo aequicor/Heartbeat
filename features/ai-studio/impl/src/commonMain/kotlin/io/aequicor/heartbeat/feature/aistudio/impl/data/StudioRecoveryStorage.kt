@@ -10,7 +10,9 @@ import okio.ByteString.Companion.encodeUtf8
 internal suspend fun KeyValueStore.readRecoveryWitnesses(helper: HelperId): Map<String, StudioRecoveryWitness> {
     val raw = get(recoveryKey(helper)) ?: return emptyMap()
     return try {
-        Json.decodeFromString<Map<String, StudioRecoveryWitness>>(raw).also(::validateRecoveryLineage)
+        Json.decodeFromString<Map<String, StudioRecoveryWitness>>(raw).also {
+            validateRecoveryLineage(it, decodeHelperReceipts(get(helperReceiptKey(helper))))
+        }
     } catch (error: IllegalArgumentException) {
         throw RecoveryStorageException(error::class.simpleName.orEmpty())
     }
@@ -21,7 +23,7 @@ internal suspend fun KeyValueStore.writeRecoveryWitnesses(
     helper: HelperId,
     records: Map<String, StudioRecoveryWitness>,
 ) {
-    validateRecoveryLineage(records)
+    validateRecoveryLineage(records, decodeHelperReceipts(get(helperReceiptKey(helper))))
     set(recoveryKey(helper), Json.encodeToString(records))
 }
 

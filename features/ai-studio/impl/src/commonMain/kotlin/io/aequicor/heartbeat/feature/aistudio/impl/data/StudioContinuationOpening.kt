@@ -16,16 +16,22 @@ internal suspend fun StudioTurnRequest.openContinuation(
 ): ActiveSession? {
     val gate = checkNotNull(submission as? StudioHelperSubmission) { "Native opening requires journal admission" }
     gate.requireOpening()
-    val snapshot = gate.continuationReceipt()?.executionSnapshot ?: return null
-    snapshot.requireContinuationConnection(records.record(id))
-    check(selections.observe().first().isEnabled(snapshot.target)) { "The continuation model is no longer enabled" }
+    val snapshot = gate.continuationReceipt()?.executionSnapshot
+    val target = snapshot?.target ?: graphWork?.target?.takeIf { origin is StudioTurnOrigin.GraphWork } ?: return null
+    val record = records.record(id)
+    if (snapshot != null) {
+        snapshot.requireContinuationConnection(record)
+    } else {
+        check(record.pendingEngineSwitch == null) { "Graph connection replacement is unresolved" }
+    }
+    check(selections.observe().first().isEnabled(target)) { "The execution model is no longer enabled" }
     configurations.freeze(id, live(HelperId(id)))
-    return open(snapshot.target)
+    return open(target)
 }
 
 /** Independent turns use current preferences; continuation admission subsequently restores its source snapshot. */
 internal fun StudioTurnRequest.withCurrentSettings(record: StudioChatRecord): StudioTurnRequest =
-    if (record.target == null && record.configuration == null) {
+    if (origin is StudioTurnOrigin.GraphWork || (record.target == null && record.configuration == null)) {
         this
     } else {
         copy(settings = hostRunSettings(record, record.configuration, settings))

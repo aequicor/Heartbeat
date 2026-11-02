@@ -55,11 +55,12 @@ internal class StudioConfiguredSubmission(
         val workModel = request.workModel(record)
         val inherited = (request.submission as? StudioHelperSubmission)?.continuationReceipt()?.executionSnapshot
         check(inherited == null || inherited.target == target) { "Continuation native target changed before send" }
+        val isFrozen = inherited != null || request.origin is StudioTurnOrigin.GraphWork
         val stored = configurations()[id]?.applied ?: record.configuration
         val isTrustSupported = models().isTrustSupported(target)
         val supported = models().reasoningEfforts(target)
-        val effort = if (inherited != null) {
-            inherited.reasoningEffort
+        val effort = if (isFrozen) {
+            request.frozenEffort(inherited, supported)
         } else {
             turnEffort(
                 stored,
@@ -83,13 +84,13 @@ internal class StudioConfiguredSubmission(
             seeded.copy(directives = seeded.directives + HELPER_DIRECTIVE)
         }
         // A handoff retires configuration observation because its session is never reflected again.
-        if (request.isHandoff || inherited != null) controller.retire(id, active)
+        if (request.isHandoff || isFrozen) controller.retire(id, active)
         val reviewTarget = if (inherited != null) inherited.reviewTarget else workModel?.reviewTarget
         val submitted = send(access, active, target, constrained, effort, reviewTarget) {
             turnPolicy(isTrustSupported)
         }
         consumeCarriedContext(access, record, request, carried)
-        if (request.isHandoff || inherited != null) return submitted.turn
+        if (request.isHandoff || isFrozen) return submitted.turn
         confirmConfiguration(
             access,
             id,
@@ -188,7 +189,7 @@ internal class StudioConfiguredSubmission(
                 authority.savedAuthority(),
                 request.causes,
             )
-            helper?.freezeExecution(snapshot)
+            helper?.freezeExecution(snapshot, StudioRecoveryRoute(target, active.route.workspace))
             val native: suspend () -> TurnId = {
                 active.submitStudioPrompt(
                     prompt,
@@ -295,3 +296,7 @@ internal fun turnEffort(
 } else {
     helper?.model?.reasoningEffort?.takeIf { it in supported } ?: profile()
 }
+
+/** A captured null effort means the original native default, never a reason to read a later preference. */
+private fun StudioTurnRequest.frozenEffort(inherited: StudioExecutionSnapshot?, supported: List<String>): String? =
+    if (inherited != null) inherited.reasoningEffort else graphWork?.reasoningEffort?.takeIf { it in supported }
