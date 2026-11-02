@@ -1,0 +1,1 @@
+При запуске Python через hosted run_command на Windows используй python -X utf8 для чтения и вывода русских текстов и Unicode. Без этого stdout может использовать cp1251: вывод искажается, а стрелки вроде → вызывают UnicodeEncodeError. Для файлов задавай encoding='utf-8'; большие скрипты с русскими строками записывай hosted write_file вместо передачи через PowerShell stdin.
