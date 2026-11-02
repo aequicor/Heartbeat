@@ -45,7 +45,7 @@ enum class InstallSupportUi { BuiltIn, Managed, Bundled, External }
 enum class InstallSourceUi { BuiltIn, Bundled, Managed, System, HostApp, Custom, Missing }
 
 /** Whether a version was verified with this Heartbeat build. */
-enum class CompatibilityUi { Verified, Unverified, Unknown }
+enum class CompatibilityUi { Verified, Unverified, Unknown, Incompatible }
 
 /** Installation step failures, one message each. */
 enum class InstallFailureUi {

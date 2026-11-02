@@ -236,16 +236,22 @@ public data class ManagedInstall(val version: String, val executable: String, va
     override fun toString(): String = "ManagedInstall(version=$version, installedAt=$installedAt)"
 }
 
-/** Whether a version was verified with this Heartbeat build. */
+/**
+ * Legacy management status, also used by [EngineCompatibilityDecision]. Existing version-only manager results
+ * are display metadata, not admission evidence; only a complete decision establishes the safe baseline.
+ */
 public enum class Compatibility {
     /** The version Heartbeat ships or was tested with. */
     Verified,
 
-    /** A newer release Heartbeat was not tested with; it may be rolled back. */
+    /** Not regression-tested; only a structured decision can establish whether the baseline passed. */
     Unverified,
 
-    /** Nothing is known. */
+    /** Required identity or baseline facts are missing; only a restricted probe is allowed. */
     Unknown,
+
+    /** Hard constraints or a safety baseline positively failed; creation and resume are forbidden. */
+    Incompatible,
 }
 
 /** Installation facts of an engine; [current] stays null until an explicit inspection. */
