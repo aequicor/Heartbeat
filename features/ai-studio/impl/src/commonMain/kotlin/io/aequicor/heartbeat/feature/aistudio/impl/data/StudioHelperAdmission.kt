@@ -11,7 +11,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
-/** The repository calls this for every run, including manual and scheduled runs in a marked helper chat. */
+/** Every new Studio send receives a durable admission receipt, independently of the conversation's role. */
 @Inject
 internal class StudioHelperAdmission(
     private val attempts: StudioHelperAttempts,
@@ -47,6 +47,22 @@ internal class StudioHelperAdmission(
         }
     }
 
+    /** Do not overwrite a legacy root's only native request address while that request may still be running. */
+    private suspend fun requireLegacyTerminal(record: StudioChatRecord, helper: HelperId) {
+        if (record.hasAttemptJournal || record.helper != null || record.ref == null) return
+        val previous = record.lastRunRequest
+            ?: throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
+        if (attempts.receipt(helper, previous) != null) return
+        val observation = runs?.value?.reconcileLegacy(helper, previous)
+        when (observation?.phase) {
+            StudioLegacyPhase.Idle, StudioLegacyPhase.Terminal -> attempts.rememberLegacy(helper, observation)
+
+            StudioLegacyPhase.Active, StudioLegacyPhase.Unknown, null ->
+                throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
+        }
+        log.v { "Persisted legacy native observation before first universal journal admission" }
+    }
+
     suspend fun prepare(record: StudioChatRecord, request: StudioTurnRequest): StudioTurnRequest {
         val helper = HelperId(record.id)
         val supplied = request.submission as? StudioHelperSubmission
@@ -58,7 +74,7 @@ internal class StudioHelperAdmission(
         check(
             request.origin != StudioTurnOrigin.HelperWork,
         ) { "Helper work requires an authenticated lease submission" }
-        if (record.helper == null && record.logicalSession?.kind != SessionKind.Subsession) return request
+        requireLegacyTerminal(record, helper)
         val policy = request.origin.deliveryPolicy()
         val previous = attempts.unresolved(helper)
         if (previous != null && previous != request.request) {

@@ -129,6 +129,8 @@ internal data class StudioChatRecord(
     val isUnread: Boolean = false,
     val isArchived: Boolean = false,
     val lastRunRequest: RequestId? = null,
+    /** New native writers always journal admission; missing evidence is no longer a legacy root fallback. */
+    val hasAttemptJournal: Boolean = false,
     val hasLastRunSucceeded: Boolean = false,
     val runRevision: Long = 0,
     val hasFailed: Boolean = false,
@@ -534,7 +536,7 @@ internal class EngineStudioRepository(
     override suspend fun prepareNewTurn(request: StudioTurnRequest): StudioTurnRequest {
         log.v { "Prepare new native request after recovery selected submission" }
         return helperAdmission.prepareNewTurn(configurationRecord(request.id), request) {
-            update(request.id) { startedRun(request.request) }
+            update(request.id) { startedRun(request.request).copy(hasAttemptJournal = true) }
         }
     }
 

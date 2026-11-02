@@ -1534,6 +1534,35 @@ class StudioJournaledRecoveryTest {
     }
 
     @Test
+    fun `failed new send preparation closes its recovery without a phantom native receipt`() = runTest {
+        val f = TurnFixture()
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val request = recovery(f)
+        val delivery = checkNotNull(request.newRecoveryDelivery())
+        f.host.recoveryJournal = StudioRecoveryJournal(attempts)
+        attempts.prepareRecovery(
+            HelperId(request.id),
+            StudioRecoveryWitness(
+                request.request,
+                f.request.request,
+                request.recoveryRequests.toSet(),
+                f.active.ref,
+                delivery = delivery,
+            ),
+        )
+        f.active.inspection = TurnInspection.Idle
+        f.host.prepareNew = { error("Bookkeeping unavailable") }
+
+        f.executor.execute(f.host, request.copy(submission = StudioRunSubmission(recoveryDelivery = delivery)))
+
+        val witness = checkNotNull(attempts.recovery(HelperId(request.id), request.request))
+        assertEquals(StudioRecoveryPhase.NoSend, witness.phase)
+        assertNull(attempts.receipt(HelperId(request.id), request.request))
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertTrue(attempts.isContextIdle(HelperId(request.id)))
+    }
+
+    @Test
     fun `terminal bookkeeping failure still persists mandatory recovery outcome`() = runTest {
         val f = TurnFixture()
         val attempts = StudioHelperAttempts(ChecklistTestStores())

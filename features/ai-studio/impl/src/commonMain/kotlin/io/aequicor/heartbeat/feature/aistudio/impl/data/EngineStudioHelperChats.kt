@@ -38,6 +38,7 @@ internal interface StudioHelperRuns {
 
     suspend fun prepareHelperRoute(helper: HelperId) = Unit
     suspend fun helperTerminal(helper: HelperId, request: RequestId): StudioHelperTerminal?
+    suspend fun reconcileLegacy(helper: HelperId, request: RequestId): StudioLegacyObservation? = null
     suspend fun stopHelper(helper: HelperId, request: RequestId): StudioHelperTerminal?
     suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? = null
     suspend fun virtualResultNote(helper: HelperId, request: RequestId): String = ""

@@ -32,6 +32,10 @@ internal class StudioHelperSubmission(
     private var contextGuard: StudioHelperPromptGuard? = null
     private var boundSession: SessionRef? = null
     override val isCancelled: Boolean get() = cancelled.value
+    override val recoveryDelivery: StudioRecoveryDelivery? get() = prior?.recoveryDelivery
+
+    override suspend fun sealRecoveryNoSend(): StudioRecoveryNoSendProof? = prior?.sealRecoveryNoSend()
+        ?: recoveryDelivery?.let { attempts.retiredRecoverySender(it, claim) }
 
     /** All production helper sends enter this scope, including manual turns in a marked chat. */
     suspend fun <T> withPreparation(session: SessionRef, workspace: WorkspaceRef?, block: suspend () -> T): T {

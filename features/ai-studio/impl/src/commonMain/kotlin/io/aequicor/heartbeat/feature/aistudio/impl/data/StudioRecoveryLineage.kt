@@ -15,7 +15,9 @@ internal fun validateRecoveryLineage(records: Map<String, StudioRecoveryWitness>
             val successor = current.observerSuccessor ?: break
             val next = checkNotNull(records[successor.value]) { "Recovery observation successor is missing" }
             check(current.phase in TransferableRecoveryPhases) { "A native send cannot transfer observation" }
-            check(current.root == next.root && current.session == next.session) { "Recovery ownership context changed" }
+            check(current.root == next.root && current.session == next.session && current.route == next.route) {
+                "Recovery ownership context changed"
+            }
             check(next.candidates.containsAll(current.candidates)) { "Recovery ownership lost native candidates" }
             check(
                 current.observed == null || current.observed == next.observed,
@@ -49,4 +51,40 @@ internal fun recoveryStopChain(
         )
     }.map(::leaf).toSet()
     return records.values.filter { leaf(it) in leaves }
+}
+
+/** Pure observation ownership transition; its caller writes the returned map under the shared journal lock. */
+internal fun prepareRecoveryTransfer(
+    records: Map<String, StudioRecoveryWitness>,
+    receipts: Map<String, StudioHelperReceipt>,
+    witness: StudioRecoveryWitness,
+    isLegacyStopped: Boolean,
+): Map<String, StudioRecoveryWitness> {
+    val unresolved = records.values.filter { it.blocksContext(receipts) }
+    val old = unresolved.singleOrNull()
+    check(unresolved.isEmpty() || old != null) { "Contradictory recovery observation ownership" }
+    val prepared = if (old == null) {
+        // Finishing R after an explicit Stop does not authorize a new observer to revive the same work root.
+        witness.copy(
+            isStopRequested = isLegacyStopped ||
+                records.values.any { it.root == witness.root && it.isStopRequested },
+        )
+    } else {
+        check(old.phase in TransferableRecoveryPhases) { "A native send must be reconciled through its receipt" }
+        check(old.root == witness.root && old.session == witness.session && old.route == witness.route) {
+            "Recovery ownership context changed"
+        }
+        check(witness.candidates.containsAll(old.candidates)) { "Recovery ownership lost native candidates" }
+        check(receipts[witness.execution.value] == null) { "Recovery successor already has a native send journal" }
+        witness.copy(
+            phase = old.phase,
+            observed = old.observed,
+            turn = old.turn,
+            outcome = old.outcome,
+            isStopRequested = old.isStopRequested || isLegacyStopped,
+        )
+    }
+    val transferred = old?.let { records + (it.execution.value to it.copy(observerSuccessor = witness.execution)) }
+        ?: records
+    return transferred + (witness.execution.value to prepared)
 }

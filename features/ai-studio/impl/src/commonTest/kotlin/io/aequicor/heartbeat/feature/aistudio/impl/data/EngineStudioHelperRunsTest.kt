@@ -147,6 +147,7 @@ class EngineStudioHelperRunsTest {
         StudioRunCoordinator(RunProfile(scope), RunClock),
         fixture.native,
         StudioHelperRecovery(RunClock),
+        StudioLegacyRecovery(lazyOf(fixture.native)),
         worktrees,
     )
 }

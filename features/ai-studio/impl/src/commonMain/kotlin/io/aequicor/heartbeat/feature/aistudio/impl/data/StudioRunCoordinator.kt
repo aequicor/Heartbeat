@@ -74,7 +74,7 @@ internal class StudioRunCoordinator(
     private val log = Log.tag("StudioRunCoordinator")
     private val lock = Mutex()
     private val busy = MutableStateFlow<Set<String>>(emptySet())
-    private val requests = MutableStateFlow<Map<String, RequestId>>(emptyMap())
+    private val requests = MutableStateFlow<Map<String, ReservedRequest>>(emptyMap())
     private val recoveryReservations = mutableMapOf<String, RecoveryReservation>()
     val occupied: StateFlow<Set<String>> = busy.asStateFlow()
 
@@ -82,7 +82,10 @@ internal class StudioRunCoordinator(
     fun isBusy(id: String): Boolean = id in busy.value
 
     /** Exact reserved attempt, available even before the host has prepared its journal or native handle. */
-    fun currentRequest(id: String): RequestId? = requests.value[id]
+    fun currentRequest(id: String): RequestId? = requests.value[id]?.request
+
+    /** Observation Q must never be cancelled as if it were a new native send of Q. */
+    fun currentSendRequest(id: String): RequestId? = requests.value[id]?.takeUnless { it.isRecovery }?.request
 
     /**
      * Captures a recovery Stop target and waits outside all locks for durable publication or failed initialization.
@@ -125,11 +128,7 @@ internal class StudioRunCoordinator(
         require(request.submission == null || admission == null) {
             "A supplied submission gate must own its admission policy"
         }
-        val submission = request.submission ?: if (cancelBeforeSubmission || admission != null) {
-            StudioRunSubmission(admission, request.newRecoveryDelivery())
-        } else {
-            null
-        }
+        val submission = request.submission ?: newSubmission(request, admission, cancelBeforeSubmission)
         val reserved = submission?.let { request.copy(submission = it) } ?: request
         while (true) {
             awaitAdmission(request.id, waitForIdle, admission)
@@ -229,7 +228,7 @@ internal class StudioRunCoordinator(
 
     /** Called under [lock], so a failed reservation cannot erase a later request. */
     private suspend fun reserveRequest(host: StudioRunHost, request: StudioTurnRequest) {
-        requests.value += request.id to request.request
+        requests.value += request.id to ReservedRequest(request.request, request.recoveryRequests.isNotEmpty())
         log.v { "Recorded the exact chat execution reservation" }
         var isStarted = false
         try {
@@ -238,6 +237,20 @@ internal class StudioRunCoordinator(
         } finally {
             if (!isStarted) requests.value -= request.id
         }
+    }
+
+    private data class ReservedRequest(val request: RequestId, val isRecovery: Boolean)
+
+    private fun newSubmission(
+        request: StudioTurnRequest,
+        admission: Flow<ScheduledWakeAdmission>?,
+        cancelBeforeSubmission: Boolean,
+    ): StudioSubmissionGate? = if (cancelBeforeSubmission || admission != null ||
+        request.recoveryRequests.isNotEmpty()
+    ) {
+        StudioRunSubmission(admission, request.newRecoveryDelivery())
+    } else {
+        null
     }
 
     private suspend fun awaitAdmission(id: String, waitForIdle: Boolean, admission: Flow<ScheduledWakeAdmission>?) {

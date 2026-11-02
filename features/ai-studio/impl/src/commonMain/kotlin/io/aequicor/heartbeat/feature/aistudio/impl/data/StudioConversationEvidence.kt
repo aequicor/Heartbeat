@@ -55,7 +55,7 @@ internal class StudioConversationEvidence(
 
     override suspend fun result(record: StudioChatRecord, request: RequestId): HostConversationResult? {
         val helper = HelperId(record.id)
-        val receipt = attempts.receipt(helper, request) ?: return null
+        val receipt = attempts.receipt(helper, request) ?: return attempts.legacy(helper, request)?.terminalResult()
         val terminal = receipt.terminal ?: if (receipt.phase in NATIVE_PHASES) {
             runs.value.helperTerminal(helper, request)?.also { attempts.terminal(helper, request, it) }
         } else {
@@ -65,8 +65,9 @@ internal class StudioConversationEvidence(
     }
 
     override suspend fun cancel(record: StudioChatRecord, request: RequestId): HostConversationCancellation {
-        recoveries?.cancel(record, request)?.let { return it }
         val helper = HelperId(record.id)
+        val observed = recoveries?.cancel(record, request) ?: legacyCancellation(helper, request)
+        if (observed != null) return observed
         val receipt = attempts.requestStop(helper, request)
         return when {
             receipt.phase == StudioHelperPhase.NotSubmitted -> HostConversationCancellation.NotSubmitted(request)
@@ -84,6 +85,16 @@ internal class StudioConversationEvidence(
                     HostConversationCancellation.Terminal(terminal.conversationResult(request))
                 }
             }
+        }
+    }
+
+    private suspend fun legacyCancellation(helper: HelperId, request: RequestId): HostConversationCancellation? {
+        val legacy = attempts.stopLegacy(helper, request) ?: return null
+        val result = legacy.terminalResult()
+        return if (result == null) {
+            HostConversationCancellation.Unconfirmed(request)
+        } else {
+            HostConversationCancellation.Terminal(result)
         }
     }
 

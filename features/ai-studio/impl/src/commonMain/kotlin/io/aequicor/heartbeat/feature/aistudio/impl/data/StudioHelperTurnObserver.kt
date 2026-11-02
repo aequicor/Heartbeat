@@ -12,7 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import kotlinx.coroutines.flow.first
 
-/** Native callbacks also cover manual turns in helper chats; normal chats never create helper receipts. */
+/** Native evidence enriches every journaled Studio send, without fabricating receipts for legacy native work. */
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class StudioHelperTurnObserver(

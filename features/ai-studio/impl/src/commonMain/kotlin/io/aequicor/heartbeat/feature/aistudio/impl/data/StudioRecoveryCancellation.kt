@@ -30,26 +30,56 @@ internal class StudioRecoveryCancellation(
                 HostConversationCancellation.Unconfirmed(execution)
             }
         }
+        if (hasRevokedSend(helper, witness, execution)) return null
         val closed = closed(witness, execution)
         if (closed != null) return closed
         if (witness.observed == null || witness.session != record.ref) {
             return HostConversationCancellation.Unconfirmed(execution)
         }
+        return stopObserved(record, witness, execution)
+    }
+
+    private suspend fun stopObserved(
+        record: StudioChatRecord,
+        witness: StudioRecoveryWitness,
+        execution: RequestId,
+    ): HostConversationCancellation {
+        val helper = HelperId(record.id)
+        if (witness.route != null) witness.requireRoute(record)
         val stopped = native.stopObserved(record, witness, access.value.liveHelper(helper))
             ?: return HostConversationCancellation.Unconfirmed(execution)
-        val observed = attempts.observeRecovery(
-            helper,
-            witness.execution,
-            stopped.session,
-            witness.observed,
-            stopped.turn,
-            stopped.outcome,
-        )
+        val observed = recordStopped(helper, witness, stopped)
         return if (observed.phase == StudioRecoveryPhase.Terminal) {
             HostConversationCancellation.Terminal(stopped.conversationResult(execution).copy(isAnswerComplete = false))
         } else {
             HostConversationCancellation.Unconfirmed(execution)
         }
+    }
+
+    /** A native stop may finish after restart; its old delivery must not overwrite the new observer. */
+    private suspend fun recordStopped(
+        helper: HelperId,
+        witness: StudioRecoveryWitness,
+        stopped: StudioHelperTerminal,
+    ): StudioRecoveryWitness {
+        val request = checkNotNull(witness.observed)
+        val delivery = witness.delivery
+        return if (delivery == null) {
+            attempts.observeRecovery(helper, witness.execution, stopped.session, request, stopped.turn, stopped.outcome)
+        } else {
+            attempts.changeRecoveryDelivery(delivery) {
+                it.observed(request, stopped.session, stopped.turn, stopped.outcome)
+            }
+        }
+    }
+
+    private suspend fun hasRevokedSend(helper: HelperId, witness: StudioRecoveryWitness, request: RequestId): Boolean {
+        if (witness.phase != StudioRecoveryPhase.NoSend || witness.execution != request ||
+            witness.observed == request
+        ) {
+            return false
+        }
+        return attempts.receipt(helper, request)?.phase == StudioHelperPhase.NotSubmitted
     }
 
     private fun closed(witness: StudioRecoveryWitness, request: RequestId): HostConversationCancellation? =

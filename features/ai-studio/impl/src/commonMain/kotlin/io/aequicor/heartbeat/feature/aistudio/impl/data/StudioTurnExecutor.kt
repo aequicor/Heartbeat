@@ -175,7 +175,10 @@ internal class StudioTurnExecutor(
                 request.environment?.preselected.orEmpty()
             val recovered = preflightRecovery(host, request, progress)
             if (recovered == GraphRecovery.Submit) {
-                if (request.recoveryRequests.isNotEmpty()) prepareRecoverySubmit(host, request)
+                if (request.recoveryRequests.isNotEmpty()) {
+                    progress.isRecoverySubmitPrepared = true
+                    prepareRecoverySubmit(host, request)
+                }
                 currentCoroutineContext().ensureActive()
                 admitted = host.prepareNewTurn(request)
                 check(admitted.copy(settings = request.settings, submission = request.submission) == request) {
@@ -207,9 +210,21 @@ internal class StudioTurnExecutor(
                 try {
                     finishRecoveryObservation(host, request, progress)
                 } finally {
-                    finishExecution(admitted, environment, progress)
+                    try {
+                        finishExecution(admitted, environment, progress)
+                    } finally {
+                        finishUnsentRecovery(host, admitted, progress)
+                    }
                 }
             }
+        }
+    }
+
+    /** Exact gate refusal or durable sender rejection closes only this delivery's new-send preparation. */
+    private suspend fun finishUnsentRecovery(host: StudioTurnHost, request: StudioTurnRequest, progress: Progress) {
+        if (!progress.isRecoverySubmitPrepared || progress.native != null) return
+        observe("unsent recovery cleanup") {
+            request.submission?.sealRecoveryNoSend()?.let { host.recoveryJournal?.noSend(it) }
         }
     }
 
@@ -333,7 +348,12 @@ internal class StudioTurnExecutor(
         val delivery = checkNotNull(request.submission?.recoveryDelivery)
         val native = checkNotNull(progress.native)
         try {
-            journal.observed(delivery, StudioRecoveryEvidence(active.ref, native.request, native.turn, outcome))
+            progress.isStopRequested = progress.isStopRequested || journal.isStopRequested(delivery)
+            val witness = journal.observed(
+                delivery,
+                StudioRecoveryEvidence(active.ref, native.request, native.turn, outcome),
+            )
+            progress.isStopRequested = progress.isStopRequested || witness.isStopRequested
             progress.isRecoveryJournalCurrent = true
             progress.isRecoveryTerminalJournaled = outcome != null && outcome != TurnOutcome.Unknown
         } catch (error: CancellationException) {
@@ -709,6 +729,7 @@ internal class StudioTurnExecutor(
         var isTerminalObserved = false
         var isRecoveryJournalCurrent = true
         var isRecoveryTerminalJournaled = false
+        var isRecoverySubmitPrepared = false
         private var isNativeRetained = false
 
         suspend fun retainNative(submission: StudioSubmissionGate?) {

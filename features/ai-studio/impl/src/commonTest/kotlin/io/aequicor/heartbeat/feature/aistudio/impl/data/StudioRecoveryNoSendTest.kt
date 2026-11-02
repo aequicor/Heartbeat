@@ -1,8 +1,10 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -25,7 +27,7 @@ class StudioRecoveryNoSendTest {
     private val execution = RequestId("Q")
     private val source = RequestId("R")
     private val session = SessionRef(EngineId("test"), SessionSourceId("local"), "native")
-    private val delivery = StudioRecoveryDelivery(helper.value, execution, "delivery-one")
+    private val delivery = StudioRecoveryDelivery(helper.value, execution, "delivery-one", "payload")
     private val initial = StudioRecoveryWitness(execution, source, setOf(source), session, delivery = delivery)
 
     @Test
@@ -72,6 +74,132 @@ class StudioRecoveryNoSendTest {
         restored.confirmRecoveryIdle(helper, execution, session)
         restored.submitRecovery(helper, execution)
         assertTrue(restored.prepareConversation(helper, HelperPrompt(execution, "continuation")).isNew)
+    }
+
+    @Test
+    fun `restart renews observation claim while retaining native binding and stop`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val old = delivery.copy(fingerprint = "immutable-payload")
+        val witness = initial.copy(delivery = old)
+        attempts.prepareRecovery(helper, witness)
+        attempts.observeRecovery(helper, execution, session, source, TurnId("actual"))
+        attempts.loseRecovery(helper, execution)
+        attempts.stopRecovery(helper, execution)
+        val next = old.copy(claim = "new-process")
+
+        val resumed = attempts.prepareRecovery(
+            helper,
+            witness.copy(delivery = next, candidates = witness.candidates + execution),
+        )
+
+        assertEquals(setOf(source, execution), resumed.candidates)
+        assertEquals(source, resumed.observed)
+        assertEquals(TurnId("actual"), resumed.turn)
+        assertTrue(resumed.isStopRequested)
+        assertFalse(resumed.isInspectionCurrent)
+        assertFailsWith<CancellationException> { attempts.changeRecoveryDelivery(old) { it.unknown() } }
+        assertFailsWith<IllegalStateException> {
+            attempts.prepareRecovery(
+                helper,
+                witness.copy(delivery = next.copy(fingerprint = "different-work"), candidates = resumed.candidates),
+            )
+        }
+        assertEquals(resumed, attempts.recovery(helper, execution))
+    }
+
+    @Test
+    fun `post admission refusal requires both the exact gate and retired native preparation`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        attempts.prepareRecovery(helper, initial)
+        attempts.confirmRecoveryIdle(helper, execution, session)
+        val gate = StudioRunSubmission(recoveryDelivery = delivery)
+        gate.beginRecoveryObservation()
+        gate.prepareRecoverySubmit()
+        attempts.submitRecovery(helper, execution)
+        attempts.prepareConversation(helper, HelperPrompt(execution, "continuation"))
+        val proof = assertNotNull(gate.sealRecoveryNoSend())
+
+        assertFailsWith<IllegalStateException> { attempts.closeRecoveryNoSend(helper, proof) }
+        assertEquals(StudioRecoveryPhase.Submit, attempts.recovery(helper, execution)?.phase)
+        attempts.cancelBeforeSubmission(helper, execution, isFinal = false)
+        val closed = attempts.closeRecoveryNoSend(helper, proof)
+
+        assertEquals(StudioRecoveryPhase.NoSend, closed.phase)
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(helper, execution)?.phase)
+        assertTrue(attempts.isContextIdle(helper))
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.requestStop(helper, execution).phase)
+        assertTrue(checkNotNull(attempts.recovery(helper, execution)).isStopRequested)
+    }
+
+    @Test
+    fun `begun recovery needs exact durable sender rejection before closing NoSend`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        attempts.prepareRecovery(helper, initial)
+        attempts.confirmRecoveryIdle(helper, execution, session)
+        attempts.submitRecovery(helper, execution)
+        attempts.prepareConversation(helper, HelperPrompt(execution, "continuation"))
+        attempts.bindSession(helper, execution, session)
+        val gate = StudioRunSubmission(recoveryDelivery = delivery)
+        gate.begin()
+        assertTrue(attempts.begin(helper, execution, "sender"))
+        assertTrue(attempts.enterNative(helper, execution, "sender"))
+        assertNull(gate.sealRecoveryNoSend())
+        assertNull(attempts.retiredRecoverySender(delivery, "sender"))
+
+        assertTrue(attempts.cancelBeforeNative(helper, execution, session, "sender"))
+        assertNull(attempts.retiredRecoverySender(delivery, "different-sender"))
+        val proof = assertNotNull(attempts.retiredRecoverySender(delivery, "sender"))
+        val closed = attempts.closeRecoveryNoSend(helper, proof)
+
+        assertEquals(StudioRecoveryPhase.NoSend, closed.phase)
+        assertEquals("sender", attempts.receipt(helper, execution)?.nativeEntryClaim)
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(helper, execution)?.phase)
+    }
+
+    @Test
+    fun `real sender only provides NoSend after definitive native rejection`() = runTest {
+        for (isRejected in listOf(false, true)) {
+            val attempts = StudioHelperAttempts(ChecklistTestStores())
+            attempts.prepareRecovery(helper, initial)
+            attempts.confirmRecoveryIdle(helper, execution, session)
+            attempts.submitRecovery(helper, execution)
+            attempts.prepareConversation(helper, HelperPrompt(execution, "continuation"))
+            val gate = StudioRunSubmission(recoveryDelivery = delivery)
+            val sender = StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, execution, gate)
+            sender.begin()
+            val failure = if (isRejected) EngineFailure.Session(SessionFailureReason.Busy) else EngineFailure.Unknown()
+
+            assertFailsWith<EngineException> { sender.send { throw EngineException(failure) } }
+
+            assertNull(gate.sealRecoveryNoSend())
+            val proof = sender.sealRecoveryNoSend()
+            if (isRejected) {
+                assertEquals(
+                    StudioRecoveryPhase.NoSend,
+                    attempts.closeRecoveryNoSend(helper, assertNotNull(proof)).phase,
+                )
+            } else {
+                assertNull(proof)
+                assertEquals(StudioHelperPhase.Submitting, attempts.receipt(helper, execution)?.phase)
+            }
+        }
+    }
+
+    @Test
+    fun `exact sealed gate closes Submit before any new receipt was admitted`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        attempts.prepareRecovery(helper, initial)
+        attempts.confirmRecoveryIdle(helper, execution, session)
+        val gate = StudioRunSubmission(recoveryDelivery = delivery)
+        gate.beginRecoveryObservation()
+        gate.prepareRecoverySubmit()
+        attempts.submitRecovery(helper, execution)
+
+        val closed = attempts.closeRecoveryNoSend(helper, assertNotNull(gate.sealRecoveryNoSend()))
+
+        assertEquals(StudioRecoveryPhase.NoSend, closed.phase)
+        assertNull(attempts.receipt(helper, execution))
+        assertTrue(attempts.isContextIdle(helper))
     }
 
     @Test

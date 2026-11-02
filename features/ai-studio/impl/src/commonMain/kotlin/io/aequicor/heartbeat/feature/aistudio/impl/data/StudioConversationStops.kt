@@ -21,8 +21,11 @@ internal class StudioConversationStops(
             }
             return true
         }
-        if (record.helper == null && record.logicalSession?.kind != SessionKind.Subsession) return false
-        val request = coordinator.currentRequest(record.id) ?: if (record.logicalSession == null) {
+        val reserved = coordinator.currentSendRequest(record.id)
+        val isJournaled = record.hasAttemptJournal || record.helper != null ||
+            record.logicalSession?.kind == SessionKind.Subsession
+        if (reserved == null && !isJournaled) return false
+        val request = reserved ?: if (record.logicalSession == null) {
             record.lastRunRequest
         } else {
             observations.snapshot(record).attempt?.request

@@ -48,10 +48,46 @@ class StudioConversationReservationTest {
         started.await()
         assertTrue(stops.cancel(record))
         assertEquals(listOf(request.request), observations.stopped)
+        // A root's very first journaled send must be fenced before its writer marker is saved too.
+        assertTrue(stops.cancel(record.copy(identity = null)))
+        assertEquals(listOf(request.request, request.request), observations.stopped)
         resume.complete(Unit)
         run.await()
         assertNull(coordinator.currentRequest(request.id))
         assertFalse(coordinator.isBusy(request.id))
+    }
+
+    @Test
+    fun `unjournaled recovery does not turn stopping native R into NotSubmitted Q`() = runTest {
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val source = RequestId("native-R")
+        val request = runRequest("observer-Q").copy(
+            recoveryRequests = listOf(source),
+            origin = StudioTurnOrigin.GraphWork(source),
+        )
+        val started = CompletableDeferred<Unit>()
+        val resume = CompletableDeferred<Unit>()
+        val observations = ReservationObservations()
+        val stops = StudioConversationStops(observations, coordinator)
+        val host = RunHost(mutableListOf()).apply {
+            execute = {
+                started.complete(Unit)
+                resume.await()
+                RunOutcome.Completed
+            }
+        }
+        val record = StudioChatRecord(request.id, "Root", RunClock.now(), lastRunRequest = source)
+        val run = async { coordinator.run(host, request) }
+        started.await()
+
+        assertFalse(stops.cancel(record))
+        assertTrue(observations.stopped.isEmpty())
+        assertTrue(stops.cancel(record.copy(hasAttemptJournal = true)))
+        assertEquals(listOf(source), observations.stopped)
+        assertEquals(request.request, coordinator.currentRequest(record.id))
+        assertNull(coordinator.currentSendRequest(record.id))
+        resume.complete(Unit)
+        run.await()
     }
 
     @Test

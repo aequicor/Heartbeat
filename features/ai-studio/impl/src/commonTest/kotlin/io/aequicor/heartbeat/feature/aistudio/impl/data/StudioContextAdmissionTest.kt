@@ -30,6 +30,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -64,6 +65,26 @@ class StudioContextAdmissionTest {
         assertFailsWith<StudioEngineSwitchRefused> { changes.withIdleSource(record) { error("must not detach") } }
         attempts.requestStop(helper, prompt.request)
         changes.withIdleSource(record) { }
+    }
+
+    @Test
+    fun `new root writer cannot treat missing admission history as legacy or fabricate a stop tombstone`() = runTest {
+        val stores = ChecklistTestStores()
+        val root = record.copy(
+            identity = null,
+            hasAttemptJournal = true,
+            lastRunRequest = prompt.request,
+            ref = native,
+        )
+        stores.keyValue(ChatSpec).set(ChatsKey, listOf(root))
+        val attempts = StudioHelperAttempts(stores)
+
+        assertFalse(attempts.isContextIdle(helper))
+        assertFailsWith<IllegalStateException> { attempts.requestStop(helper, prompt.request) }
+        assertFailsWith<IllegalStateException> {
+            attempts.prepareConversation(helper, HelperPrompt(RequestId("next"), "another message"))
+        }
+        assertNull(attempts.receipt(helper, prompt.request))
     }
 
     @Test

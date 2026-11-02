@@ -5,12 +5,26 @@ import kotlinx.serialization.Serializable
 import kotlin.uuid.Uuid
 
 /** Created before publication and retained by the gate, independently of native request correlation. */
-internal fun StudioTurnRequest.newRecoveryDelivery(): StudioRecoveryDelivery? =
-    if (recoveryRequests.isEmpty()) null else StudioRecoveryDelivery(id, request, Uuid.random().toString())
+internal fun StudioTurnRequest.newRecoveryDelivery(): StudioRecoveryDelivery? = if (recoveryRequests.isEmpty()) {
+    null
+} else {
+    StudioRecoveryDelivery(
+        id,
+        request,
+        Uuid.random().toString(),
+        recoveryPayloadFingerprint(),
+    )
+}
 
 /** One coordinator-owned observation delivery; its claim is distinct from every historical native request. */
 @Serializable
-internal data class StudioRecoveryDelivery(val chat: String, val execution: RequestId, val claim: String) {
+internal data class StudioRecoveryDelivery(
+    val chat: String,
+    val execution: RequestId,
+    val claim: String,
+    /** Legacy witnesses have no payload proof; they cannot silently acquire a changed delivery. */
+    val fingerprint: String? = null,
+) {
     init {
         require(chat.isNotBlank() && claim.isNotBlank())
     }
@@ -26,6 +40,8 @@ internal enum class StudioRecoveryRefusal { Deferred, Dropped, Cancelled }
 internal data class StudioRecoveryNoSendProof(
     val delivery: StudioRecoveryDelivery,
     val refusal: StudioRecoveryRefusal,
+    /** Only an exact sender's persisted rejection can close an already-begun outer gate. */
+    val senderClaim: String? = null,
 ) {
     override fun toString(): String = "StudioRecoveryNoSendProof(refusal=$refusal)"
 }

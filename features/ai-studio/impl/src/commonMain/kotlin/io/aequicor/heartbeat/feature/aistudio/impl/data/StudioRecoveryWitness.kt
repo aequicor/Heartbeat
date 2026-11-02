@@ -1,8 +1,10 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
@@ -34,6 +36,8 @@ internal data class StudioRecoveryWitness(
     val isIdleConfirmed: Boolean = false,
     /** Fresh native evidence for [delivery], cleared on rearm or loss; old evidence never authorizes its retry. */
     val isInspectionCurrent: Boolean = false,
+    /** Native resume route, including its model; a later new turn has a separate settings snapshot. */
+    val route: StudioRecoveryRoute? = null,
 ) {
     init {
         require(candidates.isNotEmpty() && root in candidates)
@@ -65,16 +69,33 @@ internal data class StudioRecoveryWitness(
     fun repeatDelivery(incoming: StudioRecoveryWitness): StudioRecoveryWitness {
         check(
             execution == incoming.execution && root == incoming.root &&
-                candidates == incoming.candidates && session == incoming.session,
+                incoming.candidates.containsAll(candidates) && session == incoming.session && route == incoming.route,
         ) {
             "Recovery execution identity changed"
         }
         check(observerSuccessor == null) { "Recovery observation ownership was transferred" }
-        if (phase == StudioRecoveryPhase.NoSend && delivery != incoming.delivery) {
-            return rearm(checkNotNull(incoming.delivery))
+        return when {
+            delivery == incoming.delivery -> {
+                check(candidates == incoming.candidates) { "A reserved recovery delivery cannot change candidates" }
+                this
+            }
+
+            phase in TransferableRecoveryPhases -> {
+                val next = checkNotNull(incoming.delivery)
+                requireSamePayload(next)
+                copy(
+                    delivery = next,
+                    candidates = incoming.candidates,
+                    isIdleConfirmed = false,
+                    isInspectionCurrent = false,
+                )
+            }
+
+            phase == StudioRecoveryPhase.NoSend ->
+                rearm(checkNotNull(incoming.delivery)).copy(candidates = incoming.candidates)
+
+            else -> error("Recovery delivery requires explicit reconciliation")
         }
-        check(delivery == incoming.delivery) { "Recovery delivery requires explicit reconciliation" }
-        return this
     }
 
     /** Fresh idle proof cannot erase a known unresolved native binding or an already-started new send. */
@@ -94,10 +115,12 @@ internal data class StudioRecoveryWitness(
     }
 
     /** Closes only the new-send path of this exact delivery, without inventing native NotSubmitted evidence. */
-    fun noSend(proof: StudioRecoveryNoSendProof): StudioRecoveryWitness {
+    fun noSend(proof: StudioRecoveryNoSendProof, isNewSendRevoked: Boolean = false): StudioRecoveryWitness {
         check(delivery == proof.delivery && observerSuccessor == null) { "NoSend proof belongs to another delivery" }
         check(refusal == null || refusal == proof.refusal) { "A closed delivery cannot change its refusal" }
-        check(phase != StudioRecoveryPhase.Submit) { "An admitted new send needs its own sender proof" }
+        check(phase != StudioRecoveryPhase.Submit || isNewSendRevoked) {
+            "An admitted new send needs its own sender proof"
+        }
         check(isInspectionCurrent) { "Closing recovery needs current native inspection" }
         check((isIdleConfirmed && observed == null) || outcome == StudioHelperTerminalOutcome.Cancelled) {
             "Closing preparation cannot discard unresolved native ownership"
@@ -115,6 +138,7 @@ internal data class StudioRecoveryWitness(
             "Only an exactly deferred recovery delivery may retry"
         }
         check(observerSuccessor == null && !isStopRequested) { "Stopped recovery cannot rearm" }
+        requireSamePayload(next)
         val previous = checkNotNull(delivery)
         check(next.chat == previous.chat && next.execution == execution && next.claim != previous.claim) {
             "Recovery retry needs a fresh reservation for the same execution"
@@ -126,6 +150,15 @@ internal data class StudioRecoveryWitness(
             isIdleConfirmed = false,
             isInspectionCurrent = false,
         )
+    }
+
+    /** A new coordinator claim may resume observation, never replace the saved payload or provenance. */
+    private fun requireSamePayload(next: StudioRecoveryDelivery) {
+        val previous = checkNotNull(delivery) { "Legacy recovery needs explicit payload reconciliation" }
+        val fingerprint = checkNotNull(previous.fingerprint) { "Legacy recovery needs explicit payload reconciliation" }
+        check(next.chat == previous.chat && next.execution == execution && next.fingerprint == fingerprint) {
+            "Recovery delivery changed its payload"
+        }
     }
 
     /** Only the host's native inspection may select Submit; this does not assert that R was never submitted. */
@@ -240,3 +273,7 @@ internal val TransferableRecoveryPhases = setOf(
     StudioRecoveryPhase.Observing,
     StudioRecoveryPhase.Unknown,
 )
+
+/** Frozen native resume target and workspace; future model choices must not reconfigure observed work. */
+@Serializable
+internal data class StudioRecoveryRoute(val target: EngineTarget, val workspace: WorkspaceRef?)
