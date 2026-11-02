@@ -12,7 +12,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
@@ -29,7 +28,9 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 @Inject
 internal class EngineStudioScheduledChats(
     @ForScope(ProfileScope::class) stores: DataStores,
-    private val repository: StudioRepository,
+    private val writer: StudioHelperChatWriter,
+    private val clock: kotlin.time.Clock,
+    private val workspaces: io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces,
     private val runtime: StudioRuntime,
     private val runs: StudioRunCoordinator,
     private val host: StudioRunHost,
@@ -60,9 +61,41 @@ internal class EngineStudioScheduledChats(
         return store.get(ChatsKey).orEmpty().firstOrNull { it.id == chatId }?.ref
     }
 
-    override suspend fun createHelperChat(projectId: String?, title: String, workspace: WorkspaceRef?): String {
-        log.i { "create a helper conversation hasProject=${projectId != null}" }
-        return repository.createSession(projectId, title, isWorktree = false, executionWorkspace = workspace).id
+    override suspend fun createHelperChat(
+        projectId: String?,
+        title: String,
+        workspace: WorkspaceRef?,
+        parentId: String?,
+    ): String {
+        val parent = parentId?.let { id ->
+            checkNotNull(resolvedStudioIdentities(store.get(ChatsKey).orEmpty()).singleOrNull { it.id == id }) {
+                "Executor parent is unavailable"
+            }
+        }
+        check(parent == null || parent.projectId == projectId) { "Executor project differs from its parent" }
+        require(workspace == null || projectId != null) { "Executor workspace requires a project" }
+        if (workspace != null) {
+            requireNotNull(workspaces.executionDirectory(workspace)) { "Executor workspace is unavailable" }
+        }
+        if (projectId != null) {
+            requireNotNull(workspaces.resolve(WorkspaceRef(projectId))) { "Executor project is unavailable" }
+        }
+        val id = kotlin.uuid.Uuid.random().toString()
+        val record = StudioChatRecord(
+            id,
+            title,
+            clock.now(),
+            projectId = projectId,
+            executionWorkspace = workspace,
+            identity = helperConversationIdentity(
+                id,
+                parent,
+                io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole.Executor,
+            ),
+        )
+        writer.saveHelper(record)
+        log.i { "Created explicit graph executor hasOwner=${record.logicalSession?.owner != null}" }
+        return id
     }
 
     override suspend fun runScheduled(

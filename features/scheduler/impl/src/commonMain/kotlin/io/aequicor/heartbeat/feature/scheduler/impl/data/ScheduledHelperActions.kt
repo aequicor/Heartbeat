@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
@@ -84,6 +85,7 @@ internal class ScheduledHelperActions(
                 request.title,
                 TrustLevel.Ask,
                 request.model,
+                role = HelperConversationRole.Executor,
             )
             val saved = record.copy(helper = helper)
             journal.add(saved)

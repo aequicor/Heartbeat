@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptHelper
 import io.aequicor.heartbeat.feature.harness.impl.di.HarnessSpawnStartup
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
@@ -35,6 +36,7 @@ class HarnessSpawnOperationsTest {
         val fixture = HarnessSpawnFixture(backgroundScope)
         val result = fixture.operations.spawn(fixture.submission())
         assertEquals(fixture.helpers.helper, result.helper)
+        assertEquals(listOf(HelperConversationRole.FullConversation), fixture.helpers.roles)
         assertEquals(listOf("acquire", "grant", "create", "checkpoint", "binding", "prompt"), fixture.trace)
         assertEquals(0, fixture.helpers.releases)
         assertFalse(fixture.operations.isQuiescent())

@@ -22,6 +22,7 @@ internal enum class StudioIdentityOrigin {
     AgentCreated,
     LegacyInteractiveHelper,
     InternalExecution,
+    ExplicitSubagent,
     Unresolved,
 }
 

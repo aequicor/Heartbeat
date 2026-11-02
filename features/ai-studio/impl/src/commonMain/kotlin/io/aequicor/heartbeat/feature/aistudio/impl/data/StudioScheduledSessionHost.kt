@@ -66,7 +66,12 @@ internal interface StudioScheduledChats {
     suspend fun sessionOf(chatId: String): SessionRef?
 
     /** Creates an empty chat in [projectId] (null: without a project) and returns its id. */
-    suspend fun createHelperChat(projectId: String?, title: String, workspace: WorkspaceRef? = null): String
+    suspend fun createHelperChat(
+        projectId: String?,
+        title: String,
+        workspace: WorkspaceRef? = null,
+        parentId: String? = null,
+    ): String
 
     /**
      * Runs [prompt] as the next turn of chat [chatId], waiting while it is busy, on [route]. [onAccepted] runs once the
@@ -155,7 +160,7 @@ internal class StudioScheduledSessionHost(
     override suspend fun spawn(request: SpawnRequest): SessionRef? {
         val parent = chats.chatOf(request.parent) ?: return null
         val projectId = parent.projectId
-        val chat = chats.createHelperChat(projectId, request.title)
+        val chat = chats.createHelperChat(projectId, request.title, parentId = parent.id)
         log.i { "start a helper conversation hasProject=${projectId != null}" }
         // The helper never gets more trust than the chat that started it.
         submit(
@@ -169,7 +174,7 @@ internal class StudioScheduledSessionHost(
 
     override suspend fun prepareTask(request: SpawnRequest): String? {
         val parent = chats.chatOf(request.parent) ?: return null
-        return chats.createHelperChat(parent.projectId, request.title, request.workspace)
+        return chats.createHelperChat(parent.projectId, request.title, request.workspace, parent.id)
     }
 
     override suspend fun runTask(

@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityState
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
@@ -70,11 +71,21 @@ class HelperAgentsTest {
         val fixture = HelpersFixture(this)
         val lease = fixture.service.acquire(owner)
         val options = HelperModelOptions(reasoningEffort = "low", reviewTarget = TARGET)
-        fixture.service.create(lease, PROJECT, TARGET, "Helper", TrustLevel.Ask, options)
+        fixture.service.create(
+            lease,
+            PROJECT,
+            TARGET,
+            "Helper",
+            TrustLevel.Ask,
+            options,
+            HelperConversationRole.Executor,
+        )
         assertEquals(options, fixture.host.creations.single().model)
+        assertEquals(HelperConversationRole.Executor, fixture.host.creations.single().role)
         val other = fixture.service.acquire(ActionId("wf_other"))
         fixture.service.create(other, PROJECT, TARGET, "Default")
         assertEquals(HelperModelOptions(), fixture.host.creations.last().model)
+        assertEquals(HelperConversationRole.FullConversation, fixture.host.creations.last().role)
     }
 
     @Test

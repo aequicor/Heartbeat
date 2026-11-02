@@ -13,6 +13,24 @@
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
 
+## Явные роли lease helpers и graph executors
+
+- `HelperConversationRole` проходит producer → HelperAgents → host до persistence. Scheduled/adaptive helpers и
+  workflow объявляют Executor; старый ScriptSessions.spawn явно FullConversation. Значение по умолчанию public
+  HelperAgents.create сохраняет прежнюю совместимость. Canonical полный parent задаёт ExplicitSubagent и exact owner;
+  неизвестный или executor parent — InternalExecution без выдуманного владельца. Executor не создаёт FullConversation.
+- Parentless старый script spawn сохраняет LegacyInteractiveHelper human compatibility без owner. Legacy records не
+  переписываются в executors по одному имени или helper marker.
+- Graph prepareTask/legacy scheduled spawn тоже сохраняют explicit executor identity до первого native запроса.
+  Approved graph workspace проверяется и заимствуется без дополнительного sandbox fork; lease helper сохраняет
+  прежнее собственное workspace provisioning. Native ancestry, lease ActionId и logical owner остаются раздельными.
+- Verify: Studio impl 1143, scheduler API 59 / impl 229, harness impl 923 теста; failures/errors/skips 0.
+  Ordinary/typed detekt всех затронутых модулей, DI compile, Studio/harness iOS compile зелёные.
+  Architecture reviewer: blocker нет. Это producer batch, не завершение шага 4.
+- Далее: organic cell/zygote/judge origins; immutable facade native-ref→authority binding и provider checks на
+  resume/open/send (null context не снимает известную executor роль); durable instance termination у owning host.
+  Затем owner mediation, background normalization/adapters, согласованный UI, полный verify/E2E и `/reviewed`.
+
 ## Manual capabilities и automatic provenance — завершено
 
 - Canonical full chats, включая Subsession и доказанный legacy interactive helper, сохраняют ручные compact/rollover,

@@ -67,7 +67,9 @@ private class StudioIdentityResolver(private val records: List<StudioChatRecord>
         existing: StudioSessionIdentity,
         context: LogicalSessionContext,
     ): StudioIdentityResolution {
-        if (existing.origin == StudioIdentityOrigin.InternalExecution && context.kind != SessionKind.Subagent) {
+        if (existing.origin in setOf(StudioIdentityOrigin.InternalExecution, StudioIdentityOrigin.ExplicitSubagent) &&
+            context.kind != SessionKind.Subagent
+        ) {
             return unresolved("InvalidInternalExecutionKind", existing)
         }
         val issue = when {

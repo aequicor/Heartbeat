@@ -85,6 +85,7 @@ internal fun newStudioHelperRecord(
         request.title,
         at,
         target = target,
+        identity = helperConversationIdentity(id, parent, request.role),
         projectId = parent?.projectId,
         executionWorkspace = if (parent == null) request.workspace else parent.resolvedExecutionWorkspace(),
         helper = StudioHelperIdentity(

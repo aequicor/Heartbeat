@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadata
@@ -330,6 +331,7 @@ private class MarkedHelpers(private val helpers: Set<SessionRef>) : HelperAgents
         title: String,
         trustCap: TrustLevel,
         model: HelperModelOptions,
+        role: HelperConversationRole,
     ): HelperId = error("unused")
     override suspend fun prompt(helper: HelperId, prompt: HelperPrompt): HelperSubmission = error("unused")
     override suspend fun result(helper: HelperId, request: RequestId): HelperResult? = error("unused")

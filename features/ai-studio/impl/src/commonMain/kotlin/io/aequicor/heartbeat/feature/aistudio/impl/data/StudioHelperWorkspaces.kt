@@ -11,9 +11,13 @@ internal suspend fun saveHelperWorkspace(
     worktrees: StudioWorktrees,
     saveConversation: suspend (StudioChatRecord) -> Unit,
 ) {
-    check(record.helper != null && record.ref == null && record.lastRunRequest == null)
+    val isExecutor = record.identity?.origin in setOf(
+        StudioIdentityOrigin.ExplicitSubagent,
+        StudioIdentityOrigin.InternalExecution,
+    )
+    check((record.helper != null || isExecutor) && record.ref == null && record.lastRunRequest == null)
     val parent = record.executionWorkspace
-    if (parent != null && workspaces.virtual(parent) != null) {
+    if (record.helper != null && parent != null && workspaces.virtual(parent) != null) {
         val task = worktrees.tasks().first().values.single { it.executionWorkspace == parent }
         val pending = record.copy(
             worktreeTaskId = record.id,

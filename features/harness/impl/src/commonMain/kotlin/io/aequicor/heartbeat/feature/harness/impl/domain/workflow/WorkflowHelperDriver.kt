@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperM
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperModelRequest
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
@@ -203,6 +204,7 @@ internal class WorkflowHelperDriver(
             model?.target ?: options.target,
             options.title,
             model = HelperModelOptions(model?.reasoningEffort),
+            role = HelperConversationRole.Executor,
         )
         resource.bind(helper)
         persistGrant(resource)

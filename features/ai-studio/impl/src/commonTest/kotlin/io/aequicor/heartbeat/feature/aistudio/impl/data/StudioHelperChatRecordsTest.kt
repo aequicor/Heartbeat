@@ -4,17 +4,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
@@ -32,6 +35,56 @@ class StudioHelperChatRecordsTest {
         TrustLevel.Full,
     )
     private val parent = StudioChatRecord("parent-chat", "Parent", at, ref = session, projectId = "project")
+
+    @Test
+    fun `new executor preserves exact full owner and never migrates into an interactive subsession`() {
+        val owner = resolvedStudioIdentities(listOf(parent)).single()
+        val executor = newStudioHelperRecord(
+            "executor",
+            at,
+            request.copy(role = HelperConversationRole.Executor),
+            owner,
+        )
+        val restored = resolvedStudioIdentities(listOf(owner, executor)).last()
+        assertEquals(StudioIdentityOrigin.ExplicitSubagent, restored.identity?.origin)
+        assertEquals(SessionKind.Subagent, restored.logicalSession?.kind)
+        assertEquals(owner.logicalSession?.id, restored.logicalSession?.owner)
+        assertFalse(restored.isHumanConversation)
+        assertEquals(executor.identity, Json.decodeFromString<StudioChatRecord>(Json.encodeToString(executor)).identity)
+    }
+
+    @Test
+    fun `script conversation remains interactive while parentless executor has no invented owner`() {
+        val script = newStudioHelperRecord("script", at, request.copy(parent = null), null)
+        val executor = newStudioHelperRecord(
+            "executor",
+            at,
+            request.copy(parent = null, role = HelperConversationRole.Executor),
+            null,
+        )
+        assertTrue(script.isHumanConversation)
+        assertNull(script.logicalSession)
+        assertEquals(StudioIdentityOrigin.InternalExecution, executor.identity?.origin)
+        assertNull(executor.logicalSession)
+        assertFalse(executor.isHumanConversation)
+    }
+
+    @Test
+    fun `executor native parent does not manufacture full conversation ownership`() {
+        val owner = resolvedStudioIdentities(listOf(parent)).single()
+        val executor = newStudioHelperRecord(
+            "executor",
+            at,
+            request.copy(role = HelperConversationRole.Executor),
+            owner,
+        )
+        val nested = helperConversationIdentity("nested", executor, HelperConversationRole.Executor)
+        assertEquals(StudioIdentityOrigin.InternalExecution, nested.origin)
+        assertNull(nested.context)
+        assertFailsWith<IllegalStateException> {
+            helperConversationIdentity("full", executor, HelperConversationRole.FullConversation)
+        }
+    }
 
     @Test
     fun `engine replacement keeps owner trust parent and explicit independent reviewer`() {
