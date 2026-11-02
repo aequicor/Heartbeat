@@ -22,6 +22,9 @@ internal interface StudioSessionHost {
     /** [preselected] reaches only a session created now ([CreateSessionRequest.preselected]); a resume ignores it. */
     suspend fun openTurn(id: String, settings: RunSettings, preselected: ToolChoices = emptyMap()): ActiveSession
 
+    /** Opens only the saved native route for observation, without applying this execution's configuration. */
+    suspend fun openRecoveryTurn(request: StudioTurnRequest): ActiveSession = openTurn(request.id, request.settings)
+
     /** Deferred choices were absent from [active] creation; a frozen adapter requires a fresh context. */
     suspend fun needsCarriedTools(id: String, active: ActiveSession): Boolean
 

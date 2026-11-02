@@ -86,9 +86,17 @@ External checkpoint callbacks `onNativeTurn` / `onTurnAccepted` теперь и�
 проверяют actual request в evidence. `CancellationException` сохраняет отмену executor. Будущие обязательные
 journal hooks нельзя помещать в best-effort `observe`: успешный внешний callback не доказывает сохранение binding.
 
-При production wiring отдельно исправить recovery open: текущий `preflightRecovery → openTurn →
-StudioSessionOpening.open` способен вызвать `SwitchesModels` и `carry.prepareHarnesses` с настройками Q.
-Нужен recovery-only open точного сохранённого ref/target, без смены модели/manifest/environment старого R.
+Recovery-only open подключён в production `preflightRecovery` и helper-result recovery: `StudioRecoveryOpening`
+переиспользует/возобновляет только сохранённый ref/target, без `SwitchesModels`, создания сессии и carry харнесса.
+Проверяются connection/workspace; новый handle принадлежит cleanup boundary до регистрации. Отказ/отмена регистрации
+запускают настоящий `persistReference` cleanup; неверный resumed ref закрывается, чужой live handle не трогается.
+Есть executor regression, запрещающий обычный open при adoption. Это не заменяет будущий frozen witness reserve.
+
+Для production journal/hooks предпочтительно отдельное состояние NoSend: отказ текущей delivery не означает
+`NotSubmitted` native request. Особенно R==Q: исторически принятый Q нельзя превратить в NotSubmitted лишь потому,
+что текущий recovery executor не отправлял новый prompt. Defer→retry обязан заново inspect native, а accepted/uncertain
+Q никогда не replay. Exact gate/reservation proof обязателен; missing receipt не proof. Root Stop и provenance
+сохраняются при NoSend/rearm. Пока этого слоя нет, production recovery capability не включать.
 
 ### 1. Закончить production recovery одним согласованным слоем
 

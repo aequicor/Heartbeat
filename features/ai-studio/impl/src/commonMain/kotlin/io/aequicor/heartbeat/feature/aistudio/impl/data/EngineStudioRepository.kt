@@ -214,6 +214,7 @@ internal class EngineStudioRepository(
     private val organisms: StudioOrganisms,
     private val configuredSubmission: StudioConfiguredSubmission,
     private val helperAdmission: StudioHelperAdmission,
+    private val recoveryOpening: StudioRecoveryOpening,
     private val conversationStops: StudioConversationStops,
     private val chatRecords: StudioChatRecords,
     private val humanQueue: StudioHumanQueueCommands,
@@ -286,6 +287,7 @@ internal class EngineStudioRepository(
             ::forgetHandle,
             ::update,
             nativeSession::persistReference,
+            chatRecords::record,
         ),
     )
     private val mutableState = MutableStateFlow(StudioRuntimeState())
@@ -548,8 +550,7 @@ internal class EngineStudioRepository(
 
     override suspend fun openHelper(record: StudioChatRecord): ActiveSession {
         log.v { "Open the helper's existing native session" }
-        checkNotNull(record.ref) { "Helper has no native session" }
-        return open(record.id, checkNotNull(record.target), emptyMap())
+        return conversationLocks.withLock(record.id) { sessionOpening.openRecovery(record, recoveryOpening) }
     }
 
     override suspend fun liveHelper(helper: HelperId): ActiveSession? = handlesLock.withLock {
@@ -580,6 +581,13 @@ internal class EngineStudioRepository(
         val active = open(id, target(id, settings), preselected)
         update(id) { copy(updatedAt = clock.now()).withoutFailure() }
         return active
+    }
+
+    override suspend fun openRecoveryTurn(request: StudioTurnRequest): ActiveSession {
+        log.v { "Delegate native recovery opening" }
+        return conversationLocks.withLock(request.id) {
+            sessionOpening.openRecovery(chatRecords.record(request.id), recoveryOpening)
+        }
     }
 
     override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {

@@ -1394,6 +1394,21 @@ class StudioSubmissionRecoveryTest {
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioNativeRecoveryTest {
     @Test
+    fun `recovery observes through its dedicated opening without normal configuration`() = runTest {
+        val f = TurnFixture()
+        f.host.openFailure = IllegalStateException("Normal opening must not be used")
+        f.host.recoveryOpen = { f.active }
+        f.tools.release.complete(Unit)
+
+        assertEquals(RunOutcome.Completed, f.executor.execute(f.host, recovery(f)))
+
+        assertEquals(0, f.host.openCount)
+        assertNull(f.host.submitted)
+        assertTrue(f.host.preparations.isEmpty())
+        assertEquals(listOf(StudioNativeTurn(f.request.request, f.turn.id)), f.host.adoptedReceipts)
+    }
+
+    @Test
     fun `host refuses journaled recovery even when the outer gate supports retention`() = runTest {
         val f = TurnFixture()
         val attempts = StudioHelperAttempts(ChecklistTestStores())
@@ -1995,6 +2010,9 @@ private class ExecutorHost(
     val preparations = mutableListOf<StudioTurnRequest>()
     var prepareNew: suspend (StudioTurnRequest) -> StudioTurnRequest = { it }
     var requireRecovery: suspend (StudioTurnRequest) -> Unit = {}
+    var recoveryOpen: (suspend (StudioTurnRequest) -> ActiveSession)? = null
+    override suspend fun openRecoveryTurn(request: StudioTurnRequest): ActiveSession =
+        recoveryOpen?.invoke(request) ?: super.openRecoveryTurn(request)
     override suspend fun requireNativeRecovery(request: StudioTurnRequest) = requireRecovery(request)
     override suspend fun prepareNewTurn(request: StudioTurnRequest): StudioTurnRequest {
         preparations += request

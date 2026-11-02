@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -19,6 +20,18 @@ internal class StudioSessionOpening(
     private val usage: EngineStudioUsage,
     private val storage: StudioSessionStorage,
 ) {
+    /** The caller holds the conversation lock; this path never updates the saved model or carries declarations. */
+    suspend fun openRecovery(record: StudioChatRecord, recovery: StudioRecoveryOpening): ActiveSession {
+        check(record.hasSameRecoveryRoute(storage.readRecord(record.id))) { "Recovery route changed before opening" }
+        val current = storage.readHandle(record.id)
+        val active = recovery.open(record, current)
+        if (active !== current) {
+            storage.rememberRecovery(record, active)
+            usage.attach(record.id, active)
+        }
+        return active
+    }
+
     suspend fun open(id: String, target: EngineTarget, chosen: ToolChoices): ActiveSession {
         val record = carry.prepareHarnesses(id, harnesses)
         val workspace = record.validatedExecutionWorkspace(
@@ -71,4 +84,21 @@ internal data class StudioSessionStorage(
     val forgetHandle: suspend (String, ActiveSession) -> Unit,
     val update: suspend (String, StudioChatRecord.() -> StudioChatRecord) -> Unit,
     val persistReference: suspend (ActiveSession, suspend () -> Unit, suspend () -> Unit) -> Unit,
-)
+    val readRecord: suspend (String) -> StudioChatRecord,
+) {
+    private val log = Log.tag("StudioSessionStorage")
+
+    /** The cleanup boundary owns the resumed handle before registration can suspend or fail. */
+    suspend fun rememberRecovery(record: StudioChatRecord, active: ActiveSession) {
+        log.v { "Register the recovered handle inside its cleanup boundary" }
+        persistReference(
+            active,
+            {
+                registerHandle(record.id, active)
+                val current = readRecord(record.id)
+                check(current.hasSameRecoveryRoute(record)) { "Recovery route changed while opening" }
+            },
+            { forgetHandle(record.id, active) },
+        )
+    }
+}

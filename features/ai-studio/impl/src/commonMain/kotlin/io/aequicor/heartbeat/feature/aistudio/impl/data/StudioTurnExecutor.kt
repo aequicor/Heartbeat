@@ -170,7 +170,7 @@ internal class StudioTurnExecutor(
         try {
             val preselected = request.submissionId.takeIf { it.isNotEmpty() }?.let(harnesses::preselected).orEmpty() +
                 request.environment?.preselected.orEmpty()
-            val recovered = preflightRecovery(host, request, preselected, progress)
+            val recovered = preflightRecovery(host, request, progress)
             if (recovered == GraphRecovery.Submit) {
                 if (request.recoveryRequests.isNotEmpty()) request.submission?.prepareRecoverySubmit()
                 currentCoroutineContext().ensureActive()
@@ -223,7 +223,6 @@ internal class StudioTurnExecutor(
     private suspend fun preflightRecovery(
         host: StudioTurnHost,
         request: StudioTurnRequest,
-        preselected: ToolChoices,
         progress: Progress,
     ): GraphRecovery {
         if (request.recoveryRequests.isEmpty()) return GraphRecovery.Submit
@@ -237,7 +236,7 @@ internal class StudioTurnExecutor(
         }
         request.submission?.beginRecoveryObservation()
         currentCoroutineContext().ensureActive()
-        val active = host.openTurn(request.id, request.settings, preselected)
+        val active = host.openRecoveryTurn(request)
         progress.active = active
         return recoverGraphTurn(active, request)
     }
