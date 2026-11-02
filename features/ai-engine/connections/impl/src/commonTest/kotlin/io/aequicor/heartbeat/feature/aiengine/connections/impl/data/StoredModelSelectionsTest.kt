@@ -284,7 +284,7 @@ class StoredModelSelectionsTest {
     )
 }
 
-private class MemorySelectionStore : KeyValueStore {
+internal class MemorySelectionStore : KeyValueStore {
     override val spec = ModelSelectionSpec
     val values = MutableStateFlow<Map<String, String>>(emptyMap())
     var writes = 0
