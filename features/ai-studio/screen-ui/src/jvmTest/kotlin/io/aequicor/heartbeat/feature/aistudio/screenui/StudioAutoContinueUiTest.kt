@@ -159,6 +159,15 @@ class StudioAutoContinueUiTest {
         }
 
     @Test
+    fun `the add menu shows the auto-continue mode without scrolling`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val labels = render(state(AutoContinueUi(mode = AutoContinueModeUi.Off)), mutableListOf())
+            onNodeWithContentDescription(labels.add).performClick()
+            // The item is the last of the mode section; it must be reachable by mouse, not only by keyboard.
+            onNodeWithText(labels.menu).assertIsDisplayed()
+        }
+
+    @Test
     fun `nothing is offered while the feature is off`() {
         val off = state(AutoContinueUi()).copy(autoContinue = AutoContinueScreenUi(isEnabled = false))
         assertNull(off.paneContent(pane).autoContinue)

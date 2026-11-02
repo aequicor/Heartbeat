@@ -119,7 +119,8 @@ data class HbDimensions(
     /** Bounded visual preview beside an attachment name; the mobile row keeps its full touch target. */
     val attachmentThumbnailSize: Dp = 40.dp,
     val composerEditorMinHeight: Dp = 40.dp,
-    val composerMenuMaxHeight: Dp = 320.dp,
+    /** Tall enough for the composer's add menu with its mode section; shorter windows still scroll the sheet. */
+    val composerMenuMaxHeight: Dp = 420.dp,
     val composerMenuMinWidth: Dp = 240.dp,
     val composerMenuMaxWidth: Dp = 360.dp,
     val composerMenuGutter: Dp = 16.dp,
