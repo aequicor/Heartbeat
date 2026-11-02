@@ -1,6 +1,9 @@
 workflow { input ->
-    val issueNumber = (input["issue_number"] as? JsonPrimitive)?.content?.trim().orEmpty()
-    val target = if (issueNumber.matches(Regex("[0-9]+"))) {
+    val target = if ("issue_number" in input) {
+        val value = input["issue_number"]
+        require(value is JsonPrimitive && value.isString) { "issue_number must be a positive integer string" }
+        val issueNumber = value.content.trim()
+        require(issueNumber.matches(Regex("[1-9][0-9]*"))) { "issue_number must be a positive integer string" }
         "issue #$issueNumber"
     } else {
         "автоматический выбор следующей подходящей открытой issue"
