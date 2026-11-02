@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -26,7 +27,7 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class IsolatedServiceLifecycleTest {
     @Test
-    fun `failed submission reconciles an idle session and releases the service slot`() = runTest {
+    fun `reconciliation with Unknown retains the original request and isolation`() = runTest {
         val f = IsolatedTurnFixture().apply { failsOnSend = true }
         val prompts = prompts(f, backgroundScope)
         val prompt = prompts.ask(IsolatedPrompt(f.target, "{}", timeout = 5.seconds))
@@ -34,12 +35,16 @@ class IsolatedServiceLifecycleTest {
         assertFalse(prompt.toString().contains("private source"))
         assertEquals(1, f.reconciles)
         assertEquals(0, f.cancels)
-        assertTrue(f.closed)
-        assertTrue(f.archived)
-        assertNull(f.policy.policy(ToolPolicyScope(session = f.ref)))
+        assertFalse(f.closed)
+        assertFalse(f.archived)
+        assertTrue(f.policy.policy(ToolPolicyScope(session = f.ref)) != null)
+        assertEquals(ServiceStage.Accepted, f.journal.attempts().single().stage)
         f.failsOnSend = false
-        assertTrue(prompts.ask(IsolatedPrompt(f.target, "second", timeout = 5.seconds)).isAnswered)
-        assertEquals(2, f.creations.size)
+        assertEquals(
+            IsolatedAnswer.Unavailable(IsolatedPromptFailure.Busy),
+            prompts.ask(IsolatedPrompt(f.target, "second", timeout = 5.seconds)),
+        )
+        assertEquals(1, f.creations.size)
     }
 
     @Test
@@ -290,8 +295,7 @@ class IsolatedServiceLifecycleTest {
     }
 
     private fun prompts(f: IsolatedTurnFixture, owner: CoroutineScope) = FacadeIsolatedPrompts(
-        lazyOf(f.facade),
-        f.policy,
+        f.host,
         owner,
         IsolatedTurnSlots(capacity = 1, queueWait = 10.seconds),
         GRACE,

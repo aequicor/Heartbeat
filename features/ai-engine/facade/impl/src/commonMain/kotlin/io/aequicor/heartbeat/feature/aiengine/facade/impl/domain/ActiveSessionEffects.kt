@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -104,7 +105,13 @@ class ActiveSessionEffects(
             check(execution == null) { "Executor handle needs the profile authority gate" }
             block()
         } else {
-            access.admitted(native.ref, execution, entry, block)
+            access.admitted(
+                native.ref,
+                execution,
+                entry,
+                if (entry == null) SessionExecutionOperation.Respond else SessionExecutionOperation.Submit,
+                block,
+            )
         }
     }
 

@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionControl
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -92,6 +93,7 @@ class SessionExecutionAccess(
         ref: SessionRef,
         binding: SessionExecutionBinding?,
         entry: RequestId? = null,
+        operation: SessionExecutionOperation = SessionExecutionOperation.Open,
         block: suspend () -> T,
     ): T = if (binding == null) {
         unbound(ref.engine) {
@@ -99,7 +101,7 @@ class SessionExecutionAccess(
             block()
         }
     } else {
-        admissions.admitted(binding, entry?.let { ref to it }) {
+        admissions.admitted(binding, entry?.let { ref to it }, operation) {
             check(ref, binding)
             block()
         }

@@ -23,7 +23,7 @@ import kotlin.test.assertTrue
 class SafetyReviewIsolationTest {
     @Test
     fun `a review denies hosted and native calls even without its request prefix`() = runTest {
-        val policy = AgentSafetyToolPolicy()
+        val policy = AgentSafetyToolPolicy(testServiceJournal())
         val hook = AgentSafetyHook(policy)
         val review = SessionRef(EngineId("engine"), SessionSourceId("source"), "review")
         val user = review.copy(nativeId = "user")
@@ -48,7 +48,7 @@ class SafetyReviewIsolationTest {
 
     @Test
     fun `an isolated prompt request is denied tools after its session was released`() = runTest {
-        val hook = AgentSafetyHook(AgentSafetyToolPolicy())
+        val hook = AgentSafetyHook(AgentSafetyToolPolicy(testServiceJournal()))
         val user = SessionRef(EngineId("engine"), SessionSourceId("source"), "user")
         val nested = call(user, true)
         val context = nested.context.copy(request = RequestId(ISOLATED_REQUEST_PREFIX + "router"))

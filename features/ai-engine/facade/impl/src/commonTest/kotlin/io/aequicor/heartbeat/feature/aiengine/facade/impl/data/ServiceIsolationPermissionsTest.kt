@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety.AgentSafetyToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety.testServiceJournal
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.TestEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.TestSecuritySettings
@@ -48,7 +49,7 @@ class ServiceIsolationPermissionsTest {
             EnginePlatform.DesktopMacOs,
         )
         for (mode in SecurityMode.entries) {
-            val isolation = AgentSafetyToolPolicy()
+            val isolation = AgentSafetyToolPolicy(testServiceJournal())
             val tools = DefaultAgentTools(
                 setOf(Search()),
                 policies = ProfileToolPolicies(lazyOf(setOf(isolation)), registry),

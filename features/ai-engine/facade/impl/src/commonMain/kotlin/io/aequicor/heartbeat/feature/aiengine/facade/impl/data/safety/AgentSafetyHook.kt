@@ -13,7 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 internal class AgentSafetyHook(private val isolation: AgentSafetyIsolation) : SessionHook {
     override val isIntercepting: Boolean get() = isolation.isActive
     override suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict =
-        if (isolation.contains(call.context.session) ||
+        if (isolation.isIsolated(call.context.session) ||
             call.context.request?.value?.startsWith(ISOLATED_REQUEST_PREFIX) == true
         ) {
             ToolHookVerdict.Deny("Service sessions only read the supplied text; tools are unavailable.")

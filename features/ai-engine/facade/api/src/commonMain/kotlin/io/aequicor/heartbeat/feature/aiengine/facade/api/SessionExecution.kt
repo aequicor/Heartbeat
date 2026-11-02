@@ -26,6 +26,24 @@ public data class SessionExecutionBinding(
     }
 }
 
+/** Mutation category checked by the canonical host before a native handoff. */
+public enum class SessionExecutionOperation {
+    /** Creates or attaches a handle. */
+    Open,
+
+    /** Submits the separately validated immutable prompt. */
+    Submit,
+
+    /** Adds instructions to an active turn. */
+    Steer,
+
+    /** Changes model or native settings. */
+    Configure,
+
+    /** Answers a native permission or question. */
+    Respond,
+}
+
 /**
  * Profile contribution of the canonical lifecycle owner. Missing, unloaded, unreadable or terminated authority
  * must deny admission. Implementations compare the full binding, including the incarnation and logical owner;
@@ -37,6 +55,12 @@ public interface SessionExecutionAuthority {
 
     /** Whether durable and current host state both authorize this exact instance. Errors fail closed. */
     public suspend fun permits(binding: SessionExecutionBinding): Boolean
+
+    /** Whether this host permits the specific mutation; defaults preserve the host's existing liveness policy. */
+    public suspend fun permitsOperation(
+        binding: SessionExecutionBinding,
+        operation: SessionExecutionOperation,
+    ): Boolean = permits(binding)
 
     /** Checks the original host payload before hooks may prepare it; does not consume submission authority. */
     public suspend fun permitsPrompt(

@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionInstance
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -32,10 +33,12 @@ class SessionExecutionAdmissions(private val authorities: Lazy<Set<SessionExecut
     suspend fun <T> admitted(
         binding: SessionExecutionBinding,
         entry: Pair<SessionRef, RequestId>? = null,
+        operation: SessionExecutionOperation = SessionExecutionOperation.Open,
         block: suspend () -> T,
     ): T {
         val ticket = mutex.withLock {
             requireAllowed(binding)
+            check(authority(binding).permitsOperation(binding, operation)) { "Executor operation is denied" }
             if (entry != null) {
                 check(authority(binding).enterPrompt(binding, entry.first, entry.second)) {
                     "Native request entry is unavailable or already consumed"

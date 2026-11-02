@@ -6,7 +6,6 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
@@ -24,27 +23,24 @@ import kotlin.uuid.Uuid
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 internal class FacadeIsolatedPrompts(
-    facade: Lazy<EngineFacade>,
-    isolation: AgentSafetyIsolation,
+    host: ServiceTurnHost,
     scope: CoroutineScope,
     slots: ServiceTurnSlots,
     settleGrace: Duration,
 ) : IsolatedPrompts {
     @Inject
     constructor(
-        facade: Lazy<EngineFacade>,
-        isolation: AgentSafetyIsolation,
+        host: ServiceTurnHost,
         @ForScope(ProfileScope::class) scope: CoroutineScope,
     ) : this(
-        facade,
-        isolation,
+        host,
         scope,
         IsolatedTurnSlots(MAX_PARALLEL_PROMPTS, MAX_QUEUED_PROMPTS, QUEUE_WAIT, "Isolated prompt", LOG_TAG),
         SETTLE_GRACE,
     )
 
     private val log = Log.tag(LOG_TAG)
-    private val turns = IsolatedServiceTurns(facade, isolation, slots, scope, settleGrace, log)
+    private val turns = IsolatedServiceTurns(host, slots, scope, settleGrace, log)
 
     override suspend fun ask(prompt: IsolatedPrompt): IsolatedAnswer = try {
         val turn = ServiceTurn(

@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.update
 internal interface AgentSafetyIsolation {
     val isActive: Boolean
     fun contains(session: SessionRef): Boolean
+    suspend fun isIsolated(session: SessionRef): Boolean = contains(session)
     fun restrict(session: SessionRef, nativeTools: List<String>)
     fun release(session: SessionRef)
 }
@@ -31,7 +32,7 @@ internal interface AgentSafetyIsolation {
 @ContributesBinding(ProfileScope::class, binding = binding<AgentSafetyIsolation>())
 @ContributesIntoSet(ProfileScope::class, binding = binding<AgentToolPolicyProvider>())
 @Inject
-internal class AgentSafetyToolPolicy :
+internal class AgentSafetyToolPolicy(private val journal: ServiceTurnJournal) :
     AgentToolPolicyProvider,
     AgentSafetyIsolation {
     private val log = Log.tag("AgentSafetyPolicy")
@@ -39,7 +40,7 @@ internal class AgentSafetyToolPolicy :
 
     override val isIsolation: Boolean = true
 
-    override val isActive: Boolean get() = sessions.value.isNotEmpty()
+    override val isActive: Boolean get() = sessions.value.isNotEmpty() || journal.hasIsolation
 
     override fun contains(session: SessionRef): Boolean = session in sessions.value
 
@@ -60,5 +61,11 @@ internal class AgentSafetyToolPolicy :
         log.d { "Released tool restrictions of a completed service session" }
     }
 
+    override suspend fun isIsolated(session: SessionRef): Boolean =
+        contains(session) || journal.isolation(session) != null
+
     override suspend fun policy(scope: ToolPolicyScope): ToolPolicy? = sessions.value[scope.session]
+        ?: scope.session?.let { journal.isolation(it) }?.let { nativeTools ->
+            ToolPolicy(native = nativeTools.associateWith { ToolSwitch.Off }, isToolFree = true)
+        }
 }
