@@ -45,6 +45,7 @@ internal class CellDriver(
     private val workspaces: CellWorkspaces,
     private val harnesses: CellHarnesses,
     native: OrganicNativeJournal,
+    private val permissions: OrganicPermissionRelays = OrganicPermissionRelays(),
 ) {
     private val log = Log.tag("CellDriver")
     private val attempts = OrganicCellAttempts(native)
@@ -210,8 +211,17 @@ internal class CellDriver(
         if (machine.send(accepted) != SendResult.Accepted) {
             return
         }
-        val outcome = handle.await(turn) { pending ->
-            machine.send(OrganicAiIntent.Internal.PermissionsChanged(organism.id, cell.id, phase.request, pending))
+        val observer = kotlin.uuid.Uuid.random().toString()
+        permissions.begin(driven.attempt.claim.address, observer, phase.request)
+        val outcome = try {
+            handle.await(turn) { pending ->
+                val relays = permissions.issue(driven.attempt.claim, handle.session, observer, pending)
+                machine.send(
+                    OrganicAiIntent.Internal.PermissionsChanged(organism.id, cell.id, phase.request, pending, relays),
+                )
+            }
+        } finally {
+            withContext(NonCancellable) { permissions.forget(driven.attempt.claim.address, observer) }
         }
         val settlement = settlement(handle, turn, outcome)
         driven.attempt.settled(outcome, (settlement as? Settlement.Answered)?.text)

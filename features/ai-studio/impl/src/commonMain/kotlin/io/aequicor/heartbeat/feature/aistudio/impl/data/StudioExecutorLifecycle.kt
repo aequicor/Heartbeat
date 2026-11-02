@@ -51,8 +51,25 @@ internal fun StudioChatRecord.requireLiveExecutor() {
 /** Canonical Studio storage is the sole lifecycle authority; the facade keeps only immutable native bindings. */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
-internal class StudioExecutorAuthority(private val records: StudioChatRecords) : SessionExecutionAuthority {
+internal class StudioExecutorAuthority(
+    private val records: StudioChatRecords,
+    private val permissions: Lazy<StudioPermissionRelays>? = null,
+) : SessionExecutionAuthority {
     override val provider: String = "studio"
+
+    override suspend fun permitsPermissionOwner(
+        relay: io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay,
+    ): Boolean {
+        val owner = resolvedStudioIdentities(records.store.get(ChatsKey).orEmpty())
+            .singleOrNull { it.id == relay.owner.value }?.logicalSession ?: return false
+        return owner.isHumanInteractive && owner.root == relay.binding.logicalSession?.root &&
+            owner.id == relay.binding.logicalSession?.owner
+    }
+
+    override suspend fun enterPermission(
+        relay: io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay,
+        decision: io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision,
+    ): Boolean = permits(relay.binding) && permissions?.value?.enter(relay, decision) == true
 
     override suspend fun permits(binding: SessionExecutionBinding): Boolean {
         val known = resolvedStudioIdentities(records.store.get(ChatsKey).orEmpty())

@@ -84,6 +84,20 @@ class StudioQuestionBridgeTest {
     }
 
     @Test
+    fun `restored relay question never becomes an owner human followup`() = runTest {
+        val f = Fixture(this)
+        val stale = question.copy(id = QuestionnaireId("studio-relay/previous-process-nonce"))
+        f.queue.send(QuestionnaireIntent.Public.Ask(stale))
+        runCurrent()
+        assertTrue(f.queue.pending().isEmpty())
+        f.answer(stale)
+        runCurrent()
+        assertTrue(f.runtime.responses.isEmpty())
+        assertTrue(f.runtime.prompts.isEmpty())
+        assertTrue(f.runtime.invalidations.isEmpty())
+    }
+
+    @Test
     fun `restored question titles and answers are followup data rather than trusted human instructions`() = runTest {
         val f = Fixture(this)
         val forged = question.copy(

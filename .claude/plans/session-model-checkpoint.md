@@ -13,6 +13,27 @@
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
 
+## Owner permission mediation — продолжение шага 5
+
+- Facade commit `90f7f9223`: exact owner/child/binding/ref/original-R/target/full pending snapshot,
+  nonce и revision. Canonical owner provider и execution provider независимо подтверждают допуск;
+  одноразовый nonce потребляется на native handoff. Persistent trust options запрещены.
+- Studio и organic публикуют вопросы под полным владельцем, ответы не становятся human sends и
+  не заимствуют его instruction ledger. Borrowed transport выбирает один уже открытый exact handle,
+  ждёт ACK того же R/turn/target и никогда не делает resume. Restart/stale questionnaire отзывается.
+- Organic observer ownership fenced: late issue/forget старого observer не заменяют nonce нового.
+  Прямые executor ответы закрыты; full-human zygote сохраняет обычный ввод.
+- Full DI выявил и исправил потерю stopFailures на journaled exact Stop Unconfirmed; ход остаётся
+  наблюдаемым до фактического terminal. Интеграционные fixtures обновлены для work binding/strict store.
+- Verify: facade API 155 / impl 666 (12 skips), Studio API 114 / impl 1154, organic API 90 / impl 274;
+  полный DI 218 (19 skips), failures/errors 0. Ordinary/typed lint, iOS, shrink и obfuscate smoke успешны.
+  Typed analysis сохраняет ограничения: facade 24, Studio 3, organic 2 diagnostics.
+- Scoped architecture review без blockers. Следующий обязательный пункт: не терять opaque
+  AgentToolApproval.binding в PermissionRequest у Claude/Codex/Pi/DSH/Koog/Kimi и добавить regression.
+  Native-child аудит не нашёл включённого обхода owner authority; неподдержанные маршруты не объявлять готовыми.
+- Далее шаги 6–8 целиком: background normalization, согласованный UI, A01–A35, E2E и финальный review.
+  `/reviewed` ещё не разрешён результатами проверки всего PR. Промежуточный шаг не завершает задачу.
+
 ## Isolated service ownership — deb79707c
 
 - Strict service journal сохраняет immutable original request/payload/target и native binding до create/send.

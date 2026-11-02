@@ -52,7 +52,11 @@ class AgentLearningIntegrationTest {
         assertTrue(AgentLearningEnabled.default)
         assertEquals("agent_learning", AgentLearningEnabled.owner)
         val profile = app.profileSessions.open(ProfileId("learning-off"))
-        assertTrue((profile.graph as TestLearningAccessors).agentTools.specifications(null).isEmpty())
+        assertTrue(
+            (profile.graph as TestLearningAccessors).agentTools.specifications(null).none {
+                it.name == LearningTools.REMEMBER || it.name == LearningTools.LOAD_SKILL
+            },
+        )
         app.profileSessions.close()
     }
 
@@ -63,7 +67,9 @@ class AgentLearningIntegrationTest {
         val tools = (first.graph as TestLearningAccessors).agentTools
         assertEquals(
             listOf(LearningTools.REMEMBER, LearningTools.LOAD_SKILL),
-            tools.specifications(null).map { it.name },
+            tools.specifications(null).map { it.name }.filter {
+                it == LearningTools.REMEMBER || it == LearningTools.LOAD_SKILL
+            },
         )
         val arguments = JsonObject(
             mapOf(

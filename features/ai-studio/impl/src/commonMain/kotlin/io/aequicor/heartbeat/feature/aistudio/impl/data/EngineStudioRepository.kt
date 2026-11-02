@@ -7,6 +7,7 @@ import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
@@ -33,7 +34,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -221,13 +221,14 @@ internal class EngineStudioRepository(
     override val recoveryJournal: StudioRecoveryJournal,
     private val conversationStops: StudioConversationStops,
     private val executorLifecycle: StudioExecutorLifecycle,
+    private val permissionRelays: StudioPermissionRelays,
+    private val questionAuthority: StudioQuestionAuthority,
     private val chatRecords: StudioChatRecords,
     private val humanQueue: StudioHumanQueueCommands,
     private val harnesses: StudioHarnessAttach,
     private val toggles: FeatureToggles,
     private val attachmentsCatalog: AttachmentsCatalog,
     private val switchHelpers: StudioEngineSwitchHelpers,
-    tools: Lazy<ProfileAgentTools>,
     private val messageQueue: StudioQueuePort = NoStudioQueue,
 ) : NativeStudioRepository(preferences, selections, efforts),
     StudioLiveConversations,
@@ -261,9 +262,6 @@ internal class EngineStudioRepository(
     private val handlesLock = Mutex()
     private val handles = mutableMapOf<String, ActiveSession>()
     private val stopRequests = mutableSetOf<String>()
-    private val questionAuthority = StudioQuestionAuthority(store, lock, tools) { id ->
-        handlesLock.withLock { handles[id] }
-    }
     private val conversationLocks = StudioConversationLocks(handlesLock)
     private val carry = StudioContextCarry(
         conversationLocks,
@@ -777,7 +775,10 @@ internal class EngineStudioRepository(
 
     override suspend fun cancel(sessionId: String) = executorLifecycle.cancel(sessionId, messageQueue::pauseForStop) {
         log.i { "Stop the selected conversation's exact request" }
-        if (!conversationStops.cancel(chatRecords.record(sessionId))) cancelNative(sessionId)
+        val isHandled = conversationStops.cancel(chatRecords.record(sessionId)) {
+            mutableState.update { it.copy(stopFailures = it.stopFailures + sessionId) }
+        }
+        if (!isHandled) cancelNative(sessionId)
     }
 
     private suspend fun cancelNative(sessionId: String) {
@@ -802,7 +803,12 @@ internal class EngineStudioRepository(
         answer: StudioPermissionAnswer?,
     ) {
         log.i { "Respond to pending permission" }
-        questionAuthority.respond(sessionId, requestId, optionId, answer)
+        val captured = state.value.permissions.singleOrNull { it.sessionId == sessionId && it.requestId == requestId }
+        if (captured?.relay != null) {
+            questionAuthority.respond(captured, optionId, answer)
+        } else {
+            questionAuthority.respond(sessionId, requestId, optionId, answer)
+        }
     }
 
     override suspend fun respond(permission: StudioPermission, optionId: String, answer: StudioPermissionAnswer?) {
@@ -825,7 +831,7 @@ internal class EngineStudioRepository(
     override suspend fun updatePermissions(id: String, state: ActiveSessionState) {
         log.v { "Update pending permission projection" }
         val (handle, isStopRequested) = handlesLock.withLock { handles[id] to (id in stopRequests) }
-        mutableState.update { it.withNativePermissionState(id, state, handle, isStopRequested) }
+        permissionRelays.update(mutableState, id, state, handle, isStopRequested)
     }
 
     override suspend fun edit(sessionId: String, edit: SessionEdit) {
@@ -843,15 +849,7 @@ internal class EngineStudioRepository(
         log.i { "Released native session of an archived conversation" }
     }
 
-    private suspend fun releaseArchived(id: String) {
-        try {
-            if (store.get(ChatsKey).orEmpty().firstOrNull { it.id == id }?.isArchived == true) release(id)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.e(e) { "Could not release archived session; preserve its handle for retry" }
-        }
-    }
+    private suspend fun releaseArchived(id: String) = nativeSession.releaseArchived(id, store, ::release)
 
     private suspend fun update(id: String, change: StudioChatRecord.() -> StudioChatRecord) = lock.withLock {
         chatRecords.updateRecord(id, change)
@@ -870,6 +868,16 @@ internal class EngineStudioRepository(
 /** Native IO reports failures while the repository owns conversation identity and UI state. */
 internal class StudioNativeSessionOperations(private val learning: StudioLearningPrompts) {
     private val log = Log.tag("StudioNativeSessionOperations")
+
+    suspend fun releaseArchived(id: String, store: KeyValueStore, release: suspend (String) -> Unit) {
+        try {
+            if (store.get(ChatsKey).orEmpty().firstOrNull { it.id == id }?.isArchived == true) release(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "Could not release archived session; preserve its handle for retry" }
+        }
+    }
 
     suspend fun cancelCurrent(active: ActiveSession, worktrees: StudioWorktrees) {
         log.i { "Cancel the current native turn after reconciliation" }

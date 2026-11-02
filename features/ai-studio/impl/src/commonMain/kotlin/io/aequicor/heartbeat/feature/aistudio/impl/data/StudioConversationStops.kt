@@ -13,10 +13,11 @@ internal class StudioConversationStops(
     private val observations: StudioConversationObservations,
     private val coordinator: StudioRunCoordinator,
 ) {
-    suspend fun cancel(record: StudioChatRecord): Boolean {
+    suspend fun cancel(record: StudioChatRecord, unconfirmed: () -> Unit = {}): Boolean {
         val recovery = coordinator.requestRecoveryStop(record.id)
         if (recovery != null) {
             if (observations.cancelRecovery(record, recovery) is HostConversationCancellation.Unconfirmed) {
+                unconfirmed()
                 throw EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, recovery))
             }
             return true
@@ -31,6 +32,7 @@ internal class StudioConversationStops(
             observations.snapshot(record).attempt?.request
         } ?: return false
         if (observations.cancel(record, request) is HostConversationCancellation.Unconfirmed) {
+            unconfirmed()
             throw EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request))
         }
         return true

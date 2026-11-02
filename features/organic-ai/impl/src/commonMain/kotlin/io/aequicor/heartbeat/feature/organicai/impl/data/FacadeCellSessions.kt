@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -445,9 +446,9 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         }
     }
 
-    override suspend fun respond(key: CellKey, decision: PermissionDecision) {
+    override suspend fun respond(key: CellKey, decision: PermissionDecision, relay: PermissionRelay?) {
         val handle = mutex.withLock { handles[key].takeIf { key !in lysed } } ?: throw closed()
-        handle.features.resolve(RequestsPermissions).orThrow().respond(decision)
+        handle.respondCellPermission(decision, relay)
     }
 
     override suspend fun release(
@@ -861,3 +862,13 @@ private class FacadeCellHandle(
 
 /** A returned native handle whose host receipt still needs its durable acknowledgement. */
 private data class CellPublication(val key: CellKey, val publish: suspend (SessionRef) -> Unit)
+
+private suspend fun ActiveSession.respondCellPermission(decision: PermissionDecision, relay: PermissionRelay?) {
+    if (relay == null) {
+        features.resolve(RequestsPermissions).orThrow().respond(decision)
+    } else {
+        check(ref == relay.session)
+        features.resolve(io.aequicor.heartbeat.feature.aiengine.facade.api.RelaysPermissions).orThrow()
+            .respond(relay, decision)
+    }
+}

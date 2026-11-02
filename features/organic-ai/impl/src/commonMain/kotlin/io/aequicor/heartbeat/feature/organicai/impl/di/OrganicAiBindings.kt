@@ -44,6 +44,20 @@ import kotlinx.coroutines.launch
 @BindingContainer
 public object OrganicAiBindings {
     @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun permissionRelays(
+        machine: Lazy<OrganicAiMachine>,
+    ): io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicPermissionRelays =
+        io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicPermissionRelays { encoded, request ->
+            val address = io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicExecutorAddress.parse(encoded)
+            val current = (machine.value.state.value as? OrganicAiState.Living)?.organisms?.values
+                ?.singleOrNull { it.id.value == address.organism && it.incarnation == address.incarnation }
+            val phase = current?.cells?.singleOrNull { it.id.value == address.member }?.phase
+                as? io.aequicor.heartbeat.feature.organicai.api.CellPhase.Working
+            phase?.request == request
+        }
+
+    @Provides
     internal fun effects(
         journal: OrganismJournal,
         targets: DefaultTargets,
@@ -54,10 +68,11 @@ public object OrganicAiBindings {
         harnesses: CellHarnesses,
         native: OrganicNativeJournal,
         executors: OrganicExecutors,
+        permissions: io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicPermissionRelays,
     ): OrganicAiEffects = OrganicAiEffects(
         targets = targets,
         cells = cells,
-        driver = CellDriver(cells, journal, workspaces, harnesses, native),
+        driver = CellDriver(cells, journal, workspaces, harnesses, native, permissions),
         court = ImmunityCourt(judges, transcripts, native),
         workspaces = workspaces,
         executors = executors,

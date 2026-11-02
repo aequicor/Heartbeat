@@ -149,3 +149,15 @@ internal fun StudioRuntimeState.withNativePermissionState(
         handle?.features?.resolve(CancelsTurns) is FeatureAccess.Available
     return withPermissionState(id, state, isStopRequested, isStopSupported, isSteeringSupported)
 }
+
+/** Replaces one executor's projection without dropping another executor's questions under the same owner. */
+internal fun StudioRuntimeState.withRelayedPermissionState(
+    id: String,
+    state: ActiveSessionState,
+    handle: ActiveSession?,
+    isStopRequested: Boolean,
+    projected: List<StudioPermission>,
+): StudioRuntimeState = withNativePermissionState(id, state, handle, isStopRequested).copy(
+    permissions =
+        permissions.filterNot { (it.relay?.binding?.logicalSession?.id?.value ?: it.sessionId) == id } + projected,
+)

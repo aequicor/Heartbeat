@@ -5,18 +5,24 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.organicai.api.CellId
+import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEnabled
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
+import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicExecutorAddress
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicNativeJournal
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicNativeStage
+import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicPermissionRelays
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganismJournal
 
 /** Durable acknowledgement and live host state must agree; either side can revoke, neither alone can grant. */
@@ -27,6 +33,7 @@ internal class OrganicExecutorAuthority(
     private val machine: Lazy<OrganicAiMachine>,
     private val toggles: FeatureToggles,
     private val native: OrganicNativeJournal,
+    private val permissions: OrganicPermissionRelays? = null,
 ) : SessionExecutionAuthority {
     override val provider: String = "organic"
 
@@ -37,6 +44,25 @@ internal class OrganicExecutorAuthority(
         val saved = journal.read(id) ?: return false
         val current = (machine.value.state.value as? OrganicAiState.Living)?.organisms?.get(id) ?: return false
         return address.permits(saved, binding) && address.permits(current, binding)
+    }
+
+    override suspend fun enterPermission(relay: PermissionRelay, decision: PermissionDecision): Boolean {
+        if (!permits(relay.binding) || !relay.accepts(decision)) return false
+        val address = OrganicExecutorAddress.parse(relay.binding.instance.id)
+        if (address.kind != OrganicExecutorAddress.Kind.Cell) return false
+        val id = OrganismId(address.organism)
+        val current = (machine.value.state.value as? OrganicAiState.Living)?.organisms?.get(id) ?: return false
+        val phase = current.cell(CellId(address.member))?.phase as? CellPhase.Working ?: return false
+        if (relay !in phase.relays || relay.permission !in phase.awaiting) return false
+        val receipt = native.attempts(id, address.incarnation).singleOrNull {
+            it.claim.execution == relay.binding && it.claim.request == relay.request
+        } ?: return false
+        val isPending = receipt.outcome == null && receipt.stage in setOf(
+            OrganicNativeStage.Sending,
+            OrganicNativeStage.Accepted,
+        )
+        if (!isPending || receipt.session != relay.session || receipt.claim.target != relay.target) return false
+        return permissions?.consume(relay) == true
     }
 
     override suspend fun permitsPrompt(

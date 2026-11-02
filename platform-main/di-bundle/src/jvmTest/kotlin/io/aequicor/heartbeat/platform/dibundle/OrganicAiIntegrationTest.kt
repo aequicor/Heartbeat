@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ProfileScope
@@ -75,7 +76,9 @@ class OrganicAiIntegrationTest {
         val conceived = machine.send(OrganicAiIntent.Public.Conceive(Conception(organism, "Build the thing")))
         assertEquals(SendResult.Accepted, conceived)
         bounded("stalled zygote") { machine.state.first { it.zygotePhase() is CellPhase.Stalled } }
-        val journal = (profile.graph as TestStorageAccessors).stores.keyValue(KeyValueSpec("organic_ai_organisms"))
+        val journal = (profile.graph as TestStorageAccessors).stores.keyValue(
+            KeyValueSpec("organic_ai_organisms", readPolicy = KeyValueReadPolicy.Strict),
+        )
         bounded(
             "journaled stall",
         ) { journal.observe(stringKey("organism.o1")).first { it?.contains("Stalled") == true } }

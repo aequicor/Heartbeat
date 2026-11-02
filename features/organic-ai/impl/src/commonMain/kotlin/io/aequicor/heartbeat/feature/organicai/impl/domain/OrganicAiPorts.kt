@@ -201,8 +201,12 @@ internal interface CellSessions {
     /** Closes owned handles without cancelling anything; caller already proved exact native quiescence. */
     suspend fun closeReleased(key: CellKey, generation: Int): ReleaseOutcome
 
-    /** Delivers the user's [decision] to the open handle of [key]. */
-    suspend fun respond(key: CellKey, decision: PermissionDecision)
+    /** Delivers a full conversation decision, or the exact owner relay for an executor. */
+    suspend fun respond(
+        key: CellKey,
+        decision: PermissionDecision,
+        relay: io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay? = null,
+    )
 
     /**
      * Lets the session of [key] go. [ReleaseMode.Lyse] cancels its turn, closes it and archives the session;

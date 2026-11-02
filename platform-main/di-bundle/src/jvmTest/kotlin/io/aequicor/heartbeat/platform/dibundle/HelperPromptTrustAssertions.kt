@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -60,6 +61,7 @@ internal suspend fun CoroutineScope.assertHelperAdmissionTrust(services: AiEngin
             HelperPrompt(
                 RequestId("handoff"),
                 "Work",
+                work = HelperWorkBinding(ActionId("workflow")),
                 handoff = HelperHandoff(
                     ownerFeature = owner.feature,
                 ),

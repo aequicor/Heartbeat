@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.organicai.api
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
 
@@ -26,7 +27,7 @@ internal data class Step(
 )
 
 /** A user decision to deliver to [cell]. */
-internal data class Response(val cell: CellId, val decision: PermissionDecision)
+internal data class Response(val cell: CellId, val decision: PermissionDecision, val relay: PermissionRelay?)
 
 /** What [intent] does to the organisms, or null when it does not apply (unknown organism, stale or refused). */
 internal fun OrganicAiState.Living.evolve(intent: OrganismIntent): Step? {
@@ -90,7 +91,7 @@ private fun Organism.evolve(intent: OrganismIntent): Step? = when (intent) {
     is OrganicAiIntent.Internal.SessionsReleased -> sessionsReleased(intent.isConfirmed)
     is OrganicAiIntent.Public.Resume -> resume()
     is OrganicAiIntent.Public.FollowUp -> followUp(intent)
-    is OrganicAiIntent.Public.Decide -> decide(intent.cell, intent.decision)
+    is OrganicAiIntent.Public.Decide -> decide(intent.cell, intent.decision, intent.relay)
     is OrganicAiIntent.Internal.Targeted -> targeted(intent.target)
     is OrganicAiIntent.Internal.Unresolved -> unresolved()
     is OrganicAiIntent.Internal.Divide -> divide(intent)
@@ -136,7 +137,10 @@ private fun Organism.follow(cell: Cell, intent: TurnIntent): Step? {
 
         is OrganicAiIntent.Internal.TurnAccepted -> observe(cell, phase.copy(turn = intent.turn))
 
-        is OrganicAiIntent.Internal.PermissionsChanged -> observe(cell, phase.copy(awaiting = intent.pending))
+        is OrganicAiIntent.Internal.PermissionsChanged -> observe(
+            cell,
+            phase.copy(awaiting = intent.pending, relays = intent.relays),
+        )
 
         is OrganicAiIntent.Internal.TurnSettled -> settle(cell, intent.settlement)
 
@@ -171,10 +175,14 @@ private fun Organism.working(id: CellId, request: RequestId): Cell? =
 private fun Organism.observe(cell: Cell, phase: CellPhase.Working): Step =
     Step(updated(cell.id) { it.copy(phase = phase) }, isDurable = false)
 
-private fun Organism.decide(id: CellId, decision: PermissionDecision): Step? {
+private fun Organism.decide(id: CellId, decision: PermissionDecision, relay: PermissionRelay?): Step? {
     val phase = cell(id)?.phase as? CellPhase.Working ?: return null
     if (!isDeveloping || phase.awaiting.none { it.accepts(decision) }) return null
-    return Step(this, isDurable = false, response = Response(id, decision))
+    val isFullConversation = id == CellId.ZYGOTE && conversation != null
+    val isMediated = relay != null && relay in phase.relays && relay.accepts(decision)
+    if (!isFullConversation && !isMediated) return null
+    if (isFullConversation && relay != null) return null
+    return Step(this, isDurable = false, response = Response(id, decision, relay))
 }
 
 private fun Organism.targeted(target: EngineTarget): Step? {

@@ -228,7 +228,11 @@ internal open class OrganicEffectsFixture {
 
         override suspend fun closeReleased(key: CellKey, generation: Int): ReleaseOutcome = ReleaseOutcome.Stopped
 
-        override suspend fun respond(key: CellKey, decision: PermissionDecision) {
+        override suspend fun respond(
+            key: CellKey,
+            decision: PermissionDecision,
+            relay: io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay?,
+        ) {
             responses += key to decision
         }
 

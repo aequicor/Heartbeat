@@ -16,9 +16,14 @@ import io.aequicor.heartbeat.feature.questionnaire.api.comment
 internal data class StudioDecision(val optionId: String, val answer: StudioPermissionAnswer?)
 
 /** Profile-unique question id of this permission. */
-internal fun StudioPermission.questionnaireId(): QuestionnaireId = turnId?.let { turn ->
+internal fun StudioPermission.questionnaireId(): QuestionnaireId = relay?.let {
+    QuestionnaireId("studio-relay/${it.nonce}")
+} ?: turnId?.let { turn ->
     QuestionnaireId("studio/${sessionId.length}:$sessionId/${turn.length}:$turn/$requestId")
 } ?: legacyQuestionnaireId()
+
+/** Durable provenance: an expired executor answer must never become a restored human prompt. */
+internal fun QuestionnaireId.isPermissionRelay(): Boolean = value.startsWith("studio-relay/")
 
 /** Identity used by journals created before native turn correlation was retained. */
 internal fun StudioPermission.legacyQuestionnaireId() = QuestionnaireId("$sessionId/$requestId")

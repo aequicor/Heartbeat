@@ -66,7 +66,8 @@ internal class OrganicAiEffects(
 
             is OrganicAiEffect.Respond -> {
                 log.i { "organism ${effect.organism.value} cell ${effect.cell.value}: user decision delivered" }
-                cells.respond(CellKey(effect.organism, effect.cell), effect.decision)
+                val key = CellKey(effect.organism, effect.cell)
+                cells.respond(key, effect.decision, effect.relay)
             }
 
             is OrganicAiEffect.Judge -> {

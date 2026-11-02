@@ -363,9 +363,14 @@ class OrganicAiMachineTest {
             "Run tests",
             listOf(PermissionOption(PermissionOptionId("allow"), "Allow")),
         )
-        val awaiting = organism(zygote = zygoteCell(working(ZYGOTE).copy(awaiting = listOf(pending))))
+        val owner = io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext(
+            io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionId("owner"),
+            io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind.Session,
+        )
+        val full = organism().copy(conversation = owner)
+        val awaiting = full.copy(cells = listOf(zygoteCell(working(ZYGOTE).copy(awaiting = listOf(pending)))))
         spec.assertTransition(
-            living(organism()),
+            living(full),
             OrganicAiIntent.Internal.PermissionsChanged(ORGANISM, ZYGOTE, request(ZYGOTE), listOf(pending)),
             living(awaiting),
         )
@@ -376,7 +381,11 @@ class OrganicAiMachineTest {
             living(awaiting),
             effects = listOf(OrganicAiEffect.Respond(ORGANISM, ZYGOTE, decision)),
         )
-        spec.assertIgnored(living(organism()), OrganicAiIntent.Public.Decide(ORGANISM, ZYGOTE, decision))
+        spec.assertIgnored(living(full), OrganicAiIntent.Public.Decide(ORGANISM, ZYGOTE, decision))
+        spec.assertIgnored(
+            living(awaiting.copy(conversation = null)),
+            OrganicAiIntent.Public.Decide(ORGANISM, ZYGOTE, decision),
+        )
         spec.assertIgnored(
             living(awaiting),
             OrganicAiIntent.Public.Decide(ORGANISM, ZYGOTE, decision.copy(option = PermissionOptionId("deny"))),

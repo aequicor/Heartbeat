@@ -333,7 +333,11 @@ class SandboxScenarioTest {
             emptySet()
         override suspend fun closeReleased(key: CellKey, generation: Int): ReleaseOutcome = ReleaseOutcome.Stopped
 
-        override suspend fun respond(key: CellKey, decision: PermissionDecision) = Unit
+        override suspend fun respond(
+            key: CellKey,
+            decision: PermissionDecision,
+            relay: io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay?,
+        ) = Unit
 
         override suspend fun release(
             key: CellKey,

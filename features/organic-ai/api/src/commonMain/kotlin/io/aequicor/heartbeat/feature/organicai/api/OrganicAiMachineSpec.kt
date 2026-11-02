@@ -118,7 +118,7 @@ public val OrganicAiMachineSpec: MachineSpec<OrganicAiState, OrganicAiIntent, Or
                 }
                 effect {
                     step()?.let { step ->
-                        step.response?.let { OrganicAiEffect.Respond(step.organism.id, it.cell, it.decision) }
+                        step.response?.let { OrganicAiEffect.Respond(step.organism.id, it.cell, it.decision, it.relay) }
                     }
                 }
                 output {
