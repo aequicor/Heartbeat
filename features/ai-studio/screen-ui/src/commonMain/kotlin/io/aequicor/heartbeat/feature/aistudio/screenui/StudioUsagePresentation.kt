@@ -24,7 +24,7 @@ internal fun UsageWindowUi.chipPeriodMinutes(): Long? {
     }
 }
 
-/** Credit bars show consumption while the text reports remaining credits; unknown allowances have no bar. */
+/** Credit details report consumption separately from the remaining balance; unknown allowances stay unknown. */
 internal fun UsageCreditsUi.consumedPercent(): Int? {
     val allowance = total?.takeIf { it.isFinite() && it > 0 } ?: return null
     val balance = remaining?.takeIf { it.isFinite() && it >= 0 } ?: return null

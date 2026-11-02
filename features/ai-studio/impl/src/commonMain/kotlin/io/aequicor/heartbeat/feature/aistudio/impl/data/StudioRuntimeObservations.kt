@@ -20,6 +20,7 @@ internal fun StudioRuntimeState.withoutFinishedRun(id: String): StudioRuntimeSta
     runStartedAt = runStartedAt - id,
     stopFailures = stopFailures - id,
     uncancellable = uncancellable - id,
+    steerable = steerable - id,
     permissions = permissions.filterNot { it.sessionId == id },
 )
 

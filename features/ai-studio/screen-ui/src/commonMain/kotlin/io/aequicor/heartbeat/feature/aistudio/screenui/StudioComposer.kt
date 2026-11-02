@@ -177,7 +177,7 @@ private fun StudioComposerInput(
         onValueChange = { onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, it)) },
         onSend = { onIntent(StudioIntent.Submit(pane.id)) },
         onCorrect = { onIntent(StudioIntent.Submit(pane.id, isCorrection = true)) }
-            .takeIf { content.host.isTurnSteeringAvailable },
+            .takeIf { content.host.isTurnSteeringAvailable && content.isTurnSteeringAvailable },
         canSendWhileStreaming = content.isMessageQueueEnabled,
         headerContent = { StudioMessageQueue(content, onIntent) },
         onStop = { session?.let { onIntent(StudioIntent.Stop(it.id)) } },

@@ -4,7 +4,7 @@
 
 - PR: https://github.com/aequicor/Heartbeat/pull/640 — **draft, фича не завершена**.
 - Ветка: `codex/unified-session-model`, целевая ветка `master`.
-- Свежий `origin/master` проверен при checkpoint: `b410de582c4a32a740d882d4ee986f24df9dd4a1` входит в HEAD через merge `4426537ae`.
+- Синхронизация с `origin/master`: `f446bacb317f95b88bfdada727c0d15c7729dced` (PR #643, #644, #646); актуальные queue/correction и DSH cancellation включены в base sync этого checkpoint.
 - Текущий слой — production recovery: native work lineage, перенос наблюдателей, Stop aliases и immutable execution configuration. Полный объём шагов 1–8 остаётся обязательным.
 - Продолжать в этом же PR. Force push, merge PR и выпуск не разрешены. Пользователь поручил после реализации и регрессии перевести PR в ready через `open-pr`, затем выполнить `pr-review-and-fix`.
 - Стандарт и макеты согласованы; повторного решения по дизайну не требуется, если реализация следует согласованным кадрам.
@@ -102,6 +102,17 @@
   consumers/lease restore, затем шаги 3–8: полноценные Subsession capabilities/FIFO, Subagent writers/termination,
   mediation, background adapters, согласованный UI, итоговые verify/E2E и pr-review-and-fix. Этот слой не означает
   завершения фичи и не разрешает ready или `/reviewed` до полного выполнения оставшихся шагов.
+
+## Синхронизация с master: correction и usage
+
+- Включён `f446bacb317f95b88bfdada727c0d15c7729dced` (#643–646): correction, DSH cancellation и новый usage UI.
+- Согласован integration test: пока cancellation gate закрыт, Stop возвращает `OutcomeUnknown` исходного request;
+  очередь остаётся приостановленной и не отправляет correction. ACK не превращается в terminal evidence.
+- Локально: API 113, screen-model 97, screen-ui 288, Studio impl 1117, facade API 154, DSH 85 тестов;
+  отдельно focused ManagedActiveSession 29 и StudioCorrectionIntegration 2. Все без failures/errors/skips.
+  Studio/DI detekt и typed detekt, Studio/DSH iOS compilation зелёные. Architecture review merge delta без блокеров.
+- Staged aggregate включает унаследованные base changes и превышает лимит; base-sync проверяется по manual
+  remerge diff согласно правилу merge-коммитов, с теми же tree/parents перед commit и повторно после commit.
 
 ## Утверждённое поведение
 

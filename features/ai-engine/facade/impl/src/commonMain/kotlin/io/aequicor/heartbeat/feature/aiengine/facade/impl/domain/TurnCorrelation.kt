@@ -125,10 +125,15 @@ private fun active(
 
 private fun ready(machine: ActiveSessionState.Ready, native: ActiveSessionState): List<ActiveSessionIntent.Internal> {
     val nativeTurn = native.activeTurn()
-    return if (nativeTurn != null && nativeTurn.id != machine.lastTurn?.id) {
-        listOf(ActiveSessionIntent.Internal.Failed(null, EngineFailure.Session(SessionFailureReason.Changed)))
-    } else {
-        emptyList()
+    return when {
+        native is ActiveSessionState.Unavailable &&
+            native.failure == EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed) ->
+            listOf(ActiveSessionIntent.Internal.Failed(null, native.failure))
+
+        nativeTurn != null && nativeTurn.id != machine.lastTurn?.id ->
+            listOf(ActiveSessionIntent.Internal.Failed(null, EngineFailure.Session(SessionFailureReason.Changed)))
+
+        else -> emptyList()
     }
 }
 

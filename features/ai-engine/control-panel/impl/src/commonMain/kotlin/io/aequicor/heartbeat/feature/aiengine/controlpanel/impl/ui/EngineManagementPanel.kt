@@ -4,7 +4,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -123,6 +126,9 @@ internal fun EngineManagementSection(
         DisabledEngineContent(panel, isIdle, isSaving, onIntent, modifier, isVisuallyIdle)
         return
     }
+    // The inspection result is kept in memory only: refresh an unchecked installation once its panel is shown, so a
+    // restarted app does not keep «Не проверен» until the user presses the button. The check is local and bounded.
+    InspectUncheckedInstallation(panel, isIdle, onIntent)
     HbSettingsSection(
         stringResource(Res.string.engine_section),
         modifier.testTag("engine-panel"),
@@ -171,6 +177,21 @@ internal fun EngineManagementSection(
             HbDivider()
             EngineLaunchForm(launch, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         }
+    }
+}
+
+/** Inspects an installation whose previous result is unknown, once per shown panel and only while it is idle. */
+@Composable
+private fun InspectUncheckedInstallation(
+    panel: EnginePanelUi,
+    isIdle: Boolean,
+    onIntent: (EngineManagementIntent) -> Unit,
+) {
+    val isUnchecked = !panel.installation.isChecked && panel.installation.failure == null
+    val isInspectionAvailable = isIdle && EngineActionKindUi.Inspect in panel.actions
+    val currentIntent by rememberUpdatedState(onIntent)
+    SideEffect(isUnchecked, isInspectionAvailable) {
+        if (isUnchecked && isInspectionAvailable) currentIntent(EngineManagementIntent.InspectEngine)
     }
 }
 

@@ -8,26 +8,33 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SteeringRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SteersTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueAction
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedMessage
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 
 /** Capture once: an eventual delivery cannot drift into the next native turn. */
 internal fun studioSteeringTarget(active: ActiveSession, chat: String): StudioSteeringTarget {
-    active.features.requireFeature(SteersTurns)
+    val isNative = active.features.resolve(SteersTurns) is FeatureAccess.Available
+    if (!isNative) active.features.requireFeature(CancelsTurns)
     val turn = when (val current = active.state.value) {
         is ActiveSessionState.Running -> current.turn
         is ActiveSessionState.AwaitingUserAction -> current.turn
         else -> error("The native turn is not steerable")
     }
-    return StudioSteeringTarget(active, turn.id, chat)
+    return StudioSteeringTarget(active, turn.id, chat, isNative, turn.request?.value)
 }
 
 /** Does not bind a new turn or replace its trust policy. */
@@ -82,6 +89,7 @@ internal class StudioQueueDelivery(
     private val host: Lazy<StudioRunHost>,
     private val authority: Lazy<StudioConfigurationAccess>,
     private val runs: StudioRunCoordinator,
+    private val worktrees: StudioWorktrees,
 ) : StudioQueueHost {
     override suspend fun queuedRun(
         chat: String,
@@ -100,6 +108,11 @@ internal class StudioQueueDelivery(
             ).copy(submission = submission),
             waitForIdle = true,
         )
+    }
+
+    override suspend fun interrupt(target: StudioSteeringTarget) {
+        target.request?.let { worktrees.cancelBuilds(target.session.ref, RequestId(it), target.turn) }
+        target.interrupt()
     }
 
     override suspend fun steeringTarget(chat: String): StudioSteeringTarget = chats.value.steeringTarget(chat)
@@ -128,9 +141,23 @@ internal suspend fun cancelStudioNativeTurn(active: ActiveSession, worktrees: St
     if (active.state.value is ActiveSessionState.Unavailable) {
         active.features.requireFeature(ReconcilesSession).synchronize()
     }
-    val turn = active.state.value.activeTurn() ?: return
+    // A second human Stop still revokes queued correction, but cancellation is already in flight.
+    val turn = active.state.value.takeUnless { it is ActiveSessionState.Interrupting }?.activeTurn() ?: return
     turn.request?.let { worktrees.cancelBuilds(active.ref, it, turn.id) }
-    active.features.requireFeature(CancelsTurns).cancel(turn.id)
+    fun alreadyStopping(): Boolean = when (val current = active.state.value) {
+        is ActiveSessionState.Interrupting -> current.turn.id == turn.id
+        is ActiveSessionState.Ready -> current.lastTurn?.id == turn.id
+        else -> false
+    }
+    if (alreadyStopping()) return
+    try {
+        active.features.requireFeature(CancelsTurns).cancel(turn.id)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        if (!alreadyStopping()) throw error
+        Log.tag("StudioMessageQueue").w(error) { "Captured turn was already stopping when Stop arrived" }
+    }
 }
 
 /** Narrow profile boundary keeps Metro contribution providers independent of the concrete repository type. */
@@ -138,3 +165,38 @@ internal interface StudioQueueAccess {
     suspend fun validateQueuedInput(chat: String, environment: StudioChatEnvironment?)
     suspend fun steeringTarget(chat: String): StudioSteeringTarget
 }
+
+/** Only an authoritative terminal outcome of the captured turn permits a replacement prompt. */
+internal suspend fun StudioSteeringTarget.interrupt() = interruptStudioTurn(session.state, turn) {
+    session.features.requireFeature(CancelsTurns).cancel(turn)
+}
+
+/** A cancel RPC returning successfully is not proof that the captured turn ended. */
+internal suspend fun interruptStudioTurn(
+    state: StateFlow<ActiveSessionState>,
+    turn: TurnId,
+    cancel: suspend () -> Unit,
+) {
+    fun confirmed(current: ActiveSessionState): Boolean {
+        val finished = (current as? ActiveSessionState.Ready)?.lastTurn
+        return finished?.id == turn && finished.outcome in setOf(TurnOutcome.Completed, TurnOutcome.Cancelled)
+    }
+    withTimeout(CORRECTION_STOP_TIMEOUT_MS) {
+        if (confirmed(state.value)) return@withTimeout
+        try {
+            cancel()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (!confirmed(state.value)) throw error
+            Log.tag("StudioMessageQueue").w(error) { "Captured turn ended before cancellation was admitted" }
+        }
+        val terminal = state.first { current ->
+            current !is ActiveSessionState.Running && current !is ActiveSessionState.AwaitingUserAction &&
+                current !is ActiveSessionState.Interrupting && current !is ActiveSessionState.Submitting
+        }
+        check(confirmed(terminal)) { "Cancellation was not confirmed for the captured turn" }
+    }
+}
+
+private const val CORRECTION_STOP_TIMEOUT_MS = 40_000L

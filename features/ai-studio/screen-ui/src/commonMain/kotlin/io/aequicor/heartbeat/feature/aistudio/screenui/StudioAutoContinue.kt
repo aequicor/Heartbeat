@@ -244,12 +244,15 @@ private fun AutoContinueRunning(
             style = HbTheme.typography.label,
             maxLines = 1,
         )
-        HbButton(
-            stringResource(Res.string.auto_continue_stop),
-            { onIntent(StudioIntent.StopAutoContinue(chat)) },
-            style = HbButtonStyle.Accent,
-            size = HbButtonSize.Small,
-        )
+        // A finished, failed or handed-over continuation has nothing left to stop: the notice alone explains the state.
+        if (ui.notice == null) {
+            HbButton(
+                stringResource(Res.string.auto_continue_stop),
+                { onIntent(StudioIntent.StopAutoContinue(chat)) },
+                style = HbButtonStyle.Accent,
+                size = HbButtonSize.Small,
+            )
+        }
     }
 }
 

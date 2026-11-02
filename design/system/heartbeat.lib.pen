@@ -7923,7 +7923,7 @@
     },
     "dimensions.composerMenuMaxHeight": {
       "type": "number",
-      "value": 320
+      "value": 420
     },
     "dimensions.composerMenuMaxWidth": {
       "type": "number",
@@ -7970,13 +7970,13 @@
       "type": "number",
       "value": [
         {
-          "value": 80,
+          "value": 112,
           "theme": {
             "host": "desktop"
           }
         },
         {
-          "value": 96,
+          "value": 144,
           "theme": {
             "host": "mobile"
           }
@@ -8527,7 +8527,7 @@
       "type": "number",
       "value": [
         {
-          "value": 18,
+          "value": 14,
           "theme": {
             "host": "desktop"
           }
@@ -9238,7 +9238,7 @@
     },
     "dimensions.composerUsagePopupWidth": {
       "type": "number",
-      "value": 420
+      "value": 288
     },
     "dimensions.composerUsagePopupMaxHeight": {
       "type": "number",

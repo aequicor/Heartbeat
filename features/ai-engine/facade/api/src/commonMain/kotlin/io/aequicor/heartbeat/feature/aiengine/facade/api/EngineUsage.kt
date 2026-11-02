@@ -14,11 +14,37 @@ public data class ContextUsage(
     val usedTokens: Long,
     val capacityTokens: Long?,
     val observation: Observation = Observation(),
+    val breakdown: ContextBreakdown? = null,
 ) {
     init {
         require(usedTokens >= 0) { "Negative context usage" }
         require(capacityTokens == null || capacityTokens > 0) { "Non-positive context capacity" }
+        require(breakdown == null || breakdown.allocatedTokens <= usedTokens) { "Context categories exceed usage" }
     }
+}
+
+/**
+ * Native, mutually exclusive token categories from the same observation as [ContextUsage.usedTokens].
+ * Null categories are unknown, never zero. History excludes tools and files counted separately.
+ * Adapters must not substitute cumulative billing, cached-token counts or character estimates.
+ * Missing native breakdown remains null; any unallocated portion is shown without guessing its category.
+ */
+public data class ContextBreakdown(
+    val instructions: Long? = null,
+    val history: Long? = null,
+    val tools: Long? = null,
+    val files: Long? = null,
+) {
+    init {
+        var remaining = Long.MAX_VALUE
+        listOfNotNull(instructions, history, tools, files).forEach {
+            require(it >= 0 && it <= remaining) { "Invalid context category count" }
+            remaining -= it
+        }
+    }
+
+    /** Sum of known categories, validated against overflow and the enclosing snapshot's usage. */
+    val allocatedTokens: Long get() = (instructions ?: 0) + (history ?: 0) + (tools ?: 0) + (files ?: 0)
 }
 
 /**

@@ -823,8 +823,7 @@ internal class EngineStudioRepository(
     override suspend fun updatePermissions(id: String, state: ActiveSessionState) {
         log.v { "Update pending permission projection" }
         val (handle, isStopRequested) = handlesLock.withLock { handles[id] to (id in stopRequests) }
-        val isStopSupported = handle?.features?.resolve(CancelsTurns) != FeatureAccess.Unsupported
-        mutableState.update { it.withPermissionState(id, state, isStopRequested, isStopSupported) }
+        mutableState.update { it.withNativePermissionState(id, state, handle, isStopRequested) }
     }
 
     override suspend fun edit(sessionId: String, edit: SessionEdit) {

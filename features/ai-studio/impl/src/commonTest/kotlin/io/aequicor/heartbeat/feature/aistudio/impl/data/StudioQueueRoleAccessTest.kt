@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -60,6 +61,7 @@ class StudioQueueRoleAccessTest {
             lazy { error("Do not open an executor for human input") },
             lazyOf(authority),
             StudioRunCoordinator(RunProfile(backgroundScope), RunClock),
+            StudioWorktrees(ConfigurationRegistry(), NoAgentTools),
         )
         assertFailsWith<EngineException> {
             delivery.queuedRun("agent", message, null, StudioRunSubmission()) { error("Do not acknowledge") }

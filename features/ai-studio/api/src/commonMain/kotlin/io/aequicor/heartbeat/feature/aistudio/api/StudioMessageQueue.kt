@@ -38,17 +38,28 @@ public data class StudioQueuedMessage(
     override fun toString(): String = "StudioQueuedMessage(id=$id, delivery=$delivery)"
 }
 
+/** Durable cancellation reservation; its token prevents a late cancellation from reviving revoked input. */
+@Serializable
+public data class StudioCorrection(
+    val message: String,
+    val token: String,
+    val request: String,
+    val isReady: Boolean = false,
+)
+
 /** One logical chat's FIFO. [activeRequest] retains execution ownership after its accepted row has disappeared. */
 @Serializable
 public data class StudioChatQueue(
     val messages: List<StudioQueuedMessage> = emptyList(),
     val isPaused: Boolean = false,
     val activeRequest: String? = null,
+    val correction: StudioCorrection? = null,
 ) {
     /** A restart preserves input but cannot infer whether an in-flight native operation was accepted. */
     public fun restored(): StudioChatQueue = copy(
         isPaused = true,
         activeRequest = null,
+        correction = null,
         messages = messages.map {
             if (it.delivery == StudioQueuedDelivery.Pending) it else it.copy(delivery = StudioQueuedDelivery.Uncertain)
         },
@@ -94,6 +105,9 @@ public sealed interface StudioQueueIntent : MachineIntent {
         /** Deliver exactly this pending row to the current native turn. */
         public data class Steer(val chat: String, val message: String, val operation: String) : Public
 
+        /** Reserve one correction before stopping the captured original request. */
+        public data class Interrupt(val chat: String, val correction: StudioCorrection, val operation: String) : Public
+
         /** Stop automatic continuation before requesting native cancellation. */
         public data class Pause(val chat: String, val operation: String) : Public
 
@@ -108,6 +122,9 @@ public sealed interface StudioQueueIntent : MachineIntent {
     public sealed interface Internal : StudioQueueIntent {
         /** Disabling the feature prevents automatic delivery while retaining existing input. */
         public data class Availability(val isEnabled: Boolean) : Internal
+
+        /** A captured cancellation completed; revoked or replaced reservations ignore this result. */
+        public data class Interrupted(val chat: String, val token: String, val operation: String) : Internal
 
         /** The exact durable write completed. */
         public data class Stored(val operation: String, val next: StudioQueueEffect?) : Internal
@@ -152,6 +169,9 @@ public sealed interface StudioQueueEffect : MachineEffect {
     /** Start a new turn with the queued message's stable request id. */
     public data class Dispatch(val chat: String, val message: StudioQueuedMessage) : StudioQueueEffect
 
+    /** Stop a captured native turn; confirmation only makes the reserved row eligible for normal dispatch. */
+    public data class Interrupt(val chat: String, val correction: StudioCorrection) : StudioQueueEffect
+
     /** Steer the captured active native turn without starting a new one. */
     public data class Steer(val chat: String, val message: StudioQueuedMessage) : StudioQueueEffect
 }
@@ -178,6 +198,8 @@ public object StudioQueueMachineKey : MachineKey<
  * | Enqueue | valid unique input | append Pending, Save |
  * | Drain | idle, unpaused, all Pending, no active request | Sending, Save then Dispatch |
  * | Steer | busy, supported, selected Pending, no delivery in flight | Steering, Save then Steer |
+ * | Interrupt | busy, pending row, no reservation | reserve correction, Save then Interrupt |
+ * | Interrupted | exact unrevoked token | mark ready; Drain waits for idle |
  * | Accepted | matching Sending or Steering | remove only that row, Save |
  * | Failed | matching row | retain input; uncertain or failed new turn pauses, Save |
  * | Pause / Resume | no write pending | change automatic continuation, Save |
@@ -196,6 +218,7 @@ public fun studioQueueMachineSpec(
         queueRemove()
         queueDrain()
         queueSteer()
+        queueInterrupt()
         queuePause()
         queueResume()
         queueAccepted()
@@ -236,12 +259,13 @@ private fun QueueTransitions.queueEnqueue() {
 
 private fun QueueTransitions.queueRemove() {
     on<StudioQueueIntent.Public.Remove>(guard = {
-        state.saving == null && state.data.chat(intent.chat).messages.any {
-            it.id == intent.message && it.delivery in setOf(
-                StudioQueuedDelivery.Pending,
-                StudioQueuedDelivery.Uncertain,
-            )
-        }
+        state.saving == null && state.data.chat(intent.chat).correction?.message != intent.message &&
+            state.data.chat(intent.chat).messages.any {
+                it.id == intent.message && it.delivery in setOf(
+                    StudioQueuedDelivery.Pending,
+                    StudioQueuedDelivery.Uncertain,
+                )
+            }
     }) {
         val update: TransitionScope<StudioQueueState, StudioQueueIntent.Public.Remove>.() -> StudioMessageQueues = {
             val old = state.data.chat(intent.chat)
@@ -262,11 +286,13 @@ private fun QueueTransitions.queueDrain() {
     on<StudioQueueIntent.Public.Drain>(guard = {
         val queue = state.data.chat(intent.chat)
         state.isEnabled && state.saving == null && intent.chat !in state.busy && !queue.isPaused &&
-            queue.activeRequest == null &&
+            queue.activeRequest == null && (queue.correction == null || queue.correction.isReady) &&
             queue.messages.isNotEmpty() && queue.messages.all { it.delivery == StudioQueuedDelivery.Pending }
     }) {
         val message: TransitionScope<StudioQueueState, StudioQueueIntent.Public.Drain>.() -> StudioQueuedMessage = {
-            state.data.chat(intent.chat).messages.first()
+            state.data.chat(intent.chat).let { queue ->
+                queue.messages.first { queue.correction == null || it.id == queue.correction.message }
+            }
         }
         val update: TransitionScope<StudioQueueState, StudioQueueIntent.Public.Drain>.() -> StudioMessageQueues = {
             val old = state.data.chat(intent.chat)
@@ -274,6 +300,7 @@ private fun QueueTransitions.queueDrain() {
                 intent.chat,
                 old.copy(
                     activeRequest = message().id,
+                    correction = null,
                     messages = old.messages.map {
                         if (it.id == message().id) it.copy(delivery = StudioQueuedDelivery.Sending) else it
                     },
@@ -294,7 +321,8 @@ private fun QueueTransitions.queueDrain() {
 private fun QueueTransitions.queueSteer() {
     on<StudioQueueIntent.Public.Steer>(guard = {
         val queue = state.data.chat(intent.chat)
-        state.isEnabled && state.saving == null && intent.chat in state.busy && intent.chat in state.steerable &&
+        state.isEnabled && state.saving == null && queue.correction == null &&
+            intent.chat in state.busy && intent.chat in state.steerable &&
             queue.messages.none { it.delivery != StudioQueuedDelivery.Pending } &&
             queue.messages.any { it.id == intent.message && it.delivery == StudioQueuedDelivery.Pending }
     }) {
@@ -317,10 +345,46 @@ private fun QueueTransitions.queueSteer() {
     }
 }
 
+private fun QueueTransitions.queueInterrupt() {
+    on<StudioQueueIntent.Public.Interrupt>(guard = {
+        val queue = state.data.chat(intent.chat)
+        state.isEnabled && state.saving == null && intent.chat in state.busy && queue.correction == null &&
+            queue.messages.all { it.delivery == StudioQueuedDelivery.Pending } &&
+            queue.messages.any { it.id == intent.correction.message }
+    }) {
+        val data: TransitionScope<StudioQueueState, StudioQueueIntent.Public.Interrupt>.() -> StudioMessageQueues = {
+            state.data.withChat(
+                intent.chat,
+                state.data.chat(intent.chat).copy(correction = intent.correction, isPaused = false),
+            )
+        }
+        stay { state.copy(data = data(), saving = intent.operation) }
+        effect {
+            StudioQueueEffect.Save(
+                intent.operation,
+                data(),
+                StudioQueueEffect.Interrupt(intent.chat, intent.correction),
+            )
+        }
+    }
+    on<StudioQueueIntent.Internal.Interrupted>(guard = {
+        val queue = state.data.chat(intent.chat)
+        state.saving == null && !queue.isPaused && queue.correction?.token == intent.token
+    }) {
+        val data:
+            TransitionScope<StudioQueueState, StudioQueueIntent.Internal.Interrupted>.() -> StudioMessageQueues = {
+                val queue = state.data.chat(intent.chat)
+                state.data.withChat(intent.chat, queue.copy(correction = queue.correction?.copy(isReady = true)))
+            }
+        stay { state.copy(data = data(), saving = intent.operation) }
+        effect { StudioQueueEffect.Save(intent.operation, data()) }
+    }
+}
+
 private fun QueueTransitions.queuePause() {
     on<StudioQueueIntent.Public.Pause>(guard = { state.saving == null }) {
         val data: TransitionScope<StudioQueueState, StudioQueueIntent.Public.Pause>.() -> StudioMessageQueues = {
-            state.data.withChat(intent.chat, state.data.chat(intent.chat).copy(isPaused = true))
+            state.data.withChat(intent.chat, state.data.chat(intent.chat).copy(isPaused = true, correction = null))
         }
         stay { state.copy(data = data(), saving = intent.operation) }
         effect { StudioQueueEffect.Save(intent.operation, data()) }
@@ -394,7 +458,12 @@ private fun QueueTransitions.queueSettled() {
                 intent.chat,
                 old.copy(
                     activeRequest = null,
-                    isPaused = old.isPaused || intent.outcome != RunOutcome.Completed || hasUnsent,
+                    isPaused = old.isPaused || hasUnsent ||
+                        (
+                            intent.outcome != RunOutcome.Completed &&
+                                !(intent.outcome == RunOutcome.Stopped && old.correction?.request == intent.request)
+                        ),
+                    correction = old.correction.takeUnless { intent.outcome == RunOutcome.Failed },
                     messages = old.messages.map { it.afterSettlement(intent.request, intent.isSubmitted) },
                 ),
             )
@@ -433,6 +502,7 @@ private fun QueueTransitions.queueStoreFailed() {
                 chats = state.durable.chats.mapValues { (_, queue) ->
                     queue.copy(
                         isPaused = true,
+                        correction = null,
                         messages = queue.messages.map { it.quarantined() },
                     )
                 },

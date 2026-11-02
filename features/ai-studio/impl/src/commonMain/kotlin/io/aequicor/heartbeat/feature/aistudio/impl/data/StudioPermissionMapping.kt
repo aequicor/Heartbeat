@@ -3,12 +3,15 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionChoice
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionInput
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SteersTurns
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionInput
@@ -121,11 +124,28 @@ internal fun StudioRuntimeState.withPermissionState(
     state: ActiveSessionState,
     isStopRequested: Boolean,
     isStopSupported: Boolean,
+    isSteeringSupported: Boolean = false,
 ): StudioRuntimeState {
+    val isSteerable = isSteeringSupported && !isStopRequested &&
+        (state is ActiveSessionState.Running || state is ActiveSessionState.AwaitingUserAction)
     val isStopFailed = isStopRequested && state is ActiveSessionState.Unavailable && state.activeTurn != null
     return copy(
         permissions = permissions.filterNot { it.sessionId == id } + projectStudioPermissions(id, state, permissions),
         stopFailures = if (isStopFailed) stopFailures + id else stopFailures,
         uncancellable = if (isStopSupported) uncancellable - id else uncancellable + id,
+        steerable = if (isSteerable) steerable + id else steerable - id,
     )
+}
+
+/** Projects capabilities from the captured handle without replacing its native identity or acquiring a new one. */
+internal fun StudioRuntimeState.withNativePermissionState(
+    id: String,
+    state: ActiveSessionState,
+    handle: ActiveSession?,
+    isStopRequested: Boolean,
+): StudioRuntimeState {
+    val isStopSupported = handle?.features?.resolve(CancelsTurns) != FeatureAccess.Unsupported
+    val isSteeringSupported = handle?.features?.resolve(SteersTurns) is FeatureAccess.Available ||
+        handle?.features?.resolve(CancelsTurns) is FeatureAccess.Available
+    return withPermissionState(id, state, isStopRequested, isStopSupported, isSteeringSupported)
 }

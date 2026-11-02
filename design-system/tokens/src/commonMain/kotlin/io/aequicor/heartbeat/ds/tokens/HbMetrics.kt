@@ -119,13 +119,14 @@ data class HbDimensions(
     /** Bounded visual preview beside an attachment name; the mobile row keeps its full touch target. */
     val attachmentThumbnailSize: Dp = 40.dp,
     val composerEditorMinHeight: Dp = 40.dp,
-    val composerMenuMaxHeight: Dp = 320.dp,
+    /** Tall enough for the composer's add menu with its mode section; shorter windows still scroll the sheet. */
+    val composerMenuMaxHeight: Dp = 420.dp,
     val composerMenuMinWidth: Dp = 240.dp,
     val composerMenuMaxWidth: Dp = 360.dp,
     val composerMenuGutter: Dp = 16.dp,
     val composerMenuOffset: Dp = 8.dp,
-    /** Host-sized context and quota pill, including three-digit percentages; dense desktop uses 80dp. */
-    val composerUsageMinWidth: Dp = 96.dp,
+    /** Split context/quota pill; both touch segments retain a minimum 48dp target. */
+    val composerUsageMinWidth: Dp = 144.dp,
     /** Visual height; touch hosts retain their larger minimum hit target around the pill. */
     val composerUsageHeight: Dp = 44.dp,
     /** Height of the quota period chip overlapping the top edge by half its height. */
@@ -133,7 +134,7 @@ data class HbDimensions(
     /** Stroke of the quota consumption path around the pill. */
     val usageQuotaStrokeWidth: Dp = 2.5.dp,
     /** Preferred width and bounded height of the upward-opening usage disclosure. */
-    val composerUsagePopupWidth: Dp = 420.dp,
+    val composerUsagePopupWidth: Dp = 288.dp,
     val composerUsagePopupMaxHeight: Dp = 560.dp,
     /** Stroke of the context ring in the composer meter. */
     val usageRingStrokeWidth: Dp = 3.dp,
@@ -276,9 +277,9 @@ data class HbDimensions(
             toolPadding = 8.dp,
             composerActionSize = 32.dp,
             composerPillHeight = 32.dp,
-            composerUsageMinWidth = 80.dp,
+            composerUsageMinWidth = 112.dp,
             composerUsageHeight = 32.dp,
-            usageRingSize = 18.dp,
+            usageRingSize = 14.dp,
             usageRingStrokeWidth = 2.dp,
             navigationRowHeight = 28.dp,
             titlebarInset = 0.dp,
