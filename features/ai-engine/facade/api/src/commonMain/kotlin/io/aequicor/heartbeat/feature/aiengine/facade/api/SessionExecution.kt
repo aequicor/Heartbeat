@@ -75,6 +75,14 @@ public interface SessionExecutionControl {
     public suspend fun awaitAdmissions(binding: SessionExecutionBinding)
 
     /**
+     * Temporarily denies admission and drains existing handoffs while [block] inspects or stops exact work.
+     * The barrier survives cancellation until [block] unwinds; it does not permanently retire the identity.
+     * Unsupported implementations fail closed. A drained handoff alone is not native terminal evidence.
+     */
+    public suspend fun <T> suspended(binding: SessionExecutionBinding, block: suspend () -> T): T =
+        error("Temporary execution suspension is unsupported")
+
+    /**
      * Known native segments for privileged inspection/Stop, including late refs whose first binding write failed.
      * An empty set does not settle an unresolved native creation or prove termination.
      */

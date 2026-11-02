@@ -29,6 +29,72 @@ class SessionExecutionAdmissionsTest {
     private fun gate() = SessionExecutionAdmissions(lazyOf(setOf(provider)))
 
     @Test
+    fun `temporary suspension drains handoffs and reopens only after cleanup`() = runTest {
+        val gate = gate()
+        val reply = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val native = async {
+            gate.admitted(binding) {
+                started.complete(Unit)
+                reply.await()
+            }
+        }
+        started.await()
+        var isCleaned = false
+        val cleanup = async {
+            gate.suspended(binding) {
+                assertTrue(native.isCompleted)
+                assertFailsWith<IllegalStateException> { gate.check(binding) }
+                isCleaned = true
+            }
+        }
+        runCurrent()
+        assertFalse(isCleaned)
+        assertFailsWith<IllegalStateException> { gate.check(binding) }
+        reply.complete(Unit)
+        native.await()
+        cleanup.await()
+        assertTrue(isCleaned)
+        assertTrue(gate.admitted(binding) { true })
+        assertFailsWith<IllegalStateException> { gate.awaitAdmissions(binding) }
+    }
+
+    @Test
+    fun `nested suspension and permanent retirement remain independent`() = runTest {
+        val gate = gate()
+        gate.suspended(binding) {
+            gate.suspended(binding) { Unit }
+            assertFailsWith<IllegalStateException> { gate.check(binding) }
+            gate.fence(binding) { Unit }
+        }
+        assertFailsWith<IllegalStateException> { gate.check(binding) }
+        gate.awaitAdmissions(binding)
+    }
+
+    @Test
+    fun `cancelled temporary drain retains the unresolved native ticket`() = runTest {
+        val gate = gate()
+        val started = CompletableDeferred<Unit>()
+        val native = async {
+            gate.admitted(binding) {
+                started.complete(Unit)
+                CompletableDeferred<Unit>().await()
+            }
+        }
+        started.await()
+        native.cancel()
+        native.join()
+        val cleanup = backgroundScope.async { gate.suspended(binding) { error("Must not claim drained") } }
+        runCurrent()
+        assertFalse(cleanup.isCompleted)
+        cleanup.cancel()
+        cleanup.join()
+        val retry = backgroundScope.async { gate.suspended(binding) { error("Must retain pending ticket") } }
+        runCurrent()
+        assertFalse(retry.isCompleted)
+    }
+
+    @Test
     fun `retirement fences new work but waits for an already admitted late native result`() = runTest {
         val gate = gate()
         val entered = CompletableDeferred<Unit>()

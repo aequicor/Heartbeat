@@ -25,6 +25,7 @@ class SessionExecutionAdmissions(private val authorities: Lazy<Set<SessionExecut
     private val mutex = Mutex()
     private val fenced = mutableSetOf<SessionExecutionInstance>()
     private val durable = mutableSetOf<SessionExecutionInstance>()
+    private val suspensions = mutableMapOf<SessionExecutionInstance, Int>()
     private val tickets = mutableMapOf<SessionExecutionInstance, MutableSet<CompletableDeferred<Unit>>>()
 
     /** Runs one admitted handoff; its ticket is registered before invoking any native code. */
@@ -90,6 +91,31 @@ class SessionExecutionAdmissions(private val authorities: Lazy<Set<SessionExecut
         pending.forEach { it.await() }
     }
 
+    /** Holds a reversible barrier through drain and cleanup, independently of permanent retirement. */
+    suspend fun <T> suspended(binding: SessionExecutionBinding, block: suspend () -> T): T {
+        val pending = mutex.withLock {
+            suspensions[binding.instance] = (suspensions[binding.instance] ?: 0) + 1
+            tickets[binding.instance].orEmpty().toList()
+        }
+        return try {
+            pending.forEach { it.await() }
+            block()
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    val remaining = checkNotNull(suspensions[binding.instance]) - 1
+                    if (remaining == 0) {
+                        suspensions.remove(
+                            binding.instance,
+                        )
+                    } else {
+                        suspensions[binding.instance] = remaining
+                    }
+                }
+            }
+        }
+    }
+
     /** Validates the immutable caller payload without consuming its later native handoff. */
     suspend fun checkPrompt(
         binding: SessionExecutionBinding,
@@ -109,6 +135,7 @@ class SessionExecutionAdmissions(private val authorities: Lazy<Set<SessionExecut
         }
 
     private suspend fun requireAllowed(binding: SessionExecutionBinding) {
+        check(binding.instance !in suspensions) { "Execution instance is suspended" }
         check(binding.instance !in fenced) { "Execution instance is retired" }
         check(authority(binding).permits(binding)) { "Execution authority is unavailable or denied" }
     }

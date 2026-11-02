@@ -130,6 +130,16 @@ class SessionExecutionAccess(
 
     override suspend fun awaitAdmissions(binding: SessionExecutionBinding) {
         admissions.awaitAdmissions(binding)
+        requirePublished(binding)
+    }
+
+    override suspend fun <T> suspended(binding: SessionExecutionBinding, block: suspend () -> T): T =
+        admissions.suspended(binding) {
+            requirePublished(binding)
+            block()
+        }
+
+    private suspend fun requirePublished(binding: SessionExecutionBinding) {
         retryBindings()
         metadata.withLock {
             check(bindings.pending().none { it.binding.instance == binding.instance }) {
