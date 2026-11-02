@@ -296,6 +296,7 @@ internal class MemorySelectionStore : KeyValueStore {
     var isCommitCancelled = false
     var isChoiceCancelledAfterApply = false
     var beforeCommit: suspend () -> Unit = {}
+    var beforeWrite: suspend (String) -> Unit = {}
 
     override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = values.map { decode(key, it[key.name]) }
     override suspend fun <T : Any> get(key: StoreKey<T>): T? {
@@ -304,6 +305,7 @@ internal class MemorySelectionStore : KeyValueStore {
         return decode(key, values.value[key.name])
     }
     override suspend fun <T : Any> set(key: StoreKey<T>, value: T, retention: Retention) {
+        beforeWrite(key.name)
         if (value is ModelSelectionGenerations && value.isCommitted) beforeCommit()
         check(!isWriteRejected) { "Fixture rejects writes" }
         check(!(isChoiceRejected && key.name == ModelSelectionKey.name)) { "Fixture rejects model choice" }

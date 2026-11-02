@@ -159,10 +159,14 @@ internal class FakeEngineToggles : EngineToggles {
 
 internal class FakeBindingStore : BindingStore {
     val bindings = MutableStateFlow(emptyList<EngineBinding>())
+    var beforeLoad: suspend () -> Unit = {}
 
     override fun observe(): Flow<List<EngineBinding>> = bindings
 
-    override suspend fun load(): List<EngineBinding> = bindings.value
+    override suspend fun load(): List<EngineBinding> {
+        beforeLoad()
+        return bindings.value
+    }
 
     var saveFailure: Exception? = null
 

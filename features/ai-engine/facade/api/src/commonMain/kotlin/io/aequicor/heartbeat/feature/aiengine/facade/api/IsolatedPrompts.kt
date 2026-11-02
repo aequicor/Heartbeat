@@ -51,7 +51,16 @@ public data class IsolatedPrompt(
  * The adapter must enforce [maxOutputTokens] on the wire or refuse before dispatch. No chat is created or saved.
  * This path has no tool dispatcher; any tool response is incomplete and is never executed.
  */
-public data class IsolatedPromptConstraints(val expectedSource: AuthSource, val maxOutputTokens: Int) {
+public data class IsolatedPromptConstraints(
+    val expectedSource: AuthSource,
+    val maxOutputTokens: Int,
+    /**
+     * Optional host-owned run/selection authorization, rechecked by the facade immediately before adapter dispatch
+     * and after completion. It must only read current host state, never run model IO, tools or credential helpers.
+     * False refuses with SourceChanged. The absolute prompt deadline includes the check; cancellation propagates.
+     */
+    val isCurrent: (suspend () -> Boolean)? = null,
+) {
     init {
         require(expectedSource.info.label.isEmpty()) { "Isolated source context must exclude its label" }
         require(maxOutputTokens in 1..MAX_OUTPUT_TOKENS) { "Isolated output token budget is out of range" }
@@ -82,7 +91,7 @@ public enum class IsolatedPromptFailure {
     /** The provider cannot enforce the requested output-token limit. */
     TokenLimitUnproven,
 
-    /** The complete source context changed before dispatch or while answering. */
+    /** The complete source context or host run authorization changed before dispatch or while answering. */
     SourceChanged,
 
     /** A strict answer exceeded the character budget; it was not silently truncated. */

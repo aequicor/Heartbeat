@@ -13,6 +13,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety.StrictPromptDispatcher
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -27,6 +29,102 @@ import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 class StrictPromptDispatcherTest {
+    @Test
+    fun `revoking the host run during a canonical lookup prevents dispatch or a usable reply`() = runTest {
+        for (isBeforeDispatch in listOf(true, false)) {
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            var isCurrent = true
+            var requests = 0
+            var prepareLookup: () -> Unit = {}
+            val native = FakeEngineFactory()
+            val factory = object : EngineFactory by native {
+                override suspend fun answerIsolated(
+                    prompt: IsolatedPrompt,
+                    source: AuthSource,
+                    context: EngineContext,
+                    deadline: TimeMark,
+                    beforeDispatch: suspend () -> Unit,
+                ): IsolatedAnswer {
+                    if (isBeforeDispatch) prepareLookup()
+                    beforeDispatch()
+                    requests++
+                    if (!isBeforeDispatch) prepareLookup()
+                    return IsolatedAnswer.Answered("must not be sent")
+                }
+            }
+            val fixture = RouteFixture(this, native, registration(factory))
+            prepareLookup = {
+                fixture.store.beforeLoad = {
+                    entered.complete(Unit)
+                    release.await()
+                }
+            }
+            val prompt = prompt(fixture).let {
+                it.copy(constraints = requireNotNull(it.constraints).copy(isCurrent = { isCurrent }))
+            }
+            val result = async { dispatcher(fixture).answer(prompt, TimeSource.Monotonic.markNow() + 5.seconds) }
+            entered.await()
+            isCurrent = false
+            release.complete(Unit)
+            assertEquals(IsolatedAnswer.Unavailable(IsolatedPromptFailure.SourceChanged), result.await())
+            assertEquals(if (isBeforeDispatch) 0 else 1, requests)
+        }
+    }
+
+    @Test
+    fun `host run revocation before setup before dispatch or after reply prevents a usable answer`() = runTest {
+        for (phase in 0..2) {
+            var isCurrent = phase != 0
+            var constructions = 0
+            var requests = 0
+            val native = FakeEngineFactory()
+            val factory = object : EngineFactory by native {
+                override suspend fun answerIsolated(
+                    prompt: IsolatedPrompt,
+                    source: AuthSource,
+                    context: EngineContext,
+                    deadline: TimeMark,
+                    beforeDispatch: suspend () -> Unit,
+                ): IsolatedAnswer {
+                    constructions++
+                    if (phase == 1) isCurrent = false
+                    beforeDispatch()
+                    requests++
+                    isCurrent = false
+                    return IsolatedAnswer.Answered("revoked run answer")
+                }
+            }
+            val fixture = RouteFixture(this, native, registration(factory))
+            val prompt = prompt(fixture).let {
+                it.copy(constraints = requireNotNull(it.constraints).copy(isCurrent = { isCurrent }))
+            }
+            val result = dispatcher(fixture).answer(prompt, TimeSource.Monotonic.markNow() + 5.seconds)
+            assertEquals(IsolatedAnswer.Unavailable(IsolatedPromptFailure.SourceChanged), result)
+            assertEquals(if (phase == 0) 0 else 1, constructions)
+            assertEquals(if (phase == 2) 1 else 0, requests)
+        }
+    }
+
+    @Test
+    fun `host authorization consumes the original deadline before adapter construction`() = runTest {
+        val fixture = RouteFixture(this)
+        val time = TestTimeSource()
+        val prompt = prompt(fixture).let {
+            it.copy(
+                constraints = requireNotNull(it.constraints).copy(isCurrent = {
+                    time += 6.seconds
+                    true
+                }),
+            )
+        }
+        assertEquals(
+            IsolatedAnswer.Unavailable(IsolatedPromptFailure.Timeout),
+            dispatcher(fixture).answer(prompt, time.markNow() + 5.seconds),
+        )
+        assertTrue(fixture.factory.createdRuntimes.isEmpty())
+    }
+
     @Test
     fun `unsupported adapter refuses without binding discovery preparation or runtime`() = runTest {
         val fixture = RouteFixture(this)

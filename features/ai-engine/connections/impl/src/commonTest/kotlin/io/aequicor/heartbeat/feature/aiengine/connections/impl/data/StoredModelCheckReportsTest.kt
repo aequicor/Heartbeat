@@ -31,6 +31,52 @@ import kotlin.time.Instant
 
 class StoredModelCheckReportsTest {
     @Test
+    fun `revocation while reading excludes an old writer and preserves a newer queued publication`() = runTest {
+        val disk = MemorySelectionStore()
+        val reports = reports(disk)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        disk.beforeRead = {
+            entered.complete(Unit)
+            release.await()
+        }
+        var isCurrent = true
+        val older = async { reports.put(checkReport()) { isCurrent } }
+        entered.await()
+        isCurrent = false
+        val replacement = checkReport(isWarning = true).copy(
+            run = ModelCheckGeneration("44444444-4444-4444-4444-444444444444"),
+        )
+        val newer = async { reports.put(replacement) { true } }
+        release.complete(Unit)
+        assertFalse(older.await())
+        assertTrue(newer.await())
+        assertEquals(replacement, reports.observe().first().single().report)
+        assertEquals(1, disk.writes)
+    }
+
+    @Test
+    fun `revocation during storage commit removes the provisional receipt before releasing the writer lock`() =
+        runTest {
+            val disk = MemorySelectionStore()
+            val reports = reports(disk)
+            reports.put(checkReport("unrelated"))
+            val previous = reports.observe().first()
+            val writes = disk.writes
+            assertFalse(reports.put(checkReport()) { disk.writes == writes })
+            assertEquals(previous, reports.observe().first())
+            assertEquals(writes + 2, disk.writes)
+        }
+
+    @Test
+    fun `an already revoked publication does not read or write storage`() = runTest {
+        val disk = MemorySelectionStore()
+        assertFalse(reports(disk).put(checkReport()) { false })
+        assertEquals(0, disk.reads)
+        assertEquals(0, disk.writes)
+    }
+
+    @Test
     fun `success stores only a text free receipt and a warning retains both aspects through reload`() = runTest {
         val disk = MemorySelectionStore()
         val reports = reports(disk)

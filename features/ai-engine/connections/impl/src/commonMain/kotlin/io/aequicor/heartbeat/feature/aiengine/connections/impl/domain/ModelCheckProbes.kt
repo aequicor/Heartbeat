@@ -76,7 +76,7 @@ internal class ModelCheckProbes(private val prompts: IsolatedPrompts, private va
             text = if (isAccuracy) ModelCheckEvaluation.ACCURACY_PROBE else ModelCheckEvaluation.RESPONSE_PROBE,
             timeout = remaining,
             maxAnswerChars = ModelCheckAspect.MAX_ANSWER_CHARS + 1,
-            constraints = IsolatedPromptConstraints(revision.source, MAX_OUTPUT_TOKENS),
+            constraints = IsolatedPromptConstraints(revision.source, MAX_OUTPUT_TOKENS, isCurrent),
         )
         val answer = ask(prompt)
         if (!current(isCurrent)) return null
