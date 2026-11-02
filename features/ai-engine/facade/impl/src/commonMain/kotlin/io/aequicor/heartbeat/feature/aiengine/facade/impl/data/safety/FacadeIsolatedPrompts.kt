@@ -6,6 +6,7 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
@@ -77,7 +78,7 @@ internal class FacadeIsolatedPrompts(
         throw e
     } catch (e: Exception) {
         // Provider messages may echo the prompt: only the type is logged.
-        log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "Isolated prompt failed" }
+        log.w(e.redactedFailure()) { "Isolated prompt failed" }
         IsolatedAnswer.Unavailable(IsolatedPromptFailure.Failed)
     }
 }

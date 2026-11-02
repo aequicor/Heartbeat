@@ -39,6 +39,10 @@ private class Slf4jLogger(private val loggerName: String) :
     LoggingEventAware {
     private val log = Log.tag("SLF4J/$loggerName")
 
+    // Koog 1.3 interpolates Prompt/Response directly, including at DEBUG. Its HTTP factory also uses bare names.
+    // Regex secret redaction cannot identify arbitrary user text, so SDK payloads are opaque even in trace.
+    private val isPayloadLogger = loggerName.startsWith("ai.koog.") || loggerName in KOOG_HTTP_LOGGERS
+
     override fun getName(): String = loggerName
     override fun getFullyQualifiedCallerName(): String = Slf4jLogger::class.java.name
     override fun isTraceEnabled(): Boolean = true
@@ -74,10 +78,11 @@ private class Slf4jLogger(private val loggerName: String) :
 
     @HighFrequency
     private fun write(level: Level, throwable: Throwable?, message: () -> String) {
+        val safeMessage = if (isPayloadLogger) ({ "SDK diagnostic; payload omitted" }) else message
         when (level) {
-            Level.TRACE, Level.DEBUG, Level.INFO -> log.v(message)
-            Level.WARN -> log.w(throwable?.redactedFailure(), message)
-            Level.ERROR -> log.e(throwable?.redactedFailure(), message)
+            Level.TRACE, Level.DEBUG, Level.INFO -> log.v(safeMessage)
+            Level.WARN -> log.w(throwable?.redactedFailure(), safeMessage)
+            Level.ERROR -> log.e(throwable?.redactedFailure(), safeMessage)
         }
     }
 
@@ -134,3 +139,5 @@ private class Slf4jLogger(private val loggerName: String) :
         }
     }
 }
+
+private val KOOG_HTTP_LOGGERS = setOf("OpenAILLMClient", "AnthropicLLMClient", "OllamaClient")

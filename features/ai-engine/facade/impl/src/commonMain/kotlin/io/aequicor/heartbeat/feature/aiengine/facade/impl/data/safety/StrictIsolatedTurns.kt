@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
@@ -47,7 +48,7 @@ internal class StrictIsolatedTurns(
                 throw e
             } catch (e: Exception) {
                 // Provider exceptions can contain prompt or credential material.
-                log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "Strict isolated prompt failed" }
+                log.w(e.redactedFailure()) { "Strict isolated prompt failed" }
                 answer.complete(unavailable(IsolatedPromptFailure.Failed))
             }
         }
