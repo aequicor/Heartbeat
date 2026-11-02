@@ -803,3 +803,41 @@ Studio impl 991/991, DI, обычный и typed detekt успешны (три �
 снятия requireNativeRecovery guard. Сначала определить маршрутизацию Stop для captured Q
 с отсутствующим witness после initialization failure: всегда Unconfirmed, без fallback
 на поздний current turn, затем late Stop и callback failure под exact native identity.
+
+### Cancellation по фактической recovery identity — подключённый слой
+
+StudioRecoveryCancellation включён в StudioConversationEvidence и путь user Stop для
+captured recovery Q. Pending initialization без witness возвращает Unconfirmed и не
+ищет поздний current turn. Inspecting сохраняет stop intent без ложного подтверждения.
+Observed/Unknown использует frozen session/R/facade turn через StudioHelperNative.stopObserved:
+adapter OwnedTurnStop по точному R либо live fallback с совпадающими ref/request/turn.
+Legacy R без send receipt не получает synthetic Accepted/Terminal запись. Submit делегирует
+только существующему send receipt Q; missing Q остаётся Unconfirmed. Terminal-only сохраняет
+отсутствующий TurnId и возвращает неполный ответ, а Unknown остаётся unresolved.
+
+Cancellation не читает историю для выдумывания полного ответа: результат содержит
+isAnswerComplete=false, а транскрипт хранится независимо. Native adapter turn может
+отличаться от facade turn: NativeOwnedStop не получает facade id как expected native id;
+cleanup адресует facade turn и actual request R. Проверен cold stop без live handle,
+чужой поздний native turn, изменённый ref и отсутствие обеих send receipts.
+
+`build/verification/recovery-native-stop-final.log`: Studio impl 998/998, из них 7 новых
+cancellation tests, DI и оба detekt успешны с прежними тремя typed diagnostics.
+Metro-generated Evidence factory запрашивает Provider<StudioRecoveryCancellation>;
+nullable default остаётся совместимостью прямых unit constructors. Read-only
+архитектурное ревью cancellation слоя — APPROVE. Native recovery production producer
+ещё не включён: нужны atomically held admission и native bind/terminal hooks.
+
+Выявлена обязательная гонка до включения: Defer/Drop/caller detach во время native
+inspection не должен отменить observer, когда существующий R уже может выполняться.
+Минимальное решение — hold в одном atomic state StudioRunSubmission:
+Preparing→Recovering до open/inspect; Recovering сохраняет запрет нового Q при revocation,
+но cancel() возвращает false и awaitRevocation не отменяет profile job; retainNative
+переводит Recovering→Retained даже при revoked new-send. prepareRecoverySubmit после
+proven Idle/Cancelled снимает hold и проверяет latched/current admission до prepareNewTurn.
+Если revocation победил ДО hold, preflight не начинается. Explicit Stop независим и
+записан в witness; profile close сохраняет Unknown, не terminal. Wrappers обязаны
+передавать обе операции. Тесты — Defer/Drop/caller detach во время suspended inspect,
+Idle после revocation без Q admission/RunStarted, Stop во время inspect, profile close.
+Этот gate primitive затем связывается с production witness producer и exact native hooks,
+включая корректное закрытие NoSubmit по local gate proof и восстановление successors.

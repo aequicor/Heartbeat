@@ -14,6 +14,13 @@ internal class StudioConversationStops(
     private val coordinator: StudioRunCoordinator,
 ) {
     suspend fun cancel(record: StudioChatRecord): Boolean {
+        val recovery = coordinator.requestRecoveryStop(record.id)
+        if (recovery != null) {
+            if (observations.cancelRecovery(record, recovery) is HostConversationCancellation.Unconfirmed) {
+                throw EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, recovery))
+            }
+            return true
+        }
         if (record.helper == null && record.logicalSession?.kind != SessionKind.Subsession) return false
         val request = coordinator.currentRequest(record.id) ?: if (record.logicalSession == null) {
             record.lastRunRequest

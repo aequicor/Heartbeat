@@ -21,6 +21,10 @@ internal interface StudioConversationObservations {
     suspend fun snapshot(record: StudioChatRecord): HostConversationSnapshot
     suspend fun result(record: StudioChatRecord, request: RequestId): HostConversationResult?
     suspend fun cancel(record: StudioChatRecord, request: RequestId): HostConversationCancellation
+
+    /** Captured recovery Q may lack a witness after failed initialization; this never selects a later turn. */
+    suspend fun cancelRecovery(record: StudioChatRecord, request: RequestId): HostConversationCancellation =
+        HostConversationCancellation.Unconfirmed(request)
 }
 
 /** Evidence comes from the exact receipt/native request; neither a missing job nor an answer implies completion. */
@@ -31,6 +35,7 @@ internal class StudioConversationEvidence(
     private val runs: Lazy<StudioHelperRuns>,
     private val access: Lazy<StudioHelperAccess>,
     private val dispatch: StudioConversationDispatch,
+    private val recoveries: StudioRecoveryCancellation? = null,
 ) : StudioConversationObservations {
     override suspend fun snapshot(record: StudioChatRecord): HostConversationSnapshot {
         val helper = HelperId(record.id)
@@ -60,6 +65,7 @@ internal class StudioConversationEvidence(
     }
 
     override suspend fun cancel(record: StudioChatRecord, request: RequestId): HostConversationCancellation {
+        recoveries?.cancel(record, request)?.let { return it }
         val helper = HelperId(record.id)
         val receipt = attempts.requestStop(helper, request)
         return when {
@@ -79,6 +85,13 @@ internal class StudioConversationEvidence(
                 }
             }
         }
+    }
+
+    override suspend fun cancelRecovery(record: StudioChatRecord, request: RequestId): HostConversationCancellation {
+        if (attempts.recovery(HelperId(record.id), request) == null) {
+            return HostConversationCancellation.Unconfirmed(request)
+        }
+        return cancel(record, request)
     }
 
     private fun phase(
@@ -142,7 +155,7 @@ internal class StudioConversationEvidence(
     }
 }
 
-private fun StudioHelperTerminal.conversationResult(request: RequestId): HostConversationResult =
+internal fun StudioHelperTerminal.conversationResult(request: RequestId): HostConversationResult =
     HostConversationResult(
         request,
         when (outcome) {
