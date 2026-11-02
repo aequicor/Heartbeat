@@ -284,12 +284,12 @@ private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, ()
     return focus to { inputFocusRequests++ }
 }
 
-/** Available harnesses also need the context row in chats without a project. */
+/** Harnesses and context compaction also need the context row in chats without a project or telemetry. */
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
     val hasQueueStatus = hasQueueExecutionStatus()
     return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() || app != null ||
-        hasQueueStatus || contextUsage != null || providerUsage != null ||
+        hasQueueStatus || isCompacting || contextUsage != null || providerUsage != null ||
         planning.plan != null ||
         queue.messages.isNotEmpty() ||
         autoContinue?.mode?.let { it != AutoContinueModeUi.Off } == true

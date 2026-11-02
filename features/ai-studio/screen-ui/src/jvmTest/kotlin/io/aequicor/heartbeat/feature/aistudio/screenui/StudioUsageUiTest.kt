@@ -191,6 +191,24 @@ class StudioUsageUiTest {
         }
 
     @Test
+    fun `compaction stays visible in an existing chat without telemetry or other context controls`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            var content by mutableStateOf(
+                pane().copy(pane = PaneUi(0, sessionId = "existing"), isCompacting = true),
+            )
+            var compacting = ""
+            setContent {
+                compacting = stringResource(Res.string.usage_compacting)
+                UsageHost(content)
+            }
+            onNodeWithTag("usage-0").assertIsDisplayed()
+            onNodeWithContentDescription(compacting, substring = true).assertIsDisplayed()
+            onNodeWithText("0%").assertDoesNotExist()
+            runOnIdle { content = content.copy(isCompacting = false) }
+            onNodeWithTag("usage-0").assertDoesNotExist()
+        }
+
+    @Test
     fun `confirmed zero opens details and refreshes the selected connection`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
             val events = mutableListOf<StudioIntent>()
