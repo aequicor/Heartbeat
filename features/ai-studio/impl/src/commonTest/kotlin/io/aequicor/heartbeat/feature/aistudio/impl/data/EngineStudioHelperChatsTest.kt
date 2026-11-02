@@ -8,6 +8,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
@@ -19,6 +22,10 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeExpectedAction
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRun
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -37,6 +44,39 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class EngineStudioHelperChatsTest {
+    @Test
+    fun `revoked continuation never reports NotSubmitted for its accepted ancestor`() = runTest {
+        val f = HelperFixture(backgroundScope)
+        val child = f.seedContinuation()
+        val result = assertIs<HelperCancellation.Terminal>(f.host.revokeUnsubmitted(HelperChat, HelperInput.request))
+
+        assertEquals(HelperInput.request, result.result.request)
+        assertEquals(HelperOutcome.Cancelled, result.result.outcome)
+        assertEquals(StudioHelperPhase.NotSubmitted, f.attempts.receipt(HelperChat, child)?.phase)
+        assertEquals(0, f.stops)
+        assertIs<HelperCancellation.Terminal>(f.host.cancel(HelperChat, HelperInput.request))
+        f.virtualRequest = null
+        for (isPaused in listOf(false, true)) {
+            f.isVirtualPaused = isPaused
+            assertEquals(result.result, f.restart().result(HelperChat, HelperInput.request))
+        }
+    }
+
+    @Test
+    fun `validated continuation result and Stop follow the actual native leaf`() = runTest {
+        val f = HelperFixture(backgroundScope)
+        val child = f.seedContinuation()
+        f.attempts.begin(HelperChat, child, "child-sender")
+        f.attempts.accepted(HelperChat, child, HelperSession, TurnId(child.value))
+        f.stopped = f.terminal(child).copy(outcome = StudioHelperTerminalOutcome.Cancelled)
+        val cancelled = assertIs<HelperCancellation.Terminal>(f.host.cancel(HelperChat, HelperInput.request))
+
+        assertEquals(TurnId(child.value), cancelled.result.turn)
+        assertEquals(HelperInput.request, cancelled.result.request)
+        assertEquals(1, f.stops)
+        assertEquals(cancelled.result, f.restart().result(HelperChat, HelperInput.request))
+    }
+
     @Test
     fun `old helper leases cannot read stop or adopt explicitly classified graph and service requests`() = runTest {
         for (policy in listOf(
@@ -76,7 +116,7 @@ class EngineStudioHelperChatsTest {
     }
 
     @Test
-    fun `virtual continuation returns its exact new result instead of the original cancelled receipt`() = runTest {
+    fun `virtual map alone cannot fabricate continuation acceptance or return another native result`() = runTest {
         val fixture = HelperFixture(backgroundScope)
         fixture.host.prompt(HelperChat, HelperInput)
         fixture.stopped = fixture.terminal(HelperInput.request).copy(outcome = StudioHelperTerminalOutcome.Cancelled)
@@ -87,13 +127,10 @@ class EngineStudioHelperChatsTest {
         fixture.virtualRequest = continued
         fixture.isVirtualPaused = false
         fixture.result = fixture.terminal(continued)
-        val result = assertNotNull(fixture.host.result(HelperChat, HelperInput.request))
-        assertEquals(HelperInput.request, result.request)
-        assertEquals(HelperOutcome.Completed, result.outcome)
-        assertEquals("answer continued", result.answer)
-        assertEquals(TurnId("continued"), result.turn)
+        assertNull(fixture.host.result(HelperChat, HelperInput.request))
+        assertNull(fixture.attempts.receipt(HelperChat, continued))
         fixture.result = null
-        assertEquals(result, fixture.restart().result(HelperChat, HelperInput.request))
+        assertNull(fixture.restart().result(HelperChat, HelperInput.request))
         assertEquals(
             StudioHelperTerminalOutcome.Cancelled,
             fixture.attempts.receipt(HelperChat, HelperInput.request)?.terminal?.outcome,
@@ -354,6 +391,43 @@ private class HelperFixture(private val scope: CoroutineScope) :
 
     override suspend fun virtualResultRequest(helper: HelperId, request: RequestId): RequestId? =
         if (isVirtualPaused) null else virtualRequest ?: request
+
+    suspend fun seedContinuation(): RequestId {
+        val source = HelperInput.request
+        val child = RequestId("C")
+        val record = NativeHelperFixture().record.copy(id = HelperChat.value, ref = HelperSession)
+        val snapshot = StudioExecutionSnapshot(
+            DefaultRunSettings,
+            checkNotNull(record.target),
+            null,
+            null,
+            StudioHumanAuthority(),
+        )
+        val policy = StudioAttemptPolicy.OwnedHelperWork(
+            HelperWorkBinding(ActionId("wf_owner"), ActionId("reservation")),
+            HelperModelOptions(),
+        )
+        attempts.prepareWork(HelperChat, HelperInput, policy)
+        attempts.begin(HelperChat, source, "sender")
+        attempts.recordExecutionSnapshot(HelperChat, source, "sender", snapshot)
+        attempts.accepted(HelperChat, source, HelperSession, TurnId(source.value))
+        attempts.terminal(HelperChat, source, terminal(source).copy(outcome = StudioHelperTerminalOutcome.Cancelled))
+        stores.keyValue(ChatSpec).set(ChatsKey, listOf(record))
+        val producer = WorktreeTask(
+            HelperChat.value,
+            WorkspaceRef("project"),
+            run = WorktreeRun(source, outcome = TurnOutcome.Cancelled),
+            virtualInterruptedRequests = listOf(source),
+            expectedAction = WorktreeExpectedAction(child.value, WorktreeRunKind.Coding, source),
+        )
+        attempts.prepareContinuation(
+            HelperChat,
+            runRequest(child.value).copy(id = HelperChat.value, continuationOf = source),
+            producer,
+        )
+        virtualRequest = child
+        return child
+    }
 
     fun restart() = EngineStudioHelperChats(
         this,

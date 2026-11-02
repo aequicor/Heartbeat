@@ -53,11 +53,21 @@ internal class StudioConfiguredSubmission(
         val record = access.configurationRecord(id)
         if (request.isUserPrompt) record.requireHumanConversation()
         val workModel = request.workModel(record)
+        val inherited = (request.submission as? StudioHelperSubmission)?.continuationReceipt()?.executionSnapshot
+        check(inherited == null || inherited.target == target) { "Continuation native target changed before send" }
         val stored = configurations()[id]?.applied ?: record.configuration
         val isTrustSupported = models().isTrustSupported(target)
         val supported = models().reasoningEfforts(target)
-        val effort = turnEffort(stored, record.helper, supported) {
-            efforts.state.value.effectiveEffort(target, supported)
+        val effort = if (inherited != null) {
+            inherited.reasoningEffort
+        } else {
+            turnEffort(
+                stored,
+                record.helper,
+                supported,
+            ) {
+                efforts.state.value.effectiveEffort(target, supported)
+            }
         }
         log.i { "Submitting prompt length=${request.prompt.length}" }
         // The plan and its read-only rule follow the chat into the session before anything of the turn changes.
@@ -74,7 +84,7 @@ internal class StudioConfiguredSubmission(
         }
         // A handoff retires configuration observation because its session is never reflected again.
         if (request.isHandoff) controller.retire(id, active)
-        val reviewTarget = workModel?.reviewTarget
+        val reviewTarget = if (inherited != null) inherited.reviewTarget else workModel?.reviewTarget
         val submitted = send(access, active, target, constrained, effort, reviewTarget) {
             turnPolicy(isTrustSupported)
         }
@@ -167,8 +177,19 @@ internal class StudioConfiguredSubmission(
                 request.submission?.begin()
                 policy()
             }
+            val inherited = helper?.continuationReceipt()?.executionSnapshot
+            val authority = inherited?.authority?.snapshot()
+                ?: access.captureUserInstructions(request.id, request.request, request.userInstruction)
+            val snapshot = StudioExecutionSnapshot(
+                request.settings,
+                target,
+                reasoningEffort,
+                reviewTarget,
+                authority.savedAuthority(),
+                request.causes,
+            )
+            helper?.freezeExecution(snapshot)
             val native: suspend () -> TurnId = {
-                val authority = access.captureUserInstructions(request.id, request.request, request.userInstruction)
                 active.submitStudioPrompt(
                     prompt,
                     reasoningEffort,

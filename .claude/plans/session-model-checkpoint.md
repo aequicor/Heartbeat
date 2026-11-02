@@ -32,6 +32,26 @@
 - Пользователь повторно потребовал продолжать **все** шаги 1–8 до полной реализации и `/reviewed`.
   Этот checkpoint не означает остановку работы или разрешение пропустить оставшиеся consumers/UI/E2E.
 
+## Продолжение: immutable receipt lineage
+
+- Новые Studio sends сохраняют actual engine/binding/model, effort/review model, RunSettings, original human authority
+  и actual causes под exact sender claim **до native entry**. Profile security остаётся live.
+- Virtual continuation проходит exact WorktreeExpectedAction/source/kind claim и общий route→journal lock.
+  C наследует policy/handoff/causes/snapshot из R, не наследует native identity, claims или terminal; неизвестный
+  legacy source не получает полномочий. Нет synthetic Accepted из virtual map. Same-C retry разрешён после
+  tracked nonfinal NotSubmitted; entered/accepted/uncertain C не повторяется.
+- Валидатор receipt цепочки отклоняет missing source, cycles, branching и изменение policy/snapshot.
+  Result/cancel/progress разрешают актуальный leaf. Stop исторического R fencing всей цепочки предшествует
+  native Stop C. Revoke future continuation не прерывает accepted C. Final-unsent C не становится NotSubmitted(R):
+  доступен последний terminal native ancestor, включая рестарт до обновления virtual map.
+- Узкий ScheduledSessionHost.confirmsHelperContinuation позволяет восстановить lease R при actual C только
+  с exact owner/reservation и validated chain. Metadata.lastRequest остаётся C; без proof capacity не освобождается.
+- Локально: Studio 1079/1079, Scheduler API 59/59, Scheduler impl 229/229; JVM DI, iOS Studio/Scheduler impl,
+  ordinary/typed detekt зелёные. Последнее architecture review этого batch — без блокеров.
+- Ещё не завершены: legacy source snapshot reconciliation; frozen native configuration при изменении пользовательского
+  выбора (сейчас mismatch безопасно отклоняется); recovery graph work chain Q Submit→D отдельно от observerSuccessor,
+  проверка graph cache по effective head и production opt-in. Далее обязательны остальные шаги 3–8 ниже.
+
 ## Утверждённое поведение
 
 1. Сессия — полноценный чат первого уровня под проектом.

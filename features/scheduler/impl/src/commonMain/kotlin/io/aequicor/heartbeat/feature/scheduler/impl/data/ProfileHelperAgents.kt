@@ -219,7 +219,17 @@ internal class ProfileHelperAgents(
         check(updated.id == metadata.id && updated.owner == metadata.owner && updated.parent == metadata.parent) {
             "Helper ownership changed during reconciliation"
         }
-        check(updated.lastRequest == null || updated.lastRequest == expected) { "Another work request is unresolved" }
+        val actual = updated.lastRequest
+        check(
+            actual == null || actual == expected || host.confirmsHelperContinuation(
+                updated.id,
+                expected,
+                actual,
+                binding,
+            ),
+        ) {
+            "Another work request is unresolved"
+        }
         return updated
     }
 

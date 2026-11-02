@@ -398,6 +398,9 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
         record?.owner == binding.owner && record.lastRequest == request && record.isRequestOwnershipResolved &&
             (prior?.reservation == null || binding.reservation == null || prior.reservation == binding.reservation)
     }
+    var continuationProof: suspend (HelperId, RequestId, RequestId, HelperWorkBinding) -> Boolean = { _, _, _, _ ->
+        false
+    }
     var createdRequest: RequestId? = null
     val creations = mutableListOf<HelperCreateRequest>()
     var beforeMetadata: suspend () -> Unit = {}
@@ -451,6 +454,13 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
         request: RequestId,
         binding: HelperWorkBinding,
     ): Boolean = reconciliation(helper, request, binding)
+
+    override suspend fun confirmsHelperContinuation(
+        helper: HelperId,
+        request: RequestId,
+        actual: RequestId,
+        binding: HelperWorkBinding,
+    ): Boolean = continuationProof(helper, request, actual, binding)
 
     override suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? = progress
 

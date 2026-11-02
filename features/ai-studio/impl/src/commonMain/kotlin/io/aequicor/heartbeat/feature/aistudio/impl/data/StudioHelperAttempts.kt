@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -85,7 +86,7 @@ internal class StudioHelperAttempts(
         val chat = chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value }
         check(chat == null || chat.ref == witness.session) { "Recovery native context changed before admission" }
         if (witness.route != null) witness.requireRoute(checkNotNull(chat) { "Recovery conversation is missing" })
-        val records = readRecoveries(helper)
+        val records = store.readRecoveryWitnesses(helper)
         val previous = records[witness.execution.value]
         if (previous != null) {
             return@withLock repeatRecovery(helper, records, previous, witness)
@@ -93,7 +94,7 @@ internal class StudioHelperAttempts(
         val receipts = read(helper)
         val isLegacyStopped = store.readLegacyObservations(helper)[witness.root.value]?.isStopRequested == true
         val transferred = prepareRecoveryTransfer(records, receipts, witness, isLegacyStopped)
-        writeRecoveries(helper, transferred)
+        store.writeRecoveryWitnesses(helper, transferred)
         log.v { "Journaled recovery observation intent" }
         transferred.getValue(witness.execution.value)
     }
@@ -108,13 +109,13 @@ internal class StudioHelperAttempts(
         val isStopped = records.values.any { it.root == previous.root && it.isStopRequested } ||
             store.readLegacyObservations(helper)[previous.root.value]?.isStopRequested == true
         val repeated = (if (isStopped) previous.stopped() else previous).repeatDelivery(incoming)
-        if (repeated != previous) writeRecoveries(helper, records + (incoming.execution.value to repeated))
+        if (repeated != previous) store.writeRecoveryWitnesses(helper, records + (incoming.execution.value to repeated))
         return repeated
     }
 
     suspend fun recovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness? = lock.withLock {
         log.v { "Read exact recovery observation witness" }
-        readRecoveries(helper)[execution.value]
+        store.readRecoveryWitnesses(helper)[execution.value]
     }
 
     /** Missing recovery evidence is uncertainty, never a NotSubmitted tombstone. */
@@ -130,10 +131,10 @@ internal class StudioHelperAttempts(
      * ambiguous instead of selecting an arbitrary observation after restart.
      */
     suspend fun stopRecoveryTargets(helper: HelperId, request: RequestId): List<StudioRecoveryWitness> = lock.withLock {
-        val records = readRecoveries(helper)
+        val records = store.readRecoveryWitnesses(helper)
         val targets = recoveryStopChain(records, request).map { it.stopped() }
         if (targets.isNotEmpty()) {
-            writeRecoveries(helper, records + targets.associateBy { it.execution.value })
+            store.writeRecoveryWitnesses(helper, records + targets.associateBy { it.execution.value })
         }
         log.v { "Journaled exact recovery stop targets" }
         targets.filter { it.observerSuccessor == null }
@@ -152,7 +153,7 @@ internal class StudioHelperAttempts(
     suspend fun retiredRecoverySender(delivery: StudioRecoveryDelivery, claim: String): StudioRecoveryNoSendProof? =
         lock.withLock {
             val helper = HelperId(delivery.chat)
-            val witness = readRecoveries(helper)[delivery.execution.value]
+            val witness = store.readRecoveryWitnesses(helper)[delivery.execution.value]
             val receipt = read(helper)[delivery.execution.value]
             val isOwnDelivery = witness?.delivery == delivery && witness.observerSuccessor == null
             val isOwnRejection = receipt?.phase == StudioHelperPhase.NotSubmitted && receipt.submissionClaim == claim
@@ -214,16 +215,48 @@ internal class StudioHelperAttempts(
         execution: RequestId,
         change: suspend (StudioRecoveryWitness) -> StudioRecoveryWitness,
     ): StudioRecoveryWitness = lock.withLock {
-        val records = readRecoveries(helper)
+        val records = store.readRecoveryWitnesses(helper)
         val previous = checkNotNull(records[execution.value]) { "Recovery observation evidence is missing" }
         if (previous.observerSuccessor != null) {
             throw CancellationException("Recovery observation ownership was transferred")
         }
         val isStopped = records.values.any { it.root == previous.root && it.isStopRequested }
         val changed = change(if (isStopped) previous.stopped() else previous)
-        if (changed != previous) writeRecoveries(helper, records + (execution.value to changed))
+        if (changed != previous) store.writeRecoveryWitnesses(helper, records + (execution.value to changed))
         log.v { "Journaled recovery observation transition" }
         changed
+    }
+
+    suspend fun effectiveReceipt(helper: HelperId, request: RequestId): StudioHelperReceipt? =
+        continuation(helper, request)?.head
+
+    suspend fun continuation(helper: HelperId, request: RequestId): StudioContinuationResolution? = lock.withLock {
+        log.v { "Resolve validated continuation ancestry" }
+        resolveContinuation(read(helper), request)
+    }
+
+    /** The route and journal locks serialize this edge against every send and Stop. */
+    suspend fun prepareContinuation(
+        helper: HelperId,
+        request: StudioTurnRequest,
+        producer: WorktreeTask,
+    ): StudioHelperPreparation = routes.withLock(helper) {
+        lock.withLock {
+            requireContinuationClaim(producer, request)
+            val records = read(helper)
+            val source = checkNotNull(request.continuationOf)
+            requireRecordedHistory(helper, records)
+            requireNativeAdmission(helper, records, request.request, records[source.value]?.policy)
+            val target = chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value }?.target
+            check(target == records[source.value]?.executionSnapshot?.target && target != null) {
+                "Continuation native target changed before preparation"
+            }
+            val prompt = HelperPrompt(request.request, request.prompt, directives = request.directives)
+            val prepared = prepareContinuationReceipt(records, source, prompt)
+            if (prepared.isNew) write(helper, records + (request.request.value to prepared.receipt))
+            log.v { "Prepared continuation from exact producer claim" }
+            prepared
+        }
     }
 
     suspend fun prepare(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
@@ -345,6 +378,29 @@ internal class StudioHelperAttempts(
         true
     }
 
+    /** Actual configuration and provenance must survive a crash after native entry. */
+    suspend fun recordExecutionSnapshot(
+        helper: HelperId,
+        request: RequestId,
+        claim: String,
+        snapshot: StudioExecutionSnapshot,
+    ): StudioExecutionSnapshot = lock.withLock {
+        val records = read(helper)
+        requireNativeAdmission(helper, records, request)
+        val receipt = checkNotNull(records[request.value]) { "Submission receipt is missing" }
+        check(receipt.phase == StudioHelperPhase.Submitting && receipt.submissionClaim == claim) {
+            "Execution snapshot belongs to another sender"
+        }
+        check(receipt.nativeEntryClaim == null) { "Execution snapshot must precede native entry" }
+        check(receipt.executionSnapshot == null || receipt.executionSnapshot == snapshot) {
+            "Execution snapshot cannot change"
+        }
+        check(receipt.causes == null || receipt.causes == snapshot.causes) { "Execution causes changed" }
+        write(helper, records + (request.value to receipt.copy(executionSnapshot = snapshot, causes = snapshot.causes)))
+        log.v { "Persisted exact submission configuration and authority" }
+        snapshot
+    }
+
     /**
      * Only the exact local sender, before entering native send or after the engine definitively refused it, may
      * retire its own durable claim; a sender without a bound session passes null. External cancel must keep using
@@ -406,16 +462,9 @@ internal class StudioHelperAttempts(
         isVirtualContinuation: Boolean = false,
     ) = lock.withLock {
         val records = read(helper)
-        val receipt = records[request.value] ?: if (isVirtualContinuation) {
-            StudioHelperReceipt(
-                request,
-                StudioHelperPhase.Accepted,
-                "virtual-continuation:${request.value}",
-                session,
-                turn,
-            )
-        } else {
-            error("The helper request was not journaled")
+        val receipt = checkNotNull(records[request.value]) { "The native request was not journaled before submission" }
+        check(!isVirtualContinuation || receipt.continuationOf != null) {
+            "A virtual map cannot create continuation authority"
         }
         receipt.requireNativeIdentity(session, turn)
         check(receipt.phase in NATIVE_PHASES) { "A revoked helper request cannot be accepted" }
@@ -476,27 +525,17 @@ internal class StudioHelperAttempts(
      * Fences preparation and persists stop intent for an entered/legacy attempt. The native adapter must still
      * confirm its terminal result. A fresh Submitting whose sender has not entered native code is safe to retire.
      */
-    suspend fun requestStop(helper: HelperId, request: RequestId): StudioHelperReceipt = lock.withLock {
+    suspend fun requestStop(
+        helper: HelperId,
+        request: RequestId,
+        shouldStopNative: Boolean = true,
+    ): StudioHelperReceipt = lock.withLock {
         val records = read(helper)
-        fenceRecoveryCancellation(helper, request, records, isExplicitStop = true)
+        fenceRecoveryCancellation(helper, request, records, isExplicitStop = shouldStopNative)
         requireRecordedHistory(helper, records)
-        val receipt = records[request.value]
-        val updated = when {
-            receipt == null -> StudioHelperReceipt(request, StudioHelperPhase.NotSubmitted, null, isFinal = true)
-
-            receipt.phase == StudioHelperPhase.Terminal -> receipt
-
-            receipt.phase in setOf(StudioHelperPhase.Preparing, StudioHelperPhase.NotSubmitted) ||
-                (
-                    receipt.phase == StudioHelperPhase.Submitting && receipt.isNativeEntryTracked &&
-                        receipt.nativeEntryClaim == null
-                ) ->
-                receipt.copy(phase = StudioHelperPhase.NotSubmitted, isFinal = true, isStopRequested = true)
-
-            else -> receipt.copy(isStopRequested = true)
-        }
-        write(helper, records + (request.value to updated))
-        updated
+        val (fenced, stopped) = stopContinuationChain(records, request, shouldStopNative)
+        write(helper, fenced)
+        stopped
     }
 
     /** Called under the journal lock; a new-send fallback cannot retire a recovery observer. */
@@ -511,10 +550,10 @@ internal class StudioHelperAttempts(
         } else {
             store.readLegacyObservations(helper)[request.value]
         }
-        val records = readRecoveries(helper)
+        val records = store.readRecoveryWitnesses(helper)
         val linked = recoveryStopChain(records, request)
         if (isExplicitStop && linked.isNotEmpty()) {
-            writeRecoveries(helper, records + linked.associate { it.execution.value to it.stopped() })
+            store.writeRecoveryWitnesses(helper, records + linked.associate { it.execution.value to it.stopped() })
         }
         val targets = linked.filterNot {
             it.execution == request && (
@@ -531,7 +570,7 @@ internal class StudioHelperAttempts(
 
     /** Called under the journal lock; a retired observer cannot bind or retire its former send preparation. */
     private suspend fun requireRecoveryOwner(helper: HelperId, request: RequestId) {
-        if (readRecoveries(helper)[request.value]?.observerSuccessor != null) {
+        if (store.readRecoveryWitnesses(helper)[request.value]?.observerSuccessor != null) {
             throw CancellationException("Recovery observation ownership was transferred")
         }
     }
@@ -552,7 +591,7 @@ internal class StudioHelperAttempts(
         log.v { "Read durable context replacement evidence" }
         val records = read(helper)
         if (!hasRecordedHistory(helper, records)) return@withLock false
-        if (readRecoveries(helper).values.any { it.blocksContext(records) }) return@withLock false
+        if (store.readRecoveryWitnesses(helper).values.any { it.blocksContext(records) }) return@withLock false
         if (preparing != null) {
             val own = records.values.singleOrNull { preparing.matches(helper, it.request) }
             if (own?.isUnboundConversationPreparation != true) return@withLock false
@@ -595,25 +634,8 @@ internal class StudioHelperAttempts(
         log.v { "Reconcile work attribution from its exact producer journal" }
         val records = read(helper)
         val existing = records[request.value]
-        val prior = existing?.policy
-        if (prior != null && prior !is StudioAttemptPolicy.OwnedHelperWork) return@withLock false
-        if (prior is StudioAttemptPolicy.OwnedHelperWork) {
-            val old = prior.binding
-            val incoming = policy.binding
-            return@withLock old.owner == incoming.owner &&
-                (incoming.reservation == null || old.reservation == null || old.reservation == incoming.reservation)
-        }
-        val receipt = existing?.copy(policy = policy) ?: if (isNeverStarted) {
-            StudioHelperReceipt(request, StudioHelperPhase.NotSubmitted, null, isFinal = true, policy = policy)
-        } else {
-            StudioHelperReceipt(
-                request,
-                StudioHelperPhase.Submitting,
-                "legacy-work:${policy.binding.owner.value}:${request.value}",
-                policy = policy,
-            )
-        }
-        write(helper, records + (request.value to receipt))
+        val receipt = reconcileWorkReceipt(existing, request, policy, isNeverStarted) ?: return@withLock false
+        if (receipt != existing) write(helper, records + (request.value to receipt))
         true
     }
 
@@ -634,24 +656,6 @@ internal class StudioHelperAttempts(
 
     private suspend fun read(helper: HelperId): Map<String, StudioHelperReceipt> = decode(store.get(key(helper)))
 
-    private suspend fun readRecoveries(helper: HelperId): Map<String, StudioRecoveryWitness> {
-        val raw = store.get(recoveryKey(helper)) ?: return emptyMap()
-        return try {
-            Json.decodeFromString<Map<String, StudioRecoveryWitness>>(raw).also { records ->
-                validateRecoveryLineage(records)
-            }
-        } catch (e: IllegalArgumentException) {
-            throw e.withoutHelperReceiptText()
-        }
-    }
-
-    private suspend fun writeRecoveries(helper: HelperId, records: Map<String, StudioRecoveryWitness>) {
-        validateRecoveryLineage(records)
-        store.set(recoveryKey(helper), Json.encodeToString(records))
-    }
-
-    private fun recoveryKey(helper: HelperId) = stringKey("recovery_${helper.value.encodeUtf8().sha256().hex()}")
-
     /** Missing old evidence preserves readable history, but cannot authorize another send or a safe tombstone. */
     private suspend fun requireNativeAdmission(
         helper: HelperId,
@@ -659,7 +663,11 @@ internal class StudioHelperAttempts(
         request: RequestId,
         incoming: StudioAttemptPolicy? = null,
     ) {
-        val recoveries = readRecoveries(helper)
+        val chain = continuationChain(receipts, request)
+        if (chain.size > 1 && chain.any { it.isContinuationFenced }) {
+            throw CancellationException("Execution lineage was stopped")
+        }
+        val recoveries = store.readRecoveryWitnesses(helper)
         val policy = receipts[request.value]?.policy ?: incoming
         val root = recoveries[request.value]?.root ?: (policy as? StudioAttemptPolicy.GraphWork)?.recoveryRoot
         if (root != null && store.readLegacyObservations(helper)[root.value]?.isStopRequested == true) {
@@ -723,7 +731,7 @@ private val StudioHelperReceipt.isUnboundConversationPreparation: Boolean
         preparedSession == null && submissionClaim == null && nativeEntryClaim == null && !isStopRequested
 
 /** Directives are part of the immutable attempt; older receipts without them keep their original fingerprint. */
-private fun HelperPrompt.fingerprint(): String {
+internal fun HelperPrompt.fingerprint(): String {
     val directed = directives.joinToString("") { "\u0000$it" }
     return "$isRecovery:$text$directed".encodeUtf8().sha256().hex()
 }

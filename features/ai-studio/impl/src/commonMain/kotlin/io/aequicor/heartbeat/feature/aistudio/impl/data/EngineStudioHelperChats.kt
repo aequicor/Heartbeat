@@ -90,6 +90,19 @@ internal class EngineStudioHelperChats(
         }
     }
 
+    suspend fun confirmsContinuation(
+        helper: HelperId,
+        request: RequestId,
+        actual: RequestId,
+        binding: HelperWorkBinding,
+    ): Boolean {
+        if (binding.reservation == null || records.helperMetadata(helper)?.owner != binding.owner) return false
+        val head = attempts.effectiveReceipt(helper, request)
+        val policy = head?.policy as? StudioAttemptPolicy.OwnedHelperWork
+        log.v { "Verify helper continuation without replacing actual metadata" }
+        return head?.request == actual && head.continuationOf != null && policy?.binding == binding
+    }
+
     private suspend fun acceptedSubmission(
         helper: HelperId,
         prompt: HelperPrompt,
@@ -153,24 +166,31 @@ internal class EngineStudioHelperChats(
 
     suspend fun result(helper: HelperId, request: RequestId): HelperResult? {
         checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
-        val actual = runs.value.virtualResultRequest(helper, request) ?: return null
-        val receipt = attempts.receipt(helper, request)
+        val resolved = attempts.continuation(helper, request) ?: return null
+        val receipt = resolved.result
+        val actual = receipt.request
+        val hinted = if (actual != resolved.head.request) {
+            // The unsent successor is finally fenced; a not-yet-updated worktree map cannot hide native evidence.
+            resolved.head.request
+        } else {
+            runs.value.virtualResultRequest(helper, request)
+        }
         val result = when {
-            receipt?.policy != null && receipt.policy !is StudioAttemptPolicy.OwnedHelperWork -> null
+            hinted != resolved.head.request -> null
 
-            actual != request -> continuedResult(helper, request, actual)
+            receipt.policy != null && receipt.policy !is StudioAttemptPolicy.OwnedHelperWork -> null
 
-            receipt?.terminal != null -> receipt.terminal.result(request)
+            receipt.terminal != null -> receipt.terminal.result(request)
 
-            receipt?.phase in NATIVE_PHASES -> runs.value.helperTerminal(helper, request)?.let {
-                attempts.terminal(helper, request, it)
-                checkNotNull(attempts.receipt(helper, request)?.terminal).result(request)
+            receipt.phase in NATIVE_PHASES -> runs.value.helperTerminal(helper, actual)?.let {
+                attempts.terminal(helper, actual, it)
+                checkNotNull(attempts.receipt(helper, actual)?.terminal).result(request)
             }
 
             else -> null
         }
         return result?.let { completed ->
-            val note = runs.value.virtualResultNote(helper, request)
+            val note = runs.value.virtualResultNote(helper, actual)
             completed.copy(
                 answer = completed.answer.take(
                     (SchedulerLimits.MAX_PAYLOAD - note.length).coerceAtLeast(
@@ -179,16 +199,6 @@ internal class EngineStudioHelperChats(
                 ) + note,
             )
         }
-    }
-
-    private suspend fun continuedResult(helper: HelperId, request: RequestId, actual: RequestId): HelperResult? {
-        val receipt = attempts.receipt(helper, actual)
-        if (receipt?.policy != null && receipt.policy !is StudioAttemptPolicy.OwnedHelperWork) return null
-        val terminal = receipt?.terminal ?: runs.value.helperTerminal(helper, actual)?.also {
-            attempts.accepted(helper, actual, it.session, it.turn, isVirtualContinuation = true)
-            attempts.terminal(helper, actual, it)
-        }
-        return terminal?.result(request)
     }
 
     /**
@@ -202,15 +212,15 @@ internal class EngineStudioHelperChats(
         helper,
         request,
         shouldStopNative = true,
-    ) {
+    ) { actual ->
         // Stop does not await prompt's acceptance: its ACK may never arrive.
-        val terminal = runs.value.stopHelper(helper, request)
+        val terminal = runs.value.stopHelper(helper, actual)
         if (terminal == null) {
             HelperCancellation.Unconfirmed(request)
         } else {
-            attempts.terminal(helper, request, terminal)
+            attempts.terminal(helper, actual, terminal)
             HelperCancellation.Terminal(
-                checkNotNull(attempts.receipt(helper, request)?.terminal).result(request),
+                checkNotNull(attempts.receipt(helper, actual)?.terminal).result(request),
             )
         }
     }
@@ -219,7 +229,7 @@ internal class EngineStudioHelperChats(
         helper: HelperId,
         request: RequestId,
         shouldStopNative: Boolean,
-        native: suspend () -> HelperCancellation,
+        native: suspend (RequestId) -> HelperCancellation,
     ): HelperCancellation {
         val metadata = checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
         val previous = attempts.receipt(helper, request)
@@ -232,31 +242,32 @@ internal class EngineStudioHelperChats(
         check(policy !is StudioAttemptPolicy.OwnedHelperWork || policy.binding.owner == metadata.owner) {
             "Helper request belongs to another work owner"
         }
-        val receipt = if (shouldStopNative) {
-            attempts.requestStop(
-                helper,
-                request,
-            )
-        } else {
-            attempts.cancelBeforeSubmission(helper, request)
-        }
+        val receipt = attempts.requestStop(helper, request, shouldStopNative)
         return when {
-            receipt.phase == StudioHelperPhase.NotSubmitted -> HelperCancellation.NotSubmitted(request)
+            receipt.phase == StudioHelperPhase.NotSubmitted -> if (receipt.request == request) {
+                HelperCancellation.NotSubmitted(request)
+            } else {
+                attempts.continuation(helper, request)?.result?.terminal?.let {
+                    HelperCancellation.Terminal(it.result(request))
+                } ?: HelperCancellation.Unconfirmed(request)
+            }
+
             receipt.terminal != null -> HelperCancellation.Terminal(receipt.terminal.result(request))
-            else -> native()
+
+            else -> native(receipt.request)
         }
     }
 
     suspend fun progress(helper: HelperId, request: RequestId): HelperProgress? {
         val metadata = checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
-        val receipt = attempts.receipt(helper, request) ?: return null
+        val receipt = attempts.effectiveReceipt(helper, request) ?: return null
         val policy = receipt.policy as? StudioAttemptPolicy.OwnedHelperWork ?: return null
         if (receipt.phase != StudioHelperPhase.Accepted || policy.binding.owner != metadata.owner) return null
-        return runs.value.helperProgress(helper, request)?.also {
-            check(it.request == request && it.session == receipt.session && it.session == metadata.session) {
+        return runs.value.helperProgress(helper, receipt.request)?.also {
+            check(it.request == receipt.request && it.session == receipt.session && it.session == metadata.session) {
                 "Helper progress does not match its accepted receipt"
             }
-        }
+        }?.copy(request = request)
     }
 
     private fun StudioHelperReceipt.submission(): HelperSubmission? = when (phase) {

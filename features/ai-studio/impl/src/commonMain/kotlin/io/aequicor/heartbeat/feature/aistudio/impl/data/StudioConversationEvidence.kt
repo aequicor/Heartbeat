@@ -55,9 +55,12 @@ internal class StudioConversationEvidence(
 
     override suspend fun result(record: StudioChatRecord, request: RequestId): HostConversationResult? {
         val helper = HelperId(record.id)
-        val receipt = attempts.receipt(helper, request) ?: return attempts.legacy(helper, request)?.terminalResult()
+        val receipt = attempts.effectiveReceipt(
+            helper,
+            request,
+        ) ?: return attempts.legacy(helper, request)?.terminalResult()
         val terminal = receipt.terminal ?: if (receipt.phase in NATIVE_PHASES) {
-            runs.value.helperTerminal(helper, request)?.also { attempts.terminal(helper, request, it) }
+            runs.value.helperTerminal(helper, receipt.request)?.also { attempts.terminal(helper, receipt.request, it) }
         } else {
             null
         }
@@ -70,18 +73,24 @@ internal class StudioConversationEvidence(
         if (observed != null) return observed
         val receipt = attempts.requestStop(helper, request)
         return when {
-            receipt.phase == StudioHelperPhase.NotSubmitted -> HostConversationCancellation.NotSubmitted(request)
+            receipt.phase == StudioHelperPhase.NotSubmitted -> if (receipt.request == request) {
+                HostConversationCancellation.NotSubmitted(request)
+            } else {
+                attempts.continuation(helper, request)?.result?.terminal?.let {
+                    HostConversationCancellation.Terminal(it.conversationResult(request))
+                } ?: HostConversationCancellation.Unconfirmed(request)
+            }
 
             receipt.terminal != null -> HostConversationCancellation.Terminal(
                 receipt.terminal.conversationResult(request),
             )
 
             else -> {
-                val terminal = runs.value.stopHelper(helper, request)
+                val terminal = runs.value.stopHelper(helper, receipt.request)
                 if (terminal == null) {
                     HostConversationCancellation.Unconfirmed(request)
                 } else {
-                    attempts.terminal(helper, request, terminal)
+                    attempts.terminal(helper, receipt.request, terminal)
                     HostConversationCancellation.Terminal(terminal.conversationResult(request))
                 }
             }

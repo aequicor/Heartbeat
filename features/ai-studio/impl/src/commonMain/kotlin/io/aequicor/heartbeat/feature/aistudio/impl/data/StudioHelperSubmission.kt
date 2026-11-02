@@ -37,6 +37,12 @@ internal class StudioHelperSubmission(
     override suspend fun sealRecoveryNoSend(): StudioRecoveryNoSendProof? = prior?.sealRecoveryNoSend()
         ?: recoveryDelivery?.let { attempts.retiredRecoverySender(it, claim) }
 
+    suspend fun continuationReceipt(): StudioHelperReceipt? =
+        attempts.receipt(helper, request)?.takeIf { it.continuationOf != null }
+
+    suspend fun freezeExecution(snapshot: StudioExecutionSnapshot): StudioExecutionSnapshot =
+        attempts.recordExecutionSnapshot(helper, request, claim, snapshot)
+
     /** All production helper sends enter this scope, including manual turns in a marked chat. */
     suspend fun <T> withPreparation(session: SessionRef, workspace: WorkspaceRef?, block: suspend () -> T): T {
         check(started.compareAndSet(false, true)) { "Helper submission is already owned" }

@@ -125,6 +125,13 @@ internal class StudioScheduledSessionHost(
         binding: HelperWorkBinding,
     ): Boolean = helpers.value.reconcileWork(helper, request, binding)
 
+    override suspend fun confirmsHelperContinuation(
+        helper: HelperId,
+        request: RequestId,
+        actual: RequestId,
+        binding: HelperWorkBinding,
+    ): Boolean = helpers.value.confirmsContinuation(helper, request, actual, binding)
+
     override suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? =
         helpers.value.result(helper, request)
 

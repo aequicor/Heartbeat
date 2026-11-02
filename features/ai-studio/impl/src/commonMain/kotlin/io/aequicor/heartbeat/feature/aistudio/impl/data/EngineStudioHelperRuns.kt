@@ -118,7 +118,7 @@ internal class EngineStudioHelperRuns(
         if (record.worktreeTaskId == null) return ""
         val task = worktrees.tasks().first()[helper.value] ?: return ""
         if (task.virtualSandbox == null) return ""
-        val actual = task.virtualContinuations[request.value] ?: request.value
+        val actual = request.value
         val snapshot = task.virtualResultSnapshots[actual] ?: return ""
         return "\nHost note: integrate this helper's virtual result with sandbox_integrate: " +
             "workspace=${task.executionWorkspace?.value ?: "null"}, snapshot=$snapshot."

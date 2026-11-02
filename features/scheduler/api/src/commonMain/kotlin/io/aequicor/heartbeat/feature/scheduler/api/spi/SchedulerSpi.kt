@@ -115,6 +115,18 @@ public interface ScheduledSessionHost : ScheduledHelperCatalog {
         binding: io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding,
     ): Boolean = false
 
+    /**
+     * Proves that [actual] is the current immutable continuation of [request] under the exact owner/reservation.
+     * This read does not rewrite metadata.lastRequest, submit work or infer ancestry from a virtual lookup map.
+     * Missing lineage or an unspecified reservation returns false; the existing capacity remains reserved.
+     */
+    public suspend fun confirmsHelperContinuation(
+        helper: HelperId,
+        request: RequestId,
+        actual: RequestId,
+        binding: io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding,
+    ): Boolean = false
+
     /** Terminal result of the exact request, never the latest unrelated turn. */
     public suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? = null
 

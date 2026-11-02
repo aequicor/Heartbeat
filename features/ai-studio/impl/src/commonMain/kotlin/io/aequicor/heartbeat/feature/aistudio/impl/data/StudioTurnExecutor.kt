@@ -183,9 +183,7 @@ internal class StudioTurnExecutor(
                 }
                 currentCoroutineContext().ensureActive()
                 admitted = host.prepareNewTurn(request)
-                check(admitted.copy(settings = request.settings, submission = request.submission) == request) {
-                    "New-send admission cannot change the request or its provenance"
-                }
+                request.requireAdmission(admitted)
             }
             progress.isIsolated = recovered == GraphRecovery.Submit &&
                 request.compaction == null && host.isWorktree(request.id)

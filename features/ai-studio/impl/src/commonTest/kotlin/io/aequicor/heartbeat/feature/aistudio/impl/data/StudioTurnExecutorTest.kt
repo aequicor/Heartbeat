@@ -62,6 +62,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
@@ -1928,10 +1929,52 @@ class StudioNativeRecoveryTest {
         ).continueVirtual(f.request.request.value, "continue")
             .transition(WorktreeIntent.Public.ActionDelivered("chat", f.request.request.value))
         f.machine.state.value = WorktreeState.Ready(mapOf("chat" to pending))
+        val stores = ChecklistTestStores()
+        val attempts = StudioHelperAttempts(stores)
+        val helper = HelperId("chat")
+        val record = NativeHelperFixture().record.copy(id = "chat", ref = f.active.ref)
+        val snapshot = StudioExecutionSnapshot(
+            f.request.settings,
+            checkNotNull(record.target),
+            null,
+            null,
+            StudioHumanAuthority(),
+            setOf(RequestInitiator(f.active.ref, source)),
+        )
+        attempts.prepareConversation(helper, HelperPrompt(source, "original"))
+        attempts.begin(helper, source, "sender")
+        attempts.recordExecutionSnapshot(helper, source, "sender", snapshot)
+        attempts.accepted(helper, source, f.active.ref, TurnId("source"))
+        attempts.terminal(
+            helper,
+            source,
+            StudioHelperTerminal(
+                f.active.ref,
+                TurnId("source"),
+                StudioHelperTerminalOutcome.Cancelled,
+                "",
+            ),
+        )
+        stores.keyValue(ChatSpec).set(ChatsKey, listOf(record))
+        val admissions = emptyHelperAdmissions()
+        val continuation = StudioContinuationAdmission(
+            attempts,
+            admissions,
+            StudioWorktrees(executorRegistry(f.machine), f.tools),
+        )
+        val admission = StudioHelperAdmission(attempts, admissions, continuations = continuation)
+        val request = f.request.copy(continuationOf = source)
+        assertFailsWith<IllegalStateException> {
+            admission.prepareNewTurn(record, request) { error("recordStarted failed") }
+        }
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(helper, request.request)?.phase)
+        assertFalse(checkNotNull(attempts.receipt(helper, request.request)).isFinal)
+        f.host.prepareNew = { admission.prepareNewTurn(record, it) {} }
         f.tools.release.complete(Unit)
         assertEquals(RunOutcome.Completed, f.executor.execute(f.host, f.request.copy(continuationOf = source)))
         val started = f.machine.sent.filterIsInstance<WorktreeIntent.Public.RunStarted>().single()
         assertEquals(source, started.continuationOf)
+        assertEquals(snapshot.causes, f.host.submitted?.causes)
         assertEquals(f.request.request, f.host.submitted?.request)
     }
 

@@ -51,3 +51,31 @@ internal fun StudioAttemptPolicy.hasSameOrigin(other: StudioAttemptPolicy?): Boo
                 binding.reservation == other.binding.reservation
         )
 }
+
+/** Legacy attribution changes policy only; native phase and identity remain untouched. */
+internal fun reconcileWorkReceipt(
+    existing: StudioHelperReceipt?,
+    request: RequestId,
+    policy: StudioAttemptPolicy.OwnedHelperWork,
+    isNeverStarted: Boolean,
+): StudioHelperReceipt? = when (val prior = existing?.policy) {
+    is StudioAttemptPolicy.OwnedHelperWork -> existing.takeIf {
+        val old = prior.binding
+        val incoming = policy.binding
+        old.owner == incoming.owner &&
+            (incoming.reservation == null || old.reservation == null || old.reservation == incoming.reservation)
+    }
+
+    null -> existing?.copy(policy = policy) ?: if (isNeverStarted) {
+        StudioHelperReceipt(request, StudioHelperPhase.NotSubmitted, null, isFinal = true, policy = policy)
+    } else {
+        StudioHelperReceipt(
+            request,
+            StudioHelperPhase.Submitting,
+            "legacy-work:${policy.binding.owner.value}:${request.value}",
+            policy = policy,
+        )
+    }
+
+    else -> null
+}

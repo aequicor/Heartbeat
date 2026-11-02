@@ -19,6 +19,42 @@ import kotlin.test.assertTrue
 
 class HelperWorkRecoveryTest {
     @Test
+    fun `restoring lease R with actual C requires exact host lineage and preserves actual metadata`() = runTest {
+        for (isProven in listOf(false, true)) {
+            val helper = HelperId("continued-helper")
+            val actual = RequestId("C")
+            val recovery = HelperCapacityRecoverySource {
+                listOf(HelperCapacityRecoveryRecord(reservation, owner, null, helper, request))
+            }
+            val f = HelpersFixture(this, recovery = setOf(recovery))
+            f.host.metadata[helper] = HelperMetadata(helper, owner, null, OTHER, actual)
+            f.host.reconciliation = { _, _, _ -> true }
+            f.host.continuationProof = { id, expected, current, binding ->
+                assertEquals(helper, id)
+                assertEquals(request, expected)
+                assertEquals(actual, current)
+                assertEquals(HelperWorkBinding(owner, reservation), binding)
+                isProven
+            }
+            if (isProven) {
+                val lease = f.service.acquire(owner, existing = helper, reservation = reservation)
+                assertEquals(actual, f.host.metadata[helper]?.lastRequest)
+                assertEquals(1, f.active)
+                f.host.results[request] = HelperResult(request, HelperOutcome.Completed, "C result")
+                assertEquals(HelperReleaseResult.Released, lease.release())
+                assertEquals(listOf(request), f.host.resultReads)
+                assertEquals(0, f.active)
+            } else {
+                assertFailsWith<IllegalStateException> {
+                    f.service.acquire(owner, existing = helper, reservation = reservation)
+                }
+                assertEquals(1, f.active)
+            }
+            assertTrue(f.host.cancellations.isEmpty())
+        }
+    }
+
+    @Test
     fun `matching request metadata cannot bypass a rejected exact slot proof`() = runTest {
         val helper = HelperId("legacy")
         val source = HelperCapacityRecoverySource {

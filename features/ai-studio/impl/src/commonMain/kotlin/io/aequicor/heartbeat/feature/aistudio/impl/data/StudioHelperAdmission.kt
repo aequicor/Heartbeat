@@ -17,6 +17,7 @@ internal class StudioHelperAdmission(
     private val attempts: StudioHelperAttempts,
     private val admissions: StudioHelperPromptAdmissions,
     private val runs: Lazy<StudioHelperRuns>? = null,
+    private val continuations: StudioContinuationAdmission? = null,
 ) {
     private val log = Log.tag("StudioHelperAdmission")
 
@@ -66,6 +67,9 @@ internal class StudioHelperAdmission(
     suspend fun prepare(record: StudioChatRecord, request: StudioTurnRequest): StudioTurnRequest {
         val helper = HelperId(record.id)
         val supplied = request.submission as? StudioHelperSubmission
+        if (request.continuationOf != null && supplied == null) {
+            return checkNotNull(continuations) { "Continuation admission is unavailable" }.prepare(record, request)
+        }
         if (supplied != null) {
             check(supplied.matches(helper, request.request)) { "The helper submission belongs to another request" }
             check(request.origin.accepts(supplied.policy())) { "The submission origin contradicts its request journal" }

@@ -73,6 +73,12 @@ internal data class StudioHelperReceipt(
     val causes: Set<RequestInitiator>? = null,
     /** Immutable before begin; null is an unclassified older attempt, never an implicit work assignment. */
     val policy: StudioAttemptPolicy? = null,
+    /** Persisted by the exact sender before native entry; absent legacy values grant no continuation authority. */
+    val executionSnapshot: StudioExecutionSnapshot? = null,
+    /** Exact producer-proven predecessor, never inferred from virtual lookup maps. */
+    val continuationOf: RequestId? = null,
+    /** Revocation of future descendants does not itself interrupt an already accepted native turn. */
+    val isContinuationRevoked: Boolean = false,
 ) {
     init {
         require(!isFinal || phase == StudioHelperPhase.NotSubmitted)
