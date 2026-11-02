@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.CellSessions
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellWorkspaces
 import io.aequicor.heartbeat.feature.organicai.impl.domain.ImmunityCourt
 import io.aequicor.heartbeat.feature.organicai.impl.domain.JudgeSessions
+import io.aequicor.heartbeat.feature.organicai.impl.domain.MemoryNativeJournal
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiEffects
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganismJournal
 import io.aequicor.heartbeat.feature.organicai.impl.domain.SessionTranscripts
@@ -58,7 +59,7 @@ class OrganicReleaseLifecycleTest {
             return SendResult.Accepted
         }
     }
-    private var state = OrganicAiState.Living(mapOf(ORGANISM to organism(cell(C1))))
+    private var state = OrganicAiState.Living(mapOf(ORGANISM to organism(cell(C1)).withoutZygoteSession()))
 
     @Test
     fun `an unconfirmed abort remains unconfirmed across sleep and can be retried`() = runTest {
@@ -94,7 +95,7 @@ class OrganicReleaseLifecycleTest {
     fun `abort includes a previously lysed child whose native turn still runs`() = runTest {
         open()
         val dead = CellPhase.Dead(DeathCause.Lysed(CaseId("k1"), "killed"))
-        state = OrganicAiState.Living(mapOf(ORGANISM to organism(cell(C1, phase = dead))))
+        state = OrganicAiState.Living(mapOf(ORGANISM to organism(cell(C1, phase = dead)).withoutZygoteSession()))
         abort()
         assertFalse(current().isStopped)
         assertEquals(SessionRelease.Unconfirmed, current().sessions)
@@ -121,6 +122,12 @@ class OrganicReleaseLifecycleTest {
         cells.open(CellKey(ORGANISM, C1), CellRoute(TARGET, null, null), null)
             .submit(RequestId("request"), "work", null)
     }
+
+    private fun Organism.withoutZygoteSession() = copy(
+        cells = cells.map {
+            if (it.id == CellId.ZYGOTE) it.copy(session = null) else it
+        },
+    )
 
     private fun current(): Organism = state.organisms.getValue(ORGANISM)
 
@@ -149,6 +156,7 @@ class OrganicReleaseLifecycleTest {
         ImmunityCourt(
             JudgeSessions { _, _, _, _, _ -> error("No judgement expected") },
             SessionTranscripts { emptyList() },
+            MemoryNativeJournal(),
         ),
         NoWorkspaces,
     )

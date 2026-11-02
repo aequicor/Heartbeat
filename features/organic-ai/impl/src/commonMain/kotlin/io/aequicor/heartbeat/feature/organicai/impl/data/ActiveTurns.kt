@@ -13,7 +13,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
-import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -69,6 +68,7 @@ internal suspend fun ActiveSession.submit(
     reasoningEffort: String? = null,
     reviewTarget: EngineTarget? = null,
     decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+    beforeSend: suspend (PromptRequest) -> Unit = {},
 ): TurnId {
     val trusted = trust?.takeIf { features.resolve(AppliesTrustLevels) is FeatureAccess.Available }
     val parts = listOf(ContentPart.Text(text)) + attachments.map {
@@ -82,6 +82,7 @@ internal suspend fun ActiveSession.submit(
         decisionMode = decisionMode,
         reviewTarget = reviewTarget,
     )
+    beforeSend(prompt)
     return try {
         features.resolve(SendsPrompts).orThrow().send(prompt)
     } catch (e: EngineException) {
@@ -176,9 +177,8 @@ internal suspend fun ActiveSession.stop(wait: Duration): Boolean = try {
 
 /**
  * Cancels the running turn and waits up to [wait] for it to stop, leaving the handle open. True only when the session
- * then shows no turn and is reachable. An unavailable session takes no cancellation and cannot say what the engine
- * still runs, so it is synchronized once first. A closed handle is no evidence either way and counts as stopped, as
- * no handle does.
+ * then authoritatively reports Ready. An unavailable session takes no cancellation and cannot say what the engine
+ * still runs, so it is synchronized once first. Closing or closed handles never prove native quiescence.
  */
 internal suspend fun ActiveSession.stopTurn(wait: Duration): Boolean {
     if (state.value is ActiveSessionState.Unavailable) synchronize()
@@ -190,7 +190,7 @@ internal suspend fun ActiveSession.stopTurn(wait: Duration): Boolean {
             return false
         }
     }
-    val isStopped = state.value.let { it !is ActiveSessionState.Unavailable && it.activeTurn() == null }
+    val isStopped = state.value is ActiveSessionState.Ready
     if (!isStopped) log.w { "session on ${ref.engine.value} stayed unavailable; its turn may still run" }
     return isStopped
 }
@@ -213,7 +213,7 @@ private fun ActiveSessionState.endOf(turn: TurnId): TurnOutcome? = when (this) {
     is ActiveSessionState.Unavailable -> lastTurn?.takeIf { activeTurn == null && it.id == turn }?.outcome
 
     is ActiveSessionState.Closing, ActiveSessionState.Closed ->
-        TurnOutcome.Failed(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed))
+        TurnOutcome.Unknown
 
     is ActiveSessionState.Submitting, is ActiveSessionState.Running, is ActiveSessionState.AwaitingUserAction,
     is ActiveSessionState.Interrupting,

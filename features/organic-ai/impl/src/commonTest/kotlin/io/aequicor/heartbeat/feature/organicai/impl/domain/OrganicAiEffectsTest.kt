@@ -399,7 +399,7 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
     @Test
     fun `an unreadable transcript is noted in the dossier instead of failing the case`() = runTest {
         val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "it loops")
-        val court = ImmunityCourt(judges) { throw EngineException(EngineFailure.Unknown()) }
+        val court = ImmunityCourt(judges, { throw EngineException(EngineFailure.Unknown()) }, MemoryNativeJournal())
         judges.answer = "VERDICT {\"decision\":\"spare\",\"reason\":\"no evidence\"}"
         val ruling = court.judge(organism(cell(C1), cases = listOf(complaint)), complaint.id)
         assertEquals(Ruling.Spare("no evidence"), ruling)
@@ -446,7 +446,7 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
             { null },
             cells,
             CellDriver(cells, journal, workspaces, harnesses),
-            ImmunityCourt(judges, transcripts),
+            ImmunityCourt(judges, transcripts, MemoryNativeJournal()),
             workspaces,
         )
         machine.sent.clear()

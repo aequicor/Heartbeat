@@ -4,14 +4,17 @@ import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -171,6 +174,12 @@ internal interface CellHarnesses {
 
 /** Engine sessions of cells; one handle per cell is kept open while the cell lives. */
 internal interface CellSessions {
+    /** Invalidates wrappers admitted before sleep without cancelling an unrelated human turn. */
+    suspend fun freezeAdmissions()
+
+    /** Stops only the exact request through an already held handle; never creates or resumes a session. */
+    suspend fun stopOwned(key: CellKey, ref: SessionRef, request: RequestId): OwnedTurnStop
+
     /**
      * The open handle of [key]: the cached one, [existing] resumed, or a new session. Cells get the detached hosted
      * tools, since the organism shows their permission requests to the user. A lysed cell is never opened again.
@@ -178,7 +187,19 @@ internal interface CellSessions {
      * hooks; connecting the harnesses is the caller's step ([CellHarnesses]), as it needs the bound session.
      * [generation] is the cell turn counter: a late retirement of an older turn cannot close this handle.
      */
-    suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int = 0): CellHandle
+    suspend fun open(
+        key: CellKey,
+        route: CellRoute,
+        existing: SessionRef?,
+        generation: Int = 0,
+        onOpened: suspend (SessionRef) -> Unit = {},
+    ): CellHandle
+
+    /** Fences a final cell, drains its admitted opens/sends, and returns all locally known native refs. */
+    suspend fun prepareRelease(key: CellKey, generation: Int, isFinal: Boolean): Set<SessionRef>
+
+    /** Closes owned handles without cancelling anything; caller already proved exact native quiescence. */
+    suspend fun closeReleased(key: CellKey, generation: Int): ReleaseOutcome
 
     /** Delivers the user's [decision] to the open handle of [key]. */
     suspend fun respond(key: CellKey, decision: PermissionDecision)
@@ -190,7 +211,7 @@ internal interface CellSessions {
      *
      * Lysis returns [ReleaseOutcome.Stopped] only when every handle this process held for the cell had its turn seen
      * to stop and no opener of the cell is still running; a turn that did not stop keeps its handle open for the
-     * next lysis of the same cell. A cell this process holds no handle of counts as stopped.
+     * next lysis of the same cell. An unobserved saved session is unconfirmed, even without a local handle.
      */
     suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int = 0): ReleaseOutcome
 
@@ -213,7 +234,7 @@ internal interface CellSessions {
 
 /** What a release could prove about the native work of a cell. */
 internal enum class ReleaseOutcome {
-    /** The cell's turn stopped and its handle closed, or this process held none. */
+    /** Every known owned turn stopped and its handles closed; no missing-handle inference. */
     Stopped,
 
     /** A turn did not stop in time, its session was unreachable or the cell was still being opened. */
@@ -228,12 +249,19 @@ internal interface CellHandle {
     /** A turn the engine is still running, such as one accepted before a restart. */
     fun activeTurn(): TurnId?
 
+    /** Exact request evidence from native state; absence never proves quiescence. */
+    fun inspect(request: RequestId): Turn?
+
+    /** True only for authoritative Ready; unreachable or missing state is not idle evidence. */
+    fun isIdle(): Boolean
+
     /** Submits the text and profile-owned inputs with trust when supported; returns the accepted turn. */
     suspend fun submit(
         request: RequestId,
         text: String,
         trust: TrustLevel?,
         attachments: List<ResourceRef> = emptyList(),
+        beforeSend: suspend (PromptRequest) -> Unit = {},
     ): TurnId
 
     /** Best-effort cancellation of [turn]. */

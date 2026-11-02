@@ -3,12 +3,16 @@ package io.aequicor.heartbeat.feature.organicai.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -37,6 +41,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.CellKey
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRoute
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellSessions
 import io.aequicor.heartbeat.feature.organicai.impl.domain.ImmunityCourt
+import io.aequicor.heartbeat.feature.organicai.impl.domain.MemoryNativeJournal
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiEffects
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganismJournal
@@ -258,7 +263,11 @@ class SandboxScenarioTest {
             { TARGET },
             sessions,
             CellDriver(sessions, journal, workspaces, NoHarnesses),
-            ImmunityCourt({ _, _, _, _, _ -> error("no judges in this scenario") }, { emptyList() }),
+            ImmunityCourt(
+                { _, _, _, _, _ -> error("no judges in this scenario") },
+                { emptyList() },
+                MemoryNativeJournal(),
+            ),
             workspaces,
         )
         private val log = Log.tag("SandboxScenario")
@@ -325,10 +334,20 @@ class SandboxScenarioTest {
     }
 
     private class Sessions(private val natives: Natives) : CellSessions {
-        override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
+        override suspend fun open(
+            key: CellKey,
+            route: CellRoute,
+            existing: SessionRef?,
+            generation: Int,
+            onOpened: suspend (SessionRef) -> Unit,
+        ): CellHandle {
             natives.routes.getOrPut(key) { mutableListOf() } += route
-            return natives.handles.getOrPut(key) { Native(session(key.cell.value)) }
+            return natives.handles.getOrPut(key) { Native(session(key.cell.value)) }.also { onOpened(it.session) }
         }
+
+        override suspend fun prepareRelease(key: CellKey, generation: Int, isFinal: Boolean): Set<SessionRef> =
+            emptySet()
+        override suspend fun closeReleased(key: CellKey, generation: Int): ReleaseOutcome = ReleaseOutcome.Stopped
 
         override suspend fun respond(key: CellKey, decision: PermissionDecision) = Unit
 
@@ -348,6 +367,11 @@ class SandboxScenarioTest {
 
         override suspend fun hasPendingRelease(organism: OrganismId): Boolean = false
 
+        override suspend fun stopOwned(key: CellKey, ref: SessionRef, request: RequestId): OwnedTurnStop =
+            OwnedTurnStop.Unconfirmed
+
+        override suspend fun freezeAdmissions() = Unit
+
         override suspend fun releaseAll() = Unit
     }
 
@@ -358,13 +382,28 @@ class SandboxScenarioTest {
         private var outcome = CompletableDeferred<TurnOutcome>()
 
         override fun activeTurn(): TurnId? = turn.takeIf { isRunning }
+        override fun isIdle(): Boolean = !isRunning
+        override fun inspect(request: RequestId): Turn? = turn?.takeIf {
+            isRunning && submitted.lastOrNull() == request
+        }
+            ?.let { Turn(it, request, TARGET) }
 
         override suspend fun submit(
             request: RequestId,
             text: String,
             trust: TrustLevel?,
             attachments: List<ResourceRef>,
+            beforeSend: suspend (PromptRequest) -> Unit,
         ): TurnId {
+            beforeSend(
+                PromptRequest(
+                    request,
+                    listOf(ContentPart.Text(text)) + attachments.map {
+                        if (it.mediaType.startsWith("image/")) ContentPart.Image(it) else ContentPart.Resource(it)
+                    },
+                    trust = trust,
+                ),
+            )
             submitted += request
             outcome = CompletableDeferred()
             isRunning = true
