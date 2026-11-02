@@ -1,0 +1,1 @@
+В hosted run_command заключай regex с символом | в одинарные кавычки PowerShell, например rg -n 'first|second' path. После вызова проверяй exit code: потерянные кавычки превращают части regex в команды конвейера.

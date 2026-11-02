@@ -1,0 +1,1 @@
+В hosted PowerShell передавай rg существующий каталог и фильтр -g 'TEST-*.xml' (или -g '*Tools*'), а не путь с wildcard вроде path/TEST-*.xml: Windows rg не раскрывает glob в позиционном пути и возвращает OS error 123.
