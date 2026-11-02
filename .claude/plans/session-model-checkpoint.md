@@ -13,6 +13,43 @@
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
 
+## Exact-request facade admission — 9e9589204
+
+- Опубликован `9e958920426c9255f3fc9ceaafaf9ee6033eaa96`: 5028 tokens, 7 files, staged/range PASS.
+  Original prompt + actual model проверяются под per-ref exclusive до hooks; actual native send потребляет
+  отдельный exact-request entry под admission gate. Architecture review без блокеров.
+- Verify: facade API 155 / impl 650 tests, 12 Windows-only skips на macOS; ordinary/typed detekt,
+  API/impl iOS compile, DI graph + 6 facade integration tests зелёные. PR body обновлён, draft сохраняется.
+
+## Organic native receipts и lifecycle — 02.11.2026
+
+- `effa68206`: versioned atomic journal snapshot + native attempts, exact revision CAS, immutable request/target,
+  schema rejection и legacy без invented native coverage. Ended без release proof → Unconfirmed/Permanent.
+- `806341467`: temporary `SessionExecutionControl.suspended` закрывает admission под общим mutex, drain tickets
+  и durable Opening reservations, затем cleanup. Nested/refcount и cancellation не снимают permanent fence и
+  не стирают unresolved handoffs. Retirement `awaitAdmissions` по-прежнему требует durable fence.
+- `3b8dd03b2`: native ref публикуется до выдачи handle; failed write сохраняет ref/callback для retry. Exact live
+  Stop не отменяет более новый human Q. Judge dossier/request сохраняются до create; повтор case возвращает
+  durable verdict или Unknown без повторного send. Closed handle больше не доказывает native terminal.
+- `c99e8f3b9`: explicit Resume создаёт новый запрос, automatic recovery — только наблюдатель старого R;
+  оконченные организмы без proof автоматически повторяют cleanup, не Drive/Judge.
+- Producer/lifecycle: claim до opening, normalized payload до send, Accepted/terminal+answer до machine ACK;
+  authority сверяет live request, exact ref/payload/model, one-shot entry. Unknown text не завершает клетку.
+  Restore известного результата не открывает native handle; незавершённый original R не заменяется observer Q.
+- Retirement persist/fence → drain → union всех known refs → exact Stop/proof → close → release proof. Cold
+  cleanup использует только StopsOwnedTurns без ordinary resume; unsupported/missing refs остаются Unconfirmed.
+  Hibernate охватывает cells и открытых judges через temporary scopes, reread receipts после drain; identities
+  сохраняются для recovery. Lyse архивирует только доказанные executor refs; full-human zygote chat сохраняется.
+- Scoped architecture review: Hibernate open-judge omission и потеря Lyse archive найдены и исправлены;
+  final delta без новых blockers. Это не ревью всего PR и не разрешение `/reviewed`.
+- Проверки: organic API 90 / impl 272; facade API 155 / impl 653 (12 Windows-only skips на macOS);
+  Studio 1148 / harness 923, failures/errors 0. JVM + ordinary/typed detekt, organic/facade iOS, DI graph + 6
+  facade integrations успешны. Typed analysis имеет прежние diagnostics (organic 2, facade 22).
+  `organic-shrink2` и `organic-obfuscate1` успешны.
+- Дальше обязательны остальные production writers/consumers (включая isolated internal service turns),
+  owner mediation, background normalization, утверждённый UI, A01–A35, E2E и финальный `/reviewed`.
+  Промежуточный native lifecycle не завершает шаг 4 и не переводит PR в ready.
+
 ## Organic executor authority — продолжение шага 4
 
 - Conception/Organism сохраняют fresh host incarnation; Studio и workflow producers создают UUID. Legacy null
