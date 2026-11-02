@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -187,10 +188,10 @@ private fun InspectUncheckedInstallation(
     onIntent: (EngineManagementIntent) -> Unit,
 ) {
     val isUnchecked = !panel.installation.isChecked && panel.installation.failure == null
-    val canInspect = isIdle && EngineActionKindUi.Inspect in panel.actions
+    val isInspectionAvailable = isIdle && EngineActionKindUi.Inspect in panel.actions
     val currentIntent by rememberUpdatedState(onIntent)
-    LaunchedEffect(isUnchecked, canInspect) {
-        if (isUnchecked && canInspect) currentIntent(EngineManagementIntent.InspectEngine)
+    SideEffect(isUnchecked, isInspectionAvailable) {
+        if (isUnchecked && isInspectionAvailable) currentIntent(EngineManagementIntent.InspectEngine)
     }
 }
 
