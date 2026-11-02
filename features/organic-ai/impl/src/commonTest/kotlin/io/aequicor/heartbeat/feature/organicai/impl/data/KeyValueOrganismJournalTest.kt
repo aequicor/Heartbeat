@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
@@ -21,7 +22,12 @@ import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.Work
 import io.aequicor.heartbeat.feature.organicai.api.isStopped
 import io.aequicor.heartbeat.feature.organicai.impl.TARGET
+import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicNativeClaim
+import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicNativeEnd
+import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicNativeStage
+import io.aequicor.heartbeat.feature.organicai.impl.domain.cellExecution
 import io.aequicor.heartbeat.feature.organicai.impl.organism
+import io.aequicor.heartbeat.feature.organicai.impl.session
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -38,6 +44,118 @@ import kotlin.test.assertTrue
 class KeyValueOrganismJournalTest {
     private val stores = MemoryStores()
     private val journal = KeyValueOrganismJournal(stores, TestDispatchers)
+
+    @Test
+    fun `release proof survives restart and a later working epoch invalidates it`() = runTest {
+        val original = organism().let { it.copy(cells = it.cells.map { cell -> cell.copy(session = null) }) }
+        val incarnation = original.incarnation!!
+        journal.save(original)
+        val execution = original.cellExecution(CellId.ZYGOTE)!!
+        val claim = OrganicNativeClaim(
+            "unsent",
+            execution.instance.id,
+            execution,
+            TARGET,
+            null,
+            (original.cells.first().phase as CellPhase.Working).request,
+            "work",
+        )
+        val reserved = journal.reserve(original.id, incarnation, claim)
+        journal.advance(
+            original.id,
+            incarnation,
+            reserved,
+            reserved.copy(
+                stage = OrganicNativeStage.Settled,
+                end = OrganicNativeEnd.NotEntered,
+                revision = 1,
+            ),
+        )
+        val completed = original.copy(status = OrganismStatus.Completed("done"), version = 2)
+        journal.save(completed)
+        assertFailsWith<IllegalStateException> {
+            journal.released(original.id, incarnation, completed.version, setOf(session("unaccounted")))
+        }
+        journal.released(original.id, incarnation, completed.version, emptySet())
+        assertEquals(
+            SessionRelease.Released,
+            KeyValueOrganismJournal(stores, TestDispatchers).read(original.id)?.sessions,
+        )
+        assertFalse(stores.store.retentions.getValue("organism.o1").isPermanent)
+        journal.save(original.copy(version = 3))
+        assertTrue(stores.store.retentions.getValue("organism.o1").isPermanent)
+        journal.save(completed.copy(version = 4))
+        assertEquals(
+            SessionRelease.Unconfirmed,
+            KeyValueOrganismJournal(stores, TestDispatchers).read(original.id)?.sessions,
+        )
+    }
+
+    @Test
+    fun `native receipts survive snapshot writes and stale callbacks cannot alter them`() = runTest {
+        val original = organism()
+        journal.save(original)
+        val incarnation = original.incarnation!!
+        val execution = original.cellExecution(CellId.ZYGOTE)!!
+        val claim = OrganicNativeClaim(
+            "claim",
+            execution.instance.id,
+            execution,
+            TARGET,
+            null,
+            (original.cells.first().phase as CellPhase.Working).request,
+            "work",
+        )
+        val reserved = journal.reserve(original.id, incarnation, claim)
+        val opening = reserved.copy(stage = OrganicNativeStage.Opening, revision = 1)
+        journal.advance(original.id, incarnation, reserved, opening)
+        assertFailsWith<IllegalStateException> {
+            journal.advance(original.id, incarnation, reserved, opening)
+        }
+        journal.save(original.copy(version = 2, goal = "new snapshot"))
+        val restarted = KeyValueOrganismJournal(stores, TestDispatchers)
+        assertEquals(listOf(opening), restarted.attempts(original.id, incarnation))
+        assertEquals("new snapshot", restarted.read(original.id)?.goal)
+        assertFailsWith<IllegalStateException> {
+            restarted.advance(
+                original.id,
+                incarnation,
+                reserved,
+                reserved.copy(
+                    stage = OrganicNativeStage.Settled,
+                    end = OrganicNativeEnd.NotEntered,
+                    revision = 1,
+                ),
+            )
+        }
+        assertFailsWith<IllegalStateException> {
+            restarted.advance(
+                original.id,
+                incarnation,
+                opening,
+                opening.copy(
+                    stage = OrganicNativeStage.Settled,
+                    end = OrganicNativeEnd.NotEntered,
+                    revision = 2,
+                ),
+            )
+        }
+        assertFailsWith<IllegalStateException> {
+            restarted.reserve(original.id, incarnation, claim.copy(prompt = "changed"))
+        }
+        assertEquals(listOf(opening), restarted.attempts(original.id, incarnation))
+    }
+
+    @Test
+    fun `future envelope is retained and cannot be overwritten as a legacy snapshot`() = runTest {
+        val original = organism()
+        journal.save(original)
+        stores.store.values["organism.o1"] = stores.store.values.getValue("organism.o1").toString()
+            .replace("\"schema\":1", "\"schema\":2")
+        assertTrue(journal.load().isEmpty())
+        assertFailsWith<IllegalArgumentException> { journal.read(original.id) }
+        assertFailsWith<IllegalArgumentException> { journal.save(original.copy(version = 2)) }
+    }
 
     @Test
     fun `physical read failure cannot recover empty authority or overwrite the saved incarnation`() = runTest {
@@ -60,7 +178,7 @@ class KeyValueOrganismJournalTest {
         assertEquals(known, KeyValueOrganismJournal(stores, TestDispatchers).read(known.id))
         assertNull(journal.read(OrganismId("missing")))
         stores.store.values["organism.other"] = stores.store.values.getValue("organism.o1")
-        assertFailsWith<IllegalStateException> { journal.read(OrganismId("other")) }
+        assertFailsWith<IllegalArgumentException> { journal.read(OrganismId("other")) }
         stores.store.values["organism.o1"] = "broken"
         assertFailsWith<IllegalArgumentException> { journal.read(known.id) }
     }
@@ -179,21 +297,21 @@ class KeyValueOrganismJournalTest {
     }
 
     @Test
-    fun `an aborted organism whose release was pending reads as released after a restart`() = runTest {
+    fun `an aborted organism without native proof remains unconfirmed after restart`() = runTest {
         val ended = organism().copy(status = OrganismStatus.Aborted, sessions = SessionRelease.Releasing, version = 2)
         journal.save(ended)
-        // The journal keeps no release state: a new process holds none of the organism's sessions.
+        // A missing process or handle cannot prove that old native work stopped.
         val restored = KeyValueOrganismJournal(stores, TestDispatchers).load().single()
-        assertEquals(ended.copy(sessions = SessionRelease.Released), restored)
-        assertTrue(restored.isStopped)
+        assertEquals(ended.copy(sessions = SessionRelease.Unconfirmed), restored)
+        assertFalse(restored.isStopped)
     }
 
     @Test
-    fun `ended organisms expire while developing ones are kept`() = runTest {
+    fun `ended organisms without native cleanup proof remain permanent`() = runTest {
         journal.save(organism())
         assertTrue(stores.store.retentions.getValue("organism.o1").isPermanent)
         journal.save(organism().copy(status = OrganismStatus.Aborted, version = 2))
-        assertFalse(stores.store.retentions.getValue("organism.o1").isPermanent)
+        assertTrue(stores.store.retentions.getValue("organism.o1").isPermanent)
     }
 
     @Test
@@ -208,13 +326,13 @@ class KeyValueOrganismJournalTest {
         assertEquals(TARGET, SelectedModelTargets(selections).default())
     }
 
-    private object TestDispatchers : DispatcherProvider {
+    internal object TestDispatchers : DispatcherProvider {
         override val main: CoroutineDispatcher = Dispatchers.Unconfined
         override val default: CoroutineDispatcher = Dispatchers.Unconfined
         override val io: CoroutineDispatcher = Dispatchers.Unconfined
     }
 
-    private class MemoryStores : DataStores {
+    internal class MemoryStores : DataStores {
         val store = MemoryStore()
         override val owner: StorageOwner = StorageOwner.App
         override fun filesDirectory(name: String): String = error("unused")
@@ -223,7 +341,7 @@ class KeyValueOrganismJournalTest {
         override suspend fun fire(event: DataEvent) = Unit
     }
 
-    private class MemoryStore : KeyValueStore {
+    internal class MemoryStore : KeyValueStore {
         override lateinit var spec: KeyValueSpec
         val values = mutableMapOf<String, Any>()
         val retentions = mutableMapOf<String, Retention>()

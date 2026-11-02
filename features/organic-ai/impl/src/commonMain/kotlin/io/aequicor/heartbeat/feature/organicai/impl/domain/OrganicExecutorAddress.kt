@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.organicai.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionInstance
 import io.aequicor.heartbeat.feature.organicai.api.CaseId
@@ -49,7 +50,12 @@ internal data class OrganicExecutorAddress(
         }
     }
 
-    fun permits(known: Organism, binding: SessionExecutionBinding): Boolean {
+    fun permitsRequest(known: Organism, request: RequestId): Boolean = when (kind) {
+        Kind.Cell -> (known.cell(CellId(member))?.phase as? CellPhase.Working)?.request == request
+        Kind.Judge -> known.cases.any { it.id == CaseId(member) }
+    }
+
+    fun permits(known: Organism, binding: SessionExecutionBinding?): Boolean {
         if (known.id.value != organism || known.incarnation != incarnation || !known.isDeveloping) return false
         return when (kind) {
             Kind.Cell -> {
@@ -74,7 +80,7 @@ internal fun Organism.cellExecution(cell: CellId): SessionExecutionBinding? =
 internal fun Organism.judgeExecution(case: CaseId): SessionExecutionBinding =
     SessionExecutionBinding(executor(OrganicExecutorAddress.Kind.Judge, case.value), judgeIdentity(case))
 
-private fun Organism.executor(kind: OrganicExecutorAddress.Kind, member: String): SessionExecutionInstance =
+internal fun Organism.executor(kind: OrganicExecutorAddress.Kind, member: String): SessionExecutionInstance =
     OrganicExecutorAddress(
         id.value,
         checkNotNull(incarnation) { "Legacy organism has no proven executor incarnation" },
