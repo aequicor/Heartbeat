@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSecretId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.withoutLabel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptConstraints
@@ -17,6 +18,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
@@ -46,6 +48,7 @@ class StrictPromptDispatcherTest {
                 source: AuthSource,
                 context: EngineContext,
                 deadline: TimeMark,
+                beforeDispatch: suspend () -> Unit,
             ): IsolatedAnswer {
                 calls++
                 return IsolatedAnswer.Answered("READY")
@@ -80,6 +83,7 @@ class StrictPromptDispatcherTest {
                 source: AuthSource,
                 context: EngineContext,
                 deadline: TimeMark,
+                beforeDispatch: suspend () -> Unit,
             ): IsolatedAnswer {
                 assertNull(context.workspace)
                 assertEquals(prompt.target.model, context.model)
@@ -108,6 +112,7 @@ class StrictPromptDispatcherTest {
                 source: AuthSource,
                 context: EngineContext,
                 deadline: TimeMark,
+                beforeDispatch: suspend () -> Unit,
             ): IsolatedAnswer = IsolatedAnswer.Answered("READY")
         }
         val fixture = RouteFixture(this, native, registration(factory))
@@ -139,6 +144,7 @@ class StrictPromptDispatcherTest {
                 source: AuthSource,
                 context: EngineContext,
                 deadline: TimeMark,
+                beforeDispatch: suspend () -> Unit,
             ): IsolatedAnswer {
                 dispatched = true
                 return IsolatedAnswer.Answered("late")
@@ -154,6 +160,67 @@ class StrictPromptDispatcherTest {
             dispatcher(fixture).answer(prompt(fixture), deadline),
         )
         assertTrue(!dispatched)
+    }
+
+    @Test
+    fun `canonical binding disable blocks dispatch while the adapter cache stays enabled`() = runTest {
+        val native = FakeEngineFactory()
+        var disable: () -> Unit = {}
+        var requests = 0
+        val factory = object : EngineFactory by native {
+            override suspend fun answerIsolated(
+                prompt: IsolatedPrompt,
+                source: AuthSource,
+                context: EngineContext,
+                deadline: TimeMark,
+                beforeDispatch: suspend () -> Unit,
+            ): IsolatedAnswer {
+                disable()
+                beforeDispatch()
+                requests++
+                return IsolatedAnswer.Answered("stale")
+            }
+        }
+        val fixture = RouteFixture(this, native, registration(factory))
+        native.routes[fixture.binding.id] = fixture.source
+        disable = { fixture.store.bindings.value = listOf(fixture.binding.copy(isEnabled = false)) }
+        assertFailsWith<EngineException> {
+            dispatcher(fixture).answer(prompt(fixture), TimeSource.Monotonic.markNow() + 5.seconds)
+        }
+        assertEquals(0, requests)
+        assertEquals(fixture.source, native.routes[fixture.binding.id])
+    }
+
+    @Test
+    fun `canonical source replacement during adapter setup refuses before model dispatch`() = runTest {
+        val native = FakeEngineFactory()
+        var replace: () -> Unit = {}
+        var requests = 0
+        val factory = object : EngineFactory by native {
+            override suspend fun answerIsolated(
+                prompt: IsolatedPrompt,
+                source: AuthSource,
+                context: EngineContext,
+                deadline: TimeMark,
+                beforeDispatch: suspend () -> Unit,
+            ): IsolatedAnswer {
+                replace()
+                beforeDispatch()
+                requests++
+                return IsolatedAnswer.Answered("stale")
+            }
+        }
+        val fixture = RouteFixture(this, native, registration(factory))
+        replace = {
+            val source = fixture.source as AuthSource.ManagedKey
+            fixture.sources.remove(source.info.id)
+            fixture.sources.add(source.copy(secret = AuthSecretId("replacement")))
+        }
+        assertEquals(
+            IsolatedAnswer.Unavailable(IsolatedPromptFailure.SourceChanged),
+            dispatcher(fixture).answer(prompt(fixture), TimeSource.Monotonic.markNow() + 5.seconds),
+        )
+        assertEquals(0, requests)
     }
 
     private fun prompt(fixture: RouteFixture) = IsolatedPrompt(

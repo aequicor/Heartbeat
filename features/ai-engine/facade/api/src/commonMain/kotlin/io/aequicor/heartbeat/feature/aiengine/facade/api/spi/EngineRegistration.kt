@@ -136,6 +136,8 @@ public interface EngineFactory {
      * implementations refuse before model IO. Cancellation must cancel the request and finish owned cleanup
      * before returning; facade retains capacity until then. Recheck [deadline] immediately before provider dispatch
      * and after any suspending setup; it includes queueing and route validation, not a fresh timeout.
+     * Invoke [beforeDispatch] immediately before the actual request, after all suspending setup and adapter-cache
+     * checks. It revalidates canonical facade bindings/auth sources; an adapter cache is not that authority.
      * Source material stays inside the trusted adapter.
      */
     public suspend fun answerIsolated(
@@ -143,6 +145,7 @@ public interface EngineFactory {
         source: AuthSource,
         context: EngineContext,
         deadline: TimeMark,
+        beforeDispatch: suspend () -> Unit,
     ): IsolatedAnswer = IsolatedAnswer.Unavailable(IsolatedPromptFailure.IsolationUnproven)
 
     /**

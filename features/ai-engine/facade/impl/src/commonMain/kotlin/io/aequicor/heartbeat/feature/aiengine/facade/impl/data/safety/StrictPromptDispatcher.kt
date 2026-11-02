@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RouteResolver
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -32,7 +33,7 @@ internal class StrictPromptDispatcher(private val routes: RouteResolver, private
                 resolved.source,
                 resolved.context,
                 deadline,
-            )
+            ) { requireCurrent(prompt, deadline) }
             currentCoroutineContext().ensureActive()
             routes.resolveIsolated(prompt.target, constraints.expectedSource)
             when {
@@ -44,11 +45,24 @@ internal class StrictPromptDispatcher(private val routes: RouteResolver, private
                 else -> answer
             }
         } catch (e: EngineException) {
-            if ((e.failure as? EngineFailure.Authentication)?.reason?.reason == AuthFailureReason.SourceChanged) {
-                IsolatedAnswer.Unavailable(IsolatedPromptFailure.SourceChanged)
-            } else {
-                throw e
-            }
+            IsolatedAnswer.Unavailable(e.isolatedFailure() ?: throw e)
         }
     }
+
+    private suspend fun requireCurrent(prompt: IsolatedPrompt, deadline: TimeMark) {
+        currentCoroutineContext().ensureActive()
+        if (deadline.hasPassedNow()) throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
+        routes.resolveIsolated(prompt.target, requireNotNull(prompt.constraints).expectedSource)
+        currentCoroutineContext().ensureActive()
+        if (deadline.hasPassedNow()) throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
+    }
+}
+
+private fun EngineException.isolatedFailure(): IsolatedPromptFailure? = when {
+    (failure as? EngineFailure.Authentication)?.reason?.reason == AuthFailureReason.SourceChanged ->
+        IsolatedPromptFailure.SourceChanged
+
+    (failure as? EngineFailure.Transport)?.reason == TransportFailureReason.Timeout -> IsolatedPromptFailure.Timeout
+
+    else -> null
 }
