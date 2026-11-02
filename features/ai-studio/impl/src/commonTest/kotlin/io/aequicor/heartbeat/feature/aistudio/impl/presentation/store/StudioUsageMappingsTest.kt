@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextBreakdown
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import kotlinx.serialization.json.Json
@@ -8,6 +9,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class StudioUsageMappingsTest {
+    @Test
+    fun `native breakdown survives projection and remote screen transport with unknown categories intact`() {
+        val usage = ContextUsage(78080, 128000, breakdown = ContextBreakdown(instructions = 6400, history = 42880))
+        val ui = usage.toUi()
+        assertEquals(6400L, ui.breakdown?.instructions)
+        assertNull(ui.breakdown?.tools)
+        assertEquals(ui, Json.decodeFromString<ContextUsageUi>(Json.encodeToString(ui)))
+        assertNull(ContextUsage(78080, 128000).toUi().breakdown)
+    }
+
     @Test
     fun `unknown limit survives projection and screen transport without a zero percentage`() {
         val ui = ContextUsage(4096, null).toUi()

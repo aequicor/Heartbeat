@@ -408,4 +408,22 @@
     <string name="usage_chip_week">Нед.</string>
     <string name="usage_chip_month">Мес</string>
     <string name="usage_window_month">За месяц</string>
+    <string name="usage_context_tab">Контекст</string>
+    <string name="usage_empty">Данных пока нет</string>
+    <string name="usage_limits_unavailable">Движок не передал данные о лимитах.</string>
+    <string name="usage_breakdown_unavailable">Разбивка недоступна</string>
+    <string name="usage_breakdown_hint">Движок передал только общий объём.</string>
+    <string name="usage_free_tokens">Свободно %1$s токенов</string>
+    <string name="usage_breakdown">Состав</string>
+    <string name="usage_instructions">Инструкции</string>
+    <string name="usage_history">История</string>
+    <string name="usage_tools">Инструменты</string>
+    <string name="usage_files">Файлы</string>
+    <string name="usage_unallocated">Не распределено</string>
+    <string name="usage_reset_unknown">Время сброса не передано</string>
+    <string name="usage_window_unknown">Лимит</string>
+    <string name="usage_stale_unknown">Данные могут быть устаревшими</string>
+    <string name="usage_compact_short">Сжать</string>
+    <string name="usage_token_unit">Токены</string>
+    <string name="usage_consumed">%1$d% израсходовано</string>
 </resources>
