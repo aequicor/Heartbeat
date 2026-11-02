@@ -782,7 +782,8 @@ internal class EngineStudioRepository(
         log.v { "Update pending permission projection" }
         val (handle, isStopRequested) = handlesLock.withLock { handles[id] to (id in stopRequests) }
         val isStopSupported = handle?.features?.resolve(CancelsTurns) != FeatureAccess.Unsupported
-        val isSteeringSupported = handle?.features?.resolve(SteersTurns) is FeatureAccess.Available
+        val isSteeringSupported = handle?.features?.resolve(SteersTurns) is FeatureAccess.Available ||
+            handle?.features?.resolve(CancelsTurns) is FeatureAccess.Available
         mutableState.update { it.withPermissionState(id, state, isStopRequested, isStopSupported, isSteeringSupported) }
     }
 

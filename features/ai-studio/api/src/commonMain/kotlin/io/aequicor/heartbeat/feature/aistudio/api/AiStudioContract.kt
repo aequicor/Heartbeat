@@ -80,7 +80,7 @@ public sealed interface AiStudioState : MachineState {
         val stopping: Set<String> = emptySet(),
         val stopFailures: Set<String> = emptySet(),
         val uncancellable: Set<String> = emptySet(),
-        /** Chats whose current native turn accepts additional user input. */
+        /** Chats accepting correction through native steering or confirmed interruption followed by a new turn. */
         val steerable: Set<String> = emptySet(),
         val permissions: List<StudioPermission> = emptyList(),
         val observedRunning: Set<String> = emptySet(),

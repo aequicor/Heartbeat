@@ -53,7 +53,7 @@ data class AiStudioScreenState(
     val stopping: ImmutableSet<String> = persistentSetOf(),
     val stopFailures: ImmutableSet<String> = persistentSetOf(),
     val uncancellable: ImmutableSet<String> = persistentSetOf(),
-    /** Chats whose current native turn accepts correction input. */
+    /** Chats accepting correction through native steering or confirmed interruption followed by a new turn. */
     val steerable: ImmutableSet<String> = persistentSetOf(),
     val settings: SettingsUi = DefaultSettingsUi,
     val isEngineSwitchingAvailable: Boolean = false,
