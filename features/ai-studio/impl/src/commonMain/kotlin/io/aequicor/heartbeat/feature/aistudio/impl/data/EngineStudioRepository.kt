@@ -431,7 +431,8 @@ internal class EngineStudioRepository(
             val settings = hostRunSettings(chatRecords.record(id), state.value.configurations[id]?.applied, defaults())
             runs.run(
                 this,
-                studioTurnRequest(id, action.prompt, settings, action.kind, RequestId(action.operation)),
+                studioTurnRequest(id, action.prompt, settings, action.kind, RequestId(action.operation))
+                    .copy(continuationOf = action.continuationOf),
                 waitForIdle = true,
                 beforeExecute = {
                     worktrees.send(WorktreeIntent.Public.ActionDelivered(id, action.operation))

@@ -25,6 +25,9 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | RecoveryRequired | RunSubmissionReconciled | Pending identity | Failed; clear ownership; save receipt |
  * | RecoveryRequired | RunAdopted | Pending Coding run with exactly this recorded session and turn | Working |
  * | Any | Either submission command | Accepted, settled or mismatched identity | Unchanged |
+ * | Idle / ActionWorking | RunStarted with source | Exact action and settled interrupted run | Extend lineage |
+ * | Any | RunStarted with continuationOf | Missing or mismatched source claim | Unchanged |
+ * | Idle | Ordinary RunStarted | Prepared checkout and no active run | Start without extending lineage |
  * | AwaitingDecision | ChooseAction(HandOff) | Sandbox root (`canHandOff`) | Unchanged; journal publishes branch |
  * | AwaitingDecision | Branch published (`handedOff`) | Sandbox root, same run as at the choice | Retained |
  * | Any | ChooseAction(HandOff) | Plain worktree, child sandbox or another phase | Unchanged |

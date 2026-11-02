@@ -71,6 +71,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRun
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import io.aequicor.heartbeat.feature.worktreemode.api.continueVirtual
 import io.aequicor.heartbeat.feature.worktreemode.api.runPrepared
 import io.aequicor.heartbeat.feature.worktreemode.api.transition
 import kotlinx.coroutines.CancellationException
@@ -1527,6 +1528,25 @@ class StudioNativeRecoveryTest {
         assertTrue(f.host.adoptedTerminalReceipts.isEmpty())
         assertTrue(f.machine.sent.isEmpty())
         assertEquals(0, settlements)
+    }
+
+    @Test
+    fun `virtual continuation source reaches worktree preparation before native submission`() = runTest {
+        val f = TurnFixture()
+        val source = RequestId("interrupted")
+        val initial = (f.machine.state.value as WorktreeState.Ready).tasks.getValue("chat")
+        val pending = initial.copy(
+            run = WorktreeRun(source, outcome = TurnOutcome.Cancelled),
+            virtualInterruptedRequests = listOf(source),
+            pendingVirtualContinuation = true,
+        ).continueVirtual(f.request.request.value, "continue")
+            .transition(WorktreeIntent.Public.ActionDelivered("chat", f.request.request.value))
+        f.machine.state.value = WorktreeState.Ready(mapOf("chat" to pending))
+        f.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, f.executor.execute(f.host, f.request.copy(continuationOf = source)))
+        val started = f.machine.sent.filterIsInstance<WorktreeIntent.Public.RunStarted>().single()
+        assertEquals(source, started.continuationOf)
+        assertEquals(f.request.request, f.host.submitted?.request)
     }
 
     @Test

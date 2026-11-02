@@ -131,6 +131,8 @@ internal data class StudioTurnRequest(
     val origin: StudioTurnOrigin = StudioTurnOrigin.UnknownService,
     /** Exact native evidence for new sends and adopted turns, without changing this execution's gate or id. */
     val onNativeTurn: suspend (ActiveSession, StudioNativeTurn) -> Unit = { _, _ -> },
+    /** Durable virtual action source; the worktree machine validates it before preparing a new native run. */
+    val continuationOf: RequestId? = null,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
@@ -230,6 +232,7 @@ internal class StudioTurnExecutor(
                 request.request,
                 request.kind,
                 studioModelTarget(request.settings.modelId),
+                continuationOf = request.continuationOf,
             ),
         )
         progress.isPrepared = true

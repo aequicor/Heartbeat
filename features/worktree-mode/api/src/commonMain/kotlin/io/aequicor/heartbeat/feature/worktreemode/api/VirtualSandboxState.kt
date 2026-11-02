@@ -62,11 +62,12 @@ public fun WorktreeTask.virtualChanged(state: VirtualSandboxState): WorktreeTask
 public fun WorktreeTask.continueVirtual(operation: String, prompt: String): WorktreeTask {
     val isContinuationNeeded = pendingVirtualContinuation || virtualSandbox?.isResolving == true
     if (run?.outcome == null || actionRequest != null || !isContinuationNeeded) return this
+    val source = run.request.takeIf { it in virtualInterruptedRequests }
     return copy(
         phase = WorktreePhase.ActionWorking,
         failure = null,
-        expectedAction = WorktreeExpectedAction(operation, WorktreeRunKind.Coding),
-        actionRequest = WorktreeActionRequest(operation, WorktreeRunKind.Coding, prompt),
+        expectedAction = WorktreeExpectedAction(operation, WorktreeRunKind.Coding, source),
+        actionRequest = WorktreeActionRequest(operation, WorktreeRunKind.Coding, prompt, source),
         pendingVirtualContinuation = false,
     )
 }

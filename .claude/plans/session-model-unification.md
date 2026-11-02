@@ -677,3 +677,25 @@ remote/StudioViewCodec, StudioViewSchema и StudioViewTransfer; в новых/и
 диагностик нет. Лог диагностики `build/verification/typed-detekt-screen-model-debug.log`.
 Studio typed analysis сохраняет прежние три диагностики. Полное покрытие анализом не заявляется.
 Архитектурное read-only ревью — APPROVE после mixed-DTO и InternalExecution проверок.
+
+### Явный источник virtual continuation — первый этап
+
+WorktreeActionRequest и WorktreeExpectedAction сохраняют nullable continuationOf.
+Его назначает только continueVirtual для фактически прерванного request; после
+ActionDelivered ссылка остаётся в expected action. Studio передаёт её до RunStarted,
+где проверяются operation, kind, source и завершённый interrupted run. Независимый
+human/creator Coding больше не расширяет virtualContinuations. Разрешение конфликтов
+без interrupted source остаётся отдельным host action с source=null.
+
+Это только доказательство перехода worktree lifecycle. Map остаётся lookup hint;
+immutable request policy, receipt lineage, result/cancel/recovery routing ещё предстоит
+реализовать. Старые действия без source не получают происхождение по одному map.
+Следом: подготовка receipt только после GraphRecovery.Submit (включая startedRun),
+exact stop binding adoption и universal admission, затем atomic prepareContinuation.
+
+Проверка source-only шага: `virtual-source-final2.log` — Studio impl 970/970,
+worktree API 39/39, DI и оба режима Studio detekt успешны (три прежние typed diagnostics).
+В том прогоне worktree detekt нашёл только длину строки KDoc; после её исправления
+`virtual-source-final3.log` — worktree API JVM и оба режима detekt успешны.
+Read-only архитектурное ревью source-only шага — без блокеров; immutable receipt lineage
+этими результатами не подтверждается и остаётся следующим обязательным этапом.

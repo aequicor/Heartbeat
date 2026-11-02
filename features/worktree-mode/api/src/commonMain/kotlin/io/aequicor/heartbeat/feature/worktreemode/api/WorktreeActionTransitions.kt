@@ -68,7 +68,8 @@ public fun WorktreeTask.claimAction(expected: WorktreeExpectedAction): WorktreeT
 
 /** A persisted action prompt is ready for profile-owned delivery. */
 public fun WorktreeTask.actionPrepared(request: WorktreeActionRequest): WorktreeTask = if (
-    phase == WorktreePhase.ActionWorking && expectedAction == WorktreeExpectedAction(request.operation, request.kind)
+    phase == WorktreePhase.ActionWorking &&
+    expectedAction == WorktreeExpectedAction(request.operation, request.kind, request.continuationOf)
 ) {
     copy(actionRequest = request)
 } else {
