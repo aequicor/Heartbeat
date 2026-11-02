@@ -61,6 +61,7 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         stopping = machine.stopping.toImmutableSet(),
         stopFailures = machine.stopFailures.toImmutableSet(),
         uncancellable = machine.uncancellable.toImmutableSet(),
+        steerable = machine.steerable.toImmutableSet(),
         settings = machine.settings.toUi().copy(engineEfforts = settings.engineEfforts),
         isEngineSwitchingAvailable = machine.isEngineSwitchingAvailable,
         isMessageQueueEnabled = machine.isMessageQueueEnabled,

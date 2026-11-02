@@ -472,6 +472,7 @@ private fun ReadyTransitions.runtimeSnapshots() {
                 permissions = snapshot.permissions.filterNot { it.requestId in answered },
                 answeredPermissions = answered,
                 uncancellable = snapshot.uncancellable,
+                steerable = snapshot.steerable,
                 configurations = snapshot.configurations,
                 engineSwitches = snapshot.engineSwitches,
                 isEngineSwitchingAvailable = snapshot.isEngineSwitchingAvailable,
@@ -487,6 +488,7 @@ private fun ReadyTransitions.runtimeSnapshots() {
             state.copy(
                 running = emptySet(),
                 observedRunning = emptySet(),
+                steerable = emptySet(),
                 contexts = emptyMap(),
                 providerUsage = emptyMap(),
                 runStartedAt = emptyMap(),

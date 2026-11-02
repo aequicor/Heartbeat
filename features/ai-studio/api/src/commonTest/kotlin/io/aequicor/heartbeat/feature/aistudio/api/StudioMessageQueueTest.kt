@@ -13,6 +13,63 @@ class StudioMessageQueueTest {
     private val spec = studioQueueMachineSpec(data)
 
     @Test
+    fun `interrupt confirmation waits for idle then dispatches the selected correction`() {
+        val correction = StudioCorrection(second.id, "cancel-one", "original")
+        val reserved = data.withChat("chat", data.chat("chat").copy(correction = correction))
+        val busy = StudioQueueState(reserved, busy = setOf("chat"))
+        spec.assertIgnored(busy, StudioQueueIntent.Public.Drain("chat", "drain"))
+        val confirmed = reserved.withChat(
+            "chat",
+            reserved.chat("chat").copy(correction = correction.copy(isReady = true)),
+        )
+        spec.assertTransition(
+            busy,
+            StudioQueueIntent.Internal.Interrupted("chat", correction.token, "confirmed"),
+            busy.copy(data = confirmed, saving = "confirmed"),
+            effects = listOf(StudioQueueEffect.Save("confirmed", confirmed)),
+        )
+        spec.assertIgnored(busy.copy(data = confirmed), StudioQueueIntent.Public.Drain("chat", "drain"))
+        val idle = StudioQueueState(confirmed)
+        val sending = confirmed.withChat(
+            "chat",
+            confirmed.chat("chat").copy(
+                correction = null,
+                activeRequest = second.id,
+                messages = listOf(first, second.copy(delivery = StudioQueuedDelivery.Sending)),
+            ),
+        )
+        spec.assertTransition(
+            idle,
+            StudioQueueIntent.Public.Drain("chat", "drain"),
+            idle.copy(data = sending, saving = "drain"),
+            effects = listOf(StudioQueueEffect.Save("drain", sending, StudioQueueEffect.Dispatch("chat", second))),
+        )
+    }
+
+    @Test
+    fun `manual stop revokes correction and late confirmation cannot revive it`() {
+        val correction = StudioCorrection(second.id, "old", "original")
+        val reserved = data.withChat("chat", data.chat("chat").copy(correction = correction))
+        val initial = StudioQueueState(reserved)
+        val paused = reserved.withChat("chat", reserved.chat("chat").copy(correction = null, isPaused = true))
+        spec.assertTransition(
+            initial,
+            StudioQueueIntent.Public.Pause("chat", "stop"),
+            initial.copy(data = paused, saving = "stop"),
+            effects = listOf(StudioQueueEffect.Save("stop", paused)),
+        )
+        val late = StudioQueueIntent.Internal.Interrupted("chat", "old", "late")
+        spec.assertIgnored(StudioQueueState(paused), late)
+        val replaced = reserved.withChat(
+            "chat",
+            reserved.chat("chat").copy(correction = correction.copy(token = "new")),
+        )
+        spec.assertIgnored(StudioQueueState(replaced), late)
+        assertEquals(null, reserved.chat("chat").restored().correction)
+        assertEquals(listOf(first, second), reserved.chat("chat").restored().messages)
+    }
+
+    @Test
     fun `enqueue captures input durably and refuses invalid or duplicate messages`() {
         val initial = StudioQueueState(StudioMessageQueues())
         val captured = StudioMessageQueues(mapOf("chat" to StudioChatQueue(listOf(first))))

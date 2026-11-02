@@ -20,6 +20,19 @@ class AiStudioQueueMachineTest {
     private val queues = StudioMessageQueues(mapOf("chat" to StudioChatQueue(listOf(message))))
 
     @Test
+    fun `runtime snapshots replace steering support and runtime loss clears it`() {
+        val previous = ready.copy(steerable = setOf("old"))
+        val snapshot = StudioRuntimeState(steerable = setOf("chat"), isMessageQueueEnabled = true)
+        val current = ready.copy(steerable = setOf("chat"))
+        AiStudioMachineSpec.assertTransition(
+            previous,
+            AiStudioIntent.Internal.RuntimeChanged(snapshot),
+            current,
+        )
+        AiStudioMachineSpec.assertTransition(current, AiStudioIntent.Internal.RuntimeLost, ready)
+    }
+
+    @Test
     fun `submitting during execution queues the exact captured correction and host environment`() {
         val running = ready.copy(running = setOf("chat"))
         val environment = object : StudioChatEnvironment {

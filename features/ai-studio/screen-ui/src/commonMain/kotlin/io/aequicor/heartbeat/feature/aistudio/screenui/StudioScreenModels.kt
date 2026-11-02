@@ -143,6 +143,7 @@ data class PaneContent(
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val isAttachmentsEnabled: Boolean = false,
     val isMessageQueueEnabled: Boolean = false,
+    val isTurnSteeringAvailable: Boolean = false,
     val queue: ChatQueueUi = ChatQueueUi(),
     val queueNotice: QueueNoticeUi? = null,
     val isRememberEnabled: Boolean = false,
@@ -480,6 +481,7 @@ private fun AiStudioScreenState.worktreeFor(session: String?): WorktreeUi? =
 /** Profile input stays attached to its logical chat while pane selection changes. */
 private fun PaneContent.withMessageQueue(screen: AiStudioScreenState, session: SessionUi?) = copy(
     isMessageQueueEnabled = screen.isMessageQueueEnabled && session?.isHelper != true && session?.isOrganism != true,
+    isTurnSteeringAvailable = pane.sessionId in screen.steerable,
     queue = screen.messageQueues[pane.sessionId] ?: ChatQueueUi(),
     queueNotice = screen.queueNotices[pane.sessionId],
 )

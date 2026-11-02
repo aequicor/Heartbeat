@@ -121,11 +121,15 @@ internal fun StudioRuntimeState.withPermissionState(
     state: ActiveSessionState,
     isStopRequested: Boolean,
     isStopSupported: Boolean,
+    isSteeringSupported: Boolean = false,
 ): StudioRuntimeState {
+    val isSteerable = isSteeringSupported && !isStopRequested &&
+        (state is ActiveSessionState.Running || state is ActiveSessionState.AwaitingUserAction)
     val isStopFailed = isStopRequested && state is ActiveSessionState.Unavailable && state.activeTurn != null
     return copy(
         permissions = permissions.filterNot { it.sessionId == id } + projectStudioPermissions(id, state, permissions),
         stopFailures = if (isStopFailed) stopFailures + id else stopFailures,
         uncancellable = if (isStopSupported) uncancellable - id else uncancellable + id,
+        steerable = if (isSteerable) steerable + id else steerable - id,
     )
 }
