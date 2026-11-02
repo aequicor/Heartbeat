@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_chip_suggest
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_mode_autopilot
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_notice_done
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_paused
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_send_now
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_stop
@@ -34,6 +35,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueCountdownUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueModeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueScreenUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueUi
@@ -173,6 +175,16 @@ class StudioAutoContinueUiTest {
     }
 
     @Test
+    fun `a finished autopilot continuation offers no stop action`() = runSkikoComposeUiTest {
+        val labels = render(
+            state(AutoContinueUi(mode = AutoContinueModeUi.Autopilot, notice = AutoContinueNoticeUi.Done)),
+            mutableListOf(),
+        )
+        onNodeWithText(labels.done).assertExists()
+        onNodeWithText(labels.stop).assertDoesNotExist()
+    }
+
+    @Test
     fun `approved layouts render in both themes and host densities`() {
         for (width in listOf(390f, 834f, 1280f)) {
             for (dark in listOf(false, true)) {
@@ -225,6 +237,7 @@ class StudioAutoContinueUiTest {
         val add: String = "",
         val menu: String = "",
         val paused: String = "",
+        val done: String = "",
     )
 
     private fun SkikoComposeUiTest.render(
@@ -243,6 +256,7 @@ class StudioAutoContinueUiTest {
                 stringResource(Res.string.composer_add),
                 stringResource(Res.string.auto_continue_menu),
                 stringResource(Res.string.auto_continue_paused),
+                stringResource(Res.string.auto_continue_notice_done),
             )
             HbTheme(
                 darkTheme = isDark,
