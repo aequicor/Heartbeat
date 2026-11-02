@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.data
 
+import com.sun.jna.Platform
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import java.nio.file.Files
 import kotlin.test.Test
@@ -9,6 +10,8 @@ import kotlin.test.assertNull
 class MacStaleGrantResetTest {
     @Test
     fun `launcher inside an app bundle is an installed bundle`() {
+        // This macOS contract uses POSIX File paths; Windows rewrites their separators and roots.
+        if (Platform.isWindows()) return
         val bundle = MacStaleGrantReset.installedBundle("/Applications/Heartbeat.app/Contents/MacOS/Heartbeat")
         assertEquals("/Applications/Heartbeat.app", bundle?.path)
     }
@@ -30,6 +33,8 @@ class MacStaleGrantResetTest {
 
     @Test
     fun `local distributable outside Applications is not an installed bundle`() {
+        // This macOS contract uses POSIX File paths; Windows rewrites their separators and roots.
+        if (Platform.isWindows()) return
         val home = "/Users/me"
         assertNull(
             MacStaleGrantReset.installedBundle("/Users/me/work/build/Heartbeat.app/Contents/MacOS/Heartbeat", home),
@@ -45,6 +50,8 @@ class MacStaleGrantResetTest {
 
     @Test
     fun `reset command names the service and the bundle identifier`() {
+        // This macOS contract uses POSIX File paths; Windows rewrites their separators and roots.
+        if (Platform.isWindows()) return
         val root = Files.createTempDirectory("stale-grant").toFile()
         try {
             val contents = root.resolve("Applications/Heartbeat.app/Contents").apply { resolve("MacOS").mkdirs() }
