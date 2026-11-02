@@ -21,8 +21,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RelaysPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
@@ -107,6 +109,7 @@ class ManagedActiveSession(
                 SteersTurns.id to parts.native.features.wrap(SteersTurns) { Steering(it) },
                 CancelsTurns.id to parts.native.features.wrap(CancelsTurns) { Canceller() },
                 RequestsPermissions.id to parts.native.features.wrap(RequestsPermissions) { Permissions() },
+                RelaysPermissions.id to parts.native.features.wrap(RequestsPermissions) { PermissionRelayer() },
                 ReconcilesSession.id to available(Reconciler()),
                 SwitchesModels.id to parts.native.features.wrap(SwitchesModels) { ModelSwitcher(it) },
                 ChangesSessionConfiguration.id to parts.native.features.wrap(ChangesSessionConfiguration) {
@@ -381,7 +384,17 @@ class ManagedActiveSession(
     private inner class Permissions : RequestsPermissions {
         override suspend fun respond(decision: PermissionDecision) {
             log.i { "respond turn=${decision.turn.value} request=${decision.request.value}" }
+            check(execution == null) { "Executor decisions must pass through their owner" }
             admitted(SessionExecutionOperation.Respond) { command(ActiveSessionIntent.Public.Decide(decision)) }
+        }
+    }
+
+    private inner class PermissionRelayer : RelaysPermissions {
+        override suspend fun respond(relay: PermissionRelay, decision: PermissionDecision) {
+            check(execution != null && relay.binding == execution && relay.session == ref)
+            check(relay.accepts(decision)) { "Decision exceeds its captured operation" }
+            log.i { "Relay exact executor permission decision" }
+            command(ActiveSessionIntent.Public.Decide(decision, relay))
         }
     }
 

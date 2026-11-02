@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -77,7 +79,13 @@ class ActiveSessionEffects(
                 log.i { "decide turn=${effect.decision.turn.value} request=${effect.decision.request.value}" }
                 handOff(
                     "respond",
-                ) { admitted { command(RequestsPermissions).respond(correlation.native(effect.decision)) } }
+                ) {
+                    requireRelay(effect.relay, effect.decision)
+                    admitted(permission = effect.relay?.let { it to effect.decision }) {
+                        requireRelay(effect.relay, effect.decision)
+                        command(RequestsPermissions).respond(correlation.native(effect.decision))
+                    }
+                }
             }
 
             is ActiveSessionEffect.Recheck -> try {
@@ -96,8 +104,22 @@ class ActiveSessionEffects(
         }
     }
 
+    private fun requireRelay(relay: PermissionRelay?, decision: PermissionDecision) {
+        if (execution == null) {
+            check(relay == null) { "A full conversation cannot borrow executor permission authority" }
+            return
+        }
+        check(relay != null && relay.binding == execution && relay.session == native.ref)
+        val pending = correlation.localize(native.state.value) as? ActiveSessionState.AwaitingUserAction
+        check(
+            pending?.turn?.request == relay.request && pending.turn.target == relay.target &&
+                pending.requests.any { it == relay.permission } && relay.accepts(decision),
+        ) { "Native pending operation differs from its relay" }
+    }
+
     private suspend fun admitted(
         entry: io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId? = null,
+        permission: Pair<PermissionRelay, PermissionDecision>? = null,
         block: suspend () -> Unit,
     ) {
         val access = executions
@@ -110,6 +132,7 @@ class ActiveSessionEffects(
                 execution,
                 entry,
                 if (entry == null) SessionExecutionOperation.Respond else SessionExecutionOperation.Submit,
+                permission,
                 block,
             )
         }

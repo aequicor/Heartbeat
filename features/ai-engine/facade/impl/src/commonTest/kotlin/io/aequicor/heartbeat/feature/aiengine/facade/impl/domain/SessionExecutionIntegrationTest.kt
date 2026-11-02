@@ -1,20 +1,31 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RelaysPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCursor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionInstance
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -32,6 +43,57 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionExecutionIntegrationTest {
     private val binding = SessionExecutionBinding(SessionExecutionInstance("host", "first"))
+
+    @Test
+    fun `executor response requires a canonical relay and localizes the native turn`() = runTest {
+        val env = ExecutionEnvironment(this)
+        val owner = LogicalSessionContext(LogicalSessionId("owner"), SessionKind.Session)
+        val bound = binding.copy(logicalSession = owner.subagent(LogicalSessionId("child")))
+        val session = env.launcher.create(CreateSessionRequest(env.routes.target, execution = bound))
+        val sender = assertIs<FeatureAccess.Available<SendsPrompts>>(session.features.resolve(SendsPrompts)).feature
+        val request = RequestId("work")
+        sender.send(PromptRequest(request, listOf(ContentPart.Text("work"))))
+        val native = env.runtimes.single().sessions.single()
+        val offered = native.ask(
+            "ask",
+        ).let { it.copy(options = it.options.map { option -> option.copy(isOneTime = true) }) }
+        native.native.value = ActiveSessionState.AwaitingUserAction(native.activeTurn, listOf(offered))
+        runCurrent()
+        val pending = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value)
+        val captured = pending.requests.single()
+        val decision = PermissionDecision(captured.turn, captured.id, captured.options.first().id)
+        val direct = assertIs<FeatureAccess.Available<RequestsPermissions>>(
+            session.features.resolve(RequestsPermissions),
+        ).feature
+        assertFailsWith<IllegalStateException> { direct.respond(decision) }
+        val relay = PermissionRelay(bound, owner.id, session.ref, pending.turn.target, request, captured, "issued", 1)
+        env.permitsRelay = { supplied, answer -> supplied == relay && answer == decision }
+        val relayFeature = assertIs<FeatureAccess.Available<RelaysPermissions>>(
+            session.features.resolve(RelaysPermissions),
+        ).feature
+        relayFeature.respond(relay, decision)
+        runCurrent()
+        assertEquals(listOf(decision.copy(turn = offered.turn)), native.decisions)
+    }
+
+    @Test
+    fun `changed permission with reused id is republished for a fresh owner appearance`() {
+        val turn = Turn(
+            TurnId("turn"),
+            RequestId("work"),
+            TestTarget,
+        )
+        val original = permission("ask", turn.id)
+        val changed = original.copy(title = "Different action")
+        val before = ActiveSessionState.AwaitingUserAction(turn, listOf(original))
+        val after = before.copy(requests = listOf(changed))
+        assertEquals(
+            listOf(
+                ActiveSessionIntent.Internal.PermissionNeeded(changed),
+            ),
+            reconcile(before, after),
+        )
+    }
 
     @Test
     fun `original payload and actual model are checked before native request entry`() = runTest {
@@ -144,6 +206,7 @@ class SessionExecutionIntegrationTest {
 private class ExecutionEnvironment(scope: TestScope) {
     var isPermitted = true
     var permitsPrompt: (EngineTarget, PromptRequest) -> Boolean = { _, _ -> true }
+    var permitsRelay: (PermissionRelay, PermissionDecision) -> Boolean = { _, _ -> false }
     var entries = 0
     var beforeOpen: CompletableDeferred<Unit>? = null
     val runtimes = mutableListOf<FakeRuntime>()
@@ -159,6 +222,11 @@ private class ExecutionEnvironment(scope: TestScope) {
                     target: EngineTarget,
                     request: PromptRequest,
                 ) = permitsPrompt(target, request)
+
+                override suspend fun permitsPermissionOwner(relay: PermissionRelay): Boolean = true
+
+                override suspend fun enterPermission(relay: PermissionRelay, decision: PermissionDecision): Boolean =
+                    permitsRelay(relay, decision)
 
                 override suspend fun enterPrompt(
                     binding: SessionExecutionBinding,

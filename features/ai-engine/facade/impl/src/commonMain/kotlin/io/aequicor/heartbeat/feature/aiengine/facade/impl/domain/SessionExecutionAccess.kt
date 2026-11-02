@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
@@ -94,6 +96,7 @@ class SessionExecutionAccess(
         binding: SessionExecutionBinding?,
         entry: RequestId? = null,
         operation: SessionExecutionOperation = SessionExecutionOperation.Open,
+        permission: Pair<PermissionRelay, PermissionDecision>? = null,
         block: suspend () -> T,
     ): T = if (binding == null) {
         unbound(ref.engine) {
@@ -101,7 +104,8 @@ class SessionExecutionAccess(
             block()
         }
     } else {
-        admissions.admitted(binding, entry?.let { ref to it }, operation) {
+        if (permission != null) check(permission.first.session == ref && permission.first.binding == binding)
+        admissions.admitted(binding, entry?.let { ref to it }, operation, permission) {
             check(ref, binding)
             block()
         }

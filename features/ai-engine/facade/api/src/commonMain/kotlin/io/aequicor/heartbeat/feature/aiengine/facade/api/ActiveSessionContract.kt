@@ -82,7 +82,7 @@ public sealed interface ActiveSessionIntent : MachineIntent {
         public data class Cancel(val turn: TurnId) : Public
 
         /** Answers one currently pending permission request. */
-        public data class Decide(val decision: PermissionDecision) : Public
+        public data class Decide(val decision: PermissionDecision, val relay: PermissionRelay? = null) : Public
 
         /** Reconciles unavailable state without resending the original prompt. */
         public data object Recheck : Public
@@ -146,7 +146,7 @@ public sealed interface ActiveSessionEffect : MachineEffect {
     public data class Cancel(val turn: TurnId) : ActiveSessionEffect
 
     /** Deliver a decision to an outstanding request. */
-    public data class Decide(val decision: PermissionDecision) : ActiveSessionEffect
+    public data class Decide(val decision: PermissionDecision, val relay: PermissionRelay? = null) : ActiveSessionEffect
 
     /** Read native state and recover this remembered turn's outcome if it ended; never replay a prompt. */
     public data class Recheck(val turn: TurnId?) : ActiveSessionEffect

@@ -289,6 +289,7 @@ class FacadeCapabilities(
         return StoredSession(
             stored,
             history = { handles.history(stored.summary.value.ref) },
+            relay = { FeatureAccess.Available(handles.permissionRelay(stored.summary.value.ref)) },
             observation = {
                 FeatureAccess.Available(object : SessionObservation {
                     override val snapshots = handles.observe(stored.summary.value.ref)

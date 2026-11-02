@@ -111,6 +111,10 @@ class ActiveSessionRegistry {
         }
         .firstOrNull { it != FeatureAccess.Unsupported }
 
+    /** Exact owner-mediated response through a borrowed live handle; the handle retains all authority checks. */
+    fun permissionRelay(ref: SessionRef): io.aequicor.heartbeat.feature.aiengine.facade.api.RelaysPermissions =
+        BorrowedPermissionRelay(ref) { handles.value }
+
     /** Observes execution without giving a reader ownership of a handle or permission to drive it. */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observe(ref: SessionRef): Flow<SessionObservationSnapshot?> = handles

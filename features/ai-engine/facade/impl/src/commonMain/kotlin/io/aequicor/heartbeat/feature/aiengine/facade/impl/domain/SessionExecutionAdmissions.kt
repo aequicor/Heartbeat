@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
@@ -34,11 +36,13 @@ class SessionExecutionAdmissions(private val authorities: Lazy<Set<SessionExecut
         binding: SessionExecutionBinding,
         entry: Pair<SessionRef, RequestId>? = null,
         operation: SessionExecutionOperation = SessionExecutionOperation.Open,
+        permission: Pair<PermissionRelay, PermissionDecision>? = null,
         block: suspend () -> T,
     ): T {
         val ticket = mutex.withLock {
             requireAllowed(binding)
             check(authority(binding).permitsOperation(binding, operation)) { "Executor operation is denied" }
+            permission?.let { requirePermission(binding, operation, it) }
             if (entry != null) {
                 check(authority(binding).enterPrompt(binding, entry.first, entry.second)) {
                     "Native request entry is unavailable or already consumed"
@@ -70,6 +74,21 @@ class SessionExecutionAdmissions(private val authorities: Lazy<Set<SessionExecut
                     }
                 }
             }
+        }
+    }
+
+    private suspend fun requirePermission(
+        binding: SessionExecutionBinding,
+        operation: SessionExecutionOperation,
+        permission: Pair<PermissionRelay, PermissionDecision>,
+    ) {
+        val (relay, decision) = permission
+        check(operation == SessionExecutionOperation.Respond && relay.binding == binding)
+        check(authorities.value.count { it.permitsPermissionOwner(relay) } == 1) {
+            "Permission owner is unavailable or ambiguous"
+        }
+        check(relay.accepts(decision) && authority(binding).enterPermission(relay, decision)) {
+            "Permission relay is stale, denied or already consumed"
         }
     }
 

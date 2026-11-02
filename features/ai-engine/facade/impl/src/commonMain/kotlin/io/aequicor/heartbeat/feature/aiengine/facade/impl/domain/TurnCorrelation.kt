@@ -115,7 +115,7 @@ private fun active(
                         request.id in nativeTurn.resolvedPermissions
                 }
                 .map { ActiveSessionIntent.Internal.PermissionResolved(turn.id, it.id) }
-            resolved + pending.filter { request -> requests.none { it.id == request.id } }
+            resolved + pending.filter { request -> requests.none { it == request } }
                 .map { ActiveSessionIntent.Internal.PermissionNeeded(it) }
         }
 

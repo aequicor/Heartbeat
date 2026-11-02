@@ -71,6 +71,19 @@ public interface SessionExecutionAuthority {
     ): Boolean = permits(binding)
 
     /**
+     * Whether this provider owns the current full conversation named by [relay]. Exactly one canonical
+     * conversation provider must confirm it independently of the executor issuer. Default grants no ownership.
+     */
+    public suspend fun permitsPermissionOwner(relay: PermissionRelay): Boolean = false
+
+    /**
+     * Consumes a canonical issued relay once before native response. Default denial prevents an arbitrary snapshot
+     * from authorizing a decision. Validate current owner, execution, original work and pending appearance under
+     * the admission gate; cancellation or lost native ACK never reissues this nonce automatically.
+     */
+    public suspend fun enterPermission(relay: PermissionRelay, decision: PermissionDecision): Boolean = false
+
+    /**
      * Claims this request immediately before native send. Hosts with durable attempts atomically consume their
      * one-shot entry here. A successful claim is not native acceptance; failure or cancellation never permits replay.
      * Invoked under the instance admission gate; implementations must not call that gate recursively.

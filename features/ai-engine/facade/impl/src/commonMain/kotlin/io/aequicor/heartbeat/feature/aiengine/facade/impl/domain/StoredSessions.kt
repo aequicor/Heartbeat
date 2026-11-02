@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RelaysPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -27,6 +28,7 @@ class StoredSession(
     private val stored: EngineSession,
     history: () -> FeatureAccess<SessionHistory>? = { null },
     observation: () -> FeatureAccess<SessionObservation> = { FeatureAccess.Unsupported },
+    relay: () -> FeatureAccess<RelaysPermissions> = { FeatureAccess.Unsupported },
     resume: () -> FeatureAccess<EngineFeature>,
 ) : EngineSession {
     override val summary: StateFlow<SessionSummary> get() = stored.summary
@@ -35,6 +37,7 @@ class StoredSession(
         mapOf(
             ResumesSessions.id to resume,
             SessionObservation.id to observation,
+            RelaysPermissions.id to relay,
             SessionHistory.id to { history() ?: stored.features.resolve(SessionHistory) },
         ),
         stored.features,
