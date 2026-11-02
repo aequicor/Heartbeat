@@ -325,37 +325,74 @@ internal class StudioRunCoordinator(
 internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmission>? = null) :
     StudioSubmissionGate {
     private val log = Log.tag("StudioRunSubmission")
-    private val phase = MutableStateFlow(Phase.Preparing)
+    private val state = MutableStateFlow(SubmissionState(Phase.Preparing))
 
-    override val isCancelled: Boolean get() = phase.value in setOf(Phase.Cancelled, Phase.Deferred, Phase.Dropped)
-    override val hasBegun: Boolean get() = phase.value == Phase.Submitted
+    override val isCancelled: Boolean get() = state.value.phase in setOf(Phase.Cancelled, Phase.Deferred, Phase.Dropped)
+    override val hasBegun: Boolean get() = state.value.phase in setOf(Phase.Submitted, Phase.Retained)
     override val isNativeRetentionSupported: Boolean get() = true
+    override val isRecoveryObservationSupported: Boolean get() = true
 
     override suspend fun begin() {
         admission?.first()?.let(::revoke)
-        if (!phase.compareAndSet(Phase.Preparing, Phase.Submitted)) {
+        if (!state.compareAndSet(SubmissionState(Phase.Preparing), SubmissionState(Phase.Submitted))) {
             throw revocation() ?: CancellationException("Scheduled preparation was cancelled before native submission")
         }
         log.v { "Native submission took ownership of the scheduled run" }
     }
 
+    override suspend fun beginRecoveryObservation() {
+        admission?.first()?.let(::revoke)
+        if (!state.compareAndSet(SubmissionState(Phase.Preparing), SubmissionState(Phase.Recovering))) {
+            throw revocation() ?: CancellationException("Recovery observation was revoked before inspection")
+        }
+        log.v { "Retained profile ownership during native inspection" }
+    }
+
+    override suspend fun prepareRecoverySubmit() {
+        admission?.first()?.let(::revoke)
+        while (true) {
+            val previous = state.value
+            check(previous.phase == Phase.Recovering) { "Only native inspection may select a new submission" }
+            val next = SubmissionState(previous.revoked ?: Phase.Preparing)
+            if (!state.compareAndSet(previous, next)) continue
+            if (previous.revoked != null) {
+                throw revocation() ?: CancellationException("Recovery continuation was cancelled before submission")
+            }
+            log.v { "Native inspection selected a new admitted submission" }
+            return
+        }
+    }
+
     /** Already accepted native work retains profile ownership independently of admission for new submissions. */
     override suspend fun retainNative(): Boolean {
-        check(phase.compareAndSet(Phase.Preparing, Phase.Submitted)) { "Native recovery ownership was revoked" }
+        while (true) {
+            val previous = state.value
+            check(
+                previous.phase in setOf(Phase.Preparing, Phase.Recovering),
+            ) { "Native recovery ownership was revoked" }
+            if (state.compareAndSet(previous, previous.copy(phase = Phase.Retained))) break
+        }
         log.v { "Recovered native turn retained profile ownership" }
         return false
     }
 
     override suspend fun cancel(): Boolean {
-        val isCancelled = phase.compareAndSet(Phase.Preparing, Phase.Cancelled)
+        val isCancelled = revokeTo(Phase.Cancelled)
         log.v { "Scheduled preparation cancellation accepted=$isCancelled" }
         return isCancelled
     }
 
     override suspend fun awaitRevocation(): CancellationException? {
         val decisions = admission ?: return null
-        val decision = combine(phase, decisions) { current, next -> current to next }
-            .first { (current, next) -> current != Phase.Preparing || next != ScheduledWakeAdmission.Allow }.second
+        val decision = combine(state, decisions) { current, next -> current to next }
+            .first { (current, next) ->
+                if (current.phase == Phase.Recovering) {
+                    revoke(next)
+                    false
+                } else {
+                    current.phase != Phase.Preparing || next != ScheduledWakeAdmission.Allow
+                }
+            }.second
         revoke(decision)
         return revocation()
     }
@@ -366,17 +403,34 @@ internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmi
             ScheduledWakeAdmission.Defer -> Phase.Deferred
             ScheduledWakeAdmission.Drop -> Phase.Dropped
         }
-        val isRevoked = phase.compareAndSet(Phase.Preparing, next)
+        val isRevoked = revokeTo(next)
         log.v { "Scheduled preparation revocation accepted=$isRevoked" }
     }
 
-    private fun revocation(): CancellationException? = when (phase.value) {
-        Phase.Deferred -> StudioPreparationDeferred()
-        Phase.Dropped -> StudioPreparationDropped()
-        Phase.Preparing, Phase.Submitted, Phase.Cancelled -> null
+    /** One CAS state latches revocation without opening a cancellation window during observation. */
+    private fun revokeTo(next: Phase): Boolean {
+        while (true) {
+            val previous = state.value
+            val changed = when (previous.phase) {
+                Phase.Preparing -> previous.copy(phase = next)
+                Phase.Recovering -> previous.copy(revoked = previous.revoked ?: next)
+                Phase.Submitted, Phase.Retained, Phase.Cancelled, Phase.Deferred, Phase.Dropped -> return false
+            }
+            if (state.compareAndSet(previous, changed)) {
+                log.v { "Latched submission revocation while retaining native observation when needed" }
+                return previous.phase == Phase.Preparing
+            }
+        }
     }
 
-    private enum class Phase { Preparing, Submitted, Cancelled, Deferred, Dropped }
+    private fun revocation(): CancellationException? = when (state.value.phase) {
+        Phase.Deferred -> StudioPreparationDeferred()
+        Phase.Dropped -> StudioPreparationDropped()
+        Phase.Preparing, Phase.Recovering, Phase.Submitted, Phase.Retained, Phase.Cancelled -> null
+    }
+
+    private data class SubmissionState(val phase: Phase, val revoked: Phase? = null)
+    private enum class Phase { Preparing, Recovering, Submitted, Retained, Cancelled, Deferred, Dropped }
 }
 
 /** Internal admission cancellation, translated to the scheduler's retriable deferral after cleanup. */

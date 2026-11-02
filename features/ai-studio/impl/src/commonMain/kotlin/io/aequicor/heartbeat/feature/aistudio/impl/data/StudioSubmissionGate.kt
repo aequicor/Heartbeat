@@ -12,6 +12,13 @@ internal interface StudioSubmissionGate {
 
     /** A journaled new-send gate cannot observe another request without exact stop routing. */
     val isNativeRetentionSupported: Boolean get() = false
+
+    /** Atomically protects native inspection from revocation of permission to send a new request. */
+    val isRecoveryObservationSupported: Boolean get() = false
+    suspend fun beginRecoveryObservation(): Unit = error("This gate cannot hold native recovery observation")
+
+    /** Leaves observation only after native proof selected a new send; rechecks all latched admission decisions. */
+    suspend fun prepareRecoverySubmit(): Unit = error("This gate cannot authorize a recovery continuation")
     suspend fun begin()
 
     /** Retains accepted native work without authorizing a new send; true relays a pending explicit stop. */

@@ -29,6 +29,8 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
@@ -170,6 +172,8 @@ internal class StudioTurnExecutor(
                 request.environment?.preselected.orEmpty()
             val recovered = preflightRecovery(host, request, preselected, progress)
             if (recovered == GraphRecovery.Submit) {
+                if (request.recoveryRequests.isNotEmpty()) request.submission?.prepareRecoverySubmit()
+                currentCoroutineContext().ensureActive()
                 admitted = host.prepareNewTurn(request)
                 check(admitted.copy(settings = request.settings, submission = request.submission) == request) {
                     "New-send admission cannot change the request or its provenance"
@@ -228,6 +232,11 @@ internal class StudioTurnExecutor(
         check(request.submission?.isNativeRetentionSupported != false) {
             "A journaled recovery request requires exact native stop routing before adoption"
         }
+        check(request.submission?.isRecoveryObservationSupported != false) {
+            "Recovery admission must retain observation during native inspection"
+        }
+        request.submission?.beginRecoveryObservation()
+        currentCoroutineContext().ensureActive()
         val active = host.openTurn(request.id, request.settings, preselected)
         progress.active = active
         return recoverGraphTurn(active, request)

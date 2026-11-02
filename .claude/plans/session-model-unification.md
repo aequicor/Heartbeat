@@ -1,6 +1,7 @@
 # План разработки: единая модель сессий Heartbeat
 
 **Статус: в работе; стандарт утверждён пользователем 01.11.2026.**
+Актуальная передача работы другой сессии: [checkpoint 02.11.2026](session-model-checkpoint.md).
 Целевое поведение описано в [спецификации v1](../rules/session-hierarchy.md).
 Этот документ содержит аудит текущей модели, миграцию и порядок внедрения.
 Пользователь подтвердил стандарт и поручил проверить реализацию, устранить несоответствия
@@ -841,3 +842,29 @@ proven Idle/Cancelled снимает hold и проверяет latched/current 
 Idle после revocation без Q admission/RunStarted, Stop во время inspect, profile close.
 Этот gate primitive затем связывается с production witness producer и exact native hooks,
 включая корректное закрытие NoSubmit по local gate proof и восстановление successors.
+
+### Checkpoint 02.11: atomic observation hold и передача работы
+
+StudioRunSubmission теперь имеет один immutable CAS state phase/revoked. Recovering
+не отменяется отзывом new-send admission; retainNative переводит его в Retained, который
+не даёт новый begin. beginRecoveryObservation вызывается до native open/inspect,
+prepareRecoverySubmit — только после Submit decision до admission. Отказ до hold не
+запускает preflight; отказ при Idle не создаёт admission/RunStarted/Native Q. Прозрачные
+wrappers передают capability и обе операции. ensureActive стоит перед native open и перед
+новой admission, включая gate без потока admission.
+
+Проверка `recovery-observation-hold-final3.log`: BUILD SUCCESSFUL, Studio impl 1005/1005,
+failures/errors/skips 0, DI и оба detekt успешны; прежние три typed diagnostics остаются.
+Runtime регрессии: Defer/Drop во время suspended inspect, caller detach с сохранением
+profile observer, Idle после Defer без Q, explicit Stop после binding адресует R,
+отзыв до hold без native IO, отменённый profile до open/до admission. Все hold runtime
+сценарии с coordinator проходят через forwarding wrapper. Архитектурное ревью после
+ensureActive — без блокеров.
+
+По запросу пользователя checkpoint и подробный переносимый план сохранены в
+[session-model-checkpoint.md](session-model-checkpoint.md); описание PR переписывается
+как self-contained handoff по open-pr. Ветка синхронизирована со свежим origin/master
+b410de582 (проверено fetch); PR остаётся draft. Production Engine witness capability
+всё ещё не включена; продолжать с полного вертикального recovery слоя, затем все
+остальные пункты стандарта, UI, regression и review cycle. Ничего не считать готовым
+только по сумме foundation тестов. Merge/release не разрешены.

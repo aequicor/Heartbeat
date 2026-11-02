@@ -63,6 +63,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
@@ -83,7 +84,9 @@ import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -1479,6 +1482,9 @@ class StudioNativeRecoveryTest {
         val gate = object : StudioSubmissionGate {
             override val isCancelled = false
             override val isNativeRetentionSupported = true
+            override val isRecoveryObservationSupported = true
+            override suspend fun beginRecoveryObservation() = Unit
+            override suspend fun prepareRecoverySubmit() = error("Recovery must not submit")
             override suspend fun begin() = error("Recovery must not submit")
             override suspend fun cancel() = false
             override suspend fun awaitRevocation(): CancellationException? = null
@@ -1679,6 +1685,155 @@ class StudioNativeRecoveryTest {
         assertFalse(ActiveSessionState.Closed.matches(native))
     }
 
+    @Test
+    fun `defer and drop during suspended inspection preserve observation until R settles`() = runTest {
+        for (revoked in listOf(ScheduledWakeAdmission.Defer, ScheduledWakeAdmission.Drop)) {
+            val f = TurnFixture()
+            val release = CompletableDeferred<Unit>()
+            f.active.beforeInspection = { release.await() }
+            f.active.inspection = TurnInspection.Observed(f.request.request, null)
+            f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+            val admission = MutableStateFlow<ScheduledWakeAdmission>(ScheduledWakeAdmission.Allow)
+            val coordinator = StudioRunCoordinator(ExecutorProfile(backgroundScope), Clock.System)
+            val host = recoveryHost(f)
+            val running = async { coordinator.run(host, recovery(f), admission = admission) }
+            runCurrent()
+            assertEquals(1, f.active.inspections)
+            admission.value = revoked
+            runCurrent()
+            assertFalse(running.isCompleted)
+            assertTrue(coordinator.isBusy(f.request.id))
+            release.complete(Unit)
+            runCurrent()
+            assertEquals(listOf(StudioNativeTurn(f.request.request, f.turn.id)), f.host.adoptedReceipts)
+            assertTrue(f.host.stopTurns.isEmpty())
+            assertNull(f.host.submitted)
+            f.active.state.value = ActiveSessionState.Ready(f.turn)
+            f.tools.release.complete(Unit)
+            assertEquals(RunOutcome.Completed, running.await())
+            assertFalse(coordinator.isBusy(f.request.id))
+        }
+    }
+
+    @Test
+    fun `detaching the caller during inspection does not cancel the profile observer`() = runTest {
+        val f = TurnFixture()
+        val release = CompletableDeferred<Unit>()
+        f.active.beforeInspection = { release.await() }
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        val coordinator = StudioRunCoordinator(ExecutorProfile(backgroundScope), Clock.System)
+        val caller = async { coordinator.run(recoveryHost(f), recovery(f), cancelBeforeSubmission = true) }
+        runCurrent()
+        caller.cancelAndJoin()
+        assertTrue(coordinator.isBusy(f.request.id))
+        release.complete(Unit)
+        runCurrent()
+        assertEquals(1, f.host.adoptedReceipts.size)
+        assertTrue(f.host.stopTurns.isEmpty())
+        f.active.state.value = ActiveSessionState.Ready(f.turn)
+        f.tools.release.complete(Unit)
+        runCurrent()
+        assertFalse(coordinator.isBusy(f.request.id))
+    }
+
+    @Test
+    fun `idle after deferred inspection never prepares or sends Q`() = runTest {
+        val f = TurnFixture()
+        val release = CompletableDeferred<Unit>()
+        f.active.beforeInspection = { release.await() }
+        f.active.inspection = TurnInspection.Idle
+        f.active.state.value = ActiveSessionState.Ready()
+        val admission = MutableStateFlow<ScheduledWakeAdmission>(ScheduledWakeAdmission.Allow)
+        val coordinator = StudioRunCoordinator(ExecutorProfile(backgroundScope), Clock.System)
+        val running = async {
+            assertFailsWith<ScheduledWakeDeferredException> {
+                coordinator.run(recoveryHost(f), recovery(f), admission = admission)
+            }
+        }
+        runCurrent()
+        admission.value = ScheduledWakeAdmission.Defer
+        runCurrent()
+        release.complete(Unit)
+        running.await()
+        assertEquals(1, f.host.openCount)
+        assertTrue(f.host.preparations.isEmpty())
+        assertTrue(f.machine.sent.isEmpty())
+        assertNull(f.host.submitted)
+    }
+
+    @Test
+    fun `explicit stop during inspection cancels R after adoption without sending Q`() = runTest {
+        val f = TurnFixture()
+        val release = CompletableDeferred<Unit>()
+        f.active.beforeInspection = { release.await() }
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        val coordinator = StudioRunCoordinator(ExecutorProfile(backgroundScope), Clock.System)
+        val running = async { coordinator.run(recoveryHost(f), recovery(f), cancelBeforeSubmission = true) }
+        runCurrent()
+        f.host.isStopRequested = true
+        release.complete(Unit)
+        runCurrent()
+        assertEquals(listOf(f.turn.id), f.host.stopTurns)
+        assertNull(f.host.submitted)
+        assertTrue(coordinator.isBusy(f.request.id))
+        f.active.state.value = ActiveSessionState.Ready(f.turn.copy(outcome = TurnOutcome.Cancelled))
+        f.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Stopped, running.await())
+    }
+
+    @Test
+    fun `a cancelled profile cannot enter native inspection through a gate without admission`() = runTest {
+        val f = TurnFixture()
+        f.host.requireRecovery = { currentCoroutineContext().cancel() }
+        val execution = async {
+            f.executor.execute(f.host, recovery(f).copy(submission = StudioRunSubmission()))
+        }
+        assertFailsWith<CancellationException> { execution.await() }
+        assertEquals(0, f.host.openCount)
+        assertEquals(0, f.active.inspections)
+        assertTrue(f.host.preparations.isEmpty())
+    }
+
+    @Test
+    fun `a cancelled profile cannot admit Q after native inspection returns idle`() = runTest {
+        val f = TurnFixture()
+        f.active.beforeInspection = { currentCoroutineContext().cancel() }
+        f.active.inspection = TurnInspection.Idle
+        f.active.state.value = ActiveSessionState.Ready()
+        val execution = async {
+            f.executor.execute(f.host, recovery(f).copy(submission = StudioRunSubmission()))
+        }
+        assertFailsWith<CancellationException> { execution.await() }
+        assertEquals(1, f.host.openCount)
+        assertTrue(f.host.preparations.isEmpty())
+        assertTrue(f.machine.sent.isEmpty())
+        assertNull(f.host.submitted)
+    }
+
+    @Test
+    fun `revocation before observation hold refuses inspection without native IO`() = runTest {
+        val f = TurnFixture()
+        val admission = MutableStateFlow<ScheduledWakeAdmission>(ScheduledWakeAdmission.Drop)
+        assertFailsWith<CancellationException> {
+            f.executor.execute(f.host, recovery(f).copy(submission = StudioRunSubmission(admission)))
+        }
+        assertEquals(0, f.host.openCount)
+        assertEquals(0, f.active.inspections)
+        assertTrue(f.host.preparations.isEmpty())
+    }
+
+    private fun recoveryHost(f: TurnFixture): StudioRunHost = object : StudioRunHost {
+        override suspend fun startedRun(id: String, at: Instant) = Unit
+        override suspend fun finishedRun(id: String) = Unit
+        override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
+            val gate = checkNotNull(request.submission)
+            val wrapped = object : StudioSubmissionGate by gate {}
+            return f.executor.execute(f.host, request.copy(submission = wrapped))
+        }
+    }
+
     private fun recovery(f: TurnFixture): StudioTurnRequest = f.request.copy(
         request = RequestId("recovery"),
         recoveryRequests = listOf(f.request.request),
@@ -1778,6 +1933,7 @@ private class ExecutorHost(
     var afterRollover: () -> Unit = {}
     val rollovers = mutableListOf<SessionRef>()
     var stopCheckFailure: Exception? = null
+    var isStopRequested = false
     var isNativeSubmissionEnabled = false
     var submitted: StudioTurnRequest? = null
     var isIsolated = true
@@ -1882,7 +2038,7 @@ private class ExecutorHost(
     }
     override suspend fun shouldStop(id: String): Boolean {
         stopCheckFailure?.let { throw it }
-        return false
+        return isStopRequested
     }
     override suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId) {
         stopTurns += turn
@@ -1924,6 +2080,7 @@ private class ExecutorSession(private val turn: Turn, nativeId: String = "sessio
     var senderFailure: EngineFailure? = null
     var inspection: TurnInspection? = null
     var inspections = 0
+    var beforeInspection: suspend () -> Unit = {}
     var inspectedCheckpoint: String? = null
     var frozenNames: Set<String>? = null
     private val frozenTools = object : FrozenHostedTools {
@@ -1933,6 +2090,7 @@ private class ExecutorSession(private val turn: Turn, nativeId: String = "sessio
         override suspend fun checkpoint(request: RequestId): String? = null
         override suspend fun inspect(checkpoint: String?): TurnInspection {
             inspections++
+            beforeInspection()
             inspectedCheckpoint = checkpoint
             return checkNotNull(inspection)
         }
