@@ -420,7 +420,7 @@
     <string name="usage_breakdown_unavailable">Breakdown unavailable</string>
     <string name="usage_breakdown_hint">The engine reports only total usage.</string>
     <string name="usage_free_tokens">%1$s tokens free</string>
-    <string name="usage_breakdown">Contents · tokens</string>
+    <string name="usage_breakdown">Contents</string>
     <string name="usage_instructions">Instructions</string>
     <string name="usage_history">History</string>
     <string name="usage_tools">Tools</string>
@@ -430,4 +430,6 @@
     <string name="usage_window_unknown">Limit</string>
     <string name="usage_stale_unknown">Data may be outdated</string>
     <string name="usage_compact_short">Compact</string>
+    <string name="usage_token_unit">Tokens</string>
+    <string name="usage_consumed">%1$d% consumed</string>
 </resources>

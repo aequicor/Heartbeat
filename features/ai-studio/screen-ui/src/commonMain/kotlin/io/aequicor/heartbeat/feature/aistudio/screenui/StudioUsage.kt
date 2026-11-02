@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -20,6 +21,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -44,6 +46,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_chip_week
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compact
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compact_short
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compacting
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_consumed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context_tab
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context_unavailable
@@ -65,6 +68,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_resets
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_stale
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_stale_unknown
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_title
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_token_unit
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens_unknown_limit
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tools
@@ -156,7 +160,7 @@ private fun contextAccessibility(context: ContextUsageUi?, compacting: Boolean):
     val percent = context?.percent
     val detail = when {
         context == null -> stringResource(Res.string.usage_context_unavailable)
-        percent == null -> stringResource(Res.string.usage_tokens_unknown_limit, context.usedTokens.toString())
+        percent == null -> stringResource(Res.string.usage_tokens_unknown_limit, context.usedTokens.groupedTokens())
         else -> "$title: ${stringResource(Res.string.usage_percent, percent)}"
     }
     return if (compacting) "$detail · ${stringResource(Res.string.usage_compacting)}" else detail
@@ -217,16 +221,24 @@ private fun ContextSection(content: PaneContent, context: ContextUsageUi?, onCom
         SecondaryText(stringResource(Res.string.usage_context_unavailable))
     }
     if (content.isCompacting) SecondaryText(stringResource(Res.string.usage_compacting))
-    if (content.isCompactOffered) {
-        HbTooltip(stringResource(Res.string.usage_compact)) {
-            HbButton(
-                text = stringResource(Res.string.usage_compact_short),
-                onClick = onCompact,
-                style = HbButtonStyle.Ghost,
-                size = HbButtonSize.Small,
-                enabled = content.isCompactReady,
-                modifier = Modifier.testTag("compact-${content.pane.id}"),
-            )
+    HbDivider()
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SecondaryText(stringResource(Res.string.usage_token_unit))
+        if (content.isCompactOffered) {
+            HbTooltip(stringResource(Res.string.usage_compact)) {
+                HbButton(
+                    text = stringResource(Res.string.usage_compact_short),
+                    onClick = onCompact,
+                    style = HbButtonStyle.Ghost,
+                    size = HbButtonSize.Small,
+                    enabled = content.isCompactReady,
+                    modifier = Modifier.testTag("compact-${content.pane.id}"),
+                )
+            }
         }
     }
 }
@@ -235,22 +247,25 @@ private fun ContextSection(content: PaneContent, context: ContextUsageUi?, onCom
 private fun ContextDetails(usage: ContextUsageUi) {
     val capacity = usage.capacityTokens
     val tokens = if (capacity == null) {
-        stringResource(Res.string.usage_tokens_unknown_limit, usage.usedTokens.toString())
+        stringResource(Res.string.usage_tokens_unknown_limit, usage.usedTokens.groupedTokens())
     } else {
-        stringResource(Res.string.usage_tokens, usage.usedTokens.toString(), capacity.toString())
+        stringResource(Res.string.usage_tokens, usage.usedTokens.groupedTokens(), capacity.groupedTokens())
     }
     UsageRow(tokens, usage.percent?.let { "$it%" }.orEmpty(), usage.percent)
     if (capacity == null) SecondaryText(stringResource(Res.string.usage_limit_unknown))
     usage.percent?.let { UsageProgress(it) }
     if (capacity != null) {
         SecondaryText(
-            stringResource(Res.string.usage_free_tokens, (capacity - usage.usedTokens).coerceAtLeast(0).toString()),
+            stringResource(
+                Res.string.usage_free_tokens,
+                (capacity - usage.usedTokens).coerceAtLeast(0).groupedTokens(),
+            ),
         )
     }
-    HbDivider()
     val breakdown = usage.breakdown
     val counts = listOf(breakdown?.instructions, breakdown?.history, breakdown?.tools, breakdown?.files)
     if (counts.all { it == null }) {
+        HbDivider()
         HbText(stringResource(Res.string.usage_breakdown_unavailable))
         SecondaryText(stringResource(Res.string.usage_breakdown_hint))
     } else {
@@ -261,11 +276,17 @@ private fun ContextDetails(usage: ContextUsageUi) {
             Res.string.usage_tools,
             Res.string.usage_files,
         )
+        val colors = listOf(
+            HbTheme.colors.dataViolet.copy(alpha = 0.4f),
+            HbTheme.colors.dataViolet,
+            HbTheme.colors.dataCyan,
+            HbTheme.colors.textSecondary,
+        )
         counts.forEachIndexed { index, count ->
-            if (count != null) UsageRow(stringResource(labels[index]), count.toString())
+            if (count != null) UsageRow(stringResource(labels[index]), count.groupedTokens(), marker = colors[index])
         }
         val remainder = usage.usedTokens - counts.filterNotNull().sum()
-        if (remainder > 0) UsageRow(stringResource(Res.string.usage_unallocated), remainder.toString())
+        if (remainder > 0) UsageRow(stringResource(Res.string.usage_unallocated), remainder.groupedTokens())
     }
 }
 
@@ -352,20 +373,30 @@ private fun CreditsDetails(credits: UsageCreditsUi, calendar: StudioCalendar) {
             stringResource(Res.string.usage_remaining, remaining)
         }
     }
-    SecondaryText(stringResource(Res.string.usage_credits))
+    HbText("${stringResource(Res.string.usage_credits)}: $label", style = HbTheme.typography.caption)
     val percent = credits.consumedPercent()
-    UsageRow(label, percent?.let { stringResource(Res.string.usage_percent, it) }.orEmpty(), percent)
-    if (percent != null) UsageProgress(percent)
-    credits.expiresAt?.let { SecondaryText(stringResource(Res.string.usage_expires, calendar.usageDate(it))) }
+    val details = listOfNotNull(
+        percent?.let { stringResource(Res.string.usage_consumed, it) },
+        credits.expiresAt?.let { stringResource(Res.string.usage_expires, calendar.usageDate(it)) },
+    )
+    if (details.isNotEmpty()) SecondaryText(details.joinToString(" · "))
 }
 
 @Composable
-private fun UsageRow(title: String, value: String, percent: Int? = null) {
+private fun UsageRow(title: String, value: String, percent: Int? = null, marker: Color? = null) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(HbTheme.spacing.m),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (marker != null) {
+            HbText(
+                "●",
+                modifier = Modifier.clearAndSetSemantics { },
+                style = HbTheme.typography.caption,
+                color = marker,
+            )
+        }
         HbText(title, modifier = Modifier.weight(1f), style = HbTheme.typography.caption, maxLines = 1)
         HbText(value, style = HbTheme.typography.caption, color = HbTheme.colors.usageColor(percent))
     }
@@ -392,4 +423,7 @@ private fun creditAmount(value: Double?, currency: String?): String {
     return listOfNotNull(number, currency?.takeIf { it.isNotBlank() }).joinToString(" ")
 }
 
+private fun Long.groupedTokens(): String = toString().reversed().chunked(DIGIT_GROUP_SIZE).joinToString(" ").reversed()
+
 private const val PERCENT_MAX = 100f
+private const val DIGIT_GROUP_SIZE = 3

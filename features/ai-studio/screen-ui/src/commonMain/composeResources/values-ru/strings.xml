@@ -414,7 +414,7 @@
     <string name="usage_breakdown_unavailable">Разбивка недоступна</string>
     <string name="usage_breakdown_hint">Движок передал только общий объём.</string>
     <string name="usage_free_tokens">Свободно %1$s токенов</string>
-    <string name="usage_breakdown">Состав · токены</string>
+    <string name="usage_breakdown">Состав</string>
     <string name="usage_instructions">Инструкции</string>
     <string name="usage_history">История</string>
     <string name="usage_tools">Инструменты</string>
@@ -424,4 +424,6 @@
     <string name="usage_window_unknown">Лимит</string>
     <string name="usage_stale_unknown">Данные могут быть устаревшими</string>
     <string name="usage_compact_short">Сжать</string>
+    <string name="usage_token_unit">Токены</string>
+    <string name="usage_consumed">%1$d% израсходовано</string>
 </resources>

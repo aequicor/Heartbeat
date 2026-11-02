@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
@@ -25,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_chip_hours
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_chip_week
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compacting
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_consumed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_credits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_empty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limit_unknown
@@ -32,6 +34,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens_unknown_limit
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextBreakdownUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
@@ -88,9 +91,9 @@ class StudioUsageUiTest {
             var unknownLimit = ""
             var knownTokens = ""
             setContent {
-                unknownTokens = stringResource(Res.string.usage_tokens_unknown_limit, "4096")
+                unknownTokens = stringResource(Res.string.usage_tokens_unknown_limit, "4 096")
                 unknownLimit = stringResource(Res.string.usage_limit_unknown)
-                knownTokens = stringResource(Res.string.usage_tokens, "4096", "8192")
+                knownTokens = stringResource(Res.string.usage_tokens, "4 096", "8 192")
                 UsageHost(content, compact = true, onIntent = events::add)
             }
             onNodeWithContentDescription(unknownTokens).assertIsDisplayed()
@@ -140,6 +143,7 @@ class StudioUsageUiTest {
                             ),
                             dark,
                             compact = width < 500f,
+                            isMobile = width < 1200f,
                             onIntent = events::add,
                         )
                     }
@@ -148,14 +152,7 @@ class StudioUsageUiTest {
                     onNodeWithText("Plan without metrics").assertDoesNotExist()
                     onNodeWithText("0%").assertDoesNotExist()
                     runOnIdle { assertEquals(listOf<StudioIntent>(StudioIntent.RefreshUsage("model")), events) }
-                    val directory = File("build/previews").apply { mkdirs() }
-                    check(
-                        ImageIO.write(
-                            captureToImage().toAwtImage(),
-                            "png",
-                            File(directory, "usage-context-only-${width.toInt()}-$dark.png"),
-                        ),
-                    )
+                    captureToImage().saveUsagePreview("usage-context-only-${width.toInt()}-$dark.png")
                 }
             }
         }
@@ -172,7 +169,7 @@ class StudioUsageUiTest {
             setContent {
                 limitsTitle = stringResource(Res.string.usage_limits)
                 creditsTitle = stringResource(Res.string.usage_credits)
-                tokens = stringResource(Res.string.usage_tokens, "4096", "8192")
+                tokens = stringResource(Res.string.usage_tokens, "4 096", "8 192")
                 UsageHost(content)
             }
             onNodeWithTag("usage-context").performClick()
@@ -192,10 +189,10 @@ class StudioUsageUiTest {
             }
             onNodeWithText(limitsTitle).assertIsDisplayed()
             onNodeWithTag("usage-tab-Limits").performClick()
-            onNodeWithText(creditsTitle).assertIsDisplayed()
+            onNodeWithText(creditsTitle, substring = true).assertIsDisplayed()
             runOnIdle { content = content.copy(providerUsage = null) }
             onNodeWithText("Plan without metrics").assertDoesNotExist()
-            onNodeWithText(creditsTitle).assertDoesNotExist()
+            onNodeWithText(creditsTitle, substring = true).assertDoesNotExist()
             onNodeWithTag("usage-tab-Context").performClick()
             onNodeWithText(tokens).assertIsDisplayed()
         }
@@ -276,37 +273,46 @@ class StudioUsageUiTest {
         for (width in listOf(1280f, 834f, 390f)) {
             for (dark in listOf(false, true)) {
                 runSkikoComposeUiTest(size = Size(width, 800f)) {
-                    var context by mutableStateOf(ContextUsageUi(78080, 128000, 61))
+                    var context by mutableStateOf(
+                        ContextUsageUi(78080, 128000, 61, ContextBreakdownUi(6400, 42880, 19200, 9600)),
+                    )
                     var unknownTokens = ""
+                    var consumed = ""
                     setContent {
-                        unknownTokens = stringResource(Res.string.usage_tokens_unknown_limit, "78080")
+                        unknownTokens = stringResource(Res.string.usage_tokens_unknown_limit, "78 080")
+                        consumed = stringResource(Res.string.usage_consumed, 68)
                         UsageHost(
-                            pane().copy(contextUsage = context, providerUsage = provider()),
+                            pane().copy(
+                                contextUsage = context,
+                                providerUsage = provider().copy(
+                                    credits = UsageCreditsUi(
+                                        160.0,
+                                        500.0,
+                                        null,
+                                        false,
+                                        Instant.fromEpochSeconds(1800000000),
+                                    ),
+                                ),
+                                pane = PaneUi(0, sessionId = "s"),
+                                isCompactEnabled = true,
+                            ),
                             dark,
                             compact = width < 500f,
+                            isMobile = width < 1200f,
                         )
                     }
                     onNodeWithTag("usage-context").performClick()
+                    onNodeWithText("42 880").assertIsDisplayed()
+                    onNodeWithTag("compact-0").assertIsDisplayed()
+                    captureToImage().saveUsagePreview("usage-breakdown-${width.toInt()}-$dark.png")
                     onNodeWithTag("usage-tab-Limits").performClick()
                     onNodeWithText("Weekly").assertIsDisplayed()
-                    val directory = File("build/previews").apply { mkdirs() }
-                    check(
-                        ImageIO.write(
-                            captureToImage().toAwtImage(),
-                            "png",
-                            File(directory, "usage-${width.toInt()}-$dark.png"),
-                        ),
-                    )
+                    onNodeWithText(consumed, substring = true).assertIsDisplayed()
+                    captureToImage().saveUsagePreview("usage-${width.toInt()}-$dark.png")
                     runOnIdle { context = ContextUsageUi(78080, null, null) }
                     onNodeWithTag("usage-tab-Context").performClick()
                     onNodeWithText(unknownTokens).assertIsDisplayed()
-                    check(
-                        ImageIO.write(
-                            captureToImage().toAwtImage(),
-                            "png",
-                            File(directory, "usage-unknown-${width.toInt()}-$dark.png"),
-                        ),
-                    )
+                    captureToImage().saveUsagePreview("usage-unknown-${width.toInt()}-$dark.png")
                 }
             }
         }
@@ -388,9 +394,10 @@ private fun UsageHost(
     content: PaneContent,
     dark: Boolean = false,
     compact: Boolean = false,
+    isMobile: Boolean = compact,
     onIntent: (StudioIntent) -> Unit = {},
 ) {
-    HbTheme(darkTheme = dark, dimensions = if (compact) HbDimensions.Mobile else HbDimensions.Desktop) {
+    HbTheme(darkTheme = dark, dimensions = if (isMobile) HbDimensions.Mobile else HbDimensions.Desktop) {
         Box(
             Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).padding(HbTheme.spacing.xl),
             contentAlignment = Alignment.BottomCenter,
@@ -398,4 +405,9 @@ private fun UsageHost(
             StudioComposer(content, onIntent, isCompact = compact)
         }
     }
+}
+
+private fun ImageBitmap.saveUsagePreview(name: String) {
+    val directory = File("build/previews").apply { mkdirs() }
+    check(ImageIO.write(toAwtImage(), "png", File(directory, name)))
 }
