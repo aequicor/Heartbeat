@@ -1,8 +1,12 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionInstance
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -89,6 +93,36 @@ class SessionExecutionAdmissionsTest {
         assertFalse(draining.isCompleted)
         val replacement = binding.copy(instance = binding.instance.copy(id = "incarnation-2"))
         assertTrue(gate.admitted(replacement) { true })
+    }
+
+    @Test
+    fun `native entry consumes the exact request once even when its RPC fails`() = runTest {
+        val session = SessionRef(EngineId("test"), SessionSourceId("native"), "session")
+        val request = RequestId("original")
+        var consumed = false
+        val claims = object : SessionExecutionAuthority by provider {
+            override suspend fun enterPrompt(
+                binding: SessionExecutionBinding,
+                session: SessionRef,
+                request: RequestId,
+            ): Boolean {
+                if (consumed || request.value != "original" || session.source.value != "native") return false
+                consumed = true
+                return true
+            }
+        }
+        val gate = SessionExecutionAdmissions(lazyOf(setOf(claims)))
+        assertFailsWith<IllegalStateException> {
+            gate.admitted(binding, session to RequestId("replacement")) { error("Must not enter") }
+        }
+        assertFalse(consumed)
+        assertFailsWith<IllegalArgumentException> {
+            gate.admitted(binding, session to request) { throw IllegalArgumentException("Lost native acknowledgement") }
+        }
+        assertTrue(consumed)
+        assertFailsWith<IllegalStateException> {
+            gate.admitted(binding, session to request) { error("Must not replay") }
+        }
     }
 
     private fun errorPersistence(): Nothing = throw IllegalArgumentException("storage unavailable")

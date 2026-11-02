@@ -266,7 +266,7 @@ class ManagedActiveSession(
             check(execution == null) { "Executor handle needs the profile authority gate" }
             block()
         } else {
-            access.admitted(ref, execution, block)
+            access.admitted(ref, execution, block = block)
         }
     }
 
@@ -284,10 +284,12 @@ class ManagedActiveSession(
                 fail(InvalidRequest)
             }
             request.compaction?.let { compaction -> checkCompaction(compaction.instructions != null) }
-            val model = (parts.native.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)
-                ?.feature?.configuration?.value?.model ?: currentModel.value
-            policy.beforeTurn(route, model)
             return policy.registry.exclusive(ref) {
+                val model = (parts.native.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)
+                    ?.feature?.configuration?.value?.model ?: currentModel.value
+                val target = EngineTarget(route.engine, route.binding, model)
+                policy.executions?.checkPrompt(ref, execution, target, request)
+                policy.beforeTurn(route, model)
                 if (policy.registry.isBusy(ref, this@ManagedActiveSession)) fail(Busy)
                 when (val current = machine.state.value) {
                     is ActiveSessionState.Ready -> Unit

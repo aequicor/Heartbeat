@@ -59,7 +59,7 @@ class ActiveSessionEffects(
             is ActiveSessionEffect.Submit -> {
                 log.i { "submit request=${effect.request.id.value} turn=${effect.turn.id.value}" }
                 handOff("send") {
-                    admitted {
+                    admitted(effect.request.id) {
                         val nativeTurn = command(SendsPrompts).send(effect.request)
                         correlation.bind(nativeTurn, effect.turn.id)
                     }
@@ -95,13 +95,16 @@ class ActiveSessionEffects(
         }
     }
 
-    private suspend fun admitted(block: suspend () -> Unit) {
+    private suspend fun admitted(
+        entry: io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId? = null,
+        block: suspend () -> Unit,
+    ) {
         val access = executions
         if (access == null) {
             check(execution == null) { "Executor handle needs the profile authority gate" }
             block()
         } else {
-            access.admitted(native.ref, execution, block)
+            access.admitted(native.ref, execution, entry, block)
         }
     }
 

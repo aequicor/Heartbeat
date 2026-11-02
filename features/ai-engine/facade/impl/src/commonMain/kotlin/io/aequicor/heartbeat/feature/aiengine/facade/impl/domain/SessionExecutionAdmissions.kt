@@ -1,9 +1,13 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionInstance
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -24,9 +28,18 @@ class SessionExecutionAdmissions(private val authorities: Lazy<Set<SessionExecut
     private val tickets = mutableMapOf<SessionExecutionInstance, MutableSet<CompletableDeferred<Unit>>>()
 
     /** Runs one admitted handoff; its ticket is registered before invoking any native code. */
-    suspend fun <T> admitted(binding: SessionExecutionBinding, block: suspend () -> T): T {
+    suspend fun <T> admitted(
+        binding: SessionExecutionBinding,
+        entry: Pair<SessionRef, RequestId>? = null,
+        block: suspend () -> T,
+    ): T {
         val ticket = mutex.withLock {
             requireAllowed(binding)
+            if (entry != null) {
+                check(authority(binding).enterPrompt(binding, entry.first, entry.second)) {
+                    "Native request entry is unavailable or already consumed"
+                }
+            }
             CompletableDeferred<Unit>().also { tickets.getOrPut(binding.instance) { mutableSetOf() }.add(it) }
         }
         var isReturned = false
@@ -77,9 +90,26 @@ class SessionExecutionAdmissions(private val authorities: Lazy<Set<SessionExecut
         pending.forEach { it.await() }
     }
 
+    /** Validates the immutable caller payload without consuming its later native handoff. */
+    suspend fun checkPrompt(
+        binding: SessionExecutionBinding,
+        session: SessionRef,
+        target: EngineTarget,
+        request: PromptRequest,
+    ) = mutex.withLock {
+        requireAllowed(binding)
+        check(
+            authority(binding).permitsPrompt(binding, session, target, request),
+        ) { "Executor prompt is not authorized" }
+    }
+
+    private fun authority(binding: SessionExecutionBinding): SessionExecutionAuthority =
+        checkNotNull(authorities.value.singleOrNull { it.provider == binding.instance.provider }) {
+            "Execution authority is unavailable or ambiguous"
+        }
+
     private suspend fun requireAllowed(binding: SessionExecutionBinding) {
         check(binding.instance !in fenced) { "Execution instance is retired" }
-        val provider = authorities.value.singleOrNull { it.provider == binding.instance.provider }
-        check(provider != null && provider.permits(binding)) { "Execution authority is unavailable or denied" }
+        check(authority(binding).permits(binding)) { "Execution authority is unavailable or denied" }
     }
 }

@@ -37,6 +37,25 @@ public interface SessionExecutionAuthority {
 
     /** Whether durable and current host state both authorize this exact instance. Errors fail closed. */
     public suspend fun permits(binding: SessionExecutionBinding): Boolean
+
+    /** Checks the original host payload before hooks may prepare it; does not consume submission authority. */
+    public suspend fun permitsPrompt(
+        binding: SessionExecutionBinding,
+        session: SessionRef,
+        target: EngineTarget,
+        request: PromptRequest,
+    ): Boolean = permits(binding)
+
+    /**
+     * Claims this request immediately before native send. Hosts with durable attempts atomically consume their
+     * one-shot entry here. A successful claim is not native acceptance; failure or cancellation never permits replay.
+     * Invoked under the instance admission gate; implementations must not call that gate recursively.
+     */
+    public suspend fun enterPrompt(
+        binding: SessionExecutionBinding,
+        session: SessionRef,
+        request: RequestId,
+    ): Boolean = permits(binding)
 }
 
 /** Shared admission barrier used by lifecycle owners when durably retiring an executor instance. */

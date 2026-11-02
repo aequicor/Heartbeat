@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -13,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthori
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionInstance
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -30,6 +32,28 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionExecutionIntegrationTest {
     private val binding = SessionExecutionBinding(SessionExecutionInstance("host", "first"))
+
+    @Test
+    fun `original payload and actual model are checked before native request entry`() = runTest {
+        val env = ExecutionEnvironment(this)
+        val session = env.launcher.create(CreateSessionRequest(env.routes.target, execution = binding))
+        val sender = assertIs<FeatureAccess.Available<SendsPrompts>>(session.features.resolve(SendsPrompts)).feature
+        val intended = PromptRequest(RequestId("original"), listOf(ContentPart.Text("frozen work")))
+        val checked = mutableListOf<EngineTarget>()
+        env.permitsPrompt = { target, request ->
+            checked += target
+            request == intended && target == env.routes.target
+        }
+        assertFailsWith<IllegalStateException> {
+            sender.send(intended.copy(parts = listOf(ContentPart.Text("changed work"))))
+        }
+        assertEquals(0, env.entries)
+        assertTrue(env.runtimes.single().sessions.single().sent.isEmpty())
+        sender.send(intended)
+        assertEquals(listOf(env.routes.target, env.routes.target), checked)
+        assertEquals(1, env.entries)
+        assertEquals(1, env.runtimes.single().sessions.single().sent.size)
+    }
 
     @Test
     fun `cached handles and metadata-free resume cannot revive a retired executor`() = runTest {
@@ -119,6 +143,8 @@ class SessionExecutionIntegrationTest {
 @OptIn(ExperimentalCoroutinesApi::class)
 private class ExecutionEnvironment(scope: TestScope) {
     var isPermitted = true
+    var permitsPrompt: (EngineTarget, PromptRequest) -> Boolean = { _, _ -> true }
+    var entries = 0
     var beforeOpen: CompletableDeferred<Unit>? = null
     val runtimes = mutableListOf<FakeRuntime>()
     val bindings = ExecutionTestBindings()
@@ -127,6 +153,21 @@ private class ExecutionEnvironment(scope: TestScope) {
             setOf(object : SessionExecutionAuthority {
                 override val provider = "host"
                 override suspend fun permits(binding: SessionExecutionBinding) = isPermitted
+                override suspend fun permitsPrompt(
+                    binding: SessionExecutionBinding,
+                    session: SessionRef,
+                    target: EngineTarget,
+                    request: PromptRequest,
+                ) = permitsPrompt(target, request)
+
+                override suspend fun enterPrompt(
+                    binding: SessionExecutionBinding,
+                    session: SessionRef,
+                    request: RequestId,
+                ): Boolean {
+                    entries++
+                    return isPermitted
+                }
             }),
         ),
     )

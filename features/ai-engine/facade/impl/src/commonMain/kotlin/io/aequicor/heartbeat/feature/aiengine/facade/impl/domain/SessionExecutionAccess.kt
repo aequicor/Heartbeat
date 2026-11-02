@@ -1,7 +1,10 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionControl
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -85,18 +88,33 @@ class SessionExecutionAccess(
     }
 
     /** A cached unbound handle participates in the same barrier as creation's authority claim. */
-    suspend fun <T> admitted(ref: SessionRef, binding: SessionExecutionBinding?, block: suspend () -> T): T =
-        if (binding == null) {
-            unbound(ref.engine) {
-                check(ref, null)
-                block()
-            }
-        } else {
-            admissions.admitted(binding) {
-                check(ref, binding)
-                block()
-            }
+    suspend fun <T> admitted(
+        ref: SessionRef,
+        binding: SessionExecutionBinding?,
+        entry: RequestId? = null,
+        block: suspend () -> T,
+    ): T = if (binding == null) {
+        unbound(ref.engine) {
+            check(ref, null)
+            block()
         }
+    } else {
+        admissions.admitted(binding, entry?.let { ref to it }) {
+            check(ref, binding)
+            block()
+        }
+    }
+
+    /** Original caller payload, checked before trusted host hooks prepare the native request. */
+    suspend fun checkPrompt(
+        ref: SessionRef,
+        binding: SessionExecutionBinding?,
+        target: EngineTarget,
+        request: PromptRequest,
+    ) {
+        check(ref, binding)
+        if (binding != null) admissions.checkPrompt(binding, ref, target, request)
+    }
 
     /** Current immutable metadata and host authority, checked again before late-open publication. */
     suspend fun check(ref: SessionRef, binding: SessionExecutionBinding?) {
