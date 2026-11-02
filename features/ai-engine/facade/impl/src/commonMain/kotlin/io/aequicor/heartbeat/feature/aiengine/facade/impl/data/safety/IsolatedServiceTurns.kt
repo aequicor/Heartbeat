@@ -113,7 +113,9 @@ internal class IsolatedServiceTurns(
         var session: ActiveSession? = null
         try {
             return withTimeoutOrNull(turn.timeout) {
-                val opened = creates.feature.create(CreateSessionRequest(target, areSessionHooksEnabled = true))
+                val opened = creates.feature.create(
+                    CreateSessionRequest(target, areSessionHooksEnabled = true, isTextOnlyService = true),
+                )
                 session = opened
                 isolation.restrict(opened.ref, descriptor.nativeTools.map { it.name })
                 answer(opened, turn)

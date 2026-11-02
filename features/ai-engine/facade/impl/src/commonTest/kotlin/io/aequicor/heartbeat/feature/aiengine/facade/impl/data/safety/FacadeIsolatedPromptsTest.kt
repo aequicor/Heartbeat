@@ -25,6 +25,7 @@ class FacadeIsolatedPromptsTest {
         assertNull(request.workspace)
         assertFalse(request.areDetachedToolsEnabled)
         assertTrue(request.areSessionHooksEnabled)
+        assertTrue(request.isTextOnlyService)
         assertTrue(f.sawOffBeforeSend)
         val prompt = f.prompts.single()
         assertTrue(prompt.id.value.startsWith(ISOLATED_REQUEST_PREFIX))

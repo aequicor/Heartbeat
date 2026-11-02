@@ -57,7 +57,7 @@ internal class ProfileSessionHooks(
 
     @HighFrequency
     override fun observe(event: SessionLifecycle) {
-        if (!sessions.accept(event)) return
+        if (!sessions.accept(event) || event.context.isTextOnlyService) return
         entries.forEach { entry -> if (entry.hook.isObserving) entry.events.trySend(event) }
     }
 
@@ -69,7 +69,7 @@ internal class ProfileSessionHooks(
 
     @HighFrequency
     override suspend fun beforePrompt(context: SessionHookContext, text: String): String? {
-        if (!sessions.isOpen(context)) return null
+        if (context.isTextOnlyService || !sessions.isOpen(context)) return null
         return parallel<String?>(PROMPT_MILLIS, null) { it.beforePrompt(context, text) }.joined(PROMPT_CHARS)
     }
 
@@ -79,7 +79,7 @@ internal class ProfileSessionHooks(
         text: String,
         contextRevision: String?,
     ): SessionPromptPreparation? {
-        if (!sessions.isOpen(context)) return null
+        if (context.isTextOnlyService || !sessions.isOpen(context)) return null
         return composeSessionPrompt(
             parallel<SessionPromptAddition?>(PROMPT_MILLIS, null) { it.preparePrompt(context, text, contextRevision) },
         )
@@ -87,6 +87,9 @@ internal class ProfileSessionHooks(
 
     @HighFrequency
     override suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict {
+        if (call.context.isTextOnlyService) {
+            return ToolHookVerdict.Deny("Text-only service sessions cannot call tools.")
+        }
         if (!isBound(call)) return ToolHookVerdict.Continue
         val results = parallel<ToolHookVerdict>(TOOL_MILLIS, ToolHookVerdict.Ask("A session hook did not respond")) {
             it.beforeTool(call)
@@ -98,7 +101,7 @@ internal class ProfileSessionHooks(
 
     @HighFrequency
     override suspend fun afterTool(call: HookedToolCall, result: AgentToolResult): String? {
-        if (!isBound(call)) return null
+        if (call.context.isTextOnlyService || !isBound(call)) return null
         return parallel<String?>(TOOL_MILLIS, null) { it.afterTool(call, result) }.joined(NOTE_CHARS)
     }
 

@@ -69,6 +69,7 @@ internal class RecordingSessionIndex : SessionIndex {
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionLauncherTest {
     private val runtimes = mutableListOf<FakeRuntime>()
+    private val serviceHandles = mutableListOf<Boolean>()
     private val index = RecordingSessionIndex()
     private val source = FakeSessionSource()
     private lateinit var pool: RuntimePool
@@ -96,9 +97,10 @@ class SessionLauncherTest {
         val policy = SessionPolicy(fixture.routes, enabled, registry, fixture.context)
         val assembler = ActiveSessionAssembler(policy, backgroundScope)
         var handles = 0
-        val host = ActiveSessionHost { native, route, model, hooks ->
+        val host = ActiveSessionHost { native, route, model, hooks, service ->
+            serviceHandles += service
             beforeOpenGate?.await()
-            assembler.assemble(native, route, model, TestHandleScope("h${++handles}", backgroundScope), hooks)
+            assembler.assemble(native, route, model, TestHandleScope("h${++handles}", backgroundScope), hooks, service)
         }
         pool = RuntimePool(fixture.context, registry::hasActiveTurn, registry::closeHandles)
         val launcher = SessionLauncher(
@@ -111,6 +113,15 @@ class SessionLauncherTest {
         capabilities = FacadeCapabilities(sessions, lazyOf(launcher), registry)
         runCurrent()
         return Triple(fixture, launcher, capabilities)
+    }
+
+    @Test
+    fun `launcher preserves service classification only for the explicitly created handle`() = runTest {
+        val (fixture, launcher) = launcher()
+        launcher.create(CreateSessionRequest(fixture.target))
+        launcher.create(CreateSessionRequest(fixture.target, isTextOnlyService = true))
+        launcher.create(CreateSessionRequest(fixture.target))
+        assertEquals(listOf(false, true, false), serviceHandles)
     }
 
     @Test

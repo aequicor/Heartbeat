@@ -78,7 +78,7 @@ public data class CreateSessionRequest(
     val target: EngineTarget,
     val workspace: WorkspaceRef? = null,
     val areDetachedToolsEnabled: Boolean = false,
-    /** Opts this handle's own turns into profile session hooks; service sessions leave this false. */
+    /** Opts this handle's turns into feature hooks unless [isTextOnlyService] suppresses them. */
     val areSessionHooksEnabled: Boolean = false,
     /**
      * Choices the creator made before the session exists, by [AgentToolContribution.group] (for example harnesses
@@ -88,7 +88,22 @@ public data class CreateSessionRequest(
      * belong here, never values derived from model output or tool arguments.
      */
     val preselected: Map<String, Set<String>> = emptyMap(),
-)
+    /**
+     * Fresh text-only service handle: optional feature hooks never observe it or receive its text/results, and
+     * mandatory interception denies every tool call. This enables mandatory routing even without the optional
+     * [areSessionHooksEnabled] opt-in. No project, detached tools or preselected features are permitted.
+     * Adapters must still enforce tool-free policy; this flag alone does not prove native configuration isolation.
+     */
+    val isTextOnlyService: Boolean = false,
+) {
+    init {
+        if (isTextOnlyService) {
+            require(workspace == null && !areDetachedToolsEnabled && preselected.isEmpty()) {
+                "Text-only services cannot inherit project or feature context"
+            }
+        }
+    }
+}
 
 /**
  * Explicit resume route. Unknown historical authentication requires resolution/confirmation before this call.

@@ -12,6 +12,8 @@ public data class SessionHookContext(
     val request: RequestId?,
     val turn: TurnId?,
     val owner: SessionOwner,
+    /** Host-owned service classification, fixed when the fresh handle is assembled. */
+    val isTextOnlyService: Boolean = false,
 ) {
     override fun toString(): String = "SessionHookContext"
 }
@@ -76,6 +78,7 @@ public sealed interface SessionLifecycle {
  * Profile contribution outside the adapter SPI. Implementations can observe events and add prompt/tool context,
  * but cannot approve calls. Callbacks run off the caller's dispatcher and have bounded waiting times. Untrusted
  * exceptions must be sanitized by script implementations before crossing this boundary.
+ * Text-only service handles never enter these optional contributions; their tool-deny is mandatory.
  */
 public interface SessionHook {
     /** Whether lifecycle observations are wanted now. */

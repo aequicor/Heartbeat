@@ -19,14 +19,14 @@ internal class HookSessions {
 
     internal val turnCount: Int get() = state.value.turns.size
 
-    fun isOpen(context: SessionHookContext): Boolean = state.value.owners[context.owner]?.session == context.session
+    fun isOpen(context: SessionHookContext): Boolean = state.value.owners.owns(context)
 
     @HighFrequency
     fun bind(context: SessionHookContext) {
         log.v { "Bind hook turn" }
         val turn = context.turn ?: return
         state.update { current ->
-            if (current.owners[context.owner]?.session != context.session) {
+            if (!current.owners.owns(context)) {
                 current
             } else {
                 val key = context.session to turn
@@ -84,7 +84,7 @@ private data class Snapshot(
                 )
             }
 
-            is SessionLifecycle.Closed -> if (owners[context.owner]?.session != context.session) {
+            is SessionLifecycle.Closed -> if (!owners.owns(context)) {
                 null
             } else {
                 copy(
@@ -128,3 +128,7 @@ private data class Tracked(
             copy(permissions = permissions + event.permission.id)
         }
 }
+
+private fun Map<SessionOwner, SessionHookContext>.owns(context: SessionHookContext): Boolean = get(context.owner)?.let {
+    it.session == context.session && it.isTextOnlyService == context.isTextOnlyService
+} == true

@@ -42,6 +42,7 @@ fun interface ActiveSessionHost {
         route: ExecutionRoute,
         model: ModelId,
         areSessionHooksEnabled: Boolean,
+        isTextOnlyService: Boolean,
     ): ActiveSession
 }
 
@@ -54,6 +55,7 @@ class ActiveSessionAssembler(private val policy: SessionPolicy, private val comm
         model: ModelId,
         handle: SessionHandleScope,
         areSessionHooksEnabled: Boolean = false,
+        isTextOnlyService: Boolean = false,
     ): ActiveSession {
         val effects = ActiveSessionEffects(native, commands, policy::observeFailure)
         val spec = activeSessionMachineSpec(ActiveSessionMachineKey(handle.id), native.state.value.asInitial())
@@ -68,8 +70,15 @@ class ActiveSessionAssembler(private val policy: SessionPolicy, private val comm
                 checkNotNull(handle.scope.coroutineContext[Job]),
             ),
             policy,
-            hookContext = if (areSessionHooksEnabled) {
-                SessionHookContext(native.ref, route.workspace, null, null, SessionOwner(handle.id))
+            hookContext = if (areSessionHooksEnabled || isTextOnlyService) {
+                SessionHookContext(
+                    native.ref,
+                    route.workspace,
+                    null,
+                    null,
+                    SessionOwner(handle.id),
+                    isTextOnlyService,
+                )
             } else {
                 null
             },

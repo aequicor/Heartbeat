@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
@@ -18,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
@@ -33,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultSecuritySettings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -51,6 +54,22 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionHooksIntegrationTest {
+    @Test
+    fun `service assembly suppresses feature context and refuses hosted tools in full trust`() = runTest {
+        val fixture = HookFixture(this, TestSecuritySettings(SecurityMode.Trust))
+        val native = FakeNativeSession()
+        val session = fixture.open(native, isEnabled = false, isTextOnlyService = true)
+        session.send(prompt("service"))
+        val result = fixture.execute(native)
+        runCurrent()
+        assertEquals("service", (native.sent.single().parts.single() as ContentPart.Text).text)
+        assertTrue(result.isError)
+        assertEquals(0, fixture.owner.calls)
+        assertNull(fixture.owner.authorization)
+        assertTrue(fixture.hook.prompts.isEmpty())
+        assertTrue(fixture.hook.events.isEmpty())
+    }
+
     @Test
     fun `receipt is enqueued once before send returns when native finishes immediately`() = runTest {
         val fixture = HookFixture(this)
@@ -301,11 +320,11 @@ class SessionHooksIntegrationTest {
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
-private class HookFixture(private val scope: TestScope) {
+private class HookFixture(private val scope: TestScope, settings: AgentSecuritySettings = DefaultSecuritySettings) {
     val hook = IntegrationHook()
     val hooks = scope.testSessionHooks(hook)
     val owner = HookedOwner()
-    val tools = DefaultAgentTools(setOf(owner), hooks)
+    val tools = DefaultAgentTools(setOf(owner), hooks, settings = settings)
     private val fixture = RouteFixture(scope)
     private val policy = SessionPolicy(
         fixture.routes,
@@ -317,7 +336,7 @@ private class HookFixture(private val scope: TestScope) {
     )
     private var nextHandle = 0
 
-    fun open(native: FakeNativeSession, isEnabled: Boolean = true): ActiveSession {
+    fun open(native: FakeNativeSession, isEnabled: Boolean = true, isTextOnlyService: Boolean = false): ActiveSession {
         val route = ExecutionRoute(TestEngine, fixture.binding.id, fixture.source.info.id, fixture.source.info.revision)
         return ActiveSessionAssembler(policy, scope.backgroundScope).assemble(
             native,
@@ -325,6 +344,7 @@ private class HookFixture(private val scope: TestScope) {
             ModelId("m1"),
             TestHandleScope("handle${++nextHandle}", scope.backgroundScope),
             isEnabled,
+            isTextOnlyService,
         ).also { scope.runCurrent() }
     }
 

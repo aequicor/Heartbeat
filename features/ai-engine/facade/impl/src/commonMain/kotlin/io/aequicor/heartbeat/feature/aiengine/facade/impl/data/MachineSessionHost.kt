@@ -52,12 +52,13 @@ class MachineSessionHost(
         route: ExecutionRoute,
         model: ModelId,
         areSessionHooksEnabled: Boolean,
+        isTextOnlyService: Boolean,
     ): ActiveSession = withContext(dispatchers.main + NonCancellable) {
         val id = context.token("h_")
         log.i { "open handle id=$id engine=${route.engine.value}" }
         val owned = scopes.child(profile, "aiengine-$id")
         try {
-            assembler.assemble(native, route, model, OwnedHandle(id, owned), areSessionHooksEnabled)
+            assembler.assemble(native, route, model, OwnedHandle(id, owned), areSessionHooksEnabled, isTextOnlyService)
         } catch (e: CancellationException) {
             owned.close()
             throw e

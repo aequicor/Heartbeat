@@ -47,6 +47,51 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProfileSessionHooksTest {
     @Test
+    fun `text-only service traffic never resolves optional feature hooks`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val provider = object : DispatcherProvider {
+            override val io = dispatcher
+            override val main = dispatcher
+            override val default = dispatcher
+        }
+        val hooks = ProfileSessionHooks(lazy { error("Feature hooks must not be resolved") }, provider, backgroundScope)
+        val service = CONTEXT.copy(isTextOnlyService = true)
+        hooks.observe(SessionLifecycle.Opened(service))
+        hooks.bindTurn(service)
+        hooks.observe(SessionLifecycle.TurnStarted(service))
+        hooks.observe(SessionLifecycle.PermissionRequested(service, permission()))
+        assertNull(hooks.beforePrompt(service, "private prompt"))
+        assertNull(hooks.preparePrompt(service, "private prompt", "revision"))
+        assertIs<ToolHookVerdict.Deny>(hooks.beforeTool(call(service)))
+        assertIs<ToolHookVerdict.Deny>(hooks.beforeTool(call(service).copy(isNative = true)))
+        assertNull(hooks.afterTool(call(service), AgentToolResult("private result")))
+        hooks.observe(SessionLifecycle.TurnFinished(service, TurnOutcome.Completed))
+        hooks.releaseTurn(SESSION, TURN)
+        hooks.observe(SessionLifecycle.Closed(service))
+        runCurrent()
+        assertNull(hooks.context(SESSION, REQUEST, TURN))
+    }
+
+    @Test
+    fun `a service handle cannot change its hook classification on a later callback`() = runTest {
+        val hook = RecordingHook()
+        val hooks = testSessionHooks(hook)
+        val service = CONTEXT.copy(isTextOnlyService = true)
+        hooks.observe(SessionLifecycle.Opened(service))
+        hooks.bindTurn(CONTEXT)
+        assertNull(hooks.context(SESSION, REQUEST, TURN))
+        hooks.bindTurn(service)
+        hooks.observe(SessionLifecycle.Closed(CONTEXT))
+        assertEquals(service, hooks.context(SESSION, REQUEST, TURN))
+        assertNull(hooks.beforePrompt(CONTEXT, "private prompt"))
+        assertNull(hooks.preparePrompt(CONTEXT, "private prompt", null))
+        hooks.observe(SessionLifecycle.Closed(service))
+        runCurrent()
+        assertTrue(hook.events.isEmpty())
+        assertEquals(0, hook.calls)
+    }
+
+    @Test
     fun `ownership is synchronous and another handle cannot inherit interception`() = runTest {
         val hook = RecordingHook()
         val dispatcher = testSessionHooks(hook)
