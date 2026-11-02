@@ -158,9 +158,8 @@ internal class KoogAccess(
                 val secret = read(source)
                 secret.use {
                     revalidate(connection, isIsolated = isolated != null)
-                    it.reveal { chars ->
-                        openTransport(provider, chars.concatToString(), model, source, isolated)
-                    }
+                    val key = it.reveal { chars -> chars.concatToString() }
+                    openTransport(provider, key, model, source, isolated)
                 }
             }
 
@@ -173,7 +172,7 @@ internal class KoogAccess(
         }
     }
 
-    private fun openTransport(
+    private suspend fun openTransport(
         provider: KoogProvider,
         key: String?,
         model: String?,

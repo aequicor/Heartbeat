@@ -10,7 +10,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
-/** Registers SDK children before their constructor can fail; the request already owns the cleanup scope. */
+/** Registers SDK children before their constructor can fail; the acquisition already owns the cleanup scope. */
 internal class OwnedKoogHttpFactory(
     private val delegate: KoogHttpClient.Factory,
     private val lease: OwnedKoogHttpLease,
@@ -59,10 +59,28 @@ internal class OwnedKoogHttpLease {
         clients += client
     }
 
+    /** Cancels owned jobs when graceful close fails, including a preceding executor close failure. */
+    fun close(isForced: Boolean = false) {
+        // Collect synchronous cleanup failures so one broken plugin cannot strand the remaining children.
+        // Cancellation is retained and rethrown after all close attempts, with priority over other failures.
+        val failures = clients.mapNotNull { client ->
+            var isClosed = false
+            runCatching {
+                try {
+                    client.close()
+                    isClosed = true
+                } finally {
+                    if (isForced || !isClosed) client.coroutineContext.job.cancel()
+                }
+            }.exceptionOrNull()
+        }
+        rethrowKoogCleanupFailures(failures)
+    }
+
     suspend fun closeAndAwait() {
-        log.v { "Closing isolated SDK HTTP leases: count=${clients.size}" }
+        log.v { "Closing owned SDK HTTP leases: count=${clients.size}" }
         try {
-            clients.forEach { it.close() }
+            close()
         } finally {
             withContext(NonCancellable) { clients.forEach { it.coroutineContext.job.join() } }
         }

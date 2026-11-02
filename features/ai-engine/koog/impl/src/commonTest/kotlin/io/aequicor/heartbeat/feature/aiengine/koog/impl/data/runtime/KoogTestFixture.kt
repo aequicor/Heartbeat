@@ -102,6 +102,7 @@ internal class KoogTestFixture(test: TestScope) {
     var toolsByModel = emptyMap<String, Boolean>()
     val openedModels = mutableListOf<String?>()
     var opens = 0
+    var openClient: ((String?) -> KoogClient)? = null
     var beforeModels: suspend () -> Unit = {}
     val secrets = FakeSecrets()
     private val toggles = object : FeatureToggles {
@@ -141,7 +142,7 @@ internal class KoogTestFixture(test: TestScope) {
         toggles,
         profile,
         object : KoogTransport {
-            override fun openIsolated(
+            override suspend fun openIsolated(
                 key: String?,
                 origin: EndpointOrigin,
                 basePath: String?,
@@ -150,7 +151,7 @@ internal class KoogTestFixture(test: TestScope) {
                 request,
             ) ?: isolatedTransport?.openIsolated(key, origin, basePath, request)
 
-            override fun open(
+            override suspend fun open(
                 provider: KoogProvider,
                 key: String?,
                 model: String?,
@@ -159,6 +160,7 @@ internal class KoogTestFixture(test: TestScope) {
             ): KoogClient {
                 opens++
                 openedModels += model
+                openClient?.let { return it(model) }
                 return KoogClient(executor) {
                     beforeModels()
                     availableModels.map { id ->
@@ -272,6 +274,7 @@ internal class FakeExecutor : PromptExecutor() {
     val tools = mutableListOf<List<ToolDescriptor>>()
     val models = mutableListOf<LLModel>()
     var closed = 0
+    var closeFailure: Exception? = null
     var failure: Exception? = null
     var nextFailure: Exception? = null
     var streamOverride: Flow<StreamFrame>? = null
@@ -299,6 +302,7 @@ internal class FakeExecutor : PromptExecutor() {
     override suspend fun moderate(prompt: Prompt, model: LLModel): ModerationResult = error("Not supported")
     override fun close() {
         closed++
+        closeFailure?.let { throw it }
     }
     fun complete(text: String = "answer") {
         frames.trySend(StreamFrame.TextDelta(text)).getOrThrow()

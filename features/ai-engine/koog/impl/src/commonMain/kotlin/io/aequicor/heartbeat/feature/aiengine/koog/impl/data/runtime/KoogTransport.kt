@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
 
 internal interface KoogTransport {
     /** [origin] and [basePath] differ from the defaults only for editable routes; the caller validated the scope. */
-    fun open(
+    suspend fun open(
         provider: KoogProvider,
         key: String?,
         model: String? = null,
@@ -21,7 +21,7 @@ internal interface KoogTransport {
     ): KoogClient
 
     /** Strict opt-in; null means isolation or transport budgets are unproven, before any model request. */
-    fun openIsolated(
+    suspend fun openIsolated(
         key: String?,
         origin: EndpointOrigin,
         basePath: String?,
@@ -37,22 +37,24 @@ internal class KoogClient(
     val executor: PromptExecutor,
     val reasoning: suspend (models: List<String>) -> Map<String, List<String>>? = { null },
     val usage: KoogUsageCapture = KoogUsageCapture(),
+    private val closeOwned: (isForced: Boolean) -> Unit = {},
     private val awaitClosed: suspend () -> Unit = {},
     val observedFinishReason: () -> String? = { null },
     val models: suspend () -> List<LLModel>,
 ) : AutoCloseable {
     private val log = Log.tag("KoogClient")
 
-    override fun close() = executor.close()
+    override fun close() {
+        // These are synchronous close attempts; collect cancellation until both owners have been visited.
+        val executorResult = runCatching { executor.close() }
+        val ownedResult = runCatching { closeOwned(executorResult.isFailure) }
+        rethrowKoogCleanupFailures(listOfNotNull(executorResult.exceptionOrNull(), ownedResult.exceptionOrNull()))
+    }
 
-    /** Strict leases join their owned HTTP jobs after close; callers must retain capacity during this cleanup. */
+    /** Joins owned HTTP jobs after close; callers must retain capacity during this cleanup. */
     suspend fun closeAndAwait() {
         log.v { "Awaiting owned SDK client closure" }
-        try {
-            close()
-        } finally {
-            withContext(NonCancellable) { awaitClosed() }
-        }
+        withKoogCleanup(cleanup = { withContext(NonCancellable) { awaitClosed() } }) { close() }
     }
 }
 
@@ -79,3 +81,7 @@ internal fun KoogProvider.textModel(id: String, tools: Boolean = false, attachme
             }
         },
     )
+
+/** Keeps the owned transport alive through the operation and awaits local HTTP teardown on every exit. */
+internal suspend fun <T> KoogClient.useAndAwait(block: suspend (KoogClient) -> T): T =
+    withKoogCleanup(cleanup = { withContext(NonCancellable) { closeAndAwait() } }) { block(this) }

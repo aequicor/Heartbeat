@@ -24,6 +24,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.isCompatibleOriginAllow
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpRequestRetry
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -31,7 +35,7 @@ internal class SdkKoogTransport(private val httpClient: HttpClient, private val 
     KoogTransport {
     private val log = Log.tag("KoogTransport")
 
-    override fun open(
+    override suspend fun open(
         provider: KoogProvider,
         key: String?,
         model: String?,
@@ -39,7 +43,7 @@ internal class SdkKoogTransport(private val httpClient: HttpClient, private val 
         basePath: String?,
     ): KoogClient = create(provider, key, model, origin, basePath)
 
-    override fun openIsolated(
+    override suspend fun openIsolated(
         key: String?,
         origin: EndpointOrigin,
         basePath: String?,
@@ -50,7 +54,7 @@ internal class SdkKoogTransport(private val httpClient: HttpClient, private val 
         return create(request.provider, key, request.model, origin, basePath, request)
     }
 
-    private fun create(
+    private suspend fun create(
         provider: KoogProvider,
         key: String?,
         model: String?,
@@ -59,50 +63,45 @@ internal class SdkKoogTransport(private val httpClient: HttpClient, private val 
         isolated: IsolatedKoogRequest? = null,
     ): KoogClient {
         log.d { "Creating ${provider.name} transport" }
-        // The origin is passed explicitly, so credentials follow the source scope rather than SDK defaults.
-        require(if (provider.isOriginEditable) isCompatibleOriginAllowed(origin) else origin == provider.origin) {
-            "Origin ${origin.value} is not allowed for ${provider.name}"
-        }
-        require(provider.isOriginEditable || basePath == null) { "${provider.name} has a fixed API path" }
         val paths = KoogPaths(provider, AuthScope(provider.id, origin, basePath))
-        // Derived clients retain core network logging. Redirects cannot forward provider credentials.
-        val base = httpClient.config {
-            followRedirects = false
-            if (isolated != null) {
-                install(HttpRequestRetry) { maxRetries = 0 }
-                install(isolatedKoogWire(isolated))
+        currentCoroutineContext().ensureActive()
+        val lease = isolated?.lease ?: OwnedKoogHttpLease()
+        var isTransferred = false
+        return withKoogCleanup(cleanup = {
+            if (!isTransferred) withContext(NonCancellable) { lease.closeAndAwait() }
+        }) {
+            // Derived clients retain core network logging. Redirects cannot forward provider credentials.
+            val base = httpClient.config {
+                followRedirects = false
+                if (isolated != null) {
+                    install(HttpRequestRetry) { maxRetries = 0 }
+                    install(isolatedKoogWire(isolated))
+                }
             }
-        }
-        isolated?.lease?.add(base)
-        val usage = KoogUsageCapture()
-        val ollama = if (isolated != null && provider == KoogProvider.Ollama) IsolatedOllamaCompletion() else null
-        val owned = isolated?.let {
-            OwnedKoogHttpFactory(
-                KtorKoogHttpClient.Factory(baseClient = base),
-                it.lease,
-                ollama,
-            )
-        }
-        val sdkFactory = owned ?: KtorKoogHttpClient.Factory(baseClient = base)
-        val factory = sdkFactory.withUsage(provider, usage)
-        val client = try {
-            sdkClient(provider, key, model, paths, factory)
-        } finally {
-            // SDK clients own a configured child; release the intermediate configuration on every path.
-            base.close()
-        }
-        val executor = MultiLLMPromptExecutor(mapOf(provider.llmProvider to client))
-        val reasoning: suspend (List<String>) -> Map<String, List<String>>? = { models ->
-            probeReasoning(httpClient, provider, key, models)
-        }
-        return KoogClient(
-            executor,
-            reasoning,
-            usage,
-            awaitClosed = { isolated?.lease?.closeAndAwait() },
-            observedFinishReason = { ollama?.reason },
-        ) {
-            if (client is OllamaClient) client.getModels().map { it.toLLModel() } else client.models()
+            lease.add(base)
+            val usage = KoogUsageCapture()
+            val ollama = if (isolated != null && provider == KoogProvider.Ollama) IsolatedOllamaCompletion() else null
+            val factory = OwnedKoogHttpFactory(KtorKoogHttpClient.Factory(baseClient = base), lease, ollama)
+                .withUsage(provider, usage)
+            // Keep the intermediate configuration under the same owner until transfer or failed acquisition.
+            val client = sdkClient(provider, key, model, paths, factory)
+            val executor = MultiLLMPromptExecutor(mapOf(provider.llmProvider to client))
+            val reasoning: suspend (List<String>) -> Map<String, List<String>>? = { models ->
+                probeReasoning(httpClient, provider, key, models)
+            }
+            val result = KoogClient(
+                executor,
+                reasoning,
+                usage,
+                closeOwned = lease::close,
+                awaitClosed = lease::closeAndAwait,
+                observedFinishReason = { ollama?.reason },
+            ) {
+                if (client is OllamaClient) client.getModels().map { it.toLLModel() } else client.models()
+            }
+            currentCoroutineContext().ensureActive()
+            isTransferred = true
+            result
         }
     }
 }
@@ -116,6 +115,15 @@ internal val KoogProvider.llmProvider: LLMProvider
 
 /** SDK-relative request paths; compatible routes use the user's base path, vendor routes the SDK defaults. */
 private class KoogPaths(provider: KoogProvider, scope: AuthScope) {
+    init {
+        // Credentials follow the validated source scope rather than SDK defaults.
+        val origin = scope.origin
+        require(if (provider.isOriginEditable) isCompatibleOriginAllowed(origin) else origin == provider.origin) {
+            "Origin ${origin.value} is not allowed for ${provider.name}"
+        }
+        require(provider.isOriginEditable || scope.basePath == null) { "${provider.name} has a fixed API path" }
+    }
+
     val baseUrl: String = scope.origin.value
     private val openAiPrefix =
         if (provider == KoogProvider.OpenAICompatible) CompatibleProtocol.OpenAI.apiBase(scope) else "/v1"

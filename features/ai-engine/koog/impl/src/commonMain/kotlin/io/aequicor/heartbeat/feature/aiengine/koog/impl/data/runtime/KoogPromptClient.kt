@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /** Provider transport opens only after host data and serializer formats have passed bounded validation. */
 internal suspend fun KoogAccess.preparePromptClient(
@@ -10,7 +12,7 @@ internal suspend fun KoogAccess.preparePromptClient(
     model: String,
     request: PromptRequest,
     history: List<List<ContentPart>>,
-    closeClient: (KoogClient) -> Unit,
+    closeClient: suspend (KoogClient) -> Unit,
 ): KoogClient {
     val access = this
     val provider = requireNotNull(koogProvider(connection.source))
@@ -57,7 +59,7 @@ internal suspend fun KoogAccess.preparePromptClient(
         }
         isValidated = true
     } finally {
-        if (!isValidated) closeClient(client)
+        if (!isValidated) withContext(NonCancellable) { closeClient(client) }
     }
     return client
 }

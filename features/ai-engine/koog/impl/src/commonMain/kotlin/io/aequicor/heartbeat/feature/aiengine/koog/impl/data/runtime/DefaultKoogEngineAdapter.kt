@@ -121,7 +121,7 @@ internal class DefaultKoogEngineAdapter(
             log.i { "Discovering provider models" }
             val provider = requireNotNull(koogProvider(connection.source))
             koogCall {
-                access.open(connection).use { client ->
+                access.open(connection).useAndAwait { client ->
                     val models = client.models().distinctBy { it.id }
                     if (access.usageEnabled()) access.contextWindows.record(connection, models)
                     val ids = models.map { it.id }

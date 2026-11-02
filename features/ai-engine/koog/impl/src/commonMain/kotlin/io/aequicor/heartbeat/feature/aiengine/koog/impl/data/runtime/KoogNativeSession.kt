@@ -71,6 +71,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -283,7 +285,7 @@ internal class KoogNativeSession(
             records.save(record.copy(items = history.items + user, lastTurn = turn, reasoningEffort = effort))
             isSaved = true
         } finally {
-            if (!isSaved) closeClient(client)
+            if (!isSaved) withContext(NonCancellable) { closeClient(client) }
         }
         if (isClosed) {
             // Durable acceptance already exists and is recovered as Unknown, so a plain refusal would be false.
@@ -429,7 +431,7 @@ internal class KoogNativeSession(
             outcome = TurnOutcome.Failed(safe.failure)
         } finally {
             try {
-                closeClient(client)
+                withContext(NonCancellable) { closeClient(client) }
             } finally {
                 withContext(NonCancellable) { finish(turn, outcome) }
             }
@@ -450,7 +452,7 @@ internal class KoogNativeSession(
             }
         } finally {
             try {
-                closeClient(client)
+                withContext(NonCancellable) { closeClient(client) }
             } finally {
                 withContext(NonCancellable) { finish(turn, outcome) }
             }
@@ -461,13 +463,20 @@ internal class KoogNativeSession(
     private suspend fun reopenClient(model: String, client: KoogClient): KoogClient {
         val connection = access.route(route.binding, identity)
         val next = koogCall { access.open(connection, model) }
-        closeClient(client)
-        return next
+        var isTransferred = false
+        return withKoogCleanup(cleanup = {
+            if (!isTransferred) withContext(NonCancellable) { next.closeAndAwait() }
+        }) {
+            closeClient(client)
+            currentCoroutineContext().ensureActive()
+            isTransferred = true
+            next
+        }
     }
 
-    private fun closeClient(client: KoogClient) {
+    private suspend fun closeClient(client: KoogClient) {
         try {
-            client.close()
+            client.closeAndAwait()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

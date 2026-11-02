@@ -119,7 +119,7 @@ class SdkKoogIsolatedPromptsTest {
         HttpClient(engine).use { http ->
             val sdk = SdkKoogTransport(http, TestKoogPlatform)
             f.isolatedTransport = object : KoogTransport by sdk {
-                override fun openIsolated(
+                override suspend fun openIsolated(
                     key: String?,
                     origin: EndpointOrigin,
                     basePath: String?,
@@ -148,7 +148,7 @@ class SdkKoogIsolatedPromptsTest {
         HttpClient(engine).use { http ->
             val sdk = SdkKoogTransport(http, TestKoogPlatform)
             f.isolatedTransport = object : KoogTransport by sdk {
-                override fun openIsolated(
+                override suspend fun openIsolated(
                     key: String?,
                     origin: EndpointOrigin,
                     basePath: String?,

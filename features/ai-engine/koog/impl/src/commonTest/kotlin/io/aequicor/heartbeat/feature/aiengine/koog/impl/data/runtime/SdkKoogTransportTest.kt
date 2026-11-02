@@ -136,7 +136,7 @@ class SdkKoogTransportTest {
     }
 
     @Test
-    fun `transport refuses a foreign origin for fixed routes and plain http for remote servers`() {
+    fun `transport refuses a foreign origin for fixed routes and plain http for remote servers`() = runTest {
         HttpClient(MockEngine { error("no request expected") }).use { http ->
             val transport = SdkKoogTransport(http, TestKoogPlatform)
             assertFailsWith<IllegalArgumentException> {
