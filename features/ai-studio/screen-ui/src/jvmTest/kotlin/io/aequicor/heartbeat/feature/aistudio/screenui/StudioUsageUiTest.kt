@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -53,6 +55,33 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent a
 
 @OptIn(ExperimentalTestApi::class)
 class StudioUsageUiTest {
+    @Test
+    fun `missing telemetry preserves manual compaction and its running guard`() =
+        runSkikoComposeUiTest(size = Size(420f, 800f)) {
+            val events = mutableListOf<StudioIntent>()
+            var content by mutableStateOf(
+                pane().copy(
+                    pane = PaneUi(0, sessionId = "s"),
+                    providerUsage = ProviderUsageUi(persistentListOf(), null, null, null, true),
+                    isCompactEnabled = true,
+                    session = SessionUi("s", "Chat", null, Instant.fromEpochSeconds(1), isRunning = true),
+                ),
+            )
+            var emptyText = ""
+            setContent {
+                emptyText = stringResource(Res.string.usage_empty)
+                UsageHost(content, onIntent = events::add)
+            }
+            onNodeWithTag("usage-context").performClick()
+            onNodeWithText(emptyText).assertIsDisplayed()
+            onNodeWithText("0%").assertDoesNotExist()
+            onNodeWithTag("compact-0").assertIsDisplayed().assertIsNotEnabled()
+            runOnIdle { content = content.copy(session = content.session?.copy(isRunning = false)) }
+            onNodeWithTag("compact-0").assertIsEnabled().performClick()
+            runOnIdle { assertEquals(StudioIntent.CompactContext(0), events.last()) }
+            onNodeWithTag("compact-0").assertDoesNotExist()
+        }
+
     @Test
     fun `native breakdown displays partial categories and falls back when the next snapshot omits it`() =
         runSkikoComposeUiTest(size = Size(390f, 800f)) {

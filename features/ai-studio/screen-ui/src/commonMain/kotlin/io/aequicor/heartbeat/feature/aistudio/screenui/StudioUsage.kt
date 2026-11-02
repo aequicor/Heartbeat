@@ -137,7 +137,10 @@ private fun UsageDetails(
     onCompact: () -> Unit,
 ) {
     if (context == null && provider == null && !content.isCompacting) {
-        SecondaryText(stringResource(Res.string.usage_empty))
+        Column(verticalArrangement = Arrangement.spacedBy(HbTheme.spacing.m)) {
+            SecondaryText(stringResource(Res.string.usage_empty))
+            if (content.isCompactOffered) ContextFooter(content, onCompact)
+        }
         return
     }
     Column(verticalArrangement = Arrangement.spacedBy(HbTheme.spacing.m)) {
@@ -221,6 +224,11 @@ private fun ContextSection(content: PaneContent, context: ContextUsageUi?, onCom
         SecondaryText(stringResource(Res.string.usage_context_unavailable))
     }
     if (content.isCompacting) SecondaryText(stringResource(Res.string.usage_compacting))
+    ContextFooter(content, onCompact)
+}
+
+@Composable
+private fun ContextFooter(content: PaneContent, onCompact: () -> Unit) {
     HbDivider()
     Row(
         Modifier.fillMaxWidth(),
