@@ -6,6 +6,7 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.Expiry
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.Retention
 import io.aequicor.heartbeat.core.datastore.stringKey
@@ -26,7 +27,8 @@ import kotlin.time.Duration.Companion.days
 /**
  * Organisms of the profile, one raw JSON record per organism plus an index of ids. A record that cannot be decoded
  * (damaged, or incompatible with this version) is skipped and kept rather than read as absent, until an organism with
- * the same id is written; a record whose retention expired is dropped from the index. Writes are serialized and never
+ * the same id is explicitly repaired; a record whose retention expired is dropped from the index. Writes are
+ * serialized and never
  * replace a newer version; JSON is encoded off the main thread. Texts are never logged.
  */
 @ContributesBinding(ProfileScope::class)
@@ -37,11 +39,12 @@ internal class KeyValueOrganismJournal(
     private val dispatchers: DispatcherProvider,
 ) : OrganismJournal {
     private val log = Log.tag("KeyValueOrganismJournal")
-    private val store by lazy { stores.keyValue(SPEC) }
+    private val store by lazy {
+        stores.keyValue(SPEC).also {
+            check(it.spec.readPolicy == KeyValueReadPolicy.Strict) { "Organism authority requires strict storage" }
+        }
+    }
     private val mutex = Mutex()
-
-    /** Last version written or read per organism; guarded by [mutex]. */
-    private val versions = mutableMapOf<OrganismId, Long>()
 
     override suspend fun load(): List<Organism> = mutex.withLock {
         val ids = store.get(INDEX).orEmpty()
@@ -51,7 +54,6 @@ internal class KeyValueOrganismJournal(
             records.mapNotNull { (id, raw) -> raw?.let { decode(id, it) } }
         }
         if (expired.isNotEmpty()) store.set(INDEX, ids - expired)
-        organisms.forEach { versions[it.id] = it.version }
         log.d {
             "loaded ${organisms.size} organisms, ${records.size - expired.size - organisms.size} unreadable, " +
                 "${expired.size} expired"
@@ -59,8 +61,24 @@ internal class KeyValueOrganismJournal(
         organisms
     }
 
+    override suspend fun read(id: OrganismId): Organism? = mutex.withLock {
+        val raw = store.get(record(id.value)) ?: return@withLock null
+        withContext(dispatchers.default) {
+            json.decodeFromString(Organism.serializer(), raw).also {
+                check(it.id == id) { "Organism record key does not match its identity" }
+            }
+        }
+    }
+
     override suspend fun save(organism: Organism): Unit = mutex.withLock {
-        val known = versions[organism.id]
+        val existing = store.get(record(organism.id.value))?.let { raw ->
+            withContext(dispatchers.default) { json.decodeFromString(Organism.serializer(), raw) }
+        }
+        check(existing == null || existing.id == organism.id) { "Organism record key does not match its identity" }
+        check(existing == null || existing.incarnation == organism.incarnation) {
+            "An existing organism incarnation cannot be replaced"
+        }
+        val known = existing?.version
         if (known != null && known >= organism.version) {
             log.v { "organism ${organism.id.value} version ${organism.version} skipped: $known is stored" }
             return@withLock
@@ -72,12 +90,13 @@ internal class KeyValueOrganismJournal(
         val ids = store.get(INDEX).orEmpty()
         if (organism.id.value !in ids) store.set(INDEX, ids + organism.id.value)
         store.set(record(organism.id.value), raw, retention)
-        versions[organism.id] = organism.version
         log.v { "organism ${organism.id.value} version ${organism.version} saved" }
     }
 
     private fun decode(id: String, raw: String): Organism? = try {
-        json.decodeFromString(Organism.serializer(), raw)
+        json.decodeFromString(Organism.serializer(), raw).also {
+            require(it.id.value == id) { "Organism record key does not match its identity" }
+        }
     } catch (e: IllegalArgumentException) {
         // Decoding messages quote the record, so only the failure kind is logged.
         log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "organism $id is unreadable and kept" }
@@ -85,7 +104,7 @@ internal class KeyValueOrganismJournal(
     }
 
     private companion object {
-        val SPEC = KeyValueSpec("organic_ai_organisms")
+        val SPEC = KeyValueSpec("organic_ai_organisms", readPolicy = KeyValueReadPolicy.Strict)
         val INDEX = stringSetKey("index")
         val KEEP_ENDED = 30.days
         val json = Json { ignoreUnknownKeys = true }

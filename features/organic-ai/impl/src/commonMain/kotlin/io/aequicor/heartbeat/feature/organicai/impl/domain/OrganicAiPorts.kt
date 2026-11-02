@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -31,6 +32,9 @@ internal typealias OrganicAiMachine = Machine<OrganicAiState, OrganicAiIntent, O
 internal interface OrganismJournal {
     /** Every readable organism. An unreadable record is skipped and kept; an unreadable journal throws. */
     suspend fun load(): List<Organism>
+
+    /** Exact durable record; missing returns null, unreadable data must never authorize execution. */
+    suspend fun read(id: OrganismId): Organism? = load().singleOrNull { it.id == id }
 
     /** Writes [organism] unless the journal holds the same or a newer version of it. */
     suspend fun save(organism: Organism)
@@ -63,6 +67,7 @@ internal data class CellRoute(
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
     /** Host-proven identity, retained when the native session is resumed. */
     val logicalSession: LogicalSessionContext? = null,
+    val execution: SessionExecutionBinding? = null,
 )
 
 /** Own checkouts of the cells of sandbox organisms; worktree mode owns the checkouts, their branches and runs. */
@@ -253,6 +258,7 @@ internal fun interface JudgeSessions {
         target: EngineTarget,
         prompt: String,
         logicalSession: LogicalSessionContext?,
+        execution: SessionExecutionBinding?,
         onSession: suspend (SessionRef) -> Unit,
     ): String
 }

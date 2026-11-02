@@ -147,7 +147,9 @@ class StudioOrganismsTest {
             workspace = WorkspaceRef("/work/project"),
             trust = TrustLevel.AutoEdits,
         )
-        assertEquals(listOf<OrganicAiIntent.Public>(OrganicAiIntent.Public.Conceive(expected)), machine.sent)
+        val actual = (machine.sent.single() as OrganicAiIntent.Public.Conceive).conception
+        assertTrue(actual.incarnation?.isNotBlank() == true)
+        assertEquals(expected, actual.copy(incarnation = null))
     }
 
     @Test

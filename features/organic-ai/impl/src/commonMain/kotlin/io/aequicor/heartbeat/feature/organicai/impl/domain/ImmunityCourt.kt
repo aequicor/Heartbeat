@@ -25,7 +25,13 @@ internal class ImmunityCourt(private val judges: JudgeSessions, private val tran
         log.i { "organism ${organism.id.value} case ${id.value}: judging in a fresh session" }
         val ruling = parseRuling(
             case,
-            judges.deliberate(target, judgePrompt(organism, case, dossier), organism.judgeIdentity(id), onSession),
+            judges.deliberate(
+                target,
+                judgePrompt(organism, case, dossier),
+                organism.judgeIdentity(id),
+                organism.judgeExecution(id),
+                onSession,
+            ),
         )
         log.i { "organism ${organism.id.value} case ${id.value}: ruling $ruling" }
         return ruling

@@ -77,7 +77,14 @@ class SandboxScenarioTest {
     private val journal = MemoryJournal()
     private val natives = Natives()
     private val conception =
-        Conception(ORGANISM, GOAL, TARGET, workspace = project, isolation = OrganismIsolation.Sandbox)
+        Conception(
+            ORGANISM,
+            GOAL,
+            TARGET,
+            workspace = project,
+            isolation = OrganismIsolation.Sandbox,
+            incarnation = "test-incarnation",
+        )
 
     private fun key(cell: CellId): String = "organism.${ORGANISM.value}.${cell.value}"
 
@@ -251,7 +258,7 @@ class SandboxScenarioTest {
             { TARGET },
             sessions,
             CellDriver(sessions, journal, workspaces, NoHarnesses),
-            ImmunityCourt({ _, _, _, _ -> error("no judges in this scenario") }, { emptyList() }),
+            ImmunityCourt({ _, _, _, _, _ -> error("no judges in this scenario") }, { emptyList() }),
             workspaces,
         )
         private val log = Log.tag("SandboxScenario")

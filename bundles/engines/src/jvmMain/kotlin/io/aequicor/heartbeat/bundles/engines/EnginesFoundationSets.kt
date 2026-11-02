@@ -40,6 +40,9 @@ public interface EnginesProfileImports {
      */
     public val sessionHooks: Set<SessionHook>
 
+    /** Canonical lifecycle owners contributed by runtime bundles. */
+    public val executionAuthorities: Set<SessionExecutionAuthority>
+
     /** Offloads of long tool output of the `studio` bundle (context window optimization). */
     public val toolOutputOffloads: Set<ToolOutputOffload>
 
@@ -74,6 +77,11 @@ internal object EnginesBundleSets {
     @Provides
     @ElementsIntoSet
     fun bundleSessionHooks(imports: EnginesProfileImports): Set<SessionHook> = imports.sessionHooks
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleExecutionAuthorities(imports: EnginesProfileImports): Set<SessionExecutionAuthority> =
+        imports.executionAuthorities
 
     @Provides
     @ElementsIntoSet

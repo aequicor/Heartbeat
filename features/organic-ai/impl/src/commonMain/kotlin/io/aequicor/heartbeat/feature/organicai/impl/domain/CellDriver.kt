@@ -210,6 +210,7 @@ internal class CellDriver(
             organism.harnesses,
             organism.decisionMode,
             organism.cellIdentity(cell.id),
+            organism.cellExecution(cell.id),
         )
     }
 

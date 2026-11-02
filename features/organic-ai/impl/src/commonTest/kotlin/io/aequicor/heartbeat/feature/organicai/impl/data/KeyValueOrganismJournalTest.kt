@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.datastore.DataEvent
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.DatabaseSpec
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.Retention
@@ -37,6 +38,38 @@ import kotlin.test.assertTrue
 class KeyValueOrganismJournalTest {
     private val stores = MemoryStores()
     private val journal = KeyValueOrganismJournal(stores, TestDispatchers)
+
+    @Test
+    fun `physical read failure cannot recover empty authority or overwrite the saved incarnation`() = runTest {
+        val original = organism()
+        journal.save(original)
+        val saved = stores.store.values.toMap()
+        stores.store.isUnreadable = true
+        val cold = KeyValueOrganismJournal(stores, TestDispatchers)
+        assertFailsWith<IllegalStateException> { cold.read(original.id) }
+        assertFailsWith<IllegalStateException> { cold.load() }
+        assertFailsWith<IllegalStateException> { cold.save(original.copy(incarnation = "replacement")) }
+        assertEquals(KeyValueReadPolicy.Strict, stores.store.spec.readPolicy)
+        assertEquals(saved, stores.store.values)
+    }
+
+    @Test
+    fun `strict authority lookup preserves nonce and refuses corrupt or mismatched records`() = runTest {
+        val known = organism().copy(incarnation = "first-life")
+        journal.save(known)
+        assertEquals(known, KeyValueOrganismJournal(stores, TestDispatchers).read(known.id))
+        assertNull(journal.read(OrganismId("missing")))
+        stores.store.values["organism.other"] = stores.store.values.getValue("organism.o1")
+        assertFailsWith<IllegalStateException> { journal.read(OrganismId("other")) }
+        stores.store.values["organism.o1"] = "broken"
+        assertFailsWith<IllegalArgumentException> { journal.read(known.id) }
+    }
+
+    @Test
+    fun `legacy records never acquire a nonce from decoding`() = runTest {
+        journal.save(organism().copy(incarnation = null))
+        assertNull(KeyValueOrganismJournal(stores, TestDispatchers).read(OrganismId("o1"))?.incarnation)
+    }
 
     @Test
     fun `organisms survive a round trip through the journal`() = runTest {
@@ -100,6 +133,20 @@ class KeyValueOrganismJournalTest {
         assertEquals(listOf(newer), journal.load())
         journal.save(newer.copy(version = 6, goal = "changed"))
         assertEquals("changed", journal.load().single().goal)
+    }
+
+    @Test
+    fun `cold writers cannot replace newer state or another incarnation`() = runTest {
+        val original = organism().copy(version = 9)
+        journal.save(original)
+        val cold = KeyValueOrganismJournal(stores, TestDispatchers)
+        cold.save(original.copy(version = 2))
+        assertEquals(original, cold.read(original.id))
+        assertFailsWith<IllegalStateException> { cold.save(original.copy(incarnation = "replacement", version = 10)) }
+        assertEquals(original, cold.read(original.id))
+        stores.store.values["organism.o1"] = "corrupt"
+        assertFailsWith<IllegalArgumentException> { cold.save(original.copy(version = 10)) }
+        assertEquals("corrupt", stores.store.values["organism.o1"])
     }
 
     @Test
@@ -183,11 +230,18 @@ class KeyValueOrganismJournalTest {
 
         /** A key whose writes fail, as an interrupted write would. */
         var failing: String? = null
+        var isUnreadable = false
 
         override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = emptyFlow()
 
         @Suppress("UNCHECKED_CAST") // Test fake: one value type per key.
-        override suspend fun <T : Any> get(key: StoreKey<T>): T? = values[key.name] as T?
+        override suspend fun <T : Any> get(key: StoreKey<T>): T? {
+            if (isUnreadable) {
+                check(spec.readPolicy != KeyValueReadPolicy.Strict) { "physical store read failed" }
+                return null
+            }
+            return values[key.name] as T?
+        }
 
         override suspend fun <T : Any> set(key: StoreKey<T>, value: T, retention: Retention) {
             check(key.name != failing) { "write interrupted" }

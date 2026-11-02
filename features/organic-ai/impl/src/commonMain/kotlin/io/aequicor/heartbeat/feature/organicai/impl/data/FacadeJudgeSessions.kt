@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
@@ -47,6 +48,7 @@ internal class FacadeJudgeSessions(private val facade: EngineFacade) : JudgeSess
         target: EngineTarget,
         prompt: String,
         logicalSession: LogicalSessionContext?,
+        execution: SessionExecutionBinding?,
         onSession: suspend (SessionRef) -> Unit,
     ): String {
         val creates = facade.engines.features(target.engine).resolve(CreatesSessions).orThrow()
@@ -56,6 +58,7 @@ internal class FacadeJudgeSessions(private val facade: EngineFacade) : JudgeSess
                 workspace = null,
                 areDetachedToolsEnabled = false,
                 logicalSession = logicalSession,
+                execution = execution,
             ),
         )
         log.i { "judge session opened on ${target.engine.value}" }

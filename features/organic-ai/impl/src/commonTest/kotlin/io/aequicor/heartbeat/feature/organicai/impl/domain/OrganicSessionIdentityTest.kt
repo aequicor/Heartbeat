@@ -8,12 +8,33 @@ import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.impl.organism
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class OrganicSessionIdentityTest {
     private val owner = LogicalSessionContext(LogicalSessionId("root"), SessionKind.Session)
         .subsession(LogicalSessionId("owner"))
+
+    @Test
+    fun `executor authority requires the exact live incarnation and full owner`() {
+        val first = organism()
+        val binding = first.cellExecution(CellId.ZYGOTE)!!
+        val address = OrganicExecutorAddress.parse(binding.instance.id)
+        assertTrue(address.permits(first, binding))
+        assertFalse(address.permits(first.copy(incarnation = "replacement"), binding))
+        assertFalse(address.permits(first.copy(conversation = owner), binding))
+        val ended = first.copy(
+            cells = first.cells.map {
+                it.copy(phase = io.aequicor.heartbeat.feature.organicai.api.CellPhase.Completed("done"))
+            },
+        )
+        assertFalse(address.permits(ended, binding))
+        assertNull(first.copy(conversation = owner).cellExecution(CellId.ZYGOTE))
+        assertFailsWith<IllegalStateException> { first.copy(incarnation = null).cellExecution(CellId.ZYGOTE) }
+    }
 
     @Test
     fun `zygote retains full conversation and descendants and judges have distinct owned identities`() {

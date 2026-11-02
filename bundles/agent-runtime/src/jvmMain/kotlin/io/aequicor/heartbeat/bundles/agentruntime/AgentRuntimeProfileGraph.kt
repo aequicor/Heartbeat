@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveModels
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
@@ -78,6 +79,9 @@ public interface AgentRuntimeProfileExports {
 
     /** Session hooks of the bundle's features; `engines` merges them into the set its facade runs. */
     public val sessionHooks: Set<SessionHook>
+
+    /** Canonical execution authorities owned by organic AI and other runtime hosts. */
+    public val executionAuthorities: Set<SessionExecutionAuthority>
 
     /** Prompt context owners of the bundle's harnesses; the studio of the foundation reads them. */
     public val scheduledHelperPromptOwners: Set<ScheduledHelperPromptOwner>

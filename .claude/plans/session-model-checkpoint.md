@@ -13,6 +13,28 @@
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
 
+## Organic executor authority — продолжение шага 4
+
+- Conception/Organism сохраняют fresh host incarnation; Studio и workflow producers создают UUID. Legacy null
+  не заполняется при decode/restore. Полный human zygote не получает executor binding; parentless zygote,
+  descendants и judges используют immutable address с organism/nonce/member и exact logical owner.
+- Canonical authority требует одновременно durable snapshot, live machine state и включённый organic toggle.
+  Missing/ended/другая incarnation/Dormant отказывают. Drive/Judge дожидаются save ACK до native opening.
+  Authority из agent-runtime экспортируется в engines, отдельно от foundation Studio authority.
+- Journal использует Strict physical read policy, strict point lookup проверяет record key/id. Каждый save
+  сверяет durable version/incarnation даже без load: stale snapshot не заменяет новый, corrupt record не
+  перезаписывается, incarnation существующей записи неизменяема. Physical failure не становится empty store.
+- Verify: organic API 90 / impl 248, harness impl 923, Studio impl 1148 tests без failures/errors/skips;
+  ordinary/typed detekt, DI, organic/harness/Studio iOS compile зелёные. Typed analysis сохраняет прежние
+  diagnostics Studio 3 / harness 21. Production shrink/obfuscate smoke повторены после strict-store fix и зелёные.
+  Architecture review: strict physical-store blocker найден, исправлен и снят.
+- Следующий обязательный слой: snapshot-based retirement fence/drain и durable exact native release proofs.
+  Старый @Transient Organism.sessions и missing-handle lysis ещё дают ложный Released после restart — исправить.
+  Closed judges требуют сохранённой request identity/cleanup proof; Completed zygote может FollowUp, его нельзя
+  permanently fence как Dead. Legacy без nonce — явный отказ нового executor work, без усыновления старых refs.
+  Затем internal service producers, owner mediation, background, утверждённый UI, verify/E2E/reviewed.
+- Это не завершение фичи. PR draft, /reviewed не поставлен, все оставшиеся шаги обязательны.
+
 ## Studio executor retirement — продолжение шага 4
 
 - Новые helper/graph executors сохраняют incarnation и permanent retired marker. Native create/resume передают

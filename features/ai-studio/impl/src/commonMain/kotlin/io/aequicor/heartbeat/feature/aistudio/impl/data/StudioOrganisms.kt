@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.uuid.Uuid
 
 /**
  * The organic AI machine as studio chats use it. An organism chat has the id of its organism, so the chat and the
@@ -127,6 +128,7 @@ internal class StudioOrganisms(
             isolation = isolation(hasProject = workspace != null),
             harnesses = chat.organismHarnesses,
             conversation = chat.logicalSession,
+            incarnation = Uuid.random().toString(),
         )
         val result = machine.send(OrganicAiIntent.Public.Conceive(conception))
         log.i { "organism ${conception.id.value} conception: $result harnesses=${conception.harnesses.size}" }

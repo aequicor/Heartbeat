@@ -57,7 +57,10 @@ internal class OrganicAiEffects(
 
             is OrganicAiEffect.Resolve -> resolve(effect, machine)
 
-            is OrganicAiEffect.Drive -> driver.drive(effect.organism, effect.cell, effect.request, machine)
+            is OrganicAiEffect.Drive -> {
+                journal.save(effect.organism)
+                driver.drive(effect.organism, effect.cell, effect.request, machine)
+            }
 
             is OrganicAiEffect.Respond -> {
                 log.i { "organism ${effect.organism.value} cell ${effect.cell.value}: user decision delivered" }
@@ -65,6 +68,7 @@ internal class OrganicAiEffects(
             }
 
             is OrganicAiEffect.Judge -> {
+                journal.save(effect.organism)
                 val ruling = court.judge(effect.organism, effect.case) { session ->
                     machine.send(OrganicAiIntent.Internal.JudgeConvened(effect.organism.id, effect.case, session))
                 }

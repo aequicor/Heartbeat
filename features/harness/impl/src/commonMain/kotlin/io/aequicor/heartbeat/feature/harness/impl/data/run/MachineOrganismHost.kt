@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.isStopped
 import io.aequicor.heartbeat.feature.organicai.api.zygote
+import kotlin.uuid.Uuid
 
 /**
  * The organic AI machine as the workflow owner uses it, through public intents only. The machine exists only while
@@ -78,6 +79,7 @@ internal class MachineOrganismHost(
             workspace = workspace,
             trust = TrustLevel.Ask,
             decisionMode = AgentToolDecisionMode.AutomaticSafety,
+            incarnation = Uuid.random().toString(),
         )
         return submit(organism, conception)
     }
@@ -106,6 +108,7 @@ internal class MachineOrganismHost(
             harnesses = context.harnesses.map { it.value }.toSet(),
             baseCommit = base,
             decisionMode = AgentToolDecisionMode.AutomaticSafety,
+            incarnation = Uuid.random().toString(),
         )
         return submit(organism, conception)
     }

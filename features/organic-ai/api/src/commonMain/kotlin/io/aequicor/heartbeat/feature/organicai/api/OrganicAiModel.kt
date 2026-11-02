@@ -185,6 +185,8 @@ public data class Conception(
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
     /** Host-proven full conversation; biological ancestry never establishes this owner. */
     val conversation: LogicalSessionContext? = null,
+    /** Fresh host-generated incarnation; null identifies legacy records and grants no executor authority. */
+    val incarnation: String? = null,
 ) {
     init {
         require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
@@ -194,6 +196,7 @@ public data class Conception(
         require(
             conversation == null || conversation.isHumanInteractive,
         ) { "An organism needs a full conversation owner" }
+        require(incarnation == null || incarnation.isNotBlank()) { "Invalid organism incarnation" }
         require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
         require(baseCommit == null || (isolation == OrganismIsolation.Sandbox && isPinnedCommit(baseCommit))) {
             "Invalid pinned organism base"
@@ -248,6 +251,8 @@ public data class Organism(
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
     /** Host-proven full conversation; biological ancestry never establishes this owner. */
     val conversation: LogicalSessionContext? = null,
+    /** Fresh host-generated incarnation; null identifies legacy records and grants no executor authority. */
+    val incarnation: String? = null,
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }
@@ -255,6 +260,7 @@ public data class Organism(
         require(
             conversation == null || conversation.isHumanInteractive,
         ) { "An organism needs a full conversation owner" }
+        require(incarnation == null || incarnation.isNotBlank()) { "Invalid organism incarnation" }
         require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
         require(baseCommit == null || (isolation == OrganismIsolation.Sandbox && isPinnedCommit(baseCommit))) {
             "Invalid pinned organism base"

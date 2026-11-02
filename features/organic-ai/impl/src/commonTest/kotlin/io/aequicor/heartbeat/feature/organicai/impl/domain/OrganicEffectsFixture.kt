@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -64,8 +65,10 @@ internal open class OrganicEffectsFixture {
     protected class Journal : OrganismJournal {
         var stored = emptyList<Organism>()
         val saved = mutableListOf<Organism>()
+        var failure: Exception? = null
         override suspend fun load(): List<Organism> = stored
         override suspend fun save(organism: Organism) {
+            failure?.let { throw it }
             saved += organism
         }
     }
@@ -159,6 +162,7 @@ internal open class OrganicEffectsFixture {
             target: EngineTarget,
             prompt: String,
             logicalSession: LogicalSessionContext?,
+            execution: SessionExecutionBinding?,
             onSession: suspend (SessionRef) -> Unit,
         ): String {
             prompts += target to prompt

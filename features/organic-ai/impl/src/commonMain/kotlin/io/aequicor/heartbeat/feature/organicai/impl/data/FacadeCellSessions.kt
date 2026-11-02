@@ -533,6 +533,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
                 route.target,
                 route.workspace,
                 logicalSession = route.logicalSession,
+                execution = route.execution,
                 areDetachedToolsEnabled = true,
                 areSessionHooksEnabled = route.harnesses.isNotEmpty(),
                 preselected = route.harnesses.takeIf { it.isNotEmpty() }?.let { mapOf(HarnessTools.GROUP to it) }
@@ -549,6 +550,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
             route.target,
             route.workspace,
             logicalSession = route.logicalSession,
+            execution = route.execution,
             areDetachedToolsEnabled = true,
             areSessionHooksEnabled = route.harnesses.isNotEmpty(),
         )

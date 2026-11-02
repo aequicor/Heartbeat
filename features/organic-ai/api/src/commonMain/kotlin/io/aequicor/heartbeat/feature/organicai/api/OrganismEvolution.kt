@@ -68,6 +68,7 @@ internal fun Conception.conceive(): Step {
         baseCommit = baseCommit,
         decisionMode = decisionMode,
         conversation = conversation,
+        incarnation = incarnation,
     )
     val started = organism.updated(CellId.ZYGOTE) { organism.begin(it, Work.Genesis) }
     return if (target == null) {

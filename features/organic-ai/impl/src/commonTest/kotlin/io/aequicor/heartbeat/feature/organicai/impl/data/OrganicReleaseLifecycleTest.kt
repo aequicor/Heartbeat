@@ -147,7 +147,7 @@ class OrganicReleaseLifecycleTest {
         sessions,
         CellDriver(sessions, journal, NoWorkspaces, NoHarnesses),
         ImmunityCourt(
-            JudgeSessions { _, _, _, _ -> error("No judgement expected") },
+            JudgeSessions { _, _, _, _, _ -> error("No judgement expected") },
             SessionTranscripts { emptyList() },
         ),
         NoWorkspaces,

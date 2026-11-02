@@ -36,9 +36,21 @@ import io.aequicor.heartbeat.feature.organicai.impl.working
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
+    @Test
+    fun `failed durable admission prevents native opening before any send`() = runTest {
+        journal.failure = IllegalStateException("storage unavailable")
+        val source = organism(cell(C1))
+        assertFailsWith<IllegalStateException> {
+            effects.handle(OrganicAiEffect.Drive(source, C1, request(C1)), machine)
+        }
+        assertTrue(cells.opened.isEmpty())
+        assertTrue(cells.handle.submitted.isEmpty())
+    }
+
     @Test
     fun `automatic policy reaches zygote descendants and recovered turns`() = runTest {
         for (id in listOf(ZYGOTE, C1)) {
@@ -119,7 +131,7 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
     @Test
     fun `the organism is journaled before a request reaches the engine`() = runTest {
         val organism = organism(cell(C1))
-        cells.handle.onSubmit = { assertEquals(listOf(organism), journal.saved) }
+        cells.handle.onSubmit = { assertEquals(listOf(organism), journal.saved.distinct()) }
         effects.handle(OrganicAiEffect.Drive(organism, C1, request(C1)), machine)
         assertEquals(1, cells.handle.submitted.size)
     }
@@ -197,7 +209,7 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
         val germinating = organism(cell(C1).copy(session = null)).copy(harnesses = setOf("compose"))
         effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
         assertEquals(emptyList(), cells.handle.submitted)
-        assertEquals(emptyList(), journal.saved)
+        assertEquals(listOf(germinating), journal.saved)
         assertEquals(
             listOf<OrganicAiIntent>(
                 OrganicAiIntent.Internal.SessionBound(ORGANISM, C1, request(C1), cells.handle.session),
@@ -248,7 +260,7 @@ internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
         effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
         assertEquals(listOf(cells.handle.session to setOf("compose")), harnesses.connected)
         assertEquals(emptyList(), cells.handle.submitted)
-        assertEquals(emptyList(), journal.saved)
+        assertEquals(listOf(germinating), journal.saved)
         assertEquals(listOf(cells.handle.session to setOf("compose")), harnesses.disconnected)
         assertEquals(ReleaseMode.Lyse, cells.released.single().third)
     }
