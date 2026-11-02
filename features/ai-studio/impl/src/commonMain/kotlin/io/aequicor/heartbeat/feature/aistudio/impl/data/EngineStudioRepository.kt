@@ -80,7 +80,6 @@ import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -433,19 +432,7 @@ internal class EngineStudioRepository(
         deliverStudioAction(id, action, worktrees, onFailure = { update(id) { copy(hasFailed = true) } }) {
             state.first { id !in it.running }
             val settings = hostRunSettings(chatRecords.record(id), state.value.configurations[id]?.applied, defaults())
-            runs.run(
-                this,
-                studioTurnRequest(id, action.prompt, settings, action.kind, RequestId(action.operation))
-                    .copy(continuationOf = action.continuationOf),
-                waitForIdle = true,
-                beforeExecute = {
-                    worktrees.send(WorktreeIntent.Public.ActionDelivered(id, action.operation))
-                    worktrees.await(id, failOnTaskError = false) {
-                        it.actionRequest == null && it.phase == WorktreePhase.ActionWorking &&
-                            it.expectedAction?.operation == action.operation
-                    }
-                },
-            )
+            runs.deliverWorktreeAction(this, worktrees, id, action, settings)
         }
 
     override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome =
@@ -518,13 +505,7 @@ internal class EngineStudioRepository(
         log.i { "Execute the reserved native request" }
         val current = configurationRecord(request.id)
         if (request.isUserPrompt) current.requireHumanConversation()
-        val fresh = if (current.target == null && current.configuration == null) {
-            request
-        } else {
-            request.copy(
-                settings = hostRunSettings(current, current.configuration, request.settings),
-            )
-        }
+        val fresh = request.withCurrentSettings(current)
         val result = turns.execute(this, fresh)
         update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
         val isBriefed = request.compaction != null && request.isBriefed
@@ -583,6 +564,16 @@ internal class EngineStudioRepository(
         val active = open(id, target(id, settings), preselected)
         update(id) { copy(updatedAt = clock.now()).withoutFailure() }
         return active
+    }
+
+    override suspend fun openRequestTurn(request: StudioTurnRequest, preselected: ToolChoices): ActiveSession {
+        log.v { "Open the admitted request with its execution model" }
+        return request.openContinuation(chatRecords, selections, configurations, ::liveHelper) {
+            open(request.id, it, preselected)
+        } ?: run {
+            configurations.thaw(request.id)
+            openTurn(request.id, request.settings, preselected)
+        }
     }
 
     override suspend fun openRecoveryTurn(request: StudioTurnRequest): ActiveSession {
@@ -695,17 +686,29 @@ internal class EngineStudioRepository(
         return open(id, target, emptyMap())
     }
 
+    override suspend fun isConfigurationFrozen(id: String): Boolean {
+        log.v { "Read durable execution fence before applying configuration" }
+        return helperAdmission.isConfigurationFrozen(id)
+    }
+
     override suspend fun configurationAnchor(id: String): FeedbackAnchor = lock.withLock {
         log.v { "Read configuration transcript anchor" }
         FeedbackAnchor(chatRecords.record(id).ref, transcripts.read(id).lastOrNull()?.info?.id)
     }
 
-    override suspend fun saveConfiguration(id: String, settings: StudioSessionSettings) {
+    override suspend fun saveConfiguration(id: String, settings: StudioSessionSettings, isFuturePreference: Boolean) {
         log.v { "Save confirmed configuration id=$id" }
         val target = requireNotNull(studioModelTarget(settings.modelId))
         update(id) {
             val current = state.value.configurations[id]?.applied
-            if (current != null && current != settings) this else copy(configuration = settings, target = target)
+            if (current != null && current != settings) {
+                this
+            } else {
+                copy(
+                    configuration = settings,
+                    target = if (isFuturePreference) this.target else target,
+                )
+            }
         }
     }
 

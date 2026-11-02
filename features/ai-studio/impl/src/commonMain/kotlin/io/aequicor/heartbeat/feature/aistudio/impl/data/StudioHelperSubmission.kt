@@ -37,6 +37,15 @@ internal class StudioHelperSubmission(
     override suspend fun sealRecoveryNoSend(): StudioRecoveryNoSendProof? = prior?.sealRecoveryNoSend()
         ?: recoveryDelivery?.let { attempts.retiredRecoverySender(it, claim) }
 
+    /** Rejects stale opening callbacks before they can change the configuration mode of a newer execution. */
+    suspend fun requireOpening() {
+        check(!isCancelled && attempts.unresolved(helper) == request) { "Opening no longer owns the execution" }
+        val receipt = checkNotNull(attempts.receipt(helper, request))
+        check(receipt.phase == StudioHelperPhase.Preparing && !receipt.isStopRequested) {
+            "Opening requires the exact unsubmitted preparation"
+        }
+    }
+
     suspend fun continuationReceipt(): StudioHelperReceipt? =
         attempts.receipt(helper, request)?.takeIf { it.continuationOf != null }
 

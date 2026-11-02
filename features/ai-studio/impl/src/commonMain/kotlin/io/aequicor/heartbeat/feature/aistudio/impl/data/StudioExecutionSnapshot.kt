@@ -27,3 +27,12 @@ internal fun TrustedUserInstructions.savedAuthority(): StudioHumanAuthority = wh
 
     TrustedUserInstructions.Incomplete -> StudioHumanAuthority(isComplete = false)
 }
+
+/** A future model choice is independent; changing engine or credentials requires an explicit context handoff. */
+internal fun StudioExecutionSnapshot.requireContinuationConnection(record: StudioChatRecord) {
+    check(record.pendingEngineSwitch == null) { "Continuation connection replacement is unresolved" }
+    val current = checkNotNull(record.target) { "Continuation connection is unavailable" }
+    check(current.engine == target.engine && current.binding == target.binding) {
+        "Continuation engine or credential binding changed"
+    }
+}

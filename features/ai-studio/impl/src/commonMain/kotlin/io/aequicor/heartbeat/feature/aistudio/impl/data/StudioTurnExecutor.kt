@@ -382,7 +382,7 @@ internal class StudioTurnExecutor(
         progress: Progress,
         preselected: ToolChoices,
     ) {
-        worktrees.reconcile(request.id) { host.openTurn(request.id, request.settings, preselected) }
+        worktrees.reconcile(request.id) { host.openRequestTurn(request, preselected) }
         worktrees.send(
             WorktreeIntent.Public.RunStarted(
                 request.id,

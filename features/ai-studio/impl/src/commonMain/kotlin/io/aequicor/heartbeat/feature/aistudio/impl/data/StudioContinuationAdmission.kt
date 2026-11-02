@@ -18,7 +18,7 @@ internal class StudioContinuationAdmission(
         val producer = checkNotNull(worktrees.tasks().first()[record.id]) { "Continuation producer is missing" }
         val helper = HelperId(record.id)
         val source = checkNotNull(attempts.receipt(helper, checkNotNull(request.continuationOf)))
-        check(record.target == source.executionSnapshot?.target) { "Continuation native target changed" }
+        checkNotNull(source.executionSnapshot).requireContinuationConnection(record)
         val prepared = attempts.prepareContinuation(helper, request, producer)
         check(prepared.isNew) { "Continuation is already owned or requires reconciliation" }
         val receipt = prepared.receipt

@@ -48,6 +48,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -73,9 +74,11 @@ internal interface StudioConfigurationAccess {
         instruction: String?,
     ): TrustedUserInstructions = TrustedUserInstructions.Incomplete
 
+    suspend fun isConfigurationFrozen(id: String): Boolean = true
+
     suspend fun configurationAnchor(id: String): FeedbackAnchor
     suspend fun configurationSession(id: String, target: EngineTarget): ActiveSession
-    suspend fun saveConfiguration(id: String, settings: StudioSessionSettings)
+    suspend fun saveConfiguration(id: String, settings: StudioSessionSettings, isFuturePreference: Boolean = false)
     suspend fun validateConfigurationTarget(target: EngineTarget)
     fun configurationModels(): List<StudioModel>
     fun configurationState(id: String, state: StudioSessionConfiguration)
@@ -99,6 +102,7 @@ internal class StudioConfigurationController(
     private val log = Log.tag("StudioConfiguration")
     private val lock = Mutex()
     private val changing = mutableSetOf<String>()
+    private val frozen = mutableSetOf<String>()
     private val observed = mutableMapOf<String, ConfigurationObservation>()
 
     /** Sessions whose configuration no longer is their chat's: see [retire]. */
@@ -124,33 +128,79 @@ internal class StudioConfigurationController(
         }
     }
 
+    /** Pins execution parameters and detaches observation atomically before native opening. */
+    suspend fun freeze(id: String, session: ActiveSession?) {
+        val job = lock.withLock {
+            check(changing.add(id)) { "Configuration is busy" }
+            frozen.add(id)
+            if (session != null) retired[id] = session
+            observed.remove(id)?.job
+        }
+        withContext(NonCancellable) {
+            try {
+                job?.cancelAndJoin()
+            } finally {
+                withContext(NonCancellable) { lock.withLock { changing.remove(id) } }
+            }
+        }
+    }
+
+    /** Only a separately admitted new turn may resume applying its saved preferences. */
+    suspend fun thaw(id: String) = lock.withLock {
+        check(id !in changing) { "Configuration is busy" }
+        frozen.remove(id)
+    }
+
     suspend fun configure(access: StudioConfigurationAccess, id: String, change: StudioSettingChange): Boolean {
         // The profile owns the accepted operation; awaiting it only attaches this screen effect.
         return profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) {
             if (!lock.withLock { changing.add(id) }) return@async false
             var completion: StudioSessionSettings? = null
+            var isFuture = false
             try {
-                val result = apply(access, id, change)
+                isFuture = access.isConfigurationFrozen(id) || lock.withLock { id in frozen }
+                if (isFuture) {
+                    val session = lock.withLock {
+                        frozen.add(id)
+                        observed[id]?.session
+                    }
+                    if (session != null) retire(id, session)
+                }
+                val result = if (isFuture) {
+                    saveFutureConfiguration(access, id, change)
+                } else {
+                    apply(access, id, change)
+                }
                 completion = result.settings
                 result.isApplied
             } finally {
-                withContext(NonCancellable) { complete(access, id, completion) }
+                withContext(NonCancellable) { complete(access, id, completion, isFuture) }
             }
         }.await()
     }
 
     /** Releases the operation and its menu guard together, using the latest acknowledged native snapshot. */
-    private suspend fun complete(access: StudioConfigurationAccess, id: String, completion: StudioSessionSettings?) {
-        val latest = lock.withLock {
-            changing.remove(id)
-            val feature = observed[id]?.session?.features?.resolve(ChangesSessionConfiguration)
-            val native = (feature as? FeatureAccess.Available)?.feature?.configuration?.value
-            val target = observed[id]?.target
-            val settings = if (native != null && target != null) native.studio(target) else completion
-            if (settings != null) access.configurationState(id, StudioSessionConfiguration(settings))
-            settings.takeIf { native != null }
+    private suspend fun complete(
+        access: StudioConfigurationAccess,
+        id: String,
+        completion: StudioSessionSettings?,
+        isFuture: Boolean,
+    ) {
+        try {
+            val latest = lock.withLock {
+                val feature = observed[id]?.takeUnless { isFuture }?.session?.features?.resolve(
+                    ChangesSessionConfiguration,
+                )
+                val native = (feature as? FeatureAccess.Available)?.feature?.configuration?.value
+                val target = observed[id]?.target
+                val settings = if (native != null && target != null) native.studio(target) else completion
+                if (settings != null) access.configurationState(id, StudioSessionConfiguration(settings))
+                settings.takeIf { native != null }
+            }
+            if (latest != null) persist(access, id, latest)
+        } finally {
+            withContext(NonCancellable) { lock.withLock { changing.remove(id) } }
         }
-        if (latest != null) persist(access, id, latest)
     }
 
     private suspend fun apply(
@@ -214,6 +264,37 @@ internal class StudioConfigurationController(
             publish(report.copy(revision = 1, outcome = FeedbackOutcome.Failed(failure)))
             ConfigurationResult(actual.studio(target.copy(model = actual.model)), false)
         }
+    }
+
+    /** A frozen native execution is never a target for a next-turn preference change. */
+    private suspend fun saveFutureConfiguration(
+        access: StudioConfigurationAccess,
+        id: String,
+        change: StudioSettingChange,
+    ): ConfigurationResult {
+        val record = access.configurationRecord(id)
+        val saved = record.configuration
+        val target = saved?.modelId?.let(::studioModelTarget) ?: record.configurationTarget()
+        val current = saved?.native(target) ?: SessionConfiguration(target.model)
+        val selected = change.feedback(target, current).selectedTarget(target)
+        access.validateConfigurationTarget(selected)
+        val next = when (change) {
+            is StudioSettingChange.Model -> current.copy(model = selected.model, reasoningEffort = null)
+
+            is StudioSettingChange.Effort -> {
+                val levels = access.configurationModels().reasoningEfforts(selected)
+                require(change.effort == null || change.effort in levels) { "Unsupported reasoning effort" }
+                current.copy(reasoningEffort = change.effort)
+            }
+
+            is StudioSettingChange.Approval -> current.copy(
+                trust = (change.native(selected) as SessionConfigurationChange.Trust).trust,
+            )
+        }
+        val settings = next.studio(selected)
+        access.configurationState(id, StudioSessionConfiguration(settings))
+        access.saveConfiguration(id, settings, isFuturePreference = true)
+        return ConfigurationResult(settings, true)
     }
 
     private data class ConfigurationResult(val settings: StudioSessionSettings?, val isApplied: Boolean)
@@ -328,7 +409,7 @@ internal class StudioConfigurationController(
     }
 
     private suspend fun canReflect(id: String, session: ActiveSession): Boolean =
-        lock.withLock { id !in changing && observed[id]?.session === session }
+        lock.withLock { id !in changing && id !in frozen && observed[id]?.session === session }
 
     private suspend fun mirrorConfiguration(
         access: StudioConfigurationAccess,

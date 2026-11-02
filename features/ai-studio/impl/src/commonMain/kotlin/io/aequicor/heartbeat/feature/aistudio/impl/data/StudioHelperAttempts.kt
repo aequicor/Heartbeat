@@ -247,10 +247,8 @@ internal class StudioHelperAttempts(
             val source = checkNotNull(request.continuationOf)
             requireRecordedHistory(helper, records)
             requireNativeAdmission(helper, records, request.request, records[source.value]?.policy)
-            val target = chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value }?.target
-            check(target == records[source.value]?.executionSnapshot?.target && target != null) {
-                "Continuation native target changed before preparation"
-            }
+            val record = checkNotNull(chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value })
+            checkNotNull(records[source.value]?.executionSnapshot).requireContinuationConnection(record)
             val prompt = HelperPrompt(request.request, request.prompt, directives = request.directives)
             val prepared = prepareContinuationReceipt(records, source, prompt)
             if (prepared.isNew) write(helper, records + (request.request.value to prepared.receipt))

@@ -161,6 +161,9 @@ internal class ConfigurationAccess(private val target: EngineTarget, private val
         )
     }
 
+    var isFrozen = false
+    override suspend fun isConfigurationFrozen(id: String): Boolean = isFrozen
+
     override suspend fun configurationRecord(id: String): StudioChatRecord = records.getValue(id)
     override suspend fun configurationAnchor(id: String): FeedbackAnchor =
         anchors[id] ?: FeedbackAnchor(records.getValue(id).ref)
@@ -169,10 +172,14 @@ internal class ConfigurationAccess(private val target: EngineTarget, private val
         return otherSessions[id] ?: sessions.getValue(id)
     }
 
-    override suspend fun saveConfiguration(id: String, settings: StudioSessionSettings) {
+    override suspend fun saveConfiguration(id: String, settings: StudioSessionSettings, isFuturePreference: Boolean) {
         beforeSave()
         saved += id to settings
-        records[id] = records.getValue(id).copy(configuration = settings, target = studioModelTarget(settings.modelId))
+        val record = records.getValue(id)
+        records[id] = record.copy(
+            configuration = settings,
+            target = if (isFuturePreference) record.target else studioModelTarget(settings.modelId),
+        )
     }
 
     override suspend fun validateConfigurationTarget(target: EngineTarget) {

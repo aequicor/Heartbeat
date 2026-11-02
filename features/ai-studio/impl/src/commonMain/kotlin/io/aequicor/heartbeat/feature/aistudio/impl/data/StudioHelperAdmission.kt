@@ -21,6 +21,11 @@ internal class StudioHelperAdmission(
 ) {
     private val log = Log.tag("StudioHelperAdmission")
 
+    suspend fun isConfigurationFrozen(id: String): Boolean {
+        log.v { "Check durable native ownership before configuration" }
+        return !attempts.isContextIdle(HelperId(id))
+    }
+
     /**
      * Keeps the existing refusal explicit after new-send admission moves behind recovery. Until the coordinator
      * binds execution Q to actual native R, stop in these chats would otherwise retire Q while R keeps running.

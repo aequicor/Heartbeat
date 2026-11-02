@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstruction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
@@ -24,6 +26,33 @@ class StudioExecutionSnapshotTest {
         TrustedUserInstructions.Complete(listOf(TrustedUserInstruction(request, "original instruction")))
             .savedAuthority(),
     )
+
+    @Test
+    fun `future model changes keep the original connection while credential replacement is rejected`() {
+        val record = NativeHelperFixture().record
+        snapshot.requireContinuationConnection(record.copy(target = snapshot.target.copy(model = ModelId("future"))))
+        assertFailsWith<IllegalStateException> {
+            snapshot.requireContinuationConnection(
+                record.copy(target = snapshot.target.copy(binding = EngineBindingId("replacement"))),
+            )
+        }
+    }
+
+    @Test
+    fun `stale opening cannot alter a newer execution configuration mode`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admissions = StudioHelperPromptAdmissions(
+            lazy { error("No native admission in this test") },
+            lazy { emptySet() },
+        )
+        val gate = StudioHelperSubmission(attempts, admissions, helper, request)
+        attempts.prepareConversation(helper, HelperPrompt(request, "prompt"))
+        gate.requireOpening()
+        attempts.requestStop(helper, request)
+        attempts.prepareConversation(helper, HelperPrompt(RequestId("next"), "next prompt"))
+
+        assertFailsWith<IllegalStateException> { gate.requireOpening() }
+    }
 
     @Test
     fun `configuration and original authority survive restart before native entry`() = runTest {

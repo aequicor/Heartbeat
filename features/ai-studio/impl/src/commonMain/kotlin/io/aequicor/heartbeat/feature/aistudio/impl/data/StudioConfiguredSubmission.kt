@@ -83,13 +83,13 @@ internal class StudioConfiguredSubmission(
             seeded.copy(directives = seeded.directives + HELPER_DIRECTIVE)
         }
         // A handoff retires configuration observation because its session is never reflected again.
-        if (request.isHandoff) controller.retire(id, active)
+        if (request.isHandoff || inherited != null) controller.retire(id, active)
         val reviewTarget = if (inherited != null) inherited.reviewTarget else workModel?.reviewTarget
         val submitted = send(access, active, target, constrained, effort, reviewTarget) {
             turnPolicy(isTrustSupported)
         }
         consumeCarriedContext(access, record, request, carried)
-        if (request.isHandoff) return submitted.turn
+        if (request.isHandoff || inherited != null) return submitted.turn
         confirmConfiguration(
             access,
             id,

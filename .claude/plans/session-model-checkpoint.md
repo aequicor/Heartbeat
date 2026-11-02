@@ -48,9 +48,24 @@
   с exact owner/reservation и validated chain. Metadata.lastRequest остаётся C; без proof capacity не освобождается.
 - Локально: Studio 1079/1079, Scheduler API 59/59, Scheduler impl 229/229; JVM DI, iOS Studio/Scheduler impl,
   ordinary/typed detekt зелёные. Последнее architecture review этого batch — без блокеров.
-- Ещё не завершены: legacy source snapshot reconciliation; frozen native configuration при изменении пользовательского
-  выбора (сейчас mismatch безопасно отклоняется); recovery graph work chain Q Submit→D отдельно от observerSuccessor,
+- Ещё не завершены: legacy source snapshot reconciliation; recovery graph work chain Q Submit→D отдельно от observerSuccessor,
   проверка graph cache по effective head и production opt-in. Далее обязательны остальные шаги 3–8 ниже.
+
+## Продолжение: frozen native configuration
+
+- Request-aware opening использует исходную модель continuation при неизменных engine/binding. Смена credentials
+  требует отдельного handoff. Настройки будущего хода сохраняются отдельно от actual native target.
+- Configuration controller и opening разделяют барьер: freeze атомарно отключает observer, удерживает ownership
+  до cancel/join; изменение во время frozen/незавершённого durable execution сохраняет только future preference.
+  После restart сначала проверяется journal, поэтому пустое runtime-состояние не разрешает native mutation.
+- Final configuration persist остаётся под ownership. Старый opening требует exact Preparing receipt; он не может
+  разморозить новое выполнение. Independent admitted opening применяет сохранённый выбор следующего хода.
+- Continuation сохраняет исходные human authority, effort и reviewer; security профильного режима остаётся live.
+  Regression покрывает real configure, restart, stale opening, late observer и suspended final persistence.
+- Локальный verify: Studio 1086 тестов без failures/errors/skips, ordinary/typed detekt, JVM DI и iOS Simulator
+  compile прошли; typed analysis сохраняет прежние diagnostics. Architecture review участка — без блокеров.
+  Production recovery всё ещё не включён; дальнейшие шаги 1–8
+  обязательны, включая native graph work lineage, producer/consumer contracts, approved UI и E2E.
 
 ## Утверждённое поведение
 

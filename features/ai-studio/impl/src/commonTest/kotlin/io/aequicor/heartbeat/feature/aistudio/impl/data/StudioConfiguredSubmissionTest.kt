@@ -27,8 +27,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstruction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
@@ -54,7 +57,10 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeExpectedAction
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRun
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -77,6 +83,63 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioConfiguredSubmissionTest {
+    @Test
+    fun `continuation retains authority and configuration without overwriting future selection`() = runTest {
+        val f = SubmissionFixture(this)
+        val source = RequestId("R")
+        val authority = TrustedUserInstructions.Complete(
+            listOf(TrustedUserInstruction(source, "Original restriction")),
+        )
+        val snapshot = StudioExecutionSnapshot(
+            DefaultRunSettings,
+            f.configuration.target,
+            "high",
+            f.configuration.target.copy(model = ModelId("review")),
+            authority.savedAuthority(),
+        )
+        val gate = f.continuationGate(snapshot)
+        f.configuration.controller.observe(
+            f.access,
+            "chat",
+            f.session,
+            f.configuration.target,
+            isTurnAccepted = true,
+        )
+        f.configuration.controller.freeze("chat", f.session)
+        val futureTarget = f.configuration.target.copy(model = ModelId("future"))
+        assertTrue(
+            f.configuration.controller.configure(
+                f.access,
+                "chat",
+                StudioSettingChange.Model(futureTarget.studioModelId()),
+            ),
+        )
+        val future = checkNotNull(f.access.records.getValue("chat").configuration)
+        assertEquals(futureTarget.studioModelId(), future.modelId)
+        assertEquals(f.configuration.target, f.access.records.getValue("chat").target)
+        f.authorityStore = ChecklistTestStore(ChatSpec).also {
+            it.set(
+                ChatsKey,
+                listOf(
+                    f.access.records.getValue("chat").copy(
+                        humanAuthority = snapshot.authority.append(RequestId("H"), "Later unrelated instruction"),
+                    ),
+                ),
+            )
+        }
+        f.security.value = StudioSecurityLevel.Trust
+        f.submit("C", isUserPrompt = false, gate = gate)
+        runCurrent()
+
+        val sent = f.session.requests.single()
+        assertEquals(authority, sent.trustedUserInstructions)
+        assertEquals("high", sent.reasoningEffort)
+        assertEquals(snapshot.reviewTarget, sent.reviewTarget)
+        assertEquals(TrustLevel.Full, sent.trust)
+        assertEquals(future, f.access.records.getValue("chat").configuration)
+        assertEquals(future, f.access.states.getValue("chat").applied)
+    }
+
     @Test
     fun `browser mention follows the current input host and preserves the visible prompt`() = runTest {
         val fixture = SubmissionFixture(this)
@@ -675,6 +738,37 @@ private class SubmissionFixture(
         { listOf(StudioModel(target.studioModelId(), "Model", isTrustSupported = isTrustSupported)) },
         { access.states },
     )
+
+    suspend fun continuationGate(snapshot: StudioExecutionSnapshot): StudioHelperSubmission {
+        val stores = ChecklistTestStores()
+        val attempts = StudioHelperAttempts(stores)
+        val helper = HelperId("chat")
+        val source = RequestId("R")
+        attempts.prepareConversation(helper, HelperPrompt(source, "source"))
+        attempts.begin(helper, source, "source-sender")
+        attempts.recordExecutionSnapshot(helper, source, "source-sender", snapshot)
+        attempts.accepted(helper, source, session.ref, TurnId("R"))
+        attempts.terminal(
+            helper,
+            source,
+            StudioHelperTerminal(
+                session.ref,
+                TurnId("R"),
+                StudioHelperTerminalOutcome.Cancelled,
+                "",
+            ),
+        )
+        stores.keyValue(ChatSpec).set(ChatsKey, listOf(access.records.getValue("chat")))
+        val task = WorktreeTask(
+            "chat",
+            WorkspaceRef("project"),
+            run = WorktreeRun(source, outcome = TurnOutcome.Cancelled),
+            virtualInterruptedRequests = listOf(source),
+            expectedAction = WorktreeExpectedAction("C", WorktreeRunKind.Coding, source),
+        )
+        attempts.prepareContinuation(helper, runRequest("C").copy(continuationOf = source), task)
+        return StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, RequestId("C"))
+    }
 
     fun storedApproval(): ApprovalMode? = access.records.getValue("chat").configuration?.approval
 
