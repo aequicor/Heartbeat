@@ -1,13 +1,20 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostConversationMessage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -93,6 +100,28 @@ class StudioContinuationLineageTest {
         assertFailsWith<CancellationException> { child(stopped, root, "D") }
         val (before, _) = stopContinuationChain(mapOf("R" to source), root, shouldStopNative = true)
         assertFailsWith<CancellationException> { child(before, root, "C") }
+    }
+
+    @Test
+    fun `conversation result after restart retains terminal ancestor when unsent continuation was stopped`() = runTest {
+        val c = child(mapOf("R" to source), root, "C")
+        val (stopped, _) = stopContinuationChain(mapOf("R" to source, "C" to c), root, shouldStopNative = true)
+        val stores = ChecklistTestStores()
+        stores.keyValue(HelperAttemptsSpec).set(
+            helperReceiptKey(HelperId(fixture.record.id)),
+            Json.encodeToString(stopped),
+        )
+        val evidence = StudioConversationEvidence(
+            StudioHelperAttempts(stores),
+            lazy { error("Historical result must not launch work") },
+            lazy { error("Historical result must not open a session") },
+            NoResultDispatch,
+        )
+
+        val result = evidence.result(fixture.record, root)
+        assertEquals(root, result?.request)
+        assertEquals(TurnOutcome.Cancelled, result?.outcome)
+        assertNull(evidence.result(fixture.record, c.request))
     }
 
     @Test
@@ -188,4 +217,16 @@ class StudioContinuationLineageTest {
             "",
         ),
     )
+}
+
+private object NoResultDispatch : StudioConversationDispatch {
+    override suspend fun <T> owned(operation: suspend () -> T): T = error("No dispatch")
+    override fun initialTarget(record: StudioChatRecord): EngineTarget? = error("No dispatch")
+    override fun isPending(child: LogicalSessionId, request: RequestId): Boolean = false
+    override suspend fun enqueue(
+        child: LogicalSessionId,
+        message: HostConversationMessage,
+        cause: RequestInitiator,
+        beforePrepare: suspend (Boolean) -> StudioChatRecord,
+    ): Unit = error("No dispatch")
 }

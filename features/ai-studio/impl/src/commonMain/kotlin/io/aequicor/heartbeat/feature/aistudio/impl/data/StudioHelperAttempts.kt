@@ -52,11 +52,17 @@ internal class StudioHelperAttempts(
     private val chats = stores.keyValue(ChatSpec)
 
     /** Saves fresh legacy reconciliation before a new writer can replace lastRunRequest. */
-    suspend fun rememberLegacy(helper: HelperId, observation: StudioLegacyObservation) = routes.withLock(helper) {
+    suspend fun rememberLegacy(
+        helper: HelperId,
+        observation: StudioLegacyObservation,
+        humanClaim: StudioLegacyHumanClaim? = null,
+    ) = routes.withLock(helper) {
         lock.withLock {
-            val record = checkNotNull(chats.get(ChatsKey).orEmpty().singleOrNull { it.id == helper.value })
+            val record = checkNotNull(
+                resolvedStudioIdentities(chats.get(ChatsKey).orEmpty()).singleOrNull { it.id == helper.value },
+            )
             check(read(helper)[observation.request.value] == null) { "Legacy request already has a send receipt" }
-            store.rememberLegacyObservation(helper, record, observation)
+            store.rememberLegacyObservation(helper, record, humanClaim?.confirm(record, observation) ?: observation)
             log.v { "Saved exact legacy observation without a native send receipt" }
         }
     }

@@ -54,10 +54,10 @@ internal class StudioConversationEvidence(
 
     override suspend fun result(record: StudioChatRecord, request: RequestId): HostConversationResult? {
         val helper = HelperId(record.id)
-        val receipt = attempts.effectiveReceipt(
+        val receipt = attempts.continuation(
             helper,
             request,
-        ) ?: return attempts.legacy(helper, request)?.terminalResult()
+        )?.result ?: return attempts.legacy(helper, request)?.terminalResult()
         val terminal = receipt.terminal ?: if (receipt.phase in NATIVE_PHASES) {
             runs.value.helperTerminal(helper, receipt.request)?.also { attempts.terminal(helper, receipt.request, it) }
         } else {

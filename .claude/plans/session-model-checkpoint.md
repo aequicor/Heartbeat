@@ -114,6 +114,23 @@
 - Staged aggregate включает унаследованные base changes и превышает лимит; base-sync проверяется по manual
   remerge diff согласно правилу merge-коммитов, с теми же tree/parents перед commit и повторно после commit.
 
+## Legacy reconciliation и аудит continuation consumers
+
+- Полный исторический RunSettings/effort/reviewer/authority существует только в receipt.executionSnapshot.
+  Native Turn и WorktreeRun его не содержат, а текущая configuration — настройки будущего хода.
+- Missing legacy receipt проходит отдельную классификацию: canonical UserConversation без helper/organism,
+  complete original human ledger с exact R, exact interrupted producer operation и совпадающий native terminal.
+  Отдельная observation сохраняет доказанный human source; она не создаёт receipt/snapshot/send rights.
+- Continuation без исторического snapshot получает явный StudioLegacySnapshotUnavailable до admission C.
+  Повтор и restart сохраняют Stop; новое независимое human-сообщение разрешено после native quiescence.
+  Это завершённый безопасный миграционный контракт, а не попытка угадать отсутствующую конфигурацию.
+- Исправлен consumer result(R) при final-unsent C: читается validated resolver.result, terminal исходного R
+  сохраняется после restart. Result(C) не присваивает себе terminal R. Аудит cancel/revoke/progress/lease restore
+  не выявил других подтверждённых расхождений. Architecture review этого delta без блокеров.
+- Локально: 1120 Studio JVM tests без failures/errors/skips, JVM DI и iOS compile; detekt обоих режимов.
+- Следующий объём: шаги 3–8 полностью — shared durable creator FIFO, capabilities, explicit executor writers,
+  owner mediation, background normalization/adapters, утверждённый UI, общая регрессия и /reviewed.
+
 ## Утверждённое поведение
 
 1. Сессия — полноценный чат первого уровня под проектом.

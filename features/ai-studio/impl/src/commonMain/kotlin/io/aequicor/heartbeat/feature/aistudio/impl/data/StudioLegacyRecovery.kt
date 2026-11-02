@@ -31,9 +31,12 @@ internal data class StudioLegacyObservation(
     val turn: TurnId? = null,
     val outcome: StudioHelperTerminalOutcome? = null,
     val isStopRequested: Boolean = false,
+    /** Complete original human ledger and exact interrupted native terminal were checked together. No send rights. */
+    val isHumanSourceConfirmed: Boolean = false,
 ) {
     init {
         require(session.engine == target.engine)
+        require(!isHumanSourceConfirmed || (phase == StudioLegacyPhase.Terminal && turn != null))
         require(phase != StudioLegacyPhase.Idle || (turn == null && outcome == null))
         require(
             phase != StudioLegacyPhase.Terminal || outcome in setOf(
@@ -52,7 +55,11 @@ internal data class StudioLegacyObservation(
         return if (phase == StudioLegacyPhase.Terminal) {
             check(turn == null || incoming.turn == null || turn == incoming.turn) { "Legacy native turn changed" }
             check(incoming.outcome == null || incoming.outcome == outcome) { "Legacy native outcome changed" }
-            copy(turn = turn ?: incoming.turn, isStopRequested = isStopRequested || incoming.isStopRequested)
+            copy(
+                turn = turn ?: incoming.turn,
+                isStopRequested = isStopRequested || incoming.isStopRequested,
+                isHumanSourceConfirmed = isHumanSourceConfirmed || incoming.isHumanSourceConfirmed,
+            )
         } else {
             incoming.copy(isStopRequested = isStopRequested || incoming.isStopRequested)
         }

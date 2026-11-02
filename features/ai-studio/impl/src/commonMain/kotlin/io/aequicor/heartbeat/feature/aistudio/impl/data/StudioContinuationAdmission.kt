@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.flow.first
 
 /** Only a claimed virtual lifecycle action may inherit the interrupted execution's authority. */
@@ -11,14 +12,33 @@ internal class StudioContinuationAdmission(
     private val attempts: StudioHelperAttempts,
     private val admissions: StudioHelperPromptAdmissions,
     private val worktrees: StudioWorktrees,
+    private val runs: Lazy<StudioHelperRuns>? = null,
 ) {
     private val log = Log.tag("StudioContinuationAdmission")
 
     suspend fun prepare(record: StudioChatRecord, request: StudioTurnRequest): StudioTurnRequest {
         val producer = checkNotNull(worktrees.tasks().first()[record.id]) { "Continuation producer is missing" }
+        return prepare(record, request, producer)
+    }
+
+    internal suspend fun prepare(
+        record: StudioChatRecord,
+        request: StudioTurnRequest,
+        producer: WorktreeTask,
+    ): StudioTurnRequest {
         val helper = HelperId(record.id)
-        val source = checkNotNull(attempts.receipt(helper, checkNotNull(request.continuationOf)))
-        checkNotNull(source.executionSnapshot).requireContinuationConnection(record)
+        val sourceId = checkNotNull(request.continuationOf)
+        val source = attempts.receipt(helper, sourceId)
+        if (source == null) {
+            requireContinuationClaim(producer, request)
+            val observed = checkNotNull(runs?.value?.reconcileLegacy(helper, sourceId)) {
+                "Legacy continuation native evidence is unavailable"
+            }
+            attempts.rememberLegacy(helper, observed, StudioLegacyHumanClaim(request, producer))
+            throw StudioLegacySnapshotUnavailable(sourceId)
+        }
+        val original = source.executionSnapshot ?: throw StudioLegacySnapshotUnavailable(sourceId)
+        original.requireContinuationConnection(record)
         val prepared = attempts.prepareContinuation(helper, request, producer)
         check(prepared.isNew) { "Continuation is already owned or requires reconciliation" }
         val receipt = prepared.receipt
