@@ -142,6 +142,7 @@ internal class StudioAutoContinue(
     private val compactions: StudioCompactionPort,
     private val checklists: StudioChecklists,
     private val humanQueue: StudioQueuePort = NoStudioQueue,
+    private val conversations: StudioConversationAutomation,
 ) : StudioTurnLifecycle,
     StudioAutopilotMarks,
     StudioAutopilotRequests,
@@ -176,6 +177,11 @@ internal class StudioAutoContinue(
     }
 
     private suspend fun updateRequest(chat: String, auto: ChatAuto, ready: AutoContinueState.Ready) {
+        val current = record(chat)
+        if (current == null || !isTracked(current)) {
+            auto.context?.request?.let { machines.send(AutoContinueMachineKey, Public.RequestClosed(chat, it.id)) }
+            return
+        }
         val asking = machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking
         val question = asking?.pending?.firstOrNull { it.source == chat && it.id !in asking.submitting }
         val old = auto.context?.request
@@ -191,23 +197,15 @@ internal class StudioAutoContinue(
 
     override suspend fun answer(chat: String, request: ContinuationRequest, answer: ContinuationAnswer): Boolean {
         if (!toggles.get(AutoContinueEnabled)) return false
-        val auto = autoChat(chat) ?: return false
-        if (auto.mode != AutoContinueMode.Autopilot || auto.phase !is Phase.Delivering ||
-            auto.context?.request != request
-        ) {
-            return false
-        }
-        val asking = machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking ?: return false
-        val question = asking.pending.firstOrNull {
-            it.source == chat && it.id.value == request.id && it.id !in asking.submitting
-        } ?: return false
+        val source = record(chat)?.let { conversations.capture(it) } ?: return false
+        val question = answeringQuestion(chat, request) ?: return false
         val permission = runtime.value.state.value.permissions.firstOrNull { it.questionnaireId() == question.id }
         if (request(question, permission) != request) return false
         val resolved = question.autopilotAnswer(answer, permission) ?: run {
             log.w { "Autopilot answer does not fit the active question" }
             return false
         }
-        if (!isSafeAnswer(question, resolved, permission)) return false
+        if (!isSafeAnswer(question, resolved, permission) || !conversations.matches(record(chat), source)) return false
         return machines.send(
             QuestionnaireMachineKey,
             QuestionnaireIntent.Public.Answer(
@@ -217,6 +215,19 @@ internal class StudioAutoContinue(
                 expectedQuestionnaire = question,
             ),
         ) == SendResult.Accepted
+    }
+
+    private fun answeringQuestion(chat: String, request: ContinuationRequest): Questionnaire? {
+        val auto = autoChat(chat) ?: return null
+        if (auto.mode != AutoContinueMode.Autopilot || auto.phase !is Phase.Delivering ||
+            auto.context?.request != request
+        ) {
+            return null
+        }
+        val asking = machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking ?: return null
+        return asking.pending.firstOrNull {
+            it.source == chat && it.id.value == request.id && it.id !in asking.submitting
+        }
     }
 
     private fun isSafeAnswer(question: Questionnaire, resolved: Answer, permission: StudioPermission?): Boolean {
@@ -250,7 +261,11 @@ internal class StudioAutoContinue(
         val kind = request.turnKind()
         // Context upkeep keeps the dialog as it was: it neither cancels an answer nor counts as a new turn.
         if (kind == StudioTurnKind.Service) return@guarded
-        val record = tracked(request) ?: return@guarded
+        val record = record(request.id)?.takeIf { it.isCompactable } ?: return@guarded
+        if (request.origin != StudioTurnOrigin.Conversation) {
+            machines.send(AutoContinueMachineKey, Public.TurnAwaitsHuman(record.id))
+            return@guarded
+        }
         view.value // Starts the machine with the first tracked turn of the profile.
         machines.send(AutoContinueMachineKey, Public.TurnStarted(record.id, kind == StudioTurnKind.Human))
     }
@@ -316,6 +331,7 @@ internal class StudioAutoContinue(
         if (humanQueue.hasPending(chat)) return false
         val record = record(chat)
         if (record == null || !isTracked(record)) return false
+        val source = conversations.capture(record) ?: return false
         val accepted = CompletableDeferred<Unit>()
         val applied = runtime.value.state.value.configurations[chat]?.applied
         val request = StudioTurnRequest(
@@ -325,10 +341,12 @@ internal class StudioAutoContinue(
             kind = WorktreeRunKind.Coding,
             request = RequestId("$AUTOPILOT_PREFIX${Uuid.random()}"),
             origin = StudioTurnOrigin.Conversation,
+            causes = source.causes,
+            automaticSource = source,
             onTurnAccepted = { _, turn -> mark(chat, turn.value) },
             onAccepted = { accepted.complete(Unit) },
         )
-        val run = profile.coroutineScope.async { runReply(request, text, accepted) }
+        val run = profile.coroutineScope.async { runReply(request, text, accepted, source) }
         var outcome: RunOutcome? = null
         var isSettled = false
         try {
@@ -351,13 +369,19 @@ internal class StudioAutoContinue(
      * Runs the autopilot turn of [request] after an ending turn or a compaction, only while the machine still sends
      * [text]; otherwise it fails with [ReplyWithdrawn] before submission.
      */
-    private suspend fun runReply(request: StudioTurnRequest, text: String, accepted: CompletableDeferred<Unit>) = try {
+    private suspend fun runReply(
+        request: StudioTurnRequest,
+        text: String,
+        accepted: CompletableDeferred<Unit>,
+        source: StudioConversationSource,
+    ) = try {
         runs.value.run(
             host.value,
             request,
             waitForIdle = true,
             cancelBeforeSubmission = true,
             beforeExecute = {
+                if (!conversations.matches(record(request.id), source)) throw ReplyWithdrawn()
                 if (humanQueue.hasPending(
                         request.id,
                     ) || !isSending(request.id, text)
@@ -459,7 +483,7 @@ internal class StudioAutoContinue(
     }
 
     private suspend fun record(chat: String): StudioChatRecord? =
-        chats.get(ChatsKey).orEmpty().firstOrNull { it.id == chat }
+        resolvedStudioIdentities(chats.get(ChatsKey).orEmpty()).singleOrNull { it.id == chat }
 
     /** Remembers an autopilot turn; a failed write only loses the label, never the accepted turn. */
     private suspend fun mark(chat: String, turn: String) = try {
@@ -490,11 +514,12 @@ internal class StudioAutoContinue(
     private class ReplyWithdrawn : IllegalStateException("The autopilot reply was taken back before its turn")
 
     /** The chat of [request] when auto-continue follows it: an ordinary chat turn, not a rollover. */
-    private suspend fun tracked(request: StudioTurnRequest): StudioChatRecord? =
-        record(request.id)?.takeIf { !request.isRollover && isTracked(it) }
+    private suspend fun tracked(request: StudioTurnRequest): StudioChatRecord? = record(request.id)?.takeIf {
+        !request.isRollover && toggles.get(AutoContinueEnabled) && conversations.isConversation(it, request.request)
+    }
 
     private suspend fun isTracked(record: StudioChatRecord): Boolean =
-        record.helper == null && record.organismId == null && toggles.get(AutoContinueEnabled)
+        toggles.get(AutoContinueEnabled) && conversations.capture(record) != null
 
     private suspend fun guarded(what: String, block: suspend () -> Unit) {
         try {

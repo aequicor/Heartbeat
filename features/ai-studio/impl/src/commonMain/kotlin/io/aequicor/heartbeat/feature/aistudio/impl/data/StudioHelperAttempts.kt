@@ -311,9 +311,10 @@ internal class StudioHelperAttempts(
         helper: HelperId,
         prompt: HelperPrompt,
         policy: StudioAttemptPolicy = StudioAttemptPolicy.Conversation,
+        automaticSource: StudioConversationSource? = null,
     ): StudioHelperPreparation {
         check(policy !is StudioAttemptPolicy.OwnedHelperWork) { "Helper work requires lease preparation" }
-        return prepare(helper, prompt, isRedelivery = true, policy = policy)
+        return prepare(helper, prompt, isRedelivery = true, policy = policy, automaticSource = automaticSource)
     }
 
     private suspend fun prepare(
@@ -321,8 +322,9 @@ internal class StudioHelperAttempts(
         prompt: HelperPrompt,
         isRedelivery: Boolean,
         policy: StudioAttemptPolicy?,
+        automaticSource: StudioConversationSource? = null,
     ): StudioHelperPreparation = routes.withLock(helper) {
-        prepareLocked(helper, prompt, isRedelivery, policy)
+        prepareLocked(helper, prompt, isRedelivery, policy, automaticSource)
     }
 
     private suspend fun prepareLocked(
@@ -330,6 +332,7 @@ internal class StudioHelperAttempts(
         prompt: HelperPrompt,
         isRedelivery: Boolean,
         policy: StudioAttemptPolicy?,
+        automaticSource: StudioConversationSource? = null,
     ): StudioHelperPreparation = lock.withLock {
         val records = read(helper)
         requireRecordedHistory(helper, records)
@@ -337,36 +340,19 @@ internal class StudioHelperAttempts(
         check(
             prompt.request.value !in store.readLegacyObservations(helper),
         ) { "A legacy native request cannot be replayed" }
-        val fingerprint = prompt.fingerprint()
-        val existing = records[prompt.request.value]
-        check(existing?.policy == null || existing.policy.hasSameOrigin(policy)) { "Request attribution cannot change" }
-        val isRedelivered = isRedelivery && existing?.policy == policy && existing?.isRedeliveryOf(prompt) == true
-        if (existing != null && !isRedelivered) {
-            check(
-                existing.fingerprint == null ||
-                    (existing.fingerprint == fingerprint && existing.handoff == prompt.handoff),
-            ) {
-                "A helper request cannot change after it was journaled"
+        if (automaticSource != null) {
+            check(policy == StudioAttemptPolicy.Conversation) { "Automatic source requires conversation provenance" }
+            chats.requireAutomaticSource(helper, records, automaticSource, prompt.request, isPrepared = false)
+        }
+        val prepared = prepareIndependentReceipt(records, prompt, isRedelivery, policy, automaticSource)
+        if (prepared.isNew) {
+            check(chats.get(ChatsKey).orEmpty().firstOrNull { it.id == helper.value }?.pendingEngineSwitch == null) {
+                "Helper engine replacement must recover before preparing another request"
             }
-            return@withLock StudioHelperPreparation(existing, isNew = false)
+            write(helper, records + (prompt.request.value to prepared.receipt))
+            log.v { "Journaled helper preparation" }
         }
-        check(chats.get(ChatsKey).orEmpty().firstOrNull { it.id == helper.value }?.pendingEngineSwitch == null) {
-            "Helper engine replacement must recover before preparing another request"
-        }
-        check(records.unresolvedHeads().none { it.request != prompt.request }) {
-            "The previous helper request must be reconciled first"
-        }
-        val receipt = StudioHelperReceipt(
-            prompt.request,
-            StudioHelperPhase.Preparing,
-            fingerprint,
-            handoff = prompt.handoff,
-            isNativeEntryTracked = true,
-            policy = policy,
-        )
-        write(helper, records + (prompt.request.value to receipt))
-        log.v { "Journaled helper preparation redelivered=$isRedelivered" }
-        StudioHelperPreparation(receipt, isNew = true)
+        prepared
     }
 
     /**
@@ -403,6 +389,31 @@ internal class StudioHelperAttempts(
         )
         log.v { "Journaled helper submission boundary" }
         true
+    }
+
+    suspend fun conversationSource(
+        record: StudioChatRecord,
+        request: RequestId,
+        actions: Set<RequestId> = emptySet(),
+    ): StudioConversationSource? = lock.withLock {
+        captureConversationSource(record, read(HelperId(record.id)), request, actions)
+    }
+
+    /** Serializes only local rollover persistence with Stop; native detach must stay outside this callback. */
+    suspend fun <T> withAutomaticCommit(
+        request: StudioTurnRequest,
+        isPrepared: Boolean = false,
+        commit: suspend () -> T,
+    ): T {
+        val source = request.automaticSource ?: return commit()
+        return lock.withLock {
+            val helper = HelperId(request.id)
+            val records = read(helper)
+            check(records[request.request.value]?.isContinuationFenced != true) { "Rollover was stopped" }
+            chats.requireAutomaticSource(helper, records, source, request.request, isPrepared = isPrepared)
+            requireAutomaticAncestors(records, source.request)
+            commit()
+        }
     }
 
     /** Actual configuration and provenance must survive a crash after native entry. */
@@ -679,6 +690,10 @@ internal class StudioHelperAttempts(
         incoming: StudioAttemptPolicy? = null,
     ) {
         store.requireNativeAdmission(helper, receipts, request, incoming)
+        requireAutomaticAncestors(receipts, request)
+        receipts[request.value]?.automaticSource?.let {
+            chats.requireAutomaticSource(helper, receipts, it, request, isPrepared = true)
+        }
     }
 
     private suspend fun requireRecordedHistory(helper: HelperId, records: Map<String, StudioHelperReceipt>) {
@@ -696,16 +711,8 @@ internal class StudioHelperAttempts(
         store.set(helperReceiptKey(helper), Json.encodeToString(records))
     }
 
-    /**
-     * A delivery of the same request whose earlier preparation never crossed the native submission boundary and was
-     * not revoked by an external barrier. Its text may differ (see [prepareDelivery]); its handoff may not.
-     */
-    private fun StudioHelperReceipt.isRedeliveryOf(prompt: HelperPrompt): Boolean =
-        phase in REPREPARABLE_PHASES && !isFinal && fingerprint != null && handoff == prompt.handoff
-
     private companion object {
         val NATIVE_PHASES = setOf(StudioHelperPhase.Submitting, StudioHelperPhase.Accepted, StudioHelperPhase.Terminal)
-        val REPREPARABLE_PHASES = setOf(StudioHelperPhase.Preparing, StudioHelperPhase.NotSubmitted)
     }
 }
 

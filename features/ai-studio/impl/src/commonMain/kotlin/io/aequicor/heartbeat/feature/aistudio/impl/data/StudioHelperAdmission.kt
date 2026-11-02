@@ -95,7 +95,12 @@ internal class StudioHelperAdmission(
             attempts.terminal(helper, previous, terminal)
         }
         // A scheduled wake keeps its request id across deliveries; a revoked earlier preparation may be redone.
-        val prepared = attempts.prepareDelivery(helper, HelperPrompt(request.request, request.prompt), policy)
+        val prepared = attempts.prepareDelivery(
+            helper,
+            HelperPrompt(request.request, request.prompt),
+            policy,
+            request.automaticSource,
+        )
         check(prepared.isNew) { "The helper request is already owned" }
         log.v { "Reserved helper request through common admission" }
         return request.copy(

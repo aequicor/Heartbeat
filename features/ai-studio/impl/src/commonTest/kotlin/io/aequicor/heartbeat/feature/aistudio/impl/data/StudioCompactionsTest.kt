@@ -24,10 +24,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -46,6 +48,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContinuationB
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_SUMMARY_PROMPT
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.PendingCompaction
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,6 +59,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -105,6 +109,8 @@ class StudioCompactionsTest {
             override fun bind(session: SessionRef): AutoCloseable = AutoCloseable { }
         }
         val source = runRequest("browser-source").copy(environment = environment)
+        runCurrent()
+        fixture.seed(source)
         val job = launch { fixture.compactions.run() }
         fixture.pending(
             Chat to PendingCompaction(
@@ -148,14 +154,14 @@ class StudioCompactionsTest {
     }
 
     @Test
-    fun `helper and organism chats refuse a user compaction before it is queued`() = runTest {
+    fun `legacy interactive helper permits manual compaction while organism refuses it`() = runTest {
         val fixture = Fixture(this)
         runCurrent()
 
-        assertFalse(fixture.compactions.request("helper", null))
+        assertTrue(fixture.compactions.request("helper", null))
         assertFalse(fixture.compactions.request("organism", null))
 
-        assertTrue(fixture.registry.sent.isEmpty())
+        assertEquals(1, fixture.registry.sent.size)
     }
 
     @Test
@@ -185,6 +191,8 @@ class StudioCompactionsTest {
         val job = launch { fixture.compactions.run() }
 
         val source = runRequest("source")
+        runCurrent()
+        fixture.seed(source)
         fixture.pending(
             Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent, "focus", source.request),
         )
@@ -227,6 +235,8 @@ class StudioCompactionsTest {
 
         repeat(4) {
             val source = runRequest("continue-source-$it")
+            runCurrent()
+            fixture.seed(source)
             fixture.pending(
                 Chat to PendingCompaction(
                     CompactionMethod.Native,
@@ -251,7 +261,15 @@ class StudioCompactionsTest {
         runCurrent()
         val disabled = Fixture(this, disabled = setOf(ContinuationBriefEnabled))
         val disabledJob = launch { disabled.compactions.run() }
-        disabled.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent))
+        runCurrent()
+        disabled.seed(runRequest("source"))
+        disabled.pending(
+            Chat to PendingCompaction(
+                CompactionMethod.Native,
+                CompactionOrigin.Agent,
+                sourceRequest = RequestId("source"),
+            ),
+        )
         runCurrent()
 
         assertTrue(user.executed.single().compaction != null)
@@ -265,9 +283,15 @@ class StudioCompactionsTest {
         val fixture = Fixture(this, disabled = setOf(ContinuationBriefEnabled))
         val job = launch { fixture.compactions.run() }
 
+        runCurrent()
+        fixture.seed(runRequest("source"))
         fixture.pending(
             Foreign to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Auto),
-            Chat to PendingCompaction(CompactionMethod.Rollover, CompactionOrigin.Auto),
+            Chat to PendingCompaction(
+                CompactionMethod.Rollover,
+                CompactionOrigin.Auto,
+                sourceRequest = RequestId("source"),
+            ),
         )
         runCurrent()
 
@@ -290,7 +314,15 @@ class StudioCompactionsTest {
         val fixture = Fixture(this)
         val job = launch { fixture.compactions.run() }
 
-        fixture.pending(Chat to PendingCompaction(CompactionMethod.Rollover, CompactionOrigin.Agent))
+        runCurrent()
+        fixture.seed(runRequest("source"))
+        fixture.pending(
+            Chat to PendingCompaction(
+                CompactionMethod.Rollover,
+                CompactionOrigin.Agent,
+                sourceRequest = RequestId("source"),
+            ),
+        )
         runCurrent()
 
         val (summary, rollover) = fixture.executed
@@ -311,6 +343,7 @@ class StudioCompactionsTest {
         val usage = ContextUsage(90, 100)
 
         runCurrent()
+        fixture.seed(runRequest("prompt"))
         fixture.compactions.settled(runRequest("prompt"), Active(usage), TurnOutcome.Completed)
         fixture.compactions.settled(
             runRequest("compact").copy(compaction = ContextCompaction()),
@@ -319,10 +352,45 @@ class StudioCompactionsTest {
         )
 
         assertEquals<List<MachineIntent>>(
-            listOf(Public.TurnSettled(Chat, usage, CompactionSupport(isNative = true, isRollover = true), true)),
+            listOf(
+                Public.TurnSettled(
+                    Chat,
+                    usage,
+                    CompactionSupport(isNative = true, isRollover = true),
+                    true,
+                    RequestId("prompt"),
+                ),
+            ),
             fixture.registry.sent,
         )
     }
+
+    @Test
+    fun `work source and missing automatic source refuse compaction while manual request remains available`() =
+        runTest {
+            val fixture = Fixture(this)
+            runCurrent()
+            val source = runRequest("work")
+            fixture.seed(source, StudioAttemptPolicy.GraphWork(source.request))
+            val job = launch { fixture.compactions.run() }
+            fixture.pending(
+                Chat to PendingCompaction(
+                    CompactionMethod.Native,
+                    CompactionOrigin.Auto,
+                    sourceRequest = source.request,
+                ),
+            )
+            runCurrent()
+            assertTrue(fixture.executed.isEmpty())
+            assertTrue(Public.Finished(Chat, CompactionResult.Unsupported) in fixture.registry.sent)
+            fixture.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent))
+            runCurrent()
+            assertTrue(fixture.executed.isEmpty())
+            fixture.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.User))
+            runCurrent()
+            assertEquals(StudioTurnOrigin.Conversation, fixture.executed.single().origin)
+            job.cancel()
+        }
 
     private class Active(usage: ContextUsage) : ActiveSession {
         override val ref = Chat
@@ -375,6 +443,7 @@ class StudioCompactionsTest {
         private val stores = ChecklistTestStores()
         val host = RunHost(mutableListOf()).apply {
             execute = { request ->
+                seed(request)
                 executed += request
                 onExecute(request)
                 RunOutcome.Completed
@@ -390,6 +459,7 @@ class StudioCompactionsTest {
             },
             registry,
             Toggles(disabled),
+            StudioConversationAutomation(StudioHelperAttempts(stores)),
         )
 
         init {
@@ -416,6 +486,42 @@ class StudioCompactionsTest {
                     ),
                 )
             }
+        }
+
+        suspend fun seed(request: StudioTurnRequest, policy: StudioAttemptPolicy = StudioAttemptPolicy.Conversation) {
+            val records = stores.keyValue(ChatSpec).get(ChatsKey).orEmpty()
+            stores.keyValue(ChatSpec).set(
+                ChatsKey,
+                records.map {
+                    if (it.id == request.id) it.startedRun(request.request) else it
+                },
+            )
+            val native = NativeHelperFixture()
+            val receipt = StudioHelperReceipt(
+                request.request,
+                StudioHelperPhase.Terminal,
+                "fingerprint",
+                session = Chat,
+                turn = TurnId(request.request.value),
+                policy = policy,
+                terminal = StudioHelperTerminal(
+                    Chat,
+                    TurnId(request.request.value),
+                    StudioHelperTerminalOutcome.Completed,
+                    "Done",
+                ),
+                executionSnapshot = StudioExecutionSnapshot(
+                    DefaultRunSettings,
+                    native.target,
+                    null,
+                    null,
+                    StudioHumanAuthority(),
+                ),
+            )
+            stores.keyValue(HelperAttemptsSpec).set(
+                helperReceiptKey(HelperId(request.id)),
+                Json.encodeToString(mapOf(request.request.value to receipt)),
+            )
         }
 
         fun pending(vararg entries: Pair<SessionRef, PendingCompaction>) {

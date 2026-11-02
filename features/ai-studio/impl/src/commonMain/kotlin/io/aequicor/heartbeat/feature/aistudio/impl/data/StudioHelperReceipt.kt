@@ -87,6 +87,8 @@ internal data class StudioHelperReceipt(
     val graphContinuation: StudioGraphContinuationProof? = null,
     /** Revocation of future descendants does not itself interrupt an already accepted native turn. */
     val isContinuationRevoked: Boolean = false,
+    /** Durable authorization for an automatic conversation follow-up; never inferred from its request id. */
+    val automaticSource: StudioConversationSource? = null,
 ) {
     init {
         require(graphContinuation == null || graphContinuation.source == continuationOf)

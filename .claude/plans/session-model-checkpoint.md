@@ -5,13 +5,33 @@
 - PR: https://github.com/aequicor/Heartbeat/pull/640 — **draft, фича не завершена**.
 - Ветка: `codex/unified-session-model`, целевая ветка `master`.
 - Синхронизация с `origin/master`: `f446bacb317f95b88bfdada727c0d15c7729dced` (PR #643, #644, #646); актуальные queue/correction и DSH cancellation включены в base sync этого checkpoint.
-- Текущий слой — production recovery: native work lineage, перенос наблюдателей, Stop aliases и immutable execution configuration. Полный объём шагов 1–8 остаётся обязательным.
+- Завершены production recovery, limited legacy reconciliation, shared creator FIFO и manual capabilities/automatic provenance. Следующий шаг — explicit Subagent writers/termination, затем owner mediation, background normalization, утверждённый UI и полный финальный review.
 - Продолжать в этом же PR. Force push, merge PR и выпуск не разрешены. Пользователь поручил после реализации и регрессии перевести PR в ready через `open-pr`, затем выполнить `pr-review-and-fix`.
 - Стандарт и макеты согласованы; повторного решения по дизайну не требуется, если реализация следует согласованным кадрам.
 - Весь оставшийся объём ниже обязателен: foundation и зелёные unit-тесты не означают соответствие стандарту.
 
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
+
+## Manual capabilities и automatic provenance — завершено
+
+- Canonical full chats, включая Subsession и доказанный legacy interactive helper, сохраняют ручные compact/rollover,
+  реализацию плана и смену движка. Helper marker больше не навязывает full chat capability AppliesTrustLevels или
+  inherited reviewer; immutable work receipts и route/journal idle barrier сохранены.
+- Autopilot и автоматическая компакция требуют exact persisted Conversation source; unknown/work/legacy без snapshot
+  отказывают. Failed/Cancelled Conversation закрывают lifecycle, не разрешая новый автоматический send.
+- Threshold pending сохраняет sourceRequest. Summary, compact и post-compaction continuation явно Conversation,
+  наследуют только доказанные causes, без human instruction. Перед execution проверяется revision; begin/native entry
+  повторяют проверку под общим journal mutex. Stop источника действует через automatic и virtual ancestors.
+- Rollover сериализует только локальный transcript/record commit с journal; detach/native close вне mutex.
+  Environment carry использует тот же barrier для уже admitted request. Durable action fence rollover Q переносится
+  в subsequent continuation, поэтому Stop во время detach не теряется. Snapshot для automatic answers проверяет
+  ancestry под mutex. DFS отказывает повреждённым циклам и разрешает общий ancestor.
+- Регрессии: restart unknown/work, failed/cancelled lifecycle provenance, Stop между begin/native entry, virtual
+  descendant, ancestor-fenced answer, Stop до/после rollover commit, mixed cycle/diamond, manual vs automatic compaction.
+- Verify: Studio impl **1139/1139**, context-window-optimization API **44/44**, failures/errors/skips 0; ordinary/typed
+  detekt обоих модулей, DI compile и Studio iOS compile зелёные. Старые 3 diagnostics type-analysis Studio остаются
+  ограничением покрытия. Architecture reviewer: blocker нет. Это завершение шага 3, не всей фичи.
 
 ## Продолжение на macOS: admission и точный результат
 

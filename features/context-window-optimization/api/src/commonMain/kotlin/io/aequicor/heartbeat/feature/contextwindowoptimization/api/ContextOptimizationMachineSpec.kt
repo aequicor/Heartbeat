@@ -116,7 +116,13 @@ private fun Ready.decided(intent: Public.TurnSettled): Ready {
     val decision = settings.decideCompaction(marks[intent.session] ?: CompactionMark(), intent.usage, intent.support)
     val isReset = decision.mark == CompactionMark()
     return copy(
-        pending = decision.pending?.let { pending + (intent.session to it) } ?: pending,
+        pending = decision.pending?.let {
+            pending + (
+                intent.session to it.copy(
+                    sourceRequest = intent.sourceRequest,
+                )
+            )
+        } ?: pending,
         marks = if (isReset) marks - intent.session else marks + (intent.session to decision.mark),
     )
 }

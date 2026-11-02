@@ -70,12 +70,14 @@ public sealed interface ContextOptimizationIntent : MachineIntent {
         /**
          * A prompt turn of [session] settled with the native occupancy [usage]; null means unknown. It is remembered
          * for the agent's status; while [isAutomatic] it may also make an automatic compaction pending.
+         * [sourceRequest] preserves the exact settled request for the host to validate before automatic execution.
          */
         public data class TurnSettled(
             val session: SessionRef,
             val usage: ContextUsage?,
             val support: CompactionSupport,
             val isAutomatic: Boolean = true,
+            val sourceRequest: RequestId? = null,
         ) : Public
 
         /** The agent recorded progress of [session] at [at]. */

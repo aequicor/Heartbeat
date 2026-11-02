@@ -24,6 +24,10 @@ internal class StudioEngineSwitchHelpers(
     suspend fun <T> withIdleSource(record: StudioChatRecord, body: suspend () -> T): T =
         routes.withIdleRoute(HelperId(record.id), attempts, body = body)
 
+    /** The native close stays outside this callback; only context persistence holds the journal barrier. */
+    fun contextCommit(request: StudioTurnRequest, isPrepared: Boolean = false): StudioContextCommit =
+        StudioContextCommit { commit -> attempts.withAutomaticCommit(request, isPrepared, commit) }
+
     /** A frozen tool manifest may move only the exact request still reserved before native preparation. */
     suspend fun <T> withPreparingSource(
         record: StudioChatRecord,
@@ -40,7 +44,7 @@ internal class StudioEngineSwitchHelpers(
     }
 
     fun validate(record: StudioChatRecord, target: EngineTarget) {
-        if (record.helper != null) {
+        if (record.helper != null && !record.isHumanConversation) {
             val declared = facade.engines.state.value.firstOrNull { it.descriptor.id == target.engine }
                 ?.descriptor?.declaredFeatures.orEmpty()
             refuseUnless(AppliesTrustLevels.id in declared, StudioEngineSwitchFailure.Unsupported)
@@ -49,7 +53,7 @@ internal class StudioEngineSwitchHelpers(
 
     suspend fun identity(record: StudioChatRecord, target: EngineTarget): StudioHelperIdentity? {
         val helper = record.helper ?: return null
-        if (helper.model.reviewTarget != null) return helper
+        if (record.isHumanConversation || helper.model.reviewTarget != null) return helper
         val parent = helper.parentChatId?.let { id ->
             checkNotNull(chats.get(ChatsKey).orEmpty().firstOrNull { it.id == id }?.target) {
                 "The helper parent review model is unavailable"

@@ -302,8 +302,8 @@ internal class StudioPlanImplementer(private val planning: StudioPlanning, priva
         this?.mode == PlanMode.Planning && revision == implementation.revision
 
     /**
-     * Helpers and organisms keep their turns to their owners; a checkout needs a project, and an organism isolates
-     * its cells itself instead of running in the chat's checkout.
+     * Executors and organisms keep their turns to their owners; full chats can implement independently of old work.
+     * A checkout still needs a project, and an organism isolates its cells instead of using a chat checkout.
      */
     private fun StudioChatRecord.isImplementable(mode: PlanImplementationMode): Boolean {
         val isModeAllowed = when (mode) {
@@ -314,7 +314,7 @@ internal class StudioPlanImplementer(private val planning: StudioPlanning, priva
 
             PlanImplementationMode.Organism -> worktreeTaskId == null
         }
-        return organismId == null && helper == null && isModeAllowed
+        return isHumanConversation && organismId == null && isModeAllowed
     }
 
     /**

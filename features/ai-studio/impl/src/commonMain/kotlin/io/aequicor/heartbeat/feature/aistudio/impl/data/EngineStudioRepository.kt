@@ -499,7 +499,7 @@ internal class EngineStudioRepository(
         recoverSwitch(request.id)
         if (request.isRollover) {
             return switchHelpers.withIdleSource(chatRecords.record(request.id)) {
-                carry.rollover(request)
+                carry.rollover(request, commit = switchHelpers.contextCommit(request))
             }
         }
         log.i { "Execute the reserved native request" }
@@ -606,7 +606,7 @@ internal class EngineStudioRepository(
     override suspend fun rolloverTurn(request: StudioTurnRequest, active: ActiveSession) {
         log.i { "Carry outside chat into a compatible native context" }
         switchHelpers.withPreparingSource(chatRecords.record(request.id), request, runs.currentRequest(request.id)) {
-            carry.environment(request, active, harnesses) {
+            carry.environment(request, active, harnesses, commit = switchHelpers.contextCommit(request, true)) {
                 historyMirror.refresh(request.id, active.features.requireFeature(SessionHistory))
             }
         }
