@@ -167,6 +167,16 @@ public interface AcpTransport {
 
     /** Releases resources and unblocks outstanding IO without waiting on the calling thread. */
     public fun close()
+
+    /**
+     * Closes and waits for owned IO and the process plus descendants observed at close to stop, with a bounded,
+     * main-safe implementation. A successful return permits deletion of temporary process data. Cancellation
+     * abandons the wait, not the close. Transports without this guarantee close and explicitly reject the call.
+     */
+    public suspend fun closeAndAwait() {
+        close()
+        throw UnsupportedOperationException("ACP transport termination wait unavailable")
+    }
 }
 
 /** Starts desktop processes explicitly. Mobile platforms expose isSupported=false and reject open. */

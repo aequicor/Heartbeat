@@ -79,38 +79,54 @@ public fun EngineCompatibilityStamp.identity(): EngineCompatibilityIdentity = En
  * negotiation; verified regressions are separate from compatibility. Versions use strict SemVer without a v
  * prefix. A prerelease participates in ordering and is never silently treated as the corresponding final release.
  * Constraints must be backed by the connector's versioned protocol/runtime research.
+ * Null constraints explicitly mean that this part of the policy is not established yet; they block admission
+ * even with complete evidence and a matching regression. Empty accepted sets are invalid, not unknown.
  */
 public data class EngineCompatibilityRequirements(
     val engine: EngineId,
-    val heartbeatVersions: Set<String>,
-    val connectorVersions: Set<String>,
-    val minimumRuntime: String,
+    val heartbeatVersions: Set<String>?,
+    val connectorVersions: Set<String>?,
+    val minimumRuntime: String?,
     val maximumRuntimeExclusive: String? = null,
     val deniedRuntimeVersions: Set<String> = emptySet(),
-    val protocols: Set<EngineProtocolIdentity>,
-    val configurationSchemas: Set<Int>,
-    val historySchemas: Set<Int>,
-    val nativeTargets: Set<String>,
+    val protocols: Set<EngineProtocolIdentity>?,
+    val configurationSchemas: Set<Int>?,
+    val historySchemas: Set<Int>?,
+    val nativeTargets: Set<String>?,
     val baselineCapabilities: Set<String>,
     val verified: Set<EngineCompatibilityStamp> = emptySet(),
 ) {
     init {
-        require(heartbeatVersions.isNotEmpty() && heartbeatVersions.all { it.isNotBlank() }) { "Missing host contract" }
         require(
-            connectorVersions.isNotEmpty() && connectorVersions.all { it.isNotBlank() },
+            heartbeatVersions == null ||
+                (heartbeatVersions.isNotEmpty() && heartbeatVersions.all { it.isNotBlank() }),
+        ) { "Empty host contract" }
+        require(
+            connectorVersions == null || (connectorVersions.isNotEmpty() && connectorVersions.all { it.isNotBlank() }),
         ) { "Missing connector contract" }
-        val minimum = requireNotNull(CompatibilityVersion.parse(minimumRuntime)) { "Invalid minimum runtime" }
+        val minimum = minimumRuntime?.let {
+            requireNotNull(CompatibilityVersion.parse(it)) { "Invalid minimum runtime" }
+        }
         if (maximumRuntimeExclusive != null) {
             val maximum = requireNotNull(CompatibilityVersion.parse(maximumRuntimeExclusive)) {
                 "Invalid maximum runtime"
             }
-            require(maximum > minimum) { "Empty runtime range" }
+            require(minimum == null || maximum > minimum) { "Empty runtime range" }
         }
         require(deniedRuntimeVersions.all { CompatibilityVersion.parse(it) != null }) { "Invalid denied runtime" }
-        require(protocols.isNotEmpty()) { "Missing protocol contract" }
-        require(configurationSchemas.isNotEmpty() && configurationSchemas.all { it >= 0 }) { "Missing config contract" }
-        require(historySchemas.isNotEmpty() && historySchemas.all { it >= 0 }) { "Missing history contract" }
-        require(nativeTargets.isNotEmpty() && nativeTargets.all { it.isNotBlank() }) { "Missing target contract" }
+        require(protocols == null || protocols.isNotEmpty()) { "Empty protocol contract" }
+        require(
+            configurationSchemas == null ||
+                (configurationSchemas.isNotEmpty() && configurationSchemas.all { it >= 0 }),
+        ) { "Empty config contract" }
+        require(
+            historySchemas == null ||
+                (historySchemas.isNotEmpty() && historySchemas.all { it >= 0 }),
+        ) { "Empty history contract" }
+        require(
+            nativeTargets == null ||
+                (nativeTargets.isNotEmpty() && nativeTargets.all { it.isNotBlank() }),
+        ) { "Empty target contract" }
         require(baselineCapabilities.all { it.isNotBlank() }) { "Empty baseline capability" }
     }
 
@@ -147,6 +163,9 @@ public data class EngineCompatibilityObservation(
 
 /** Why compatibility could not be confirmed; only typed, non-sensitive diagnostics are exposed. */
 public enum class CompatibilityProblem {
+    /** One or more required policy constraints have not been established by connector research. */
+    MissingRequirements,
+
     /** One or more identity dimensions have not been established. */
     MissingIdentity,
 
@@ -273,10 +292,11 @@ private fun checkIdentity(
     rejected: MutableSet<CompatibilityProblem>,
     missing: MutableSet<CompatibilityProblem>,
 ) {
-    fun <T> checkFact(actual: T?, accepted: Set<T>, problem: CompatibilityProblem) {
+    fun <T> checkFact(actual: T?, accepted: Set<T>?, problem: CompatibilityProblem) {
+        if (accepted == null) missing += CompatibilityProblem.MissingRequirements
         when {
             actual == null || (actual is String && actual.isBlank()) -> missing += CompatibilityProblem.MissingIdentity
-            actual !in accepted -> rejected += problem
+            accepted != null && actual !in accepted -> rejected += problem
         }
     }
     checkFact(identity.engine, setOf(requirements.engine), CompatibilityProblem.Engine)
@@ -287,13 +307,27 @@ private fun checkIdentity(
     checkFact(identity.historySchema, requirements.historySchemas, CompatibilityProblem.HistorySchema)
     checkFact(identity.nativeTarget, requirements.nativeTargets, CompatibilityProblem.NativeTarget)
     if (identity.runtimeFingerprint.isNullOrBlank()) missing += CompatibilityProblem.MissingIdentity
-    val version = identity.runtime?.let(CompatibilityVersion::parse)
+    checkRuntimeVersion(requirements, identity.runtime, rejected, missing)
+}
+
+private fun checkRuntimeVersion(
+    requirements: EngineCompatibilityRequirements,
+    runtime: String?,
+    rejected: MutableSet<CompatibilityProblem>,
+    missing: MutableSet<CompatibilityProblem>,
+) {
+    val version = runtime?.let(CompatibilityVersion::parse)
+    val minimum = requirements.minimumRuntime?.let(CompatibilityVersion::parse)
+    if (minimum == null) missing += CompatibilityProblem.MissingRequirements
     if (version == null) {
         missing += CompatibilityProblem.UnknownRuntimeVersion
     } else {
-        val minimum = requireNotNull(CompatibilityVersion.parse(requirements.minimumRuntime))
         val maximum = requirements.maximumRuntimeExclusive?.let(CompatibilityVersion::parse)
-        if (version < minimum || (maximum != null && version >= maximum)) rejected += CompatibilityProblem.RuntimeRange
+        val isBelowMinimum = minimum != null && version < minimum
+        val isAboveMaximum = maximum != null && version >= maximum
+        if (isBelowMinimum || isAboveMaximum) {
+            rejected += CompatibilityProblem.RuntimeRange
+        }
         if (requirements.deniedRuntimeVersions.any { CompatibilityVersion.parse(it) == version }) {
             rejected += CompatibilityProblem.DeniedRuntime
         }

@@ -16,6 +16,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeInstal
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -38,15 +40,24 @@ internal class KimiRuntimeSetup(
 
     /** Read-only resolution: a staged candidate wins; otherwise the retained adapter pin, then the installer seed. */
     suspend fun locate(launch: LaunchContext = LaunchContext()): Installation {
+        val (runtime, source) = locateControlled(launch)
+        return Installation(source, KIMI_RUNTIME_VERSION, runtime.executable)
+    }
+
+    /** Revalidates the actual selected artifact and returns its digest without trusting a prior inspection. */
+    suspend fun locateControlled(launch: LaunchContext): Pair<KimiControlledRuntime, InstallSource> {
         val managed = if (launch.isInstallCandidate) {
             requireNotNull(launch.managed)
         } else {
             installer.find(KimiEngine.Id, KIMI_RUNTIME_VERSION, kimiRuntimeTarget())
                 ?: launch.managed?.takeIf { it.version == KIMI_RUNTIME_VERSION }
         }
-        val executable = withContext(dispatchers.io) {
+        val runtime = withContext(dispatchers.io) {
+            val context = currentCoroutineContext()
             try {
-                kimiControlledExecutable(resourcesDirectory = resourcesDirectory, managed = managed)
+                kimiControlledRuntime(resourcesDirectory = resourcesDirectory, managed = managed) {
+                    context.ensureActive()
+                }
             } catch (error: IOException) {
                 log.w(error.redactedFailure()) { "Kimi runtime could not be read" }
                 throw EngineException(
@@ -56,11 +67,7 @@ internal class KimiRuntimeSetup(
                 )
             }
         }
-        return Installation(
-            if (managed == null) InstallSource.Bundled else InstallSource.Managed,
-            KIMI_RUNTIME_VERSION,
-            executable,
-        )
+        return runtime to if (managed == null) InstallSource.Bundled else InstallSource.Managed
     }
 
     suspend fun prepare(manager: EngineManager) = mutex.withLock {

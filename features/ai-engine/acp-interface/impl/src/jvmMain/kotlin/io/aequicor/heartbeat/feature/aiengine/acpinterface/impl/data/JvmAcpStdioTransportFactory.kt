@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpCommand
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpStdioTransportFactory
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -28,7 +29,9 @@ internal class JvmAcpStdioTransportFactory(private val dispatchers: DispatcherPr
                 JvmAcpTransport(start(command), dispatchers).also { opened = it }
             }.also { isTransferred = true }
         } finally {
-            if (!isTransferred) opened?.close()
+            if (!isTransferred) {
+                withContext(NonCancellable) { opened?.closeAndAwait() }
+            }
         }
     }
 

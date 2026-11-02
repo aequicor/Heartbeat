@@ -5,14 +5,18 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -26,6 +30,7 @@ internal class JvmAcpTransport(private val process: Process, private val dispatc
     private val scope = CoroutineScope(SupervisorJob() + dispatchers.io)
     private val frames = Channel<String>(FRAME_BUFFER)
     private val writes = Mutex()
+    private val closing = CompletableDeferred<List<ProcessHandle>>()
 
     init {
         scope.launch {
@@ -73,25 +78,56 @@ internal class JvmAcpTransport(private val process: Process, private val dispatc
         if (!isClosed.compareAndSet(false, true)) return
         log.i { "ACP stopping stdio process" }
         // Destroy first: blocked pipe IO must unblock before the IO coroutine can finish.
-        destroyDescendants()
-        process.destroyForcibly()
-        closeStdin()
-        frames.close(AcpException.Disconnected())
-        scope.cancel()
+        val descendants = destroyDescendants()
+        try {
+            process.destroyForcibly()
+        } finally {
+            closeStdin()
+            frames.close(AcpException.Disconnected())
+            scope.cancel()
+            if (descendants == null) {
+                closing.completeExceptionally(AcpException.Disconnected())
+            } else {
+                closing.complete(descendants)
+            }
+        }
+    }
+
+    override suspend fun closeAndAwait() {
+        close()
+        withContext(dispatchers.io) {
+            withTimeout(STOP_TIMEOUT_MS) {
+                val descendants = closing.await()
+                try {
+                    runInterruptible(dispatchers.io) {
+                        process.waitFor()
+                        descendants.forEach { it.onExit().get() }
+                    }
+                    scope.coroutineContext[Job]?.join()
+                    writes.withLock { Unit }
+                    closeStdin()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    log.w(AcpDiagnostic(error)) { "ACP stdio termination wait failed" }
+                    throw AcpException.Disconnected()
+                }
+            }
+        }
     }
 
     /**
      * Launchers (npx, uvx, cmd) leave the real agent as a child that inherits our pipes, so descendants alive at close
      * are stopped before the parent. Failure to enumerate them must not prevent stopping the parent.
      */
-    private fun destroyDescendants() {
-        try {
-            process.descendants().toList().forEach { it.destroyForcibly() }
-        } catch (e: SecurityException) {
-            log.w(AcpDiagnostic(e)) { "ACP stdio descendants unavailable" }
-        } catch (e: UnsupportedOperationException) {
-            log.w(AcpDiagnostic(e)) { "ACP stdio descendants unsupported" }
-        }
+    private fun destroyDescendants(): List<ProcessHandle>? = try {
+        process.descendants().use { it.toList() }.also { children -> children.forEach { it.destroyForcibly() } }
+    } catch (e: SecurityException) {
+        log.w(AcpDiagnostic(e)) { "ACP stdio descendants unavailable" }
+        null
+    } catch (e: UnsupportedOperationException) {
+        log.w(AcpDiagnostic(e)) { "ACP stdio descendants unsupported" }
+        null
     }
 
     /**
@@ -131,6 +167,7 @@ internal class JvmAcpTransport(private val process: Process, private val dispatc
     }
 
     private companion object {
+        const val STOP_TIMEOUT_MS = 2_000L
         const val FRAME_BUFFER = 16
         const val MAX_FRAME_CHARS = 8 * 1024 * 1024
     }

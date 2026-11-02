@@ -51,6 +51,7 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
 @ContributesBinding(ProfileScope::class, binding = binding<KimiBackend>())
@@ -67,6 +68,7 @@ internal class JvmKimiBackend(
     private val resources: ResourceResolver,
     private val localApi: JvmKimiLocalApi,
     private val setup: KimiRuntimeSetup,
+    private val compatibilityProbe: KimiCompatibilityProbe,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: KimiConfiguration = KimiConfiguration(),
 ) : KimiBackend {
@@ -110,13 +112,23 @@ internal class JvmKimiBackend(
         )
     }
 
+    override suspend fun inspectCompatibility(installation: Installation, launch: LaunchContext) =
+        compatibilityProbe.inspect(installation, launch)
+
     private suspend fun probe(executable: String): Boolean = try {
-        val exit = probeKimiProcess(dispatchers, PROBE_TIMEOUT_MS) {
-            ProcessBuilder(executable, "--version")
-                .directory(java.io.File(configuration.workingDirectory ?: System.getProperty("user.home")))
-                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                .redirectError(ProcessBuilder.Redirect.DISCARD)
-                .start()
+        val exit = withKimiProbeDirectory(dispatchers) { directory ->
+            val command = isolatedKimiProbeCommand(executable, directory.root)
+            probeKimiProcess(dispatchers, PROBE_TIMEOUT_MS, directory::processStopped) {
+                ProcessBuilder(executable, "--version")
+                    .directory(java.io.File(requireNotNull(command.workingDirectory)))
+                    .apply {
+                        environment().clear()
+                        environment().putAll(command.environment)
+                    }
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start().also { directory.processStarted() }
+            }
         }
         if (exit == null) log.w { "Kimi CLI probe timed out" }
         exit == 0
@@ -264,6 +276,7 @@ internal class JvmKimiBackend(
 internal suspend fun probeKimiProcess(
     dispatchers: DispatcherProvider,
     timeoutMillis: Long,
+    onStopped: () -> Unit = {},
     start: () -> Process,
 ): Int? = withContext(dispatchers.io) {
     withTimeoutOrNull(timeoutMillis) {
@@ -272,9 +285,32 @@ internal suspend fun probeKimiProcess(
             process.outputStream.close()
             runInterruptible { process.waitFor() }
         } finally {
-            process.descendants().use { children -> children.forEach { it.destroyForcibly() } }
+            withContext(NonCancellable) { stopKimiProbeProcess(process, onStopped) }
+        }
+    }
+}
+
+private suspend fun stopKimiProbeProcess(process: Process, onStopped: () -> Unit) {
+    try {
+        val children = try {
+            process.descendants().use { it.toList() }.also { children -> children.forEach { it.destroyForcibly() } }
+        } finally {
+            // Even a denied descendant listing must not leave the root process running.
             process.destroyForcibly()
+        }
+        withContext(NonCancellable) {
+            withTimeout(PROBE_STOP_TIMEOUT_MS) {
+                runInterruptible {
+                    process.waitFor()
+                    children.forEach { it.onExit().get() }
+                }
+                onStopped()
+            }
+        }
+    } finally {
+        try {
             process.inputStream.close()
+        } finally {
             process.errorStream.close()
         }
     }
@@ -292,3 +328,5 @@ internal fun kimiTerminalLoginCommand(
     }
     return if (isWindows) "& $quoted login" else "$quoted login"
 }
+
+private const val PROBE_STOP_TIMEOUT_MS = 2_000L

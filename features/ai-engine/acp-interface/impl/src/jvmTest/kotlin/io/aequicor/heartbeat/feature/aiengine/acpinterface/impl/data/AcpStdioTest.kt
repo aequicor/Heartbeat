@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpCommand
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
@@ -69,12 +70,30 @@ class AcpStdioTest {
         withAgent(isSpawningChild = true) { transport ->
             val child = ProcessHandle.of(requireNotNull(transport.receive()).toLong()).orElseThrow()
             try {
-                transport.close()
-                withContext(Dispatchers.IO) { child.onExit().get(5, TimeUnit.SECONDS) }
+                transport.closeAndAwait()
                 assertFalse(child.isAlive)
+                transport.closeAndAwait()
             } finally {
                 child.destroyForcibly()
             }
+        }
+    }
+
+    @Test
+    fun `termination wait confirms exit even when nonblocking close was called first`() = runTest {
+        val process = DelayedExitProcess()
+        val transport = JvmAcpTransport(process, dispatchers)
+        try {
+            transport.close()
+            val stopped = async { transport.closeAndAwait() }
+            process.waitEntered.await()
+            assertFalse(stopped.isCompleted, "Sending destroy must not be treated as completed termination")
+            process.release.countDown()
+            stopped.await()
+            assertTrue(process.isDestroyed)
+        } finally {
+            process.release.countDown()
+            transport.close()
         }
     }
 
@@ -187,5 +206,28 @@ class AcpStdioTest {
         override fun exitValue(): Int = 0
 
         override fun destroy() = Unit
+    }
+
+    private class DelayedExitProcess : Process() {
+        val waitEntered = CompletableDeferred<Unit>()
+        val release = CountDownLatch(1)
+        var isDestroyed = false
+        override fun getOutputStream(): OutputStream = java.io.ByteArrayOutputStream()
+        override fun getInputStream(): InputStream = ByteArrayInputStream(byteArrayOf())
+        override fun getErrorStream(): InputStream = ByteArrayInputStream(byteArrayOf())
+        override fun waitFor(): Int {
+            waitEntered.complete(Unit)
+            release.await()
+            return 0
+        }
+        override fun exitValue(): Int = if (release.count == 0L) 0 else throw IllegalThreadStateException()
+        override fun destroy() {
+            isDestroyed = true
+        }
+        override fun destroyForcibly(): Process {
+            destroy()
+            return this
+        }
+        override fun descendants(): java.util.stream.Stream<ProcessHandle> = java.util.stream.Stream.empty()
     }
 }

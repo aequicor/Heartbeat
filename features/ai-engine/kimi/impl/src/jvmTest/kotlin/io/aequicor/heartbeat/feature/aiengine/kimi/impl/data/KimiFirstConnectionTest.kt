@@ -21,6 +21,7 @@ class KimiFirstConnectionTest {
                 transports = unused(), clients = unused(), workspaces = unused(), dispatchers = TestKimiDispatchers,
                 toggles = unused(), tools = unused(), bridge = unused(), resources = unused(),
                 localApi = JvmKimiLocalApi(client, TestKimiDispatchers, setup), setup = setup, profile = unused(),
+                compatibilityProbe = KimiCompatibilityProbe(setup, unused(), unused(), TestKimiDispatchers),
             )
             val registration = io.aequicor.heartbeat.feature.aiengine.kimi.impl.di.KimiBindings.registration(
                 lazyOf(backend),

@@ -33,6 +33,42 @@ class EngineCompatibilityTest {
     private val evidence = EngineCompatibilityEvidence(stamp.identity(), true, true, setOf("cancel", "permission"))
 
     @Test
+    fun `known hard upper bound survives an unknown minimum`() {
+        val policy = requirements.copy(minimumRuntime = null, maximumRuntimeExclusive = "2.0.0")
+        assertEquals(Compatibility.Unknown, assessEngineCompatibility(policy, evidence).status)
+        val rejected = assessEngineCompatibility(
+            policy,
+            evidence.copy(identity = stamp.copy(runtime = "2.0.0").identity()),
+        )
+        assertEquals(Compatibility.Incompatible, rejected.status)
+        assertTrue(CompatibilityProblem.RuntimeRange in rejected.problems)
+        assertTrue(CompatibilityProblem.MissingRequirements in rejected.problems)
+    }
+
+    @Test
+    fun `incomplete researched policy never admits even a verified complete bundle`() {
+        listOf(
+            requirements.copy(heartbeatVersions = null),
+            requirements.copy(connectorVersions = null),
+            requirements.copy(minimumRuntime = null),
+            requirements.copy(protocols = null),
+            requirements.copy(configurationSchemas = null),
+            requirements.copy(historySchemas = null),
+            requirements.copy(nativeTargets = null),
+        ).forEach { policy ->
+            val result = assessEngineCompatibility(policy, evidence)
+            assertEquals(Compatibility.Unknown, result.status)
+            assertEquals(setOf(CompatibilityProblem.MissingRequirements), result.problems)
+            assertFalse(result.isBaselineAllowed)
+            assertFalse(result.isAutomaticUpdateAllowed)
+            val rejected = assessEngineCompatibility(policy, evidence.copy(isProvenanceConfirmed = false))
+            assertEquals(Compatibility.Incompatible, rejected.status)
+            assertTrue(CompatibilityProblem.MissingRequirements in rejected.problems)
+            assertTrue(CompatibilityProblem.ProvenanceRejected in rejected.problems)
+        }
+    }
+
+    @Test
     fun `only the exact observed regression bundle is verified`() {
         val result = assessEngineCompatibility(requirements, evidence)
         assertEquals(Compatibility.Verified, result.status)
