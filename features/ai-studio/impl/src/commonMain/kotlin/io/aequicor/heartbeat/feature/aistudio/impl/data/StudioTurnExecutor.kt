@@ -117,7 +117,7 @@ internal data class StudioTurnRequest(
     val recoveryCheckpoint: String? = null,
     /** Exact accepted native identity, before [onAccepted]; notification failure retains native ownership. */
     val onTurnAccepted: suspend (ActiveSession, TurnId) -> Unit = { _, _ -> },
-    /** The graph journal records the native outcome before execution is reported complete. */
+    /** Compatibility outcome observer, invoked after mandatory native result persistence. */
     val onOutcome: suspend (TurnOutcome) -> Unit = {},
     /** Immutable saved causal requests; host relays them to the actual native identity before prompt hooks. */
     val causes: Set<RequestInitiator> = emptySet(),
@@ -148,6 +148,8 @@ internal data class StudioTurnRequest(
     val onNativeTurn: suspend (ActiveSession, StudioNativeTurn) -> Unit = { _, _ -> },
     /** Durable virtual action source; the worktree machine validates it before preparing a new native run. */
     val continuationOf: RequestId? = null,
+    /** Mandatory result sink; known outcomes include actual native identity, independently of checkpoint callbacks. */
+    val onNativeOutcome: suspend (TurnOutcome, StudioRecoveryEvidence?) -> Unit = { _, _ -> },
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
@@ -414,11 +416,14 @@ internal class StudioTurnExecutor(
         recovered: GraphRecovery,
     ): RunOutcome = supervisorScope {
         if (recovered == GraphRecovery.Unknown) {
-            request.onOutcome(TurnOutcome.Unknown)
+            request.publishOutcome(TurnOutcome.Unknown)
             return@supervisorScope host.outcome(request.id, TurnOutcome.Unknown)
         }
         if (recovered is GraphRecovery.Completed) {
-            request.onOutcome(recovered.outcome)
+            request.publishOutcome(
+                recovered.outcome,
+                StudioRecoveryEvidence(active.ref, recovered.request, outcome = recovered.outcome),
+            )
             return@supervisorScope host.outcome(request.id, recovered.outcome)
         }
         val history = active.features.requireFeature(SessionHistory)
@@ -461,7 +466,10 @@ internal class StudioTurnExecutor(
         // The recovery envelope has no authority to trigger follow-up work for the observed native request.
         if (!progress.isAdopted) observe("settlement") { settlement.settled(request, active, outcome) }
         val reported = if (progress.isRecoveryJournalCurrent) outcome else TurnOutcome.Unknown
-        request.onOutcome(reported)
+        request.publishOutcome(
+            reported,
+            StudioRecoveryEvidence(active.ref, native.request, native.turn, reported),
+        )
         worktrees.settled(request.id.takeIf { progress.isIsolated }, native.request, active.ref, native.turn, outcome)
         return host.outcome(request.id, reported)
     }
@@ -653,7 +661,7 @@ internal class StudioTurnExecutor(
             log.w { "Native handle closed during submission; retain pending worktree ownership" }
             progress.isObservationClosed = true
             if (progress.isIsolated) worktrees.submissionObservationLost(request.id, request.request, active.ref)
-            request.onOutcome(TurnOutcome.Unknown)
+            request.publishOutcome(TurnOutcome.Unknown)
             return true
         }
         if (active != null && turn != null) return false
@@ -676,7 +684,11 @@ internal class StudioTurnExecutor(
             worktrees.observationLost(request.id.takeIf { progress.isIsolated }, native.request, active, turn)
         }
         tools.finishTurn(active.ref, turn)
-        request.onOutcome(TurnOutcome.Unknown)
+        val native = checkNotNull(progress.native)
+        request.publishOutcome(
+            TurnOutcome.Unknown,
+            StudioRecoveryEvidence(active.ref, native.request, native.turn, TurnOutcome.Unknown),
+        )
     }
 
     /** An unknown result keeps the runtime slot, approvals and merge lease until the process truly stops. */
@@ -742,4 +754,10 @@ internal class StudioTurnExecutor(
     private companion object {
         const val RECOVERY_WAIT_MILLIS = 30_000L
     }
+}
+
+/** A result sink failure prevents a completion acknowledgement; optional checkpoint failures cannot erase identity. */
+private suspend fun StudioTurnRequest.publishOutcome(outcome: TurnOutcome, evidence: StudioRecoveryEvidence? = null) {
+    onNativeOutcome(outcome, evidence)
+    onOutcome(outcome)
 }

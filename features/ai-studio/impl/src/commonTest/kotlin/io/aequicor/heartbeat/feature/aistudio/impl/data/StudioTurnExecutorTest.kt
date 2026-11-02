@@ -1761,7 +1761,11 @@ class StudioNativeRecoveryTest {
     fun `a failed adopted checkpoint retains terminal evidence under the actual request`() = runTest {
         val f = TurnFixture()
         f.tools.release.complete(Unit)
-        val execution = recovery(f).copy(onNativeTurn = { _, _ -> error("Checkpoint write failed") })
+        var evidence: StudioRecoveryEvidence? = null
+        val execution = recovery(f).copy(
+            onNativeTurn = { _, _ -> error("Checkpoint write failed") },
+            onNativeOutcome = { _, native -> evidence = native },
+        )
         assertEquals(RunOutcome.Completed, f.executor.execute(f.host, execution))
         assertEquals(
             listOf<Pair<StudioNativeTurn, TurnOutcome>>(
@@ -1770,6 +1774,10 @@ class StudioNativeRecoveryTest {
             f.host.adoptedTerminalReceipts,
         )
         assertEquals(true, f.host.isTerminalHistoryCurrent)
+        assertEquals(
+            StudioRecoveryEvidence(f.active.ref, f.request.request, f.turn.id, TurnOutcome.Completed),
+            evidence,
+        )
         assertTrue(f.host.acceptedReceipts.isEmpty())
         assertTrue(f.host.terminalReceipts.isEmpty())
         assertTrue(f.machine.sent.isEmpty())
@@ -1794,6 +1802,26 @@ class StudioNativeRecoveryTest {
         assertEquals(RunOutcome.Completed, run.await())
         assertTrue(f.host.stopTurns.isEmpty())
         assertEquals(StudioNativeTurn(f.request.request, f.turn.id), f.host.adoptedTerminalReceipts.single().first)
+    }
+
+    @Test
+    fun `closed adopted handle reports Unknown with its actual native address`() = runTest {
+        val f = TurnFixture()
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        var evidence: StudioRecoveryEvidence? = null
+        val execution = recovery(f).copy(onNativeOutcome = { _, native -> evidence = native })
+        val run = async { f.executor.execute(f.host, execution) }
+        runCurrent()
+        f.tools.release.complete(Unit)
+        f.active.state.value = ActiveSessionState.Closed
+        run.await()
+
+        assertEquals(
+            StudioRecoveryEvidence(f.active.ref, f.request.request, f.turn.id, TurnOutcome.Unknown),
+            evidence,
+        )
+        assertTrue(f.host.stopTurns.isEmpty())
     }
 
     @Test
@@ -1822,7 +1850,9 @@ class StudioNativeRecoveryTest {
         val f = TurnFixture(settlement = StudioTurnSettlement { _, _, _ -> settlements++ })
         f.active.state.value = ActiveSessionState.Ready()
         f.active.inspection = TurnInspection.Observed(f.request.request, TurnOutcome.Completed)
+        var evidence: StudioRecoveryEvidence? = null
         val execution = recovery(f).copy(
+            onNativeOutcome = { _, native -> evidence = native },
             onNativeTurn = { _, _ -> error("No turn identity was observed") },
             onTurnAccepted = { _, _ -> error("Nothing was submitted") },
         )
@@ -1836,6 +1866,18 @@ class StudioNativeRecoveryTest {
         assertTrue(f.machine.sent.isEmpty())
         assertTrue(f.host.preparations.isEmpty())
         assertEquals(0, settlements)
+        assertEquals(StudioRecoveryEvidence(f.active.ref, f.request.request, outcome = TurnOutcome.Completed), evidence)
+    }
+
+    @Test
+    fun `mandatory result persistence failure prevents completion acknowledgement`() = runTest {
+        val f = TurnFixture()
+        f.tools.release.complete(Unit)
+        val execution = recovery(f).copy(onNativeOutcome = { _, _ -> error("Result write failed") })
+
+        assertEquals(RunOutcome.Failed, f.executor.execute(f.host, execution))
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(1, f.host.adoptedTerminalReceipts.size)
     }
 
     @Test

@@ -9,20 +9,20 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
-import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.answerOf
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskPhase
@@ -49,7 +49,13 @@ internal data class GraphChatAttempt(
     val checkpoint: String? = null,
     val recoveryRoot: String? = null,
     val causes: Set<RequestInitiator> = emptySet(),
+    val native: GraphNativeIdentity? = null,
+    val work: StudioGraphWorkSnapshot? = null,
 )
+
+/** Exact source of a graph result; an observer execution may differ from the native request. */
+@Serializable
+internal data class GraphNativeIdentity(val session: SessionRef, val request: RequestId, val turn: TurnId?)
 
 /** Native graph submissions and results survive a crash between studio completion and scheduler acknowledgement. */
 @SingleIn(ProfileScope::class)
@@ -84,23 +90,23 @@ internal class StudioGraphExecutions(
         check((record.executionWorkspace ?: record.projectId?.let(::WorkspaceRef)) == request.workspace) {
             "The helper workspace differs from its approved graph"
         }
-        val settings = settings(chatId, request)
+        val work = checkNotNull(retainGraphWork(recovered?.work, request.graphWork(settings(chatId, request))))
         val execution = request.prompt.request.value
         val recover = previousExecution?.takeIf { record.ref != null }?.let {
             (known.recoveryLineage(chatId, it).keys + it).map(::RequestId)
         }.orEmpty()
         val checkpoint = recovered?.checkpoint
-        val bound = record(execution, request.graphAttempt(chatId, checkpoint, previousExecution))
+        val bound = record(execution, request.graphAttempt(chatId, checkpoint, previousExecution).copy(work = work))
         log.i { "run graph assignment in a studio chat recovery=${recover.isNotEmpty()}" }
         runs.run(
             host,
             StudioTurnRequest(
                 chatId,
-                request.prompt.visible,
-                settings,
+                work.prompt,
+                checkNotNull(bound.work).settings,
                 WorktreeRunKind.Coding,
                 request.prompt.request,
-                directives = listOf(request.prompt.directive) + if (previousExecution != null) {
+                directives = listOf(work.directive) + if (previousExecution != null) {
                     listOf(
                         "Heartbeat restarted. Continue this assignment in the existing chat. " +
                             "Check effects of interrupted work before repeating it.",
@@ -118,9 +124,10 @@ internal class StudioGraphExecutions(
                     val receipt = inspector?.checkpoint(native.request)
                     if (receipt != null) update(execution) { it.copy(checkpoint = receipt) }
                 },
-                onOutcome = { outcome ->
-                    val result = outcome.graphResult(answer(chatId))
-                    update(execution) { it.copy(result = result) }
+                onNativeOutcome = { outcome, evidence ->
+                    val identity = evidence?.let { GraphNativeIdentity(it.session, it.request, it.turn) }
+                    val result = outcome.graphResult(answer(identity))
+                    update(execution) { it.withCompletion(result, identity) }
                 },
             ),
             waitForIdle = true,
@@ -221,15 +228,13 @@ internal class StudioGraphExecutions(
         }
     }
 
-    private suspend fun answer(chatId: String): String = try {
-        val ref = chats.get(ChatsKey).orEmpty().firstOrNull { it.id == chatId }?.ref
-        if (ref == null) {
+    /** Missing turn evidence yields no text, including terminal-only native inspection after a restart. */
+    private suspend fun answer(native: GraphNativeIdentity?): String = try {
+        if (native == null) {
             ""
         } else {
-            val history = facade.sessions.get(ref).features.requireFeature(SessionHistory)
-            history.page(HistoryPageRequest(limit = 20)).items.filterIsInstance<SessionItem.Message>()
-                .lastOrNull { it.role == MessageRole.Assistant }?.parts?.filterIsInstance<ContentPart.Text>()
-                ?.joinToString("\n") { it.text }.orEmpty().take(SchedulerLimits.MAX_PAYLOAD)
+            val history = facade.sessions.get(native.session).features.requireFeature(SessionHistory)
+            graphAnswer(history.page(HistoryPageRequest(limit = 20)).items, native)
         }
     } catch (e: CancellationException) {
         throw e
@@ -299,7 +304,10 @@ internal fun retainGraphAttempt(
     ) {
         "Graph execution identity changed"
     }
-    return previous.copy(causes = previous.causes + incoming.causes)
+    return previous.copy(
+        causes = previous.causes + incoming.causes,
+        work = retainGraphWork(previous.work, incoming.work),
+    )
 }
 
 private fun SpawnRequest.graphAttempt(chat: String, checkpoint: String?, previousExecution: String?): GraphChatAttempt =
@@ -322,4 +330,16 @@ internal fun List<StudioChatRecord>.graphDefaults(
     val owner = firstOrNull { it.owns(parent) } ?: return base
     val approval = (configurations[owner.id]?.applied ?: owner.configuration)?.approval ?: return base
     return base.copy(approval = approval)
+}
+
+/** No last-message or last-prompt fallback: those may belong to independent work in this conversation. */
+internal fun graphAnswer(items: List<SessionItem>, native: GraphNativeIdentity): String =
+    native.turn?.let { answerOf(items, it, SchedulerLimits.MAX_PAYLOAD, isMarkedOnly = true) }.orEmpty()
+
+/** Loss of observation does not erase a previously recorded native address. */
+internal fun GraphChatAttempt.withCompletion(result: GraphTaskResult, native: GraphNativeIdentity?): GraphChatAttempt {
+    check(result.phase == GraphTaskPhase.RecoveryRequired || native != null) {
+        "A confirmed graph result needs actual native identity"
+    }
+    return copy(result = result, native = native ?: this.native)
 }

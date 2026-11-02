@@ -13,6 +13,25 @@
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
 
+## Продолжение на macOS: admission и точный результат
+
+- `abb894bce`, `e440f702c`: неизменяемый fingerprint работы, frozen native route, NoSend по exact gate/sender,
+  universal root admission и отдельная typed legacy observation. Fresh Idle не выдаётся за terminal R;
+  неизвестная старая сессия не перезаписывается новым запросом. Stop legacy root запрещает его GraphWork.
+- Результат графа получает actual session/request/nullable turn через обязательный `onNativeOutcome`,
+  независимо от optional checkpoint. Ответ берётся только из сообщений с exact turn marker;
+  terminal-only не заимствует последнее сообщение. Unknown сохраняет известную native identity.
+- Producer сохраняет полный `StudioGraphWorkSnapshot`; повтор не меняет assignment и исходные настройки.
+  Применение snapshot ко всем native configuration paths ещё требуется — не считать freeze завершённым.
+- Последний локальный verify: JVM tests, оба detekt, JVM DI и iOS Simulator compile зелёные;
+  typed detekt по-прежнему сообщает 3 старых diagnostics анализа. Architecture review результата без блокеров.
+- Production opt-in `StudioJournaledRecoveryHost` по-прежнему выключен. Следующий обязательный участок:
+  validated work/continuation lineage отдельно от observerSuccessor; Q Submit→D должен инспектировать Q,
+  Stop R/Q/D должен сначала сохранять root stop и разрешать effective native head, а не terminal старого R.
+  Same-Q restart после native entry никогда не отправляет Q повторно. Graph cache требует verified head.
+- Пользователь повторно потребовал продолжать **все** шаги 1–8 до полной реализации и `/reviewed`.
+  Этот checkpoint не означает остановку работы или разрешение пропустить оставшиеся consumers/UI/E2E.
+
 ## Утверждённое поведение
 
 1. Сессия — полноценный чат первого уровня под проектом.
