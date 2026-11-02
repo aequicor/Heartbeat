@@ -54,8 +54,11 @@ data class EngineServices(
 )
 
 /** Executes wizard effects. Typed keys are closed after use whatever the outcome. */
-class ConnectWizardEffects(private val services: EngineServices, private val selections: ModelSelections) :
-    EffectHandler<ConnectWizardEffect, ConnectWizardIntent> {
+internal class ConnectWizardEffects(
+    private val services: EngineServices,
+    private val selections: ModelSelections,
+    private val checks: ModelChecks,
+) : EffectHandler<ConnectWizardEffect, ConnectWizardIntent> {
     private val log = Log.tag("ConnectWizardEffects")
 
     override suspend fun handle(effect: ConnectWizardEffect, machine: EffectScope<ConnectWizardIntent>) {
@@ -93,11 +96,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
                 machine.send(ConnectWizardIntent.Internal.ModelsLoaded(snapshot.models))
             }
 
-            is ConnectWizardEffect.SaveModels -> {
-                selections.update { it.withEnabled(effect.binding, effect.models) }
-                log.i { "saved models count=${effect.models.size}" }
-                machine.send(ConnectWizardIntent.Internal.Saved)
-            }
+            is ConnectWizardEffect.SaveModels -> saveModels(effect, machine)
 
             is ConnectWizardEffect.Rollback -> {
                 // A compensation must finish even if the wizard closes meanwhile.
@@ -105,6 +104,35 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
                 machine.send(ConnectWizardIntent.Internal.RolledBack)
             }
         }
+    }
+
+    private suspend fun saveModels(effect: ConnectWizardEffect.SaveModels, machine: EffectScope<ConnectWizardIntent>) {
+        if (effect.removedTargets.isNotEmpty()) checks.revoke(effect.removedTargets)
+        val result = checks.saveAndCheck(
+            effect.checkTargets,
+            onSaved = { machine.send(ConnectWizardIntent.Internal.Checking(effect.operation)) },
+        ) {
+            selections.update { latest ->
+                val added = effect.models - effect.previous
+                val removed = effect.previous - effect.models
+                latest.withEnabled(effect.binding, latest.enabled(effect.binding) + added - removed)
+            }
+        }
+        val completion = when (result) {
+            is ModelCheckBatchResult.Completed -> ConnectWizardIntent.Internal.Saved(effect.operation)
+
+            is ModelCheckBatchResult.TimedOut -> ConnectWizardIntent.Internal.Saved(
+                effect.operation,
+                isSavePending = result.saved == null,
+            )
+
+            is ModelCheckBatchResult.Failed -> if (result.saved == null) {
+                ConnectWizardIntent.Internal.SaveFailed(EngineFailure.Unknown(), effect.operation)
+            } else {
+                ConnectWizardIntent.Internal.Saved(effect.operation)
+            }
+        }
+        machine.send(completion)
     }
 
     private suspend fun probeEngines() {
@@ -398,6 +426,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
      * the source is kept only while the binding still exists, so a binding never points at a missing source.
      */
     private suspend fun rollback(connection: NewConnection) {
+        if (connection.isCreated || !connection.isInitiallyEnabled) checks.revoke(connection.binding)
         if (!connection.isCreated) {
             if (!connection.isInitiallyEnabled) {
                 attempt("restore the disabled CLI connection") {

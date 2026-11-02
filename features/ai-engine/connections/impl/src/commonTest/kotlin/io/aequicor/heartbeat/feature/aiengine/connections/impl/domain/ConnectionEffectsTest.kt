@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardEffec
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperationId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEffect
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsIntent
@@ -63,7 +64,7 @@ class ConnectionEffectsTest {
     private val selections = FakeModelSelections()
     private val management = FakeEngineManagement()
     private val services = EngineServices(facade, sources, management)
-    private val wizard = ConnectWizardEffects(services, selections)
+    private val wizard = ConnectWizardEffects(services, selections, FakeModelChecks())
     private val settings = EngineConnectionsEffects(services, selections)
     private val wizardScope = RecordingScope<ConnectWizardIntent>()
     private val settingsScope = RecordingScope<EngineConnectionsIntent>()
@@ -366,7 +367,7 @@ class ConnectionEffectsTest {
         assertEquals(ConnectWizardIntent.Internal.ModelsLoaded(models), wizardScope.intents.single())
         wizard.handle(ConnectWizardEffect.SaveModels(binding, setOf(ModelId("gpt-a"))), wizardScope)
         assertEquals(setOf(ModelId("gpt-a")), selections.state.value.enabled(binding))
-        assertEquals(ConnectWizardIntent.Internal.Saved, wizardScope.intents.last())
+        assertEquals(ConnectWizardIntent.Internal.Saved(ConnectionOperationId(1)), wizardScope.intents.last())
     }
 
     @Test

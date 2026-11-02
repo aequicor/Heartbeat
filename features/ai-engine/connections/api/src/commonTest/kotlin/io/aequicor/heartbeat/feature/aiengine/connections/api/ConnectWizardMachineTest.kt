@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class ConnectWizardMachineTest {
     private val spec = ConnectWizardMachineSpec
@@ -232,18 +233,110 @@ class ConnectWizardMachineTest {
         val saving = Saving(koog.descriptor.id, connection, listOf(model("gpt-a")), selected)
         spec.assertTransition(
             saving,
-            Internal.Saved,
+            Internal.Saved(ConnectionOperationId(1)),
             Finished(connection.binding),
             outputs = listOf(ConnectWizardOutput.Completed(connection.binding)),
         )
         spec.assertTransition(
             saving,
-            Internal.SaveFailed(failure),
-            ChoosingModels(koog.descriptor.id, connection, listOf(model("gpt-a")), selected, failure),
+            Internal.SaveFailed(failure, ConnectionOperationId(1)),
+            ChoosingModels(
+                koog.descriptor.id,
+                connection,
+                listOf(model("gpt-a")),
+                selected,
+                failure,
+                operationSequence = 1,
+            ),
         )
         spec.assertIgnored(saving, Public.Cancel)
         spec.assertIgnored(saving, Public.Dismiss)
         spec.assertIgnored(saving, Public.Finish)
+    }
+
+    @Test
+    fun `checking stays in the saving state and stale operation results are ignored`() {
+        val saving = Saving(koog.descriptor.id, connection, listOf(model("gpt-a")), setOf(ModelId("gpt-a")))
+        spec.assertTransition(
+            saving,
+            Internal.Checking(saving.operation),
+            saving.copy(phase = ModelSavePhase.Checking),
+        )
+        assertFalse(requireNotNull(spec.resolve(saving, Internal.Checking(saving.operation))).isStateChange)
+        val stale = ConnectionOperationId(2)
+        spec.assertIgnored(saving, Internal.Checking(stale))
+        spec.assertIgnored(saving, Internal.Saved(stale))
+        spec.assertIgnored(saving, Internal.SaveFailed(failure, stale))
+        spec.assertIgnored(saving.copy(phase = ModelSavePhase.Checking), Internal.Saved(stale))
+    }
+
+    @Test
+    fun `a pending accepted save closes without claiming rollback or completed persistence`() {
+        val saving = Saving(koog.descriptor.id, connection, emptyList(), emptySet())
+        spec.assertTransition(
+            saving,
+            Internal.Saved(saving.operation, isSavePending = true),
+            Finished(connection.binding, isSavePending = true),
+            outputs = listOf(ConnectWizardOutput.Completed(connection.binding, isSavePending = true)),
+        )
+    }
+
+    @Test
+    fun `a save retry keeps its sequence so a result from the first attempt cannot finish it`() {
+        val selected = setOf(ModelId("gpt-a"))
+        val models = listOf(model("gpt-a"))
+        val failed = ChoosingModels(koog.descriptor.id, connection, models, selected, failure, operationSequence = 1)
+        val retried = Saving(koog.descriptor.id, connection, models, selected, ConnectionOperationId(2))
+        spec.assertTransition(
+            failed,
+            Public.Retry,
+            retried,
+            effects = listOf(
+                ConnectWizardEffect.SaveModels(
+                    connection.binding,
+                    selected,
+                    ConnectionOperationId(2),
+                    checkTargets = setOf(model("gpt-a").target),
+                ),
+            ),
+        )
+        spec.assertIgnored(retried, Internal.Saved(ConnectionOperationId(1)))
+        spec.assertIgnored(retried, Internal.SaveFailed(failure, ConnectionOperationId(1)))
+    }
+
+    @Test
+    fun `reused connection checks only added models and revokes only explicitly removed ones`() {
+        val a = ModelId("a")
+        val b = ModelId("b")
+        val c = ModelId("c")
+        val reused = connection.copy(isCreated = false, initialModels = setOf(a, c))
+        val models = listOf(model("a"), model("b"), model("c"))
+        spec.assertTransition(
+            ChoosingModels(koog.descriptor.id, reused, models, setOf(a, b)),
+            Public.Finish,
+            Saving(koog.descriptor.id, reused, models, setOf(a, b)),
+            effects = listOf(
+                ConnectWizardEffect.SaveModels(
+                    connection.binding,
+                    setOf(a, b),
+                    previous = setOf(a, c),
+                    checkTargets = setOf(model("b").target),
+                    removedTargets = setOf(model("c").target),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `save effect failures retain the operation id`() {
+        val operation = ConnectionOperationId(42)
+        assertEquals(
+            Internal.SaveFailed(failure, operation),
+            spec.onEffectFailure(
+                ConnectWizardEffect.SaveModels(connection.binding, emptySet(), operation),
+                EngineException(failure),
+            ),
+        )
     }
 
     @Test
@@ -254,7 +347,13 @@ class ConnectWizardMachineTest {
             ChoosingModels(koog.descriptor.id, connection, models, selected, failure),
             Public.Retry,
             Saving(koog.descriptor.id, connection, models, selected),
-            effects = listOf(ConnectWizardEffect.SaveModels(connection.binding, selected)),
+            effects = listOf(
+                ConnectWizardEffect.SaveModels(
+                    connection.binding,
+                    selected,
+                    checkTargets = setOf(model("gpt-a").target),
+                ),
+            ),
         )
     }
 

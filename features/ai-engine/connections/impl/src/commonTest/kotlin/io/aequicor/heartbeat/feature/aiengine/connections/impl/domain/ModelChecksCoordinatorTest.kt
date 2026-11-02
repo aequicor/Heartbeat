@@ -163,7 +163,8 @@ private fun fixture(
     },
 ): CoordinatorFixture = CoordinatorFixture(scope, prompts)
 
-private class CoordinatorFixture(scope: TestScope, prompts: IsolatedPrompts) {
+@OptIn(ExperimentalCoroutinesApi::class)
+internal class CoordinatorFixture(scope: TestScope, prompts: IsolatedPrompts) {
     val target = checkReport().revision.target.copy(engine = KoogId)
     val disk = MemorySelectionStore()
     private val stores = object : DataStores {

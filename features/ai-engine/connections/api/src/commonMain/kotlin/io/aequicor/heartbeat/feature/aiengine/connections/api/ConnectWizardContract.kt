@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 
@@ -114,21 +115,24 @@ public sealed interface ConnectWizardState : MachineState {
         val models: List<ModelInfo>? = null,
         val selected: Set<ModelId> = emptySet(),
         val failure: EngineFailure? = null,
+        val operationSequence: Long = 0,
     ) : ConnectWizardState
 
-    /** Persisting the model choice. */
+    /** One bounded save/check operation. Phase updates stay in this state and do not cancel its effect. */
     public data class Saving(
         val engine: EngineId,
         val connection: NewConnection,
         val models: List<ModelInfo>?,
         val selected: Set<ModelId>,
+        val operation: ConnectionOperationId = ConnectionOperationId(1),
+        val phase: ModelSavePhase = ModelSavePhase.Saving,
     ) : ConnectWizardState
 
     /** Removing the connection created by an abandoned wizard. */
     public data class RollingBack(val connection: NewConnection) : ConnectWizardState
 
-    /** The connection is saved. */
-    public data class Finished(val binding: EngineBindingId) : ConnectWizardState
+    /** The accepted operation ended its UI wait; [isSavePending] explicitly preserves a still unknown write outcome. */
+    public data class Finished(val binding: EngineBindingId, val isSavePending: Boolean = false) : ConnectWizardState
 
     /** Closed without a connection. */
     public data object Cancelled : ConnectWizardState
@@ -202,11 +206,14 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** Discovery failed; the connection is kept. */
         public data class ModelsFailed(val failure: EngineFailure) : Internal
 
-        /** The model choice is stored. */
-        public data object Saved : Internal
+        /** The bounded operation reached model checks, without leaving/cancelling the saving state. */
+        public data class Checking(val operation: ConnectionOperationId) : Internal
+
+        /** The bounded wait ended; pending means an accepted save may still commit, not that it was rolled back. */
+        public data class Saved(val operation: ConnectionOperationId, val isSavePending: Boolean = false) : Internal
 
         /** The model choice could not be stored. */
-        public data class SaveFailed(val failure: EngineFailure) : Internal
+        public data class SaveFailed(val failure: EngineFailure, val operation: ConnectionOperationId) : Internal
 
         /** The abandoned connection is removed (or its removal failed and was logged). */
         public data object RolledBack : Internal
@@ -235,8 +242,18 @@ public sealed interface ConnectWizardEffect : MachineEffect {
     /** Explicit model discovery through the new binding. */
     public data class DiscoverModels(val engine: EngineId, val binding: EngineBindingId) : ConnectWizardEffect
 
-    /** Stores the enabled models of the new binding. */
-    public data class SaveModels(val binding: EngineBindingId, val models: Set<ModelId>) : ConnectWizardEffect
+    /**
+     * Saves the user's delta from [previous] onto the latest durable choices, preserving concurrent unrelated edits.
+     * Checks only [checkTargets] and revokes [removedTargets] before saving, all within one bounded UI wait.
+     */
+    public data class SaveModels(
+        val binding: EngineBindingId,
+        val models: Set<ModelId>,
+        val operation: ConnectionOperationId = ConnectionOperationId(1),
+        val previous: Set<ModelId> = emptySet(),
+        val checkTargets: Set<EngineTarget> = emptySet(),
+        val removedTargets: Set<EngineTarget> = emptySet(),
+    ) : ConnectWizardEffect
 
     /** Disconnects a newly created binding and forgets its source; preserves an existing CLI connection. */
     public data class Rollback(val connection: NewConnection) : ConnectWizardEffect
@@ -244,8 +261,8 @@ public sealed interface ConnectWizardEffect : MachineEffect {
 
 /** One-off wizard results. */
 public sealed interface ConnectWizardOutput : MachineOutput {
-    /** The connection is ready. */
-    public data class Completed(val binding: EngineBindingId) : ConnectWizardOutput
+    /** The accepted operation ended; this is neither a model-check success nor proof of a pending save committing. */
+    public data class Completed(val binding: EngineBindingId, val isSavePending: Boolean = false) : ConnectWizardOutput
 
     /** The wizard closed without a connection. */
     public data object Cancelled : ConnectWizardOutput

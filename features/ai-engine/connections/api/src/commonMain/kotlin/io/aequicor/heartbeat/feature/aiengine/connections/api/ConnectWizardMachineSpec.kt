@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 
 /**
  * Wizard engine → authentication → models. The binding is created before model discovery, because models are only
@@ -46,14 +47,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
  * | ChoosingModels | Retry | saving failed | Saving | SaveModels |
  * | ChoosingModels | Finish | not discovering | Saving | SaveModels |
  * | ChoosingModels | Cancel / Dismiss | | RollingBack | Rollback |
- * | Saving | Saved | | Finished | Completed |
- * | Saving | SaveFailed | | ChoosingModels (failure) | |
+ * | Saving | Checking | same operation | stay (phase Checking) | |
+ * | Saving | Saved | same operation | Finished (save may be pending) | Completed |
+ * | Saving | SaveFailed | same operation | ChoosingModels (failure, sequence retained) | |
  * | RollingBack | RolledBack | | Cancelled | Cancelled |
  * | Idle, ChoosingEngine, ChoosingMethod | Cancel | | Cancelled | Cancelled |
  * | Idle, ChoosingEngine | Dismiss | | Cancelled | Cancelled |
  *
- * Connecting, Saving and RollingBack ignore Cancel and Dismiss: the outcome of an accepted write must be known
- * before closing.
+ * Connecting, Saving and RollingBack ignore Cancel and Dismiss. Saving ends its bounded UI wait even if an accepted
+ * write is still pending; Finished/Completed keep that fact explicit. The profile reconciles a late save without
+ * starting late probes. Checking is a nested phase: leaving Saving would cancel the waiting effect prematurely.
  * A failed rollback still closes the wizard; the handler logs it and the binding stays visible in settings.
  */
 public val ConnectWizardMachineSpec:
@@ -145,8 +148,8 @@ public val ConnectWizardMachineSpec:
                 effect { ConnectWizardEffect.DiscoverModels(state.engine, state.connection.binding) }
             }
             on<Public.Retry>(guard = { state.failure != null && state.models != null }) {
-                goto<Saving> { Saving(state.engine, state.connection, state.models, state.selected) }
-                effect { ConnectWizardEffect.SaveModels(state.connection.binding, state.selected) }
+                goto<Saving> { state.saving() }
+                effect { state.saveModels() }
             }
             on<Public.ToggleModel>(guard = { state.models.orEmpty().any { it.target.model == intent.model } }) {
                 stay {
@@ -163,20 +166,30 @@ public val ConnectWizardMachineSpec:
                 }
             }
             on<Public.Finish>(guard = { state.models != null || state.failure != null }) {
-                goto<Saving> { Saving(state.engine, state.connection, state.models, state.selected) }
-                effect { ConnectWizardEffect.SaveModels(state.connection.binding, state.selected) }
+                goto<Saving> { state.saving() }
+                effect { state.saveModels() }
             }
             on<Public.Cancel> { rollBack() }
             on<Public.Dismiss> { rollBack() }
         }
         state<Saving> {
-            on<Internal.Saved> {
-                goto<Finished> { Finished(state.connection.binding) }
-                output { ConnectWizardOutput.Completed(state.connection.binding) }
+            on<Internal.Checking>(guard = { intent.operation == state.operation }) {
+                stay { state.copy(phase = ModelSavePhase.Checking) }
             }
-            on<Internal.SaveFailed> {
+            on<Internal.Saved>(guard = { intent.operation == state.operation }) {
+                goto<Finished> { Finished(state.connection.binding, intent.isSavePending) }
+                output { ConnectWizardOutput.Completed(state.connection.binding, intent.isSavePending) }
+            }
+            on<Internal.SaveFailed>(guard = { intent.operation == state.operation }) {
                 goto<ChoosingModels> {
-                    ChoosingModels(state.engine, state.connection, state.models, state.selected, intent.failure)
+                    ChoosingModels(
+                        state.engine,
+                        state.connection,
+                        state.models,
+                        state.selected,
+                        intent.failure,
+                        operationSequence = state.operation.value,
+                    )
                 }
             }
         }
@@ -195,7 +208,7 @@ public val ConnectWizardMachineSpec:
                 is ConnectWizardEffect.Connect -> Internal.ConnectFailed(failure)
                 is ConnectWizardEffect.CheckConnection -> Internal.ConnectionChecked(ConnectionCheck.Failed(failure))
                 is ConnectWizardEffect.DiscoverModels -> Internal.ModelsFailed(failure)
-                is ConnectWizardEffect.SaveModels -> Internal.SaveFailed(failure)
+                is ConnectWizardEffect.SaveModels -> Internal.SaveFailed(failure, effect.operation)
                 is ConnectWizardEffect.Rollback -> Internal.RolledBack
             }
         }
@@ -216,6 +229,23 @@ private typealias WizardTransition<T, J> =
 
 private fun ChoosingEngine.preselectedIn(engines: List<EngineInfo>): EngineInfo? =
     preselected?.let { engines.connectable(it) }
+
+private fun ChoosingModels.saving(): Saving = Saving(
+    engine,
+    connection,
+    models,
+    selected,
+    operation = ConnectionOperationId(operationSequence + 1),
+)
+
+private fun ChoosingModels.saveModels(): ConnectWizardEffect.SaveModels = ConnectWizardEffect.SaveModels(
+    connection.binding,
+    selected,
+    operation = ConnectionOperationId(operationSequence + 1),
+    previous = connection.initialModels,
+    checkTargets = (selected - connection.initialModels).map { EngineTarget(engine, connection.binding, it) }.toSet(),
+    removedTargets = (connection.initialModels - selected).map { EngineTarget(engine, connection.binding, it) }.toSet(),
+)
 
 private fun List<EngineInfo>?.connectable(engine: EngineId): EngineInfo? =
     orEmpty().firstOrNull { it.descriptor.id == engine && it.isConnectable }

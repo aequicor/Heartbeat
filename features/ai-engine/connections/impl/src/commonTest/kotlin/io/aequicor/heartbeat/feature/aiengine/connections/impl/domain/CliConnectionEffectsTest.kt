@@ -44,7 +44,7 @@ class CliConnectionEffectsTest {
     private val facade = FakeEngineFacade()
     private val sources = FakeAuthSources()
     private val selections = FakeModelSelections()
-    private val wizard = ConnectWizardEffects(EngineServices(facade, sources), selections)
+    private val wizard = ConnectWizardEffects(EngineServices(facade, sources), selections, FakeModelChecks())
     private val wizardScope = RecordingScope<ConnectWizardIntent>()
     private val codex = EngineId("codex")
     private val cli = DesktopMethod.copy(

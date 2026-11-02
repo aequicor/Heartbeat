@@ -29,11 +29,11 @@ internal class ModelChecksCoordinator(
     private val reports: ModelCheckHistory,
     private val scope: CoroutineScope,
     private val batch: ModelCheckBatch,
-) {
+) : ModelChecks {
     private val owner = ModelCheckOwner()
     private val log = Log.tag("ModelChecksCoordinator")
 
-    fun observe(): Flow<List<ModelCheckReceipt>> {
+    override fun observe(): Flow<List<ModelCheckReceipt>> {
         val facade = services.facade
         val contexts = combine(
             selections.observe(),
@@ -46,8 +46,9 @@ internal class ModelChecksCoordinator(
         }
     }
 
-    suspend fun saveAndCheck(
+    override suspend fun saveAndCheck(
         targets: Set<EngineTarget>,
+        onSaved: suspend () -> Unit,
         save: suspend () -> ModelSelection,
     ): ModelCheckBatchResult<ModelSelection> {
         val run = owner.begin(targets)
@@ -55,6 +56,7 @@ internal class ModelChecksCoordinator(
             ModelCheckBatchRequest(
                 run = run,
                 save = save,
+                onSaved = onSaved,
                 revisions = { saved ->
                     val context = currentContext()
                     targets.mapNotNull { target ->
@@ -76,13 +78,13 @@ internal class ModelChecksCoordinator(
     }
 
     /** Call before disabling/removing a model or before replacing its selection, even when persistence is pending. */
-    fun revoke(targets: Set<EngineTarget>) {
+    override fun revoke(targets: Set<EngineTarget>) {
         owner.revoke(targets)
         clearObsolete(targets.map { it.binding }.toSet())
     }
 
     /** Call before disconnect/rollback, enablement changes or a key/endpoint/source edit. */
-    fun revoke(binding: EngineBindingId) {
+    override fun revoke(binding: EngineBindingId) {
         owner.revoke(binding)
         clearObsolete(setOf(binding))
     }

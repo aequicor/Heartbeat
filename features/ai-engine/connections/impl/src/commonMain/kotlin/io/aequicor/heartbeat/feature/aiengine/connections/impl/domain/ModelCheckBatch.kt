@@ -51,7 +51,7 @@ internal class ModelCheckBatch(
             try {
                 val value = withContext(NonCancellable) { request.save() }
                 saved.value = value
-                currentCoroutineContext().ensureActive()
+                notifySaved(deadline, request.onSaved)
                 val reports = check(request, value, deadline, progress)
                 currentCoroutineContext().ensureActive()
                 val result = if (deadline.hasPassedNow()) {
@@ -87,6 +87,11 @@ internal class ModelCheckBatch(
         }
     }
 
+    private suspend fun notifySaved(deadline: TimeMark, notify: suspend () -> Unit) {
+        currentCoroutineContext().ensureActive()
+        if (!deadline.hasPassedNow()) notify()
+    }
+
     private suspend fun <T : Any> check(
         request: ModelCheckBatchRequest<T>,
         saved: T,
@@ -114,6 +119,7 @@ internal data class ModelCheckBatchRequest<T : Any>(
     val save: suspend () -> T,
     val revisions: suspend (T) -> List<ModelCheckRevision>,
     val isCurrent: suspend (ModelCheckRevision) -> Boolean,
+    val onSaved: suspend () -> Unit = {},
 ) {
     override fun toString(): String = "ModelCheckBatchRequest"
 }

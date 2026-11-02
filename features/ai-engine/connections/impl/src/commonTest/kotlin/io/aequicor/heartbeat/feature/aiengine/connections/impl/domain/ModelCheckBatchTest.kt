@@ -30,6 +30,28 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(ExperimentalCoroutinesApi::class)
 class ModelCheckBatchTest {
     @Test
+    fun `the saved phase callback consumes the same deadline and cannot start late probes`() = runTest {
+        var callbacks = 0
+        val executor = ModelCheckBatch(
+            backgroundScope,
+            ModelCheckProbes(IsolatedPrompts { error("Phase callback exhausted the budget") }),
+            testScheduler.timeSource,
+        )
+        val result = assertIs<ModelCheckBatchResult.TimedOut<String>>(
+            executor.execute(
+                request().copy(onSaved = {
+            callbacks++
+            delay(10.seconds)
+        })
+            )
+        )
+        assertEquals(1, callbacks)
+        assertEquals("saved", result.saved)
+        assertTrue(result.reports.isEmpty())
+        assertEquals(5000, testScheduler.currentTime)
+    }
+
+    @Test
     fun `one shared deadline starts before saving and is not reset for the next model`() = runTest {
         val requests = mutableListOf<Pair<String, Long>>()
         val executor = ModelCheckBatch(
