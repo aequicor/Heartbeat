@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostConversationCancellation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -12,12 +13,139 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class StudioRecoveryCancellationTest {
+    @Test
+    fun `cold stop of original request resolves its observer without a send receipt`() = runTest {
+        val f = RecoveryStopFixture()
+        f.prepare()
+        f.native.attempts.loseRecovery(f.helper, f.execution)
+        f.native.stop = OwnedTurnStop.Confirmed(f.native.turn.copy(outcome = TurnOutcome.Cancelled))
+
+        val result = assertIs<HostConversationCancellation.Terminal>(f.control.cancel(f.native.record, f.source))
+
+        assertEquals(f.source, result.result.request)
+        assertEquals(TurnOutcome.Cancelled, result.result.outcome)
+        assertEquals(f.source, f.native.stopped?.get(1))
+        assertEquals(StudioRecoveryPhase.Terminal, f.native.attempts.recovery(f.helper, f.execution)?.phase)
+        assertNull(f.native.attempts.receipt(f.helper, f.source))
+    }
+
+    @Test
+    fun `unbound candidate stop is uncertain and cannot manufacture a tombstone`() = runTest {
+        val f = RecoveryStopFixture()
+        f.prepare(isBound = false)
+
+        assertIs<HostConversationCancellation.Unconfirmed>(f.control.cancel(f.native.record, f.source))
+        assertFailsWith<EngineException> { f.native.attempts.requestStop(f.helper, f.source) }
+        assertFailsWith<EngineException> { f.native.attempts.cancelBeforeSubmission(f.helper, f.source) }
+
+        assertNull(f.native.stopped)
+        assertNull(f.native.attempts.receipt(f.helper, f.source))
+        assertTrue(checkNotNull(f.native.attempts.recovery(f.helper, f.execution)).isStopRequested)
+    }
+
+    @Test
+    fun `original request stop after a context change remains uncertain`() = runTest {
+        val f = RecoveryStopFixture()
+        f.prepare()
+        val changed = f.native.record.copy(ref = f.native.ref.copy(nativeId = "replacement"))
+
+        assertIs<HostConversationCancellation.Unconfirmed>(f.control.cancel(changed, f.source))
+
+        assertNull(f.native.stopped)
+        assertNull(f.native.attempts.receipt(f.helper, f.source))
+        assertTrue(checkNotNull(f.native.attempts.recovery(f.helper, f.execution)).isStopRequested)
+    }
+
+    @Test
+    fun `original request terminal only witness preserves request identity without inventing a turn`() = runTest {
+        val f = RecoveryStopFixture()
+        f.prepare(isBound = false)
+        f.native.attempts.observeRecovery(
+            f.helper,
+            f.execution,
+            f.native.ref,
+            f.source,
+            null,
+            StudioHelperTerminalOutcome.Completed,
+        )
+
+        val result = assertIs<HostConversationCancellation.Terminal>(f.control.cancel(f.native.record, f.source))
+
+        assertEquals(f.source, result.result.request)
+        assertEquals(TurnOutcome.Completed, result.result.outcome)
+        assertFalse(result.result.isAnswerComplete)
+        assertNull(f.native.attempts.recovery(f.helper, f.execution)?.turn)
+        assertNull(f.native.stopped)
+    }
+
+    @Test
+    fun `multiple observations of the same native request do not select an arbitrary stop target`() = runTest {
+        val f = RecoveryStopFixture()
+        f.prepare()
+        f.native.attempts.observeRecovery(
+            f.helper,
+            f.execution,
+            f.native.ref,
+            f.source,
+            f.native.turn.id,
+            StudioHelperTerminalOutcome.Cancelled,
+        )
+        val next = RequestId("next-observer")
+        f.native.attempts.prepareRecovery(
+            f.helper,
+            StudioRecoveryWitness(next, f.source, setOf(f.source), f.native.ref),
+        )
+        f.native.attempts.observeRecovery(f.helper, next, f.native.ref, f.source, f.native.turn.id)
+
+        assertIs<HostConversationCancellation.Unconfirmed>(f.control.cancel(f.native.record, f.source))
+
+        assertNull(f.native.stopped)
+        assertNull(f.native.attempts.receipt(f.helper, f.source))
+        for (execution in listOf(f.execution, next)) {
+            assertTrue(checkNotNull(f.native.attempts.recovery(f.helper, execution)).isStopRequested)
+        }
+    }
+
+    @Test
+    fun `unrelated request does not inherit the recovery witness`() = runTest {
+        val f = RecoveryStopFixture()
+        f.prepare()
+
+        assertNull(f.control.cancel(f.native.record, RequestId("independent")))
+
+        assertFalse(checkNotNull(f.native.attempts.recovery(f.helper, f.execution)).isStopRequested)
+        assertNull(f.native.stopped)
+    }
+
+    @Test
+    fun `an older execution key cannot hide a newer observer of that native request`() = runTest {
+        val f = RecoveryStopFixture()
+        val older = RequestId("older-native")
+        f.native.attempts.prepareRecovery(
+            f.helper,
+            StudioRecoveryWitness(f.source, older, setOf(older), f.native.ref),
+        )
+        f.native.attempts.submitRecovery(f.helper, f.source)
+        f.native.attempts.prepareConversation(f.helper, HelperPrompt(f.source, "original send"))
+        f.prepare()
+
+        assertIs<HostConversationCancellation.Unconfirmed>(f.control.cancel(f.native.record, f.source))
+
+        assertNull(f.native.stopped)
+        for (execution in listOf(f.source, f.execution)) {
+            assertTrue(checkNotNull(f.native.attempts.recovery(f.helper, execution)).isStopRequested)
+        }
+        assertFailsWith<EngineException> { f.native.attempts.requestStop(f.helper, f.source) }
+        assertEquals(StudioHelperPhase.Preparing, f.native.attempts.receipt(f.helper, f.source)?.phase)
+    }
+
     @Test
     fun `legacy work without a live handle or send receipt stops by exact witness`() = runTest {
         val f = RecoveryStopFixture()

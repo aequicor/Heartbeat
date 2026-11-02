@@ -55,6 +55,20 @@ UI-решения пользователя: единое ровное выдел
 
 ## Подробный оставшийся план
 
+### Подготовительный шаг после возобновления на macOS
+
+- Cold Stop исходного R разрешается через witness Q по подтверждённому `observed`; candidate без binding только
+  блокирует ложный `NotSubmitted`, но не разрешает native IO. Stop сохраняется атомарно во всех совпавших witnesses.
+- Exact execution key не скрывает более новый reverse alias. Несколько совпадений остаются `Unconfirmed` до
+  реализации ownership handoff; ни один из них не выбирается по порядку обхода.
+- Защита действует и для прямых `requestStop` / `cancelBeforeSubmission`, поэтому обход верхнего resolver не создаёт
+  tombstone исходного R. Terminal-only сохраняет request identity и не создаёт TurnId/полный ответ.
+- Это отдельная подготовительная правка, **не включение production recovery**. Следующий шаг по-прежнему — полный
+  вертикальный срез ниже: обязательные executor hooks, transfer observation ownership, journal ordinary root и
+  правильная result attribution. Снимать guard или включать producer до него нельзя.
+- Пользователь подтвердил: после реализации обязателен `pr-review-and-fix`; цель достигнута только после публикации
+  `/reviewed <полный фактический head SHA>` без блокеров. Merge/release не разрешены.
+
 ### 1. Закончить production recovery одним согласованным слоем
 
 **Первый следующий шаг.** `EngineStudioRepository` пока не реализует `StudioRecoveryRunHost`, а `StudioHelperAdmission.requireNativeRecovery` сохраняет прежний запрет helper/Subsession adoption. Не снимать guard только потому, что unit foundation зелёный.

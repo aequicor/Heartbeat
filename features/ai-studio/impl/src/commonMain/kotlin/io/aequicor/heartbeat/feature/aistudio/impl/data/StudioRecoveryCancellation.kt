@@ -18,16 +18,19 @@ internal class StudioRecoveryCancellation(
     /** Null delegates a proven Submit to its existing Q send receipt, or denotes a non-recovery request. */
     suspend fun cancel(record: StudioChatRecord, execution: RequestId): HostConversationCancellation? {
         val helper = HelperId(record.id)
-        if (attempts.recovery(helper, execution) == null) return null
-        val witness = attempts.stopRecovery(helper, execution)
+        val targets = attempts.stopRecoveryTargets(helper, execution)
+        if (targets.isEmpty()) return null
+        val witness = targets.singleOrNull() ?: return HostConversationCancellation.Unconfirmed(execution)
         if (witness.phase == StudioRecoveryPhase.Submit) {
-            return if (attempts.receipt(helper, execution) != null) {
+            return if (witness.execution == execution && attempts.receipt(helper, execution) != null) {
                 null
+            } else if (witness.observed == execution && witness.outcome == StudioHelperTerminalOutcome.Cancelled) {
+                terminal(witness, execution)
             } else {
                 HostConversationCancellation.Unconfirmed(execution)
             }
         }
-        if (witness.phase == StudioRecoveryPhase.Terminal) return terminal(witness)
+        if (witness.phase == StudioRecoveryPhase.Terminal) return terminal(witness, execution)
         if (witness.observed == null || witness.session != record.ref) {
             return HostConversationCancellation.Unconfirmed(execution)
         }
@@ -35,7 +38,7 @@ internal class StudioRecoveryCancellation(
             ?: return HostConversationCancellation.Unconfirmed(execution)
         val observed = attempts.observeRecovery(
             helper,
-            execution,
+            witness.execution,
             stopped.session,
             witness.observed,
             stopped.turn,
@@ -49,10 +52,10 @@ internal class StudioRecoveryCancellation(
     }
 
     /** A terminal-only observation carries no invented answer or native TurnId. */
-    private fun terminal(witness: StudioRecoveryWitness): HostConversationCancellation =
+    private fun terminal(witness: StudioRecoveryWitness, request: RequestId): HostConversationCancellation =
         HostConversationCancellation.Terminal(
             HostConversationResult(
-                witness.execution,
+                request,
                 when (checkNotNull(witness.outcome)) {
                     StudioHelperTerminalOutcome.Completed -> TurnOutcome.Completed
                     StudioHelperTerminalOutcome.Cancelled -> TurnOutcome.Cancelled

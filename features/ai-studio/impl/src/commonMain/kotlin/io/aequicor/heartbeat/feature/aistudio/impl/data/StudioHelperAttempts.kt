@@ -87,6 +87,21 @@ internal class StudioHelperAttempts(
     suspend fun stopRecovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness =
         changeRecovery(helper, execution) { it.stopped() }
 
+    /**
+     * Resolves cold Stop by execution or proven native request under the same lock as send cancellation. Candidate
+     * membership only fences an uncertain observation; it never authorizes native IO. Multiple witnesses remain
+     * ambiguous instead of selecting an arbitrary observation after restart.
+     */
+    suspend fun stopRecoveryTargets(helper: HelperId, request: RequestId): List<StudioRecoveryWitness> = lock.withLock {
+        val records = readRecoveries(helper)
+        val targets = recoveryTargets(records, request).map { it.stopped() }
+        if (targets.isNotEmpty()) {
+            writeRecoveries(helper, records + targets.associateBy { it.execution.value })
+        }
+        log.v { "Journaled exact recovery stop targets" }
+        targets
+    }
+
     suspend fun submitRecovery(helper: HelperId, execution: RequestId): StudioRecoveryWitness =
         changeRecovery(helper, execution) { it.submitting() }
 
@@ -389,12 +404,23 @@ internal class StudioHelperAttempts(
         isExplicitStop: Boolean,
     ) {
         val records = readRecoveries(helper)
-        val witness = records[request.value] ?: return
-        if (witness.phase == StudioRecoveryPhase.Submit && request.value in receipts) return
-        if (isExplicitStop && !witness.isStopRequested) {
-            writeRecoveries(helper, records + (request.value to witness.stopped()))
+        val targets = recoveryTargets(records, request).filterNot {
+            it.execution == request && it.phase == StudioRecoveryPhase.Submit && request.value in receipts
+        }
+        if (targets.isEmpty()) return
+        if (isExplicitStop) {
+            writeRecoveries(helper, records + targets.associate { it.execution.value to it.stopped() })
         }
         throw EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request))
+    }
+
+    private fun recoveryTargets(
+        records: Map<String, StudioRecoveryWitness>,
+        request: RequestId,
+    ): List<StudioRecoveryWitness> = records.values.filter {
+        it.execution == request || it.observed == request || (
+            it.observed == null && it.phase != StudioRecoveryPhase.Submit && request in it.candidates
+        )
     }
 
     suspend fun unresolved(helper: HelperId): RequestId? = lock.withLock {
