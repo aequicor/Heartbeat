@@ -63,7 +63,7 @@ internal class JvmDeepSeekBackend(
 ) : DeepSeekBackend {
     private val log = Log.tag("DeepSeekBackend")
     private val mutex = Mutex()
-    private var runtime: DeepSeekRuntime? = null
+    private var runtime: DeepSeekRuntimeGroup? = null
     private val nativeHistory = DeepSeekNativeHistory(configuration, dispatchers)
 
     override val nativeDiscovery: ListsSessions
@@ -124,10 +124,16 @@ internal class JvmDeepSeekBackend(
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
         runtime?.takeUnless { it.isClosed || it.identity != identity }?.let { return@withLock it }
         runtime?.close()
-        openRuntime(identity).also { runtime = it }
+        DeepSeekRuntimeGroup(identity, DeepSeekSessionTrees(nativeHistory)) { retired ->
+            openRuntime(identity, isSingleSession = true, onRetired = retired)
+        }.also { runtime = it }
     }
 
-    private suspend fun openRuntime(identity: RuntimeIdentity): DeepSeekRuntime {
+    private suspend fun openRuntime(
+        identity: RuntimeIdentity,
+        isSingleSession: Boolean = false,
+        onRetired: suspend (DeepSeekRuntime) -> Unit = {},
+    ): DeepSeekRuntime {
         val startup = resolveDeepSeekStartup(configuration)
         if (!startup.isRunnable) {
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
@@ -150,6 +156,8 @@ internal class JvmDeepSeekBackend(
             resources,
             sessionTrees = DeepSeekSessionTrees(nativeHistory),
             bridge = bridge,
+            isSingleSession = isSingleSession,
+            onRetired = onRetired,
         )
     }
 

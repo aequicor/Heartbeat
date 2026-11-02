@@ -36,6 +36,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SteeringRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SteersTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstruction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
@@ -96,6 +97,27 @@ class ManagedActiveSessionTest {
     }
 
     private fun ActiveSession.sender() = (features.resolve(SendsPrompts) as FeatureAccess.Available).feature
+
+    @Test
+    fun `retired native connection retains terminal Unknown through a conflated disconnect snapshot`() = runTest {
+        val native = FakeNativeSession()
+        val (session, _) = open(RouteFixture(this), native)
+        val sent = async { session.sender().send(prompt("before-disconnect")) }
+        runCurrent()
+        val local = sent.await()
+        val finished = native.activeTurn.copy(outcome = TurnOutcome.Unknown)
+        // DSH publishes terminal evidence and retirement without an intervening collector dispatch.
+        native.native.value = ActiveSessionState.Ready(finished)
+        native.native.value = ActiveSessionState.Unavailable(
+            EngineFailure.Transport(TransportFailureReason.ServiceUnavailable),
+            lastTurn = finished,
+        )
+        runCurrent()
+
+        val settled = assertIs<ActiveSessionState.Ready>(session.state.value)
+        assertEquals(local, settled.lastTurn?.id)
+        assertEquals(TurnOutcome.Unknown, settled.lastTurn?.outcome)
+    }
 
     @Test
     fun `steering local turn targets native turn and preserves pending permission`() = runTest {

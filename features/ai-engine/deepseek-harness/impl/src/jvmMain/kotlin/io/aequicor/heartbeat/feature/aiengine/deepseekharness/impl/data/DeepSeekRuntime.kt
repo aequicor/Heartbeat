@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -53,6 +54,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.Volatile
 
@@ -68,6 +70,8 @@ internal class DeepSeekRuntime(
     private val ownedScope: Job? = null,
     sessionTrees: SessionTrees? = null,
     private val bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    internal val isSingleSession: Boolean = false,
+    private val onRetired: suspend (DeepSeekRuntime) -> Unit = {},
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
@@ -92,15 +96,16 @@ internal class DeepSeekRuntime(
     private val mutex = Mutex()
     private val loading = Mutex()
     private val log = Log.tag("DeepSeekRuntime")
+    private val controls = DeepSeekControls(scope) { close() }
 
-    @Volatile
-    private var isShutdown = false
+    private val isShutdown = AtomicBoolean(false)
+    private val retirement = CompletableDeferred<Unit>()
 
     @Volatile
     private var isDisconnected = false
 
     override val isClosed: Boolean
-        get() = isShutdown || isDisconnected || scope.coroutineContext[Job]?.isActive == false
+        get() = isShutdown.get() || isDisconnected || scope.coroutineContext[Job]?.isActive == false
 
     override suspend fun create(request: CreateSessionRequest): ActiveSession {
         checkActive()
@@ -113,20 +118,41 @@ internal class DeepSeekRuntime(
             request.preselected,
         )
         var isTransferred = false
+        var nativeId: String? = null
+        var created: DeepSeekSession? = null
         try {
-            val native = connection.newSession(cwd, hosted.servers)
-            configure(native.sessionId, native.metadata, request.target)
-            val created = session(native.sessionId, request.target, request.workspace, cwd, hosted)
-            return created.lease().also { isTransferred = true }
+            val native = controls.run("create session", onAbandoned = { closeAbandoned(it.sessionId) }) {
+                val opened = connection.newSession(cwd, hosted.servers)
+                try {
+                    configure(opened.sessionId, opened.metadata, request.target)
+                    opened
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    closeAbandoned(opened.sessionId)
+                    throw error
+                }
+            }
+            nativeId = native.sessionId
+            val registered = session(native.sessionId, request.target, request.workspace, cwd, hosted)
+            created = registered
+            return registered.lease().also { isTransferred = true }
         } finally {
-            if (!isTransferred) hosted.close()
+            if (!isTransferred) {
+                hosted.close()
+                withContext(NonCancellable) {
+                    created?.let { unregister(it) }
+                    nativeId?.let { closeAbandoned(it) }
+                }
+            }
         }
     }
 
     /** Lists the native models and prompt input support the agent advertises; the adapter never starts a turn. */
     suspend fun discoverCatalog(binding: EngineBindingId): DeepSeekModelCatalog {
         val target = EngineTarget(identity.engine, binding, ModelId("catalog"))
-        val native = connection.newSession(directory(CreateSessionRequest(target)))
+        val cwd = directory(CreateSessionRequest(target))
+        val native = controls.run("discover catalog") { connection.newSession(cwd) }
         return deepSeekNativeCatalog(native.metadata, capabilities, DeepSeekImageModelIds)
     }
 
@@ -177,8 +203,12 @@ internal class DeepSeekRuntime(
         }
         try {
             // The connection completes an abandoned RPC in its own scope; keep the local bookkeeping aligned.
-            val native = withContext(NonCancellable) { connection.resumeSession(nativeId, cwd, hosted.servers) }
-            withContext(NonCancellable) { configure(nativeId, native.metadata, request.target) }
+            withContext(NonCancellable) {
+                controls.run("resume session") {
+                    val native = connection.resumeSession(nativeId, cwd, hosted.servers)
+                    configure(nativeId, native.metadata, request.target)
+                }
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -199,11 +229,13 @@ internal class DeepSeekRuntime(
         log.i { "DeepSeek Harness session released" }
         session.revoke()
         try {
-            connection.closeSession(session.ref.nativeId)
+            controls.run("close session") { connection.closeSession(session.ref.nativeId) }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             log.w(error) { "DeepSeek Harness session close failed" }
+        } finally {
+            if (isSingleSession) withContext(NonCancellable) { close() }
         }
     }
 
@@ -270,8 +302,7 @@ internal class DeepSeekRuntime(
     }
 
     override suspend fun close() {
-        if (isShutdown) return
-        isShutdown = true
+        if (!isShutdown.compareAndSet(false, true)) return
         sessions.value.values.forEach { it.revoke() }
         withContext(NonCancellable) {
             try {
@@ -288,15 +319,41 @@ internal class DeepSeekRuntime(
                         connection.close()
                     } finally {
                         ownedScope?.cancel()
+                        try {
+                            onRetired(this@DeepSeekRuntime)
+                        } finally {
+                            retirement.complete(Unit)
+                        }
                     }
                 }
             }
         }
     }
 
+    internal suspend fun awaitRetired() = retirement.await()
+
+    /** Claims an unresponsive connection before releasing the exact-turn lock, preventing new admissions. */
+    internal fun markUnresponsive() {
+        isDisconnected = true
+    }
+
     internal fun connectionClosed() {
         isDisconnected = true
         sessions.value.values.forEach { it.revoke() }
+    }
+
+    /** A cancelled opening waiter must not leak a session that the independently owned RPC opens later. */
+    private suspend fun closeAbandoned(nativeId: String) {
+        if (isClosed) return
+        try {
+            controls.run("close abandoned session") { connection.closeSession(nativeId) }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(EngineException(dshEngineFailure(error, null))) {
+                "DeepSeek Harness abandoned session close failed"
+            }
+        }
     }
 
     internal fun checkActive() {
@@ -332,6 +389,8 @@ internal class DeepSeekRuntime(
             resources: ResourceResolver = ResourceResolver { null },
             sessionTrees: SessionTrees? = null,
             bridge: AgentToolBridge = UnavailableAgentToolBridge,
+            isSingleSession: Boolean = false,
+            onRetired: suspend (DeepSeekRuntime) -> Unit = {},
         ): DeepSeekRuntime {
             val runtime = MutableStateFlow<DeepSeekRuntime?>(null)
             val disconnected = MutableStateFlow(false)
@@ -384,6 +443,8 @@ internal class DeepSeekRuntime(
                     runtimeScope.coroutineContext[Job],
                     sessionTrees,
                     bridge,
+                    isSingleSession,
+                    onRetired,
                 ).also { created ->
                     runtime.value = created
                     if (disconnected.value) {
@@ -406,3 +467,7 @@ internal class DeepSeekRuntime(
         }
     }
 }
+
+/** Deadlines for control/recovery only; native commands and prompts retain their own execution policy. */
+internal const val DSH_CONTROL_TIMEOUT_MS = 30_000L
+internal const val DSH_CANCEL_TIMEOUT_MS = 10_000L

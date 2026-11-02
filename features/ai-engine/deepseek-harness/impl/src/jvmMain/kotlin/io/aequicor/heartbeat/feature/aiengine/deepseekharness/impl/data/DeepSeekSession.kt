@@ -59,12 +59,16 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -122,7 +126,9 @@ internal class DeepSeekSession(
         val isIdle = mutex.withLock {
             leases.remove(lease)
             lease.state.value = ActiveSessionState.Closed
-            leases.isEmpty() && (currentTurn == null || currentTurn?.outcome != null)
+            val isIdle = leases.isEmpty() && (currentTurn == null || currentTurn?.outcome != null)
+            if (isIdle && runtime.isSingleSession) runtime.markUnresponsive()
+            isIdle
         }
         // An idle session without observers is retired, so its journal and native handle are released.
         if (isIdle) runtime.releaseSession(this)
@@ -212,15 +218,18 @@ internal class DeepSeekSession(
 
     suspend fun cancel(turn: TurnId, lease: DeepSeekLease) {
         runtime.scope.async {
-            val submitted = mutex.withLock {
+            val (submitted, delivered) = mutex.withLock {
                 checkLease(lease)
-                if (isCancelPending) return@async
-                if (currentTurn?.id != turn || currentTurn?.outcome != null) return@async
+                if (isCancelPending || isInterrupting || !isCurrentTurn(turn)) {
+                    return@async
+                }
                 isCancelPending = true
                 isInterrupting = true
                 turnLifetime?.cancel()
                 refreshState()
-                requireNotNull(submission.value)
+                val delivered = CompletableDeferred<Unit>()
+                watchCancellation(turn, delivered)
+                requireNotNull(submission.value) to delivered
             }
             try {
                 submitted.await()
@@ -228,11 +237,40 @@ internal class DeepSeekSession(
                     currentTurn?.id == turn && currentTurn?.outcome == null
                 }
                 if (isCurrent) runtime.connection.cancel(ref.nativeId)
+                delivered.complete(Unit)
             } finally {
                 withContext(NonCancellable) { mutex.withLock { isCancelPending = false } }
             }
         }.await()
     }
+
+    /**
+     * Starts before submission/write waits: a wedged shared pipe must not prevent Stop from retiring the process.
+     * A normal terminal acknowledgement cancels this watchdog in finish, preserving other sessions on the runtime.
+     */
+    private fun watchCancellation(turn: TurnId, delivered: CompletableDeferred<Unit>): Job = runtime.scope.launch {
+        val settled = withTimeoutOrNull(DSH_CANCEL_TIMEOUT_MS) {
+            state.first { !it.isPending(turn) }
+            delivered.await()
+        }
+        if (settled != null) return@launch
+        val watcher = currentCoroutineContext()
+        withContext(NonCancellable) {
+            val isCurrent = mutex.withLock {
+                watcher.ensureActive()
+                if (currentTurn?.id != turn || (currentTurn?.outcome != null && !isCancelPending)) return@withLock false
+                runtime.markUnresponsive()
+                true
+            }
+            if (!isCurrent) return@withContext
+            val failure = EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
+            log.w(failure) { "DeepSeek Harness did not acknowledge cancellation; retire shared runtime" }
+            // Shutdown records Unknown for unconfirmed turns; it never claims native cancellation succeeded.
+            runtime.close()
+        }
+    }
+
+    private fun isCurrentTurn(turn: TurnId): Boolean = currentTurn?.let { it.id == turn && it.outcome == null } == true
 
     suspend fun respond(decision: PermissionDecision, lease: DeepSeekLease) = mutex.withLock {
         checkLease(lease)
@@ -511,22 +549,28 @@ internal class DeepSeekSession(
     @HighFrequency
     private fun upsert(item: SessionItem) = history.upsert(item)
 
-    private suspend fun finish(id: TurnId, outcome: TurnOutcome) = mutex.withLock {
-        val turn = currentTurn?.takeIf { it.id == id && it.outcome == null } ?: return@withLock
-        val finished = turn.copy(outcome = outcome)
-        currentTurn = finished
-        turnLifetime?.cancel()
-        turnLifetime = null
-        hostedCalls.clear()
-        hostedLifetimes.clear()
-        log.i { "DeepSeek Harness turn finished" }
-        pending.values.forEach { it.answer.complete(AcpPermissionOutcome.Cancelled) }
-        pending.clear()
-        setState(ActiveSessionState.Ready(finished))
-        history.publish { SessionEvent.TurnFinished(it, finished.id, outcome) }
-        submission.value?.completeExceptionally(
-            EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, turn.request)),
-        )
+    private suspend fun finish(id: TurnId, outcome: TurnOutcome) {
+        val isUnobserved = mutex.withLock {
+            val turn = currentTurn?.takeIf { it.id == id && it.outcome == null } ?: return
+            val finished = turn.copy(outcome = outcome)
+            currentTurn = finished
+            turnLifetime?.cancel()
+            turnLifetime = null
+            hostedCalls.clear()
+            hostedLifetimes.clear()
+            log.i { "DeepSeek Harness turn finished" }
+            pending.values.forEach { it.answer.complete(AcpPermissionOutcome.Cancelled) }
+            pending.clear()
+            setState(ActiveSessionState.Ready(finished))
+            history.publish { SessionEvent.TurnFinished(it, finished.id, outcome) }
+            submission.value?.completeExceptionally(
+                EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, turn.request)),
+            )
+            val isUnobserved = leases.isEmpty() && runtime.isSingleSession
+            if (isUnobserved) runtime.markUnresponsive()
+            isUnobserved
+        }
+        if (isUnobserved) runtime.releaseSession(this)
     }
 
     fun revoke() {
@@ -539,7 +583,21 @@ internal class DeepSeekSession(
         revoke()
         val turn = mutex.withLock { currentTurn }
         if (turn != null) finish(turn.id, TurnOutcome.Unknown)
-        mutex.withLock { setState(ActiveSessionState.Closed) }
+        mutex.withLock {
+            // Keep the terminal evidence stable: Ready followed immediately by Closed can be conflated by the
+            // facade's StateFlow observer, leaving its accepted turn unresolved forever.
+            val finished = currentTurn?.takeIf { it.outcome != null }
+            setState(
+                if (finished == null) {
+                    ActiveSessionState.Closed
+                } else {
+                    ActiveSessionState.Unavailable(
+                        EngineFailure.Transport(TransportFailureReason.ServiceUnavailable),
+                        lastTurn = finished,
+                    )
+                },
+            )
+        }
     }
 
     suspend fun synchronize(lease: DeepSeekLease) = mutex.withLock {
@@ -632,4 +690,14 @@ internal fun dshEngineFailure(error: Throwable, request: RequestId?): EngineFail
     is AcpException.Remote -> EngineFailure.Request(RequestFailureReason.Invalid, request)
     is AcpException.Protocol -> EngineFailure.Transport(TransportFailureReason.ProtocolViolation)
     else -> EngineFailure.Engine(EngineFailureReason.Crashed)
+}
+
+/** The watchdog belongs to one turn; it can never time out a subsequent turn on the same session. */
+private fun ActiveSessionState.isPending(id: TurnId): Boolean = when (this) {
+    is ActiveSessionState.Running -> turn.id == id
+    is ActiveSessionState.AwaitingUserAction -> turn.id == id
+    is ActiveSessionState.Interrupting -> turn.id == id
+    is ActiveSessionState.Submitting -> turn.id == id
+    is ActiveSessionState.Unavailable -> activeTurn?.id == id
+    is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed -> false
 }
