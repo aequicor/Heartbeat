@@ -2,18 +2,26 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatQueue
 import io.aequicor.heartbeat.feature.aistudio.api.StudioMessageQueues
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueNotice
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedMessage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
-/** Profile queue boundary; the empty implementation keeps non-engine and test runtimes unchanged. */
-internal interface StudioQueuePort {
+/** Durable queue inspection is independent of the mutation commands used by human screens. */
+internal interface StudioQueueReader {
     val state: Flow<StudioMessageQueues> get() = flowOf(StudioMessageQueues())
     val notices: Flow<Map<String, StudioQueueNotice>> get() = flowOf(emptyMap())
-
     fun hasPending(chat: String): Boolean = false
+    fun isPending(chat: String, request: String): Boolean = false
+    suspend fun snapshot(chat: String): StudioChatQueue = StudioChatQueue()
+}
+
+/** Profile queue boundary; the empty implementation keeps non-engine and test runtimes unchanged. */
+internal interface StudioQueuePort : StudioQueueReader {
+    /** Native entry has already been fenced by the caller; retire its queue reservation without losing history. */
+    suspend fun retireFenced(chat: String, request: String) = Unit
 
     suspend fun enqueue(
         chat: String,

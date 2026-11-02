@@ -17,12 +17,18 @@ internal suspend fun StudioTurnRequest.openContinuation(
     val gate = checkNotNull(submission as? StudioHelperSubmission) { "Native opening requires journal admission" }
     gate.requireOpening()
     val snapshot = gate.continuationReceipt()?.executionSnapshot
-    val target = snapshot?.target ?: graphWork?.target?.takeIf { origin is StudioTurnOrigin.GraphWork } ?: return null
+    val target = snapshot?.target ?: queuedConfiguration?.target
+        ?: graphWork?.target?.takeIf { origin is StudioTurnOrigin.GraphWork } ?: return null
     val record = records.record(id)
     if (snapshot != null) {
         snapshot.requireContinuationConnection(record)
     } else {
-        check(record.pendingEngineSwitch == null) { "Graph connection replacement is unresolved" }
+        check(record.pendingEngineSwitch == null) { "Execution connection replacement is unresolved" }
+        if (queuedConfiguration != null) {
+            check(record.target?.engine == target.engine && record.target.binding == target.binding) {
+                "Queued creator connection changed"
+            }
+        }
     }
     check(selections.observe().first().isEnabled(target)) { "The execution model is no longer enabled" }
     configurations.freeze(id, live(HelperId(id)))
@@ -31,8 +37,11 @@ internal suspend fun StudioTurnRequest.openContinuation(
 
 /** Independent turns use current preferences; continuation admission subsequently restores its source snapshot. */
 internal fun StudioTurnRequest.withCurrentSettings(record: StudioChatRecord): StudioTurnRequest =
-    if (origin is StudioTurnOrigin.GraphWork || (record.target == null && record.configuration == null)) {
+    if (hasCapturedConfiguration || (record.target == null && record.configuration == null)) {
         this
     } else {
         copy(settings = hostRunSettings(record, record.configuration, settings))
     }
+
+internal val StudioTurnRequest.hasCapturedConfiguration: Boolean
+    get() = queuedConfiguration != null || origin is StudioTurnOrigin.GraphWork

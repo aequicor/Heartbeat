@@ -55,7 +55,8 @@ internal class StudioConfiguredSubmission(
         val workModel = request.workModel(record)
         val inherited = (request.submission as? StudioHelperSubmission)?.continuationReceipt()?.executionSnapshot
         check(inherited == null || inherited.target == target) { "Continuation native target changed before send" }
-        val isFrozen = inherited != null || request.origin is StudioTurnOrigin.GraphWork
+        val isFrozen =
+            inherited != null || request.queuedConfiguration != null || request.origin is StudioTurnOrigin.GraphWork
         val stored = configurations()[id]?.applied ?: record.configuration
         val isTrustSupported = models().isTrustSupported(target)
         val supported = models().reasoningEfforts(target)
@@ -85,7 +86,7 @@ internal class StudioConfiguredSubmission(
         }
         // A handoff retires configuration observation because its session is never reflected again.
         if (request.isHandoff || isFrozen) controller.retire(id, active)
-        val reviewTarget = if (inherited != null) inherited.reviewTarget else workModel?.reviewTarget
+        val reviewTarget = request.capturedReviewTarget(inherited, workModel)
         val submitted = send(access, active, target, constrained, effort, reviewTarget) {
             turnPolicy(isTrustSupported)
         }
@@ -299,4 +300,21 @@ internal fun turnEffort(
 
 /** A captured null effort means the original native default, never a reason to read a later preference. */
 private fun StudioTurnRequest.frozenEffort(inherited: StudioExecutionSnapshot?, supported: List<String>): String? =
-    if (inherited != null) inherited.reasoningEffort else graphWork?.reasoningEffort?.takeIf { it in supported }
+    when {
+        inherited != null -> inherited.reasoningEffort
+
+        queuedConfiguration != null -> queuedConfiguration.reasoningEffort?.also {
+            check(it in supported) { "Queued creator effort is no longer supported" }
+        }
+
+        else -> graphWork?.reasoningEffort?.takeIf { it in supported }
+    }
+
+private fun StudioTurnRequest.capturedReviewTarget(
+    inherited: StudioExecutionSnapshot?,
+    workModel: HelperModelOptions?,
+): EngineTarget? = when {
+    inherited != null -> inherited.reviewTarget
+    queuedConfiguration != null -> queuedConfiguration.reviewTarget
+    else -> workModel?.reviewTarget
+}

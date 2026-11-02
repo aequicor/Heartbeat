@@ -24,7 +24,7 @@ public val StudioMessageQueueEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 @Serializable
 public enum class StudioQueuedDelivery { Pending, Sending, Steering, Uncertain }
 
-/** Immutable human input; [id] is also its stable native request correlation id. */
+/** Immutable admitted input; [id] is also its stable native request correlation id. */
 @Serializable
 public data class StudioQueuedMessage(
     val id: String,
@@ -34,6 +34,9 @@ public data class StudioQueuedMessage(
     val userInstruction: String? = null,
     val hasEnvironment: Boolean = false,
     val delivery: StudioQueuedDelivery = StudioQueuedDelivery.Pending,
+    val origin: StudioQueuedOrigin = StudioQueuedOrigin.Human,
+    val directives: List<String> = emptyList(),
+    val configuration: StudioQueuedConfiguration? = null,
 ) {
     override fun toString(): String = "StudioQueuedMessage(id=$id, delivery=$delivery)"
 }
@@ -54,6 +57,8 @@ public data class StudioChatQueue(
     val isPaused: Boolean = false,
     val activeRequest: String? = null,
     val correction: StudioCorrection? = null,
+    /** Immutable creator deliveries remain after row removal, so retries cannot change origin or replay a send. */
+    val creatorMessages: Map<String, StudioQueuedMessage> = emptyMap(),
 ) {
     /** A restart preserves input but cannot infer whether an in-flight native operation was accepted. */
     public fun restored(): StudioChatQueue = copy(
@@ -102,6 +107,9 @@ public sealed interface StudioQueueIntent : MachineIntent {
         /** Delete a row that is not currently crossing a delivery boundary. */
         public data class Remove(val chat: String, val message: String, val operation: String) : Public
 
+        /** Remove an exact queued row only after the host persisted its native-entry cancellation fence. */
+        public data class RetireFenced(val chat: String, val message: String, val operation: String) : Public
+
         /** Deliver exactly this pending row to the current native turn. */
         public data class Steer(val chat: String, val message: String, val operation: String) : Public
 
@@ -120,6 +128,14 @@ public sealed interface StudioQueueIntent : MachineIntent {
 
     /** Results emitted by persistence and native delivery. */
     public sealed interface Internal : StudioQueueIntent {
+        /** Exact receipt reconciliation cannot overwrite a queue that changed while evidence was read. */
+        public data class Reconciled(
+            val chat: String,
+            val expected: StudioChatQueue,
+            val reconciled: StudioChatQueue,
+            val operation: String,
+        ) : Internal
+
         /** Disabling the feature prevents automatic delivery while retaining existing input. */
         public data class Availability(val isEnabled: Boolean) : Internal
 
@@ -216,6 +232,7 @@ public fun studioQueueMachineSpec(
     state<StudioQueueState> {
         queueEnqueue()
         queueRemove()
+        queueRetireFenced()
         queueDrain()
         queueSteer()
         queueInterrupt()
@@ -226,6 +243,7 @@ public fun studioQueueMachineSpec(
         queueSettled()
         queueActivity()
         queueAvailability()
+        queueReconciled()
         queueStored()
         queueStoreFailed()
     }
@@ -246,11 +264,22 @@ private fun QueueTransitions.queueEnqueue() {
     on<StudioQueueIntent.Public.Enqueue>(guard = {
         state.isEnabled && state.saving == null && intent.message.id.isNotBlank() &&
             (intent.message.text.isNotBlank() || intent.message.attachments.isNotEmpty()) &&
-            state.data.chat(intent.chat).messages.none { it.id == intent.message.id }
+            state.data.chat(intent.chat).messages.none { it.id == intent.message.id } &&
+            intent.message.id !in state.data.chat(intent.chat).creatorMessages
     }) {
         val update: TransitionScope<StudioQueueState, StudioQueueIntent.Public.Enqueue>.() -> StudioMessageQueues = {
             val old = state.data.chat(intent.chat)
-            state.data.withChat(intent.chat, old.copy(messages = old.messages + intent.message))
+            state.data.withChat(
+                intent.chat,
+                old.copy(
+                    messages = old.messages + intent.message,
+                    creatorMessages = if (intent.message.origin is StudioQueuedOrigin.Creator) {
+                        old.creatorMessages + (intent.message.id to intent.message)
+                    } else {
+                        old.creatorMessages
+                    },
+                ),
+            )
         }
         stay { state.copy(data = update(), saving = intent.operation) }
         effect { StudioQueueEffect.Save(intent.operation, update()) }
@@ -261,7 +290,7 @@ private fun QueueTransitions.queueRemove() {
     on<StudioQueueIntent.Public.Remove>(guard = {
         state.saving == null && state.data.chat(intent.chat).correction?.message != intent.message &&
             state.data.chat(intent.chat).messages.any {
-                it.id == intent.message && it.delivery in setOf(
+                it.id == intent.message && it.origin == StudioQueuedOrigin.Human && it.delivery in setOf(
                     StudioQueuedDelivery.Pending,
                     StudioQueuedDelivery.Uncertain,
                 )
@@ -279,6 +308,29 @@ private fun QueueTransitions.queueRemove() {
         }
         stay { state.copy(data = update(), saving = intent.operation) }
         effect { StudioQueueEffect.Save(intent.operation, update()) }
+    }
+}
+
+/** The host has fenced native entry before sending this command; late Dispatch sees the retired reservation. */
+private fun QueueTransitions.queueRetireFenced() {
+    on<StudioQueueIntent.Public.RetireFenced>(guard = {
+        state.saving == null && state.data.chat(intent.chat).messages.any {
+            it.id == intent.message
+        }
+    }) {
+        val data:
+            TransitionScope<StudioQueueState, StudioQueueIntent.Public.RetireFenced>.() -> StudioMessageQueues = {
+                val queue = state.data.chat(intent.chat)
+                state.data.withChat(
+                    intent.chat,
+                    queue.copy(
+                        messages = queue.messages.filterNot { it.id == intent.message },
+                        activeRequest = queue.activeRequest.takeUnless { it == intent.message },
+                    ),
+                )
+            }
+        stay { state.copy(data = data(), saving = intent.operation) }
+        effect { StudioQueueEffect.Save(intent.operation, data()) }
     }
 }
 
@@ -324,7 +376,10 @@ private fun QueueTransitions.queueSteer() {
         state.isEnabled && state.saving == null && queue.correction == null &&
             intent.chat in state.busy && intent.chat in state.steerable &&
             queue.messages.none { it.delivery != StudioQueuedDelivery.Pending } &&
-            queue.messages.any { it.id == intent.message && it.delivery == StudioQueuedDelivery.Pending }
+            queue.messages.any {
+                it.id == intent.message && it.delivery == StudioQueuedDelivery.Pending &&
+                    it.origin == StudioQueuedOrigin.Human
+            }
     }) {
         val message: TransitionScope<StudioQueueState, StudioQueueIntent.Public.Steer>.() -> StudioQueuedMessage = {
             state.data.chat(intent.chat).messages.first { it.id == intent.message }
@@ -350,7 +405,7 @@ private fun QueueTransitions.queueInterrupt() {
         val queue = state.data.chat(intent.chat)
         state.isEnabled && state.saving == null && intent.chat in state.busy && queue.correction == null &&
             queue.messages.all { it.delivery == StudioQueuedDelivery.Pending } &&
-            queue.messages.any { it.id == intent.correction.message }
+            queue.messages.any { it.id == intent.correction.message && it.origin == StudioQueuedOrigin.Human }
     }) {
         val data: TransitionScope<StudioQueueState, StudioQueueIntent.Public.Interrupt>.() -> StudioMessageQueues = {
             state.data.withChat(
@@ -521,4 +576,17 @@ private fun StudioQueuedMessage.afterSettlement(request: String, isSubmitted: Bo
 private fun StudioQueuedMessage.quarantined(): StudioQueuedMessage = when (delivery) {
     StudioQueuedDelivery.Sending, StudioQueuedDelivery.Steering -> copy(delivery = StudioQueuedDelivery.Uncertain)
     StudioQueuedDelivery.Pending, StudioQueuedDelivery.Uncertain -> this
+}
+
+private fun QueueTransitions.queueReconciled() {
+    on<StudioQueueIntent.Internal.Reconciled>(guard = {
+        state.saving == null && state.data.chat(intent.chat) == intent.expected
+    }) {
+        stay {
+            state.copy(data = state.data.withChat(intent.chat, intent.reconciled), saving = intent.operation)
+        }
+        effect {
+            StudioQueueEffect.Save(intent.operation, state.data.withChat(intent.chat, intent.reconciled))
+        }
+    }
 }

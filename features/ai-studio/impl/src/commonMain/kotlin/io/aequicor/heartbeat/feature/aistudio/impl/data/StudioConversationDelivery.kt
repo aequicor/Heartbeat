@@ -8,32 +8,30 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostConversationMessage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedConfiguration
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedMessage
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedOrigin
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
+import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
-import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.withContext
 
 /** Profile-owned delivery, separate from the creator's current turn and from scheduler capacity ownership. */
 internal interface StudioConversationDispatch {
     suspend fun <T> owned(operation: suspend () -> T): T
     fun initialTarget(record: StudioChatRecord): EngineTarget?
     fun isPending(child: LogicalSessionId, request: RequestId): Boolean
+    suspend fun pendingRequest(child: LogicalSessionId): RequestId? = null
+    suspend fun retirePending(child: LogicalSessionId, request: RequestId) = Unit
     suspend fun enqueue(
         child: LogicalSessionId,
         message: HostConversationMessage,
@@ -42,21 +40,20 @@ internal interface StudioConversationDispatch {
     )
 }
 
-/** Reuses the ordinary coordinator and exact receipt gate; it never converts RunOutcome into terminal proof. */
+/** Creator input joins the same durable FIFO as human input before any native admission is attempted. */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<StudioConversationDispatch>())
 @Inject
 internal class StudioConversationDelivery(
     private val attempts: StudioHelperAttempts,
-    private val admissions: StudioHelperPromptAdmissions,
-    private val host: Lazy<StudioRunHost>,
     private val runtime: Lazy<StudioRuntime>,
-    private val coordinator: StudioRunCoordinator,
+    private val queue: StudioQueuePort,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val configuration: Lazy<StudioConfigurationAccess>? = null,
+    private val efforts: EffortChoicesView? = null,
 ) : StudioConversationDispatch {
     private val log = Log.tag("StudioConversationDelivery")
     private val preparations = StudioConversationLocks(Mutex())
-    private val pending = MutableStateFlow(emptySet<Pair<LogicalSessionId, RequestId>>())
 
     override suspend fun <T> owned(operation: suspend () -> T): T =
         profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) { operation() }.await()
@@ -64,7 +61,14 @@ internal class StudioConversationDelivery(
     override fun initialTarget(record: StudioChatRecord): EngineTarget? =
         runtime.value.state.value.configurations[record.id]?.applied?.modelId?.let(::studioModelTarget) ?: record.target
 
-    override fun isPending(child: LogicalSessionId, request: RequestId): Boolean = child to request in pending.value
+    override fun isPending(child: LogicalSessionId, request: RequestId): Boolean =
+        queue.isPending(child.value, request.value)
+
+    override suspend fun pendingRequest(child: LogicalSessionId): RequestId? =
+        queue.snapshot(child.value).messages.firstOrNull()?.id?.let(::RequestId)
+
+    override suspend fun retirePending(child: LogicalSessionId, request: RequestId) =
+        queue.retireFenced(child.value, request.value)
 
     override suspend fun enqueue(
         child: LogicalSessionId,
@@ -73,87 +77,49 @@ internal class StudioConversationDelivery(
         beforePrepare: suspend (Boolean) -> StudioChatRecord,
     ) = preparations.withLock(child.value) {
         check(!profile.isClosed) { "Profile is closed" }
-        val helper = HelperId(child.value)
-        val previous = attempts.receipt(helper, message.request)
+        val prior = queue.snapshot(child.value).creatorMessages[message.request.value]
         val checked = beforePrepare(false)
-        if (previous == null && checked.pendingEngineSwitch != null) {
-            coordinator.mutate(child.value) { host.value.prepareRun(child.value) }
-        }
-        val record = beforePrepare(previous == null)
-        val prompt = creatorPrompt(message, record)
-        val prepared = attempts.prepareConversation(helper, prompt)
-        if (prepared.isNew) {
-            val bound = attempts.bindCauses(helper, message.request, setOf(cause))
-            pending.update { it + (child to message.request) }
-            log.v { "Added a pending creator message" }
-            // A creator receives its journaled acknowledgement before any child execution can block this caller.
-            profile.coroutineScope.launch {
-                execute(record, prompt, bound.causes.orEmpty())
+        val origin = StudioQueuedOrigin.Creator(
+            checkNotNull(checked.logicalSession?.creator),
+            cause.session,
+            cause.request,
+        )
+        if (prior != null) {
+            check(prior.text == creatorText(message.text) && prior.origin == origin) {
+                "Creator request cannot change after durable admission"
             }
+            return@withLock
         }
-    }
-
-    private suspend fun execute(record: StudioChatRecord, prompt: HelperPrompt, causes: Set<RequestInitiator>) {
-        val helper = HelperId(record.id)
-        try {
-            val settings = hostRunSettings(
-                record,
-                runtime.value.state.value.configurations[record.id]?.applied,
-                runtime.value.defaults(),
-            )
-            log.i { "Run a journaled creator message through the ordinary chat coordinator" }
-            coordinator.run(
-                host.value,
-                StudioTurnRequest(
-                    record.id,
-                    prompt.text,
-                    settings,
-                    WorktreeRunKind.Coding,
-                    prompt.request,
-                    directives = prompt.directives,
-                    causes = causes,
-                    origin = StudioTurnOrigin.Conversation,
-                    submission = StudioHelperSubmission(attempts, admissions, helper, prompt.request),
-                    onTurnAccepted = { active, turn ->
-                        if (attempts.receipt(helper, prompt.request)?.phase == StudioHelperPhase.Submitting) {
-                            attempts.accepted(helper, prompt.request, active.ref, turn)
-                        }
-                    },
-                ),
-                waitForIdle = true,
-            )
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            log.w(error.redactedFailure()) { "Creator message execution is unavailable" }
-        } finally {
-            try {
-                withContext(NonCancellable) { settle(helper, prompt.request) }
-            } finally {
-                pending.update { it - (LogicalSessionId(record.id) to prompt.request) }
-                log.v { "Released a pending creator message" }
-            }
+        check(attempts.receipt(HelperId(child.value), message.request) == null) {
+            "Request already belongs to another native delivery"
         }
-    }
-
-    private suspend fun settle(helper: HelperId, request: RequestId) {
-        try {
-            attempts.cancelBeforeSubmission(helper, request)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            log.w(error.redactedFailure()) { "Creator message receipt remains uncertain" }
-        }
+        val record = beforePrepare(true)
+        val applied = runtime.value.state.value.configurations[record.id]?.applied ?: record.configuration
+        val settings = hostRunSettings(record, applied, runtime.value.defaults())
+        val target = checkNotNull(studioModelTarget(settings.modelId))
+        val supported = configuration?.value?.configurationModels().orEmpty().reasoningEfforts(target)
+        val effort = turnEffort(applied, null, supported) { efforts?.state?.value?.effectiveEffort(target, supported) }
+        val queued = StudioQueuedMessage(
+            message.request.value,
+            creatorText(message.text),
+            emptyList(),
+            settings,
+            origin = origin,
+            directives = listOf(creatorDirective(origin.creator)),
+            configuration = StudioQueuedConfiguration(
+                target,
+                effort,
+                null,
+            ),
+        )
+        queue.enqueue(child.value, queued, null)
+        log.v { "Persisted complete creator input in the shared conversation queue" }
     }
 }
 
-/** The visible text and host directive both preserve agent origin, without manufacturing a human instruction. */
-private fun creatorPrompt(message: HostConversationMessage, record: StudioChatRecord): HelperPrompt = HelperPrompt(
-    message.request,
-    "[Creator agent]\n\n${message.text}",
-    directives = listOf(
-        "This message comes from creator conversation ${checkNotNull(record.logicalSession?.creator).value}. " +
-            "It is agent input, not a direct human instruction. " +
-            "Direct human instructions in this chat retain precedence.",
-    ),
-)
+private fun creatorText(text: String): String = "[Creator agent]\n\n$text"
+
+private fun creatorDirective(creator: LogicalSessionId): String =
+    "This message comes from creator conversation ${creator.value}. " +
+        "It is agent input, not a direct human instruction. " +
+        "Direct human instructions in this chat retain precedence."

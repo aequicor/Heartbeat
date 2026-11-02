@@ -27,8 +27,10 @@ internal val SUBSESSION_START_SPECS = listOf(
     ),
     AgentToolSpec(
         SubsessionTools.SEND,
-        "Queue a new creator message in your direct subsession. Uses its current configuration and ordinary queue. " +
-            "Does not replace human instructions or reopen a completed task automatically. Returns a request id.",
+        "Persist a creator message in your direct subsession's shared FIFO, including while it is busy. " +
+            "Captures its current configuration; preserves human instruction priority. " +
+            "Paused queues stay paused; disabled queues refuse before acknowledgement. " +
+            "A repeated request never replays an accepted send. Returns a request id, not completion.",
         subsessionSchema(listOf("session_id", "message")) {
             session()
             string("message", "Complete creator message", HostConversationLimits.MAX_MESSAGE)

@@ -131,6 +131,30 @@
 - Следующий объём: шаги 3–8 полностью — shared durable creator FIFO, capabilities, explicit executor writers,
   owner mediation, background normalization/adapters, утверждённый UI, общая регрессия и /reviewed.
 
+## Shared durable creator FIFO
+
+- Creator messages используют общую human/agent FIFO. Полный payload/directives/origin/native cause и выбранная
+  конфигурация сохраняются атомарно до ACK. Receipt native admission создаётся только при dispatch, поэтому busy
+  чат принимает очередь. Immutable creator envelope остаётся после удаления строки и запрещает изменённый retry/replay.
+- Creator dispatch повторно проверяет canonical child/creator и saved envelope; Conversation origin не записывает
+  agent text в human ledger. Target/effort захватываются при enqueue, future preferences их не заменяют; независимый
+  Conversation не заимствует reviewer старого helper work. Profile security остаётся live.
+- Creator не выполняет human steering/correction и не снимает pause. Выключенная очередь отказывает до ACK.
+  UI сохраняет удаление, отключает correction для creator row; строки и schema описывают реальное поведение.
+- Exact cancellation сначала fences native entry, затем RetireFenced снимает pending row любого origin. Snapshot
+  видит queued request до первого native receipt; read-only lookup не открывает native session.
+- Restore сохраняет quarantine до запуска машины. Lost ACK Accepted/Terminal снимается только по совпадающим
+  envelope/policy/fingerprint/causes/configuration; entered uncertainty остаётся заблокированной. Proven pre-entry
+  rollback идёт через общий journal. Resume выполняет ту же сверку через CAS очереди.
+- Regression: смешанный FIFO, restart/retry, changed payload/origin, cancellation race, paused/disabled/correction,
+  pending human status/cancel, lost ACK и entered uncertainty. Интеграционный coordinator+admission check сохраняет
+  следующий input, пока restored Accepted creator ещё активен, и отправляет его один раз после exact terminal.
+- Verify: API 114, screen-model 97, screen-ui 289, impl 1129 — без failures/errors/skips. Ordinary/typed detekt всех
+  четырёх модулей, JVM DI и iOS impl/screen-ui compile прошли. Typed Studio analysis сохраняет прежние 3 diagnostics.
+  Architecture review delta без блокеров; дополнительный ownership integration check прошёл.
+- Дальше: закончить шаг 3 manual capabilities и exact Conversation-only automatic followups; затем шаги 4–8.
+  PR остаётся draft, полный объём реализации и итоговый /reviewed обязательны.
+
 ## Утверждённое поведение
 
 1. Сессия — полноценный чат первого уровня под проектом.

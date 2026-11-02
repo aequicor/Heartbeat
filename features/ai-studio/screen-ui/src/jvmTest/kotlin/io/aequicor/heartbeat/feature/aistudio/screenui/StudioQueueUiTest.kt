@@ -81,6 +81,22 @@ class StudioQueueUiTest {
     )
 
     @Test
+    fun `creator row keeps queue actions without offering human correction`() =
+        runSkikoComposeUiTest(size = Size(1000f, 700f)) {
+            val queue = ChatQueueUi(
+                persistentListOf(QueuedMessageUi("creator", "Creator message", isCorrectionAllowed = false)),
+            )
+            val snapshot = state.copy(messageQueues = persistentMapOf("chat" to queue))
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    StudioComposer(snapshot.paneContent(pane), {}, isCompact = false)
+                }
+            }
+            onNodeWithTag("queued-creator").assertIsDisplayed()
+            onNodeWithTag("queued-correct-creator").assertIsNotEnabled()
+        }
+
+    @Test
     fun `working composer queues Enter and steers Ctrl Enter while empty input retains Stop`() =
         runSkikoComposeUiTest(size = Size(1000f, 700f)) {
             var snapshot by mutableStateOf(state)

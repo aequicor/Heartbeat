@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedDelivery
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedOrigin
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ChatQueueUi
@@ -28,6 +29,7 @@ internal fun AiStudioScreenState.queueUi(machine: AiStudioState.Ready) =
                         StudioQueuedDelivery.Pending && queue.correction?.message != message.id,
                     isUncertain = message.delivery ==
                         StudioQueuedDelivery.Uncertain,
+                    isCorrectionAllowed = message.origin == StudioQueuedOrigin.Human,
                 )
             }.toImmutableList(),
             queue.isPaused,

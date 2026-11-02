@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueAction
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedMessage
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedOrigin
 
 /** Existing repository handles only; looking up a conversation never opens or resumes a native session. */
 internal fun interface StudioLiveConversations {
@@ -47,6 +48,11 @@ internal class StudioHumanQueue(
         isCorrection: Boolean,
     ) {
         log.d { "Capture human queue input" }
+        check(
+            message.origin == StudioQueuedOrigin.Human && message.directives.isEmpty() && message.configuration == null,
+        ) {
+            "Human input cannot forge creator delivery metadata"
+        }
         validateQueuedInput(chat, environment)
         queue.enqueue(chat, message, environment, isCorrection)
     }
@@ -61,6 +67,15 @@ internal class StudioHumanQueue(
         log.v { "Validate queued conversation input" }
         val record = records.record(chat).requireHumanConversation()
         check(record.organismId == null) { "Organisms own their queued input" }
+    }
+
+    override suspend fun validateCreatorInput(chat: String, origin: StudioQueuedOrigin.Creator) {
+        val record = records.record(chat).requireHumanConversation()
+        val creator = records.record(origin.creator.value).requireHumanConversation()
+        check(record.logicalSession?.creator == origin.creator && creator.owns(origin.session)) {
+            "Queued creator provenance no longer belongs to this conversation"
+        }
+        check(record.organismId == null) { "Organisms own their input" }
     }
 
     override suspend fun steeringTarget(chat: String): StudioSteeringTarget {

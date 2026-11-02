@@ -38,12 +38,23 @@ internal class StudioConversationEvidence(
 ) : StudioConversationObservations {
     override suspend fun snapshot(record: StudioChatRecord): HostConversationSnapshot {
         val helper = HelperId(record.id)
-        val request = attempts.unresolved(helper) ?: record.lastRunRequest
+        val request = attempts.unresolved(
+            helper,
+        ) ?: dispatch.pendingRequest(LogicalSessionId(record.id)) ?: record.lastRunRequest
         val receipt = request?.let { attempts.receipt(helper, it) }
-        val live = access.value.liveHelper(helper)?.takeIf { it.ref == receipt?.session }?.state?.value
+        val live = receipt?.session?.let { native ->
+            access.value.liveHelper(helper)?.takeIf { it.ref == native }?.state?.value
+        }
         val attempt = receipt?.let {
             HostConversationAttempt(it.request, phase(record, it, live), it.session ?: it.preparedSession, it.turn)
-        } ?: request?.let { HostConversationAttempt(it, HostConversationAttemptPhase.Unknown) }
+        } ?: request?.let {
+            val phase = if (dispatch.isPending(LogicalSessionId(record.id), it)) {
+                HostConversationAttemptPhase.Queued
+            } else {
+                HostConversationAttemptPhase.Unknown
+            }
+            HostConversationAttempt(it, phase)
+        }
         return HostConversationSnapshot(
             checkNotNull(record.logicalSession),
             record.title,
@@ -73,6 +84,7 @@ internal class StudioConversationEvidence(
         val receipt = attempts.requestStop(helper, request)
         return when {
             receipt.phase == StudioHelperPhase.NotSubmitted -> if (receipt.request == request) {
+                dispatch.retirePending(LogicalSessionId(record.id), request)
                 HostConversationCancellation.NotSubmitted(request)
             } else {
                 attempts.continuation(helper, request)?.result?.terminal?.let {

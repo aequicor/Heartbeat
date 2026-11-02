@@ -152,6 +152,8 @@ internal data class StudioTurnRequest(
     val continuationOf: RequestId? = null,
     /** Mandatory result sink; known outcomes include actual native identity, independently of checkpoint callbacks. */
     val onNativeOutcome: suspend (TurnOutcome, StudioRecoveryEvidence?) -> Unit = { _, _ -> },
+    /** Immutable creator FIFO configuration; only the authenticated durable queue constructs it. */
+    val queuedConfiguration: io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedConfiguration? = null,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }

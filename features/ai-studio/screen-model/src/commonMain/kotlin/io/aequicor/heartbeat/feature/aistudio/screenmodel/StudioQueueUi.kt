@@ -17,6 +17,7 @@ data class QueuedMessageUi(
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val isPending: Boolean = true,
     val isUncertain: Boolean = false,
+    val isCorrectionAllowed: Boolean = true,
 )
 
 /** Compact FIFO above the owning chat's composer. */
