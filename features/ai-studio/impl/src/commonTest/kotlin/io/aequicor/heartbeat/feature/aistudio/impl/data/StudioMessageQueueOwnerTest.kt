@@ -143,7 +143,7 @@ private class QueueOwnerHost : StudioQueueHost {
 }
 
 /** Runs the real pure spec and persistence feedback without adding an impl-to-impl runtime dependency. */
-private object QueueOwnerLauncher : MachineLauncher {
+internal object QueueOwnerLauncher : MachineLauncher {
     override fun <S : MachineState, I : MachineIntent, E : MachineEffect, O : MachineOutput> launch(
         spec: MachineSpec<S, I, E, O>,
         scope: ScopeHandle,

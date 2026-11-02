@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 
 /**
@@ -21,6 +22,7 @@ public data class HelperCreateRequest(
     val title: String,
     val trustCap: TrustLevel,
     val model: HelperModelOptions = HelperModelOptions(),
+    val role: HelperConversationRole = HelperConversationRole.FullConversation,
 ) {
     override fun toString(): String = "HelperCreateRequest(owner=$owner, hasParent=${parent != null})"
 }

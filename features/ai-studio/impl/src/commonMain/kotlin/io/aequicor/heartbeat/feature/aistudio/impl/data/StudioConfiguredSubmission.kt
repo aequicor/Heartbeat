@@ -22,6 +22,8 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import kotlinx.coroutines.CancellationException
 
 /** Resolves saved configuration and crosses the native submission barrier with the shared profile mode. */
@@ -49,11 +51,25 @@ internal class StudioConfiguredSubmission(
     ): TurnId {
         val id = request.id
         val record = access.configurationRecord(id)
+        if (request.isUserPrompt) record.requireHumanConversation()
+        val workModel = request.workModel(record)
+        val inherited = (request.submission as? StudioHelperSubmission)?.continuationReceipt()?.executionSnapshot
+        check(inherited == null || inherited.target == target) { "Continuation native target changed before send" }
+        val isFrozen =
+            inherited != null || request.queuedConfiguration != null || request.origin is StudioTurnOrigin.GraphWork
         val stored = configurations()[id]?.applied ?: record.configuration
         val isTrustSupported = models().isTrustSupported(target)
         val supported = models().reasoningEfforts(target)
-        val effort = turnEffort(stored, record.helper, supported) {
-            efforts.state.value.effectiveEffort(target, supported)
+        val effort = if (isFrozen) {
+            request.frozenEffort(inherited, supported)
+        } else {
+            turnEffort(
+                stored,
+                record.helper,
+                supported,
+            ) {
+                efforts.state.value.effectiveEffort(target, supported)
+            }
         }
         log.i { "Submitting prompt length=${request.prompt.length}" }
         // The plan and its read-only rule follow the chat into the session before anything of the turn changes.
@@ -63,19 +79,19 @@ internal class StudioConfiguredSubmission(
         carryLedger(record, active)
         val carried = record.carriedDirectives(request)
         val seeded = if (carried.isEmpty()) request else request.copy(directives = carried + request.directives)
-        val constrained = if (record.helper == null) {
+        val constrained = if (workModel == null) {
             seeded
         } else {
             seeded.copy(directives = seeded.directives + HELPER_DIRECTIVE)
         }
         // A handoff retires configuration observation because its session is never reflected again.
-        if (request.isHandoff) controller.retire(id, active)
-        val reviewTarget = record.helper?.model?.reviewTarget
+        if (request.isHandoff || isFrozen) controller.retire(id, active)
+        val reviewTarget = request.capturedReviewTarget(inherited, workModel)
         val submitted = send(access, active, target, constrained, effort, reviewTarget) {
             turnPolicy(isTrustSupported)
         }
         consumeCarriedContext(access, record, request, carried)
-        if (request.isHandoff) return submitted.turn
+        if (request.isHandoff || isFrozen) return submitted.turn
         confirmConfiguration(
             access,
             id,
@@ -163,8 +179,19 @@ internal class StudioConfiguredSubmission(
                 request.submission?.begin()
                 policy()
             }
+            val inherited = helper?.continuationReceipt()?.executionSnapshot
+            val authority = inherited?.authority?.snapshot()
+                ?: access.captureUserInstructions(request.id, request.request, request.userInstruction)
+            val snapshot = StudioExecutionSnapshot(
+                request.settings,
+                target,
+                reasoningEffort,
+                reviewTarget,
+                authority.savedAuthority(),
+                request.causes,
+            )
+            helper?.freezeExecution(snapshot, StudioRecoveryRoute(target, active.route.workspace))
             val native: suspend () -> TurnId = {
-                val authority = access.captureUserInstructions(request.id, request.request, request.userInstruction)
                 active.submitStudioPrompt(
                     prompt,
                     reasoningEffort,
@@ -244,6 +271,18 @@ internal class StudioConfiguredSubmission(
     private data class SubmittedPrompt(val turn: TurnId, val trust: TrustLevel?)
 }
 
+/** Old unclassified attempts retain their prior policy until exact work evidence classifies them. */
+private suspend fun StudioTurnRequest.workModel(record: StudioChatRecord): HelperModelOptions? {
+    val gate = submission as? StudioHelperSubmission
+    check(gate == null || gate.matches(HelperId(record.id), request)) { "Conversation request binding does not match" }
+    return when (val policy = gate?.policy()) {
+        StudioAttemptPolicy.Conversation -> null
+        is StudioAttemptPolicy.GraphWork -> null
+        is StudioAttemptPolicy.OwnedHelperWork -> policy.model
+        StudioAttemptPolicy.UnknownService, null -> record.helper?.model
+    }
+}
+
 /**
  * Effort of a turn: the chat's stored settings win; a helper's creator may fix its effort while the model still
  * advertises it ([supported]); otherwise the [profile] choice applies.
@@ -257,4 +296,25 @@ internal fun turnEffort(
     stored.reasoningEffort
 } else {
     helper?.model?.reasoningEffort?.takeIf { it in supported } ?: profile()
+}
+
+/** A captured null effort means the original native default, never a reason to read a later preference. */
+private fun StudioTurnRequest.frozenEffort(inherited: StudioExecutionSnapshot?, supported: List<String>): String? =
+    when {
+        inherited != null -> inherited.reasoningEffort
+
+        queuedConfiguration != null -> queuedConfiguration.reasoningEffort?.also {
+            check(it in supported) { "Queued creator effort is no longer supported" }
+        }
+
+        else -> graphWork?.reasoningEffort?.takeIf { it in supported }
+    }
+
+private fun StudioTurnRequest.capturedReviewTarget(
+    inherited: StudioExecutionSnapshot?,
+    workModel: HelperModelOptions?,
+): EngineTarget? = when {
+    inherited != null -> inherited.reviewTarget
+    queuedConfiguration != null -> queuedConfiguration.reviewTarget
+    else -> workModel?.reviewTarget
 }

@@ -95,7 +95,7 @@ class KoogCodingSessionTest {
             ): AgentToolResult {
                 capturedContext = context
                 if (!context.permissions.request(
-                        AgentToolApproval(name, "Edit file"),
+                        AgentToolApproval(name, "Edit file", binding = "operation-A"),
                     )
                 ) {
                     return AgentToolResult("Denied", true)
@@ -118,6 +118,7 @@ class KoogCodingSessionTest {
         f.callTool("edit_file")
         runCurrent()
         val pending = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value).requests.single()
+        assertEquals("operation-A", pending.operationBinding)
         assertEquals(0, executions)
         assertEquals(session.ref, capturedContext?.session)
         assertEquals(turn, capturedContext?.turn)

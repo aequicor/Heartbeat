@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityState
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
@@ -14,6 +15,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
@@ -69,11 +71,21 @@ class HelperAgentsTest {
         val fixture = HelpersFixture(this)
         val lease = fixture.service.acquire(owner)
         val options = HelperModelOptions(reasoningEffort = "low", reviewTarget = TARGET)
-        fixture.service.create(lease, PROJECT, TARGET, "Helper", TrustLevel.Ask, options)
+        fixture.service.create(
+            lease,
+            PROJECT,
+            TARGET,
+            "Helper",
+            TrustLevel.Ask,
+            options,
+            HelperConversationRole.Executor,
+        )
         assertEquals(options, fixture.host.creations.single().model)
+        assertEquals(HelperConversationRole.Executor, fixture.host.creations.single().role)
         val other = fixture.service.acquire(ActionId("wf_other"))
         fixture.service.create(other, PROJECT, TARGET, "Default")
         assertEquals(HelperModelOptions(), fixture.host.creations.last().model)
+        assertEquals(HelperConversationRole.FullConversation, fixture.host.creations.last().role)
     }
 
     @Test
@@ -147,7 +159,8 @@ class HelperAgentsTest {
         assertEquals(HelperOutcome.Unknown, fixture.service.result(helper, prompt.request)?.outcome)
         val recovery = prompt.copy(request = RequestId("recovery"), isRecovery = true)
         fixture.service.prompt(helper, recovery)
-        assertEquals(listOf(prompt, recovery), fixture.host.prompts)
+        assertEquals(listOf(prompt, recovery), fixture.host.prompts.map { it.copy(work = null) })
+        assertTrue(fixture.host.prompts.all { it.work?.owner == owner })
         assertEquals(HelperReleaseResult.Released, restored.release())
         assertEquals(0, fixture.active)
     }
@@ -389,6 +402,16 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
     val cancellations = mutableListOf<RequestId>()
     val revocations = mutableListOf<RequestId>()
     val results = mutableMapOf<RequestId, HelperResult>()
+    val resultReads = mutableListOf<RequestId>()
+    var reconciliation: suspend (HelperId, RequestId, HelperWorkBinding) -> Boolean = { helper, request, binding ->
+        val record = metadata[helper]
+        val prior = prompts.firstOrNull { it.request == request }?.work
+        record?.owner == binding.owner && record.lastRequest == request && record.isRequestOwnershipResolved &&
+            (prior?.reservation == null || binding.reservation == null || prior.reservation == binding.reservation)
+    }
+    var continuationProof: suspend (HelperId, RequestId, RequestId, HelperWorkBinding) -> Boolean = { _, _, _, _ ->
+        false
+    }
     var createdRequest: RequestId? = null
     val creations = mutableListOf<HelperCreateRequest>()
     var beforeMetadata: suspend () -> Unit = {}
@@ -432,9 +455,23 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
     }
 
     override suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? {
+        resultReads += request
         beforeResult()
         return results[request]
     }
+
+    override suspend fun reconcileHelperWork(
+        helper: HelperId,
+        request: RequestId,
+        binding: HelperWorkBinding,
+    ): Boolean = reconciliation(helper, request, binding)
+
+    override suspend fun confirmsHelperContinuation(
+        helper: HelperId,
+        request: RequestId,
+        actual: RequestId,
+        binding: HelperWorkBinding,
+    ): Boolean = continuationProof(helper, request, actual, binding)
 
     override suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? = progress
 

@@ -21,8 +21,11 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsR
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +44,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class StudioCorrectionIntegrationTest {
@@ -158,7 +162,11 @@ class StudioCorrectionIntegrationTest {
         )
         runtime.enqueue(chat.id, message, null, isCorrection = true)
         runCurrent()
-        runtime.cancel(chat.id)
+        val pending = assertFailsWith<EngineException> { runtime.cancel(chat.id) }
+        assertEquals(
+            EngineFailure.Request(RequestFailureReason.OutcomeUnknown, native.sent.first().id),
+            pending.failure,
+        )
         gate.complete(Unit)
         original.await()
         runCurrent()

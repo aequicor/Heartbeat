@@ -137,6 +137,6 @@ internal class StoredWorkflowHelperJournal(private val store: KeyValueStore, clo
 internal class WorkflowHelperCapacityRecovery(private val journal: Lazy<WorkflowHelperJournal>) :
     HelperCapacityRecoverySource {
     override suspend fun reservations(): List<HelperCapacityRecoveryRecord> = journal.value.pending().map {
-        HelperCapacityRecoveryRecord(it.reservation, ActionId(it.run.value), it.parent, it.helper)
+        HelperCapacityRecoveryRecord(it.reservation, ActionId(it.run.value), it.parent, it.helper, it.request)
     }
 }

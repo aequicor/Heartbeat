@@ -18,16 +18,21 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RelaysPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationUpdate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextRevision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -80,6 +85,8 @@ class ManagedActiveSession(
     private val parts: SessionParts,
     private val policy: SessionPolicy,
     hookContext: SessionHookContext? = null,
+    override val logicalSession: LogicalSessionContext? = null,
+    private val execution: SessionExecutionBinding? = null,
 ) : ActiveSession {
     private val log = Log.tag("ActiveSession")
     private val machine = parts.machine
@@ -102,6 +109,7 @@ class ManagedActiveSession(
                 SteersTurns.id to parts.native.features.wrap(SteersTurns) { Steering(it) },
                 CancelsTurns.id to parts.native.features.wrap(CancelsTurns) { Canceller() },
                 RequestsPermissions.id to parts.native.features.wrap(RequestsPermissions) { Permissions() },
+                RelaysPermissions.id to parts.native.features.wrap(RequestsPermissions) { PermissionRelayer() },
                 ReconcilesSession.id to available(Reconciler()),
                 SwitchesModels.id to parts.native.features.wrap(SwitchesModels) { ModelSwitcher(it) },
                 ChangesSessionConfiguration.id to parts.native.features.wrap(ChangesSessionConfiguration) {
@@ -256,8 +264,22 @@ class ManagedActiveSession(
         if (result != SendResult.Accepted) fail(if (result == SendResult.Ignored) InvalidRequest else result.failure())
     }
 
+    private suspend fun <T> admitted(operation: SessionExecutionOperation, block: suspend () -> T): T {
+        val access = policy.executions
+        return if (access == null) {
+            check(execution == null) { "Executor handle needs the profile authority gate" }
+            block()
+        } else {
+            access.admitted(ref, execution, operation = operation, block = block)
+        }
+    }
+
     private inner class Sender : SendsPrompts {
-        override suspend fun send(request: PromptRequest): TurnId {
+        override suspend fun send(request: PromptRequest): TurnId = admitted(
+            SessionExecutionOperation.Submit,
+        ) { sendAdmitted(request) }
+
+        private suspend fun sendAdmitted(request: PromptRequest): TurnId {
             log.i {
                 "send request=${request.id.value} parts=${request.parts.size} trust=${request.trust ?: "default"}" +
                     if (request.compaction != null) " compaction" else ""
@@ -268,10 +290,12 @@ class ManagedActiveSession(
                 fail(InvalidRequest)
             }
             request.compaction?.let { compaction -> checkCompaction(compaction.instructions != null) }
-            val model = (parts.native.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)
-                ?.feature?.configuration?.value?.model ?: currentModel.value
-            policy.beforeTurn(route, model)
             return policy.registry.exclusive(ref) {
+                val model = (parts.native.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)
+                    ?.feature?.configuration?.value?.model ?: currentModel.value
+                val target = EngineTarget(route.engine, route.binding, model)
+                policy.executions?.checkPrompt(ref, execution, target, request)
+                policy.beforeTurn(route, model)
                 if (policy.registry.isBusy(ref, this@ManagedActiveSession)) fail(Busy)
                 when (val current = machine.state.value) {
                     is ActiveSessionState.Ready -> Unit
@@ -290,7 +314,14 @@ class ManagedActiveSession(
                     decisionMode = request.decisionMode,
                     reviewTarget = request.reviewTarget,
                 )
-                policy.bindTurn(ref, request.id, turn, request.userInstruction, request.trustedUserInstructions)
+                policy.bindTurn(
+                    ref,
+                    request.id,
+                    turn,
+                    request.userInstruction,
+                    request.trustedUserInstructions,
+                    logicalSession,
+                )
                 val prepared = hookHandle?.prepare(request, turn) ?: request
                 submit(prepared, turn)
             }
@@ -332,7 +363,12 @@ class ManagedActiveSession(
                 }
                 if (current.id != turn) fail(InvalidRequest)
                 untilStopped {
-                    adapterCall(log, "steer") { native.steer(parts.effects.correlation.native(turn), request) }
+                    admitted(SessionExecutionOperation.Steer) {
+                        adapterCall(
+                            log,
+                            "steer",
+                        ) { native.steer(parts.effects.correlation.native(turn), request) }
+                    }
                 }
             }
         }
@@ -348,7 +384,17 @@ class ManagedActiveSession(
     private inner class Permissions : RequestsPermissions {
         override suspend fun respond(decision: PermissionDecision) {
             log.i { "respond turn=${decision.turn.value} request=${decision.request.value}" }
-            command(ActiveSessionIntent.Public.Decide(decision))
+            check(execution == null) { "Executor decisions must pass through their owner" }
+            admitted(SessionExecutionOperation.Respond) { command(ActiveSessionIntent.Public.Decide(decision)) }
+        }
+    }
+
+    private inner class PermissionRelayer : RelaysPermissions {
+        override suspend fun respond(relay: PermissionRelay, decision: PermissionDecision) {
+            check(execution != null && relay.binding == execution && relay.session == ref)
+            check(relay.accepts(decision)) { "Decision exceeds its captured operation" }
+            log.i { "Relay exact executor permission decision" }
+            command(ActiveSessionIntent.Public.Decide(decision, relay))
         }
     }
 
@@ -377,7 +423,9 @@ class ManagedActiveSession(
             policy.registry.exclusive(ref) {
                 if (machine.state.value !is ActiveSessionState.Ready) fail(Busy)
                 if (policy.registry.isBusy(ref, this@ManagedActiveSession)) fail(Busy)
-                adapterCall(log, "switchModel") { native.switchTo(model) }
+                admitted(
+                    SessionExecutionOperation.Configure,
+                ) { adapterCall(log, "switchModel") { native.switchTo(model) } }
                 currentModel.value = model
             }
         }
@@ -409,7 +457,9 @@ class ManagedActiveSession(
                     is ActiveSessionState.Submitting, is ActiveSessionState.Interrupting -> fail(Busy)
                 }
                 untilStopped {
-                    adapterCall(log, "configure") { native.apply(operationId, change) }.also {
+                    admitted(
+                        SessionExecutionOperation.Configure,
+                    ) { adapterCall(log, "configure") { native.apply(operationId, change) } }.also {
                         currentModel.value = it.model
                     }
                 }

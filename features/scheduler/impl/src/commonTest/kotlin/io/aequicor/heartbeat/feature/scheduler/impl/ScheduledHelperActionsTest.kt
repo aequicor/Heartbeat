@@ -326,7 +326,8 @@ class ScheduledHelperActionsTest {
         host.beforeMetadata = { lookups++ }
         advanceTimeBy(40.seconds)
         runCurrent()
-        assertEquals(5, lookups)
+        // A successful attribution proof is followed by a fresh identity read.
+        assertEquals(6, lookups)
         assertEquals(listOf(request), host.cancellations)
         assertTrue(fixture.reservations().isEmpty())
         assertTrue(fixture.journal.records.isEmpty())
@@ -470,7 +471,8 @@ class ScheduledHelperActionsTest {
         assertNull(fixture.journal.records.single().payload)
         advanceTimeBy(1.minutes)
         runCurrent()
-        assertEquals(2, lookups)
+        // The retry reads identity, then validates it again after exact work reconciliation.
+        assertEquals(3, lookups)
         assertEquals(listOf(request), host.cancellations)
         assertTrue(fixture.reservations().isEmpty())
         assertTrue(fixture.journal.records.isEmpty())

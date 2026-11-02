@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -182,12 +184,20 @@ public data class Conception(
     val baseCommit: String? = null,
     /** Host-selected decision policy for every cell turn; fixed at conception and preserved across restart. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+    /** Host-proven full conversation; biological ancestry never establishes this owner. */
+    val conversation: LogicalSessionContext? = null,
+    /** Fresh host-generated incarnation; null identifies legacy records and grants no executor authority. */
+    val incarnation: String? = null,
 ) {
     init {
         require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
             "Invalid organism goal"
         }
         require(isolation == OrganismIsolation.Shared || workspace != null) { "A sandbox organism needs a project" }
+        require(
+            conversation == null || conversation.isHumanInteractive,
+        ) { "An organism needs a full conversation owner" }
+        require(incarnation == null || incarnation.isNotBlank()) { "Invalid organism incarnation" }
         require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
         require(baseCommit == null || (isolation == OrganismIsolation.Sandbox && isPinnedCommit(baseCommit))) {
             "Invalid pinned organism base"
@@ -240,10 +250,18 @@ public data class Organism(
     val baseCommit: String? = null,
     /** Host-selected decision policy for every cell turn; fixed at conception and preserved across restart. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+    /** Host-proven full conversation; biological ancestry never establishes this owner. */
+    val conversation: LogicalSessionContext? = null,
+    /** Fresh host-generated incarnation; null identifies legacy records and grants no executor authority. */
+    val incarnation: String? = null,
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }
         require(cells.map { it.id }.distinct().size == cells.size) { "Duplicate cell" }
+        require(
+            conversation == null || conversation.isHumanInteractive,
+        ) { "An organism needs a full conversation owner" }
+        require(incarnation == null || incarnation.isNotBlank()) { "Invalid organism incarnation" }
         require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
         require(baseCommit == null || (isolation == OrganismIsolation.Sandbox && isPinnedCommit(baseCommit))) {
             "Invalid pinned organism base"
@@ -361,6 +379,8 @@ public sealed interface CellPhase {
         val isRecovery: Boolean = false,
         @Transient val turn: TurnId? = null,
         @Transient val awaiting: List<PermissionRequest> = emptyList(),
+        /** Current host-issued owner relays; restart never restores these capabilities. */
+        @Transient val relays: List<PermissionRelay> = emptyList(),
     ) : CellPhase {
         override fun toString(): String =
             "Working(request=${request.value}, recovery=$isRecovery, awaiting=${awaiting.size})"
@@ -647,7 +667,10 @@ public enum class ReleaseMode {
     /** The cell completed: close the handle, keep the session. */
     Retire,
 
-    /** The cell was killed: cancel its turn, close the handle and archive the session. */
+    /**
+     * Stops the killed cell's exact turn and closes its handle.
+     * Archives only an executor session; its human conversation remains available.
+     */
     Lyse,
 }
 

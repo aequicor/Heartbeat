@@ -14,9 +14,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -36,6 +40,8 @@ class ActiveSessionEffects(
     private val native: ActiveSession,
     commands: CoroutineScope,
     private val onFailure: (EngineFailure) -> Unit = {},
+    private val execution: SessionExecutionBinding? = null,
+    private val executions: SessionExecutionAccess? = null,
 ) : EffectHandler<ActiveSessionEffect, ActiveSessionIntent> {
     private val log = Log.tag("ActiveSessionEffects")
 
@@ -56,8 +62,10 @@ class ActiveSessionEffects(
             is ActiveSessionEffect.Submit -> {
                 log.i { "submit request=${effect.request.id.value} turn=${effect.turn.id.value}" }
                 handOff("send") {
-                    val nativeTurn = command(SendsPrompts).send(effect.request)
-                    correlation.bind(nativeTurn, effect.turn.id)
+                    admitted(effect.request.id) {
+                        val nativeTurn = command(SendsPrompts).send(effect.request)
+                        correlation.bind(nativeTurn, effect.turn.id)
+                    }
                 }
                 machine.send(ActiveSessionIntent.Internal.Accepted(effect.turn.id))
             }
@@ -69,7 +77,15 @@ class ActiveSessionEffects(
 
             is ActiveSessionEffect.Decide -> {
                 log.i { "decide turn=${effect.decision.turn.value} request=${effect.decision.request.value}" }
-                handOff("respond") { command(RequestsPermissions).respond(correlation.native(effect.decision)) }
+                handOff(
+                    "respond",
+                ) {
+                    requireRelay(effect.relay, effect.decision)
+                    admitted(permission = effect.relay?.let { it to effect.decision }) {
+                        requireRelay(effect.relay, effect.decision)
+                        command(RequestsPermissions).respond(correlation.native(effect.decision))
+                    }
+                }
             }
 
             is ActiveSessionEffect.Recheck -> try {
@@ -85,6 +101,40 @@ class ActiveSessionEffects(
                 machine.send(ActiveSessionIntent.Internal.Released)
                 handOffJob.complete()
             }
+        }
+    }
+
+    private fun requireRelay(relay: PermissionRelay?, decision: PermissionDecision) {
+        if (execution == null) {
+            check(relay == null) { "A full conversation cannot borrow executor permission authority" }
+            return
+        }
+        check(relay != null && relay.binding == execution && relay.session == native.ref)
+        val pending = correlation.localize(native.state.value) as? ActiveSessionState.AwaitingUserAction
+        check(
+            pending?.turn?.request == relay.request && pending.turn.target == relay.target &&
+                pending.requests.any { it == relay.permission } && relay.accepts(decision),
+        ) { "Native pending operation differs from its relay" }
+    }
+
+    private suspend fun admitted(
+        entry: io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId? = null,
+        permission: Pair<PermissionRelay, PermissionDecision>? = null,
+        block: suspend () -> Unit,
+    ) {
+        val access = executions
+        if (access == null) {
+            check(execution == null) { "Executor handle needs the profile authority gate" }
+            block()
+        } else {
+            access.admitted(
+                native.ref,
+                execution,
+                entry,
+                if (entry == null) SessionExecutionOperation.Respond else SessionExecutionOperation.Submit,
+                permission,
+                block,
+            )
         }
     }
 

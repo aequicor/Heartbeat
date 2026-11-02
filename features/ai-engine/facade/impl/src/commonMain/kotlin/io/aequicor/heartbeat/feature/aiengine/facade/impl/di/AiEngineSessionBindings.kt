@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RouteResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RuntimePool
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RuntimePoolShutdown
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionCatalogService
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionExecutionAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionLauncher
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionPolicy
 import kotlinx.coroutines.flow.Flow
@@ -70,7 +71,8 @@ object AiEngineSessionBindings {
         tools: ProfileAgentTools,
         hooks: SessionHooks,
         workspaces: io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces,
-    ): SessionPolicy = SessionPolicy(routes, enabled, handles, context, tools, hooks, workspaces)
+        executions: SessionExecutionAccess,
+    ): SessionPolicy = SessionPolicy(routes, enabled, handles, context, tools, hooks, workspaces, executions)
 
     /** Builds handles; native commands run in the profile scope. */
     @Provides
@@ -101,7 +103,8 @@ object AiEngineSessionBindings {
         sessions: SessionCatalogService,
         host: ActiveSessionHost,
         context: FacadeContext,
-    ): SessionLauncher = SessionLauncher(routes, pool, sessions, host, context)
+        executions: SessionExecutionAccess,
+    ): SessionLauncher = SessionLauncher(routes, pool, sessions, host, context, executions)
 
     /** Facade-implemented capabilities. */
     @Provides

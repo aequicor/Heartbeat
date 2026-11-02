@@ -76,8 +76,7 @@ class FacadeIsolatedPromptsTest {
     }
 
     private fun TestScope.prompts(f: IsolatedTurnFixture) = FacadeIsolatedPrompts(
-        lazyOf(f.facade),
-        f.policy,
+        f.host,
         backgroundScope,
         IsolatedTurnSlots(capacity = 1, queueWait = 10.seconds),
         1.minutes,

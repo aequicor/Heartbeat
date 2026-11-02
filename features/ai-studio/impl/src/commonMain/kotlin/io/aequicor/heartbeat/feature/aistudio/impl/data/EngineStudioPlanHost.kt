@@ -141,8 +141,8 @@ internal class EngineStudioPlanHost(
             prompt = prompt,
             settings = settings,
             kind = WorktreeRunKind.Coding,
-            request = RequestId(Uuid.random().toString()),
-        ).copy(isUserPrompt = true)
+            request = checkNotNull(runs.currentRequest(id)) { "The plan turn has no execution reservation" },
+        ).copy(isUserPrompt = true, origin = StudioTurnOrigin.Conversation)
         return runHost.value.executeRun(request)
     }
 
@@ -154,6 +154,11 @@ internal class EngineStudioPlanHost(
         override suspend fun prepareRun(id: String) = host.prepareRun(id)
 
         override suspend fun executeRun(request: StudioTurnRequest): RunOutcome = body()
+
+        override suspend fun settledRun(request: StudioTurnRequest, outcome: RunOutcome) = host.settledRun(
+            request,
+            outcome,
+        )
 
         override suspend fun finishedRun(id: String) = host.finishedRun(id)
     }

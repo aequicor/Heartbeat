@@ -57,7 +57,12 @@ class StudioScheduledSessionHostTest {
         override suspend fun chatOf(session: SessionRef): StudioScheduledChat? = owned[session]
         override suspend fun sessionOf(chatId: String): SessionRef? = sessions[chatId]
 
-        override suspend fun createHelperChat(projectId: String?, title: String, workspace: WorkspaceRef?): String {
+        override suspend fun createHelperChat(
+            projectId: String?,
+            title: String,
+            workspace: WorkspaceRef?,
+            parentId: String?,
+        ): String {
             helperWorkspace = workspace
             created += projectId to title
             return "helper"

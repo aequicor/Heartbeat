@@ -89,8 +89,13 @@ internal class PiNativeApproval(
             callId = call.toolCallId,
             permissions = AgentToolPermissions { approval ->
                 if (!isCurrent()) return@AgentToolPermissions false
-                val request = approvalRequest(id, turn.id, call, isHostTermination)
-                    .copy(description = approval.description)
+                val request = approvalRequest(
+                    id,
+                    turn.id,
+                    call,
+                    isHostTermination,
+                    operationBinding = approval.binding,
+                ).copy(description = approval.description)
                 isAsked = true
                 hosted.approval(turn, request, PiApprovalAllow)
             },

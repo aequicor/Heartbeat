@@ -8,7 +8,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -33,10 +32,10 @@ import kotlinx.coroutines.withContext
 /**
  * Runs one turn of a cell: opens its session, connects the organism's harnesses to it, submits the turn's prompt (or
  * adopts the native turn a recovery finds still running), reports acceptance and pending permission requests, and
- * settles the turn with its final answer. The organism is journaled before a submission, so a request id never
- * reaches an engine unsaved and a restart never reuses it. A harness that cannot be connected fails the turn before
- * any prompt: the cell never works in a smaller environment than the user chose. Feedback the machine no longer takes
- * means the cell ended meanwhile: the driver lets go and stops.
+ * settles the turn with its final answer. The immutable native request is journaled before submission; recovery
+ * observes that original request without replaying it, even when the machine has a new observer request.
+ * A harness that cannot be connected fails before any prompt: the cell never works in a smaller environment than
+ * the user chose. Obsolete observers neither cancel a newer turn nor replay the native request.
  * A cell of a sandbox organism gets its own checkout first: it is prepared and saved before the session is created, so
  * the session is never opened in the organism's project, also not on a retry or after a restart.
  */
@@ -45,8 +44,11 @@ internal class CellDriver(
     private val journal: OrganismJournal,
     private val workspaces: CellWorkspaces,
     private val harnesses: CellHarnesses,
+    native: OrganicNativeJournal,
+    private val permissions: OrganicPermissionRelays = OrganicPermissionRelays(),
 ) {
     private val log = Log.tag("CellDriver")
+    private val attempts = OrganicCellAttempts(native)
 
     suspend fun drive(organism: Organism, id: CellId, request: RequestId, machine: EffectScope<OrganicAiIntent>) {
         val cell = organism.cell(id)
@@ -79,11 +81,45 @@ internal class CellDriver(
         route: CellRoute,
         machine: EffectScope<OrganicAiIntent>,
     ) {
+        val attempt = attempts.select(organism, cell, route)
+        check(attempt.claim.target == route.target && attempt.claim.workspace == route.workspace) {
+            "Recovery route differs from the frozen native request"
+        }
+        if (attempt.initial.outcome != null) {
+            recoverTerminal(organism, cell, phase, attempt, machine)
+            return
+        }
+        driveOpened(organism, cell, route, attempt, machine)
+    }
+
+    private suspend fun driveOpened(
+        organism: Organism,
+        cell: Cell,
+        route: CellRoute,
+        attempt: OrganicNativeExecution,
+        machine: EffectScope<OrganicAiIntent>,
+    ) {
+        val phase = cell.phase as CellPhase.Working
         val key = CellKey(organism.id, cell.id)
-        val handle = cells.open(key, route, cell.session, cell.turns)
-        val driven = DrivenCell(organism, cell, phase, handle)
-        // A turn the engine still runs started under an earlier connection; every new prompt needs a fresh check.
-        val live = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() }
+        val existing = if (attempt.isRestored) {
+            checkNotNull(attempt.initial.session) { "Native creation remains unconfirmed" }
+        } else {
+            attempt.opening()
+            cell.session
+        }
+        val handle = cells.open(key, route, existing, cell.turns) { ref ->
+            if (!attempt.isRestored) attempt.opened(ref)
+        }
+        val driven = DrivenCell(organism, cell, phase, handle, attempt)
+        val live = if (attempt.isRestored) {
+            val observed = checkNotNull(handle.inspect(attempt.claim.request)) {
+                "Original native request remains unconfirmed"
+            }
+            attempt.observed(handle.session, observed)
+            observed.id
+        } else {
+            null
+        }
         val run = runOf(organism, cell.id, phase.request, handle.session, live)
         if (!bindSession(driven, run, live, machine)) return
         var turn = live
@@ -97,6 +133,38 @@ internal class CellDriver(
             run.lost(handle.session, turn)
             throw e
         }
+    }
+
+    /** Replays durable terminal evidence to the machine after a lost machine ACK, without opening native work. */
+    private suspend fun recoverTerminal(
+        organism: Organism,
+        cell: Cell,
+        phase: CellPhase.Working,
+        attempt: OrganicNativeExecution,
+        machine: EffectScope<OrganicAiIntent>,
+    ) {
+        val receipt = attempt.initial
+        val session = checkNotNull(receipt.session)
+        val turn = checkNotNull(receipt.turn)
+        val outcome = checkNotNull(receipt.outcome)
+        val settlement = when (outcome) {
+            TurnOutcome.Completed -> receipt.answer?.let(Settlement::Answered)
+                ?: Settlement.Broke(Breakdown.Unconfirmed)
+
+            TurnOutcome.Cancelled -> Settlement.Broke(Breakdown.Interrupted)
+
+            is TurnOutcome.Failed -> Settlement.Broke(Breakdown.Engine(outcome.failure))
+
+            TurnOutcome.Unknown -> Settlement.Broke(Breakdown.Unconfirmed)
+        }
+        if (organism.isSandboxed) {
+            val run = workspaces.adopt(organism, cell.id, session, turn)
+            run?.settled(session, turn, outcome)
+        }
+        if (cell.session == null) {
+            machine.send(OrganicAiIntent.Internal.SessionBound(organism.id, cell.id, phase.request, session))
+        }
+        machine.send(OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, settlement))
     }
 
     /** A prepared unsent request is closed even when binding fails or its coroutine is cancelled. */
@@ -117,7 +185,8 @@ internal class CellDriver(
                 )
                 if (machine.send(bound) != SendResult.Accepted) {
                     isHandedOff = true
-                    abandon(driven, turn = live, run, isConnected = false)
+                    // The lifecycle owner cleans this exact persisted claim; an obsolete observer cannot lyse
+                    // a cell key that may already belong to a newer request.
                     return false
                 }
             }
@@ -136,15 +205,26 @@ internal class CellDriver(
         val cell = driven.cell
         val phase = driven.phase
         val handle = driven.handle
+        if (!driven.attempt.isRestored) driven.attempt.accepted(handle.session, turn)
         run.accepted(handle.session, turn)
         val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, cell.id, phase.request, turn)
         if (machine.send(accepted) != SendResult.Accepted) {
-            return abandon(driven, turn, run, isConnected = true)
+            return
         }
-        val outcome = handle.await(turn) { pending ->
-            machine.send(OrganicAiIntent.Internal.PermissionsChanged(organism.id, cell.id, phase.request, pending))
+        val observer = kotlin.uuid.Uuid.random().toString()
+        permissions.begin(driven.attempt.claim.address, observer, phase.request)
+        val outcome = try {
+            handle.await(turn) { pending ->
+                val relays = permissions.issue(driven.attempt.claim, handle.session, observer, pending)
+                machine.send(
+                    OrganicAiIntent.Internal.PermissionsChanged(organism.id, cell.id, phase.request, pending, relays),
+                )
+            }
+        } finally {
+            withContext(NonCancellable) { permissions.forget(driven.attempt.claim.address, observer) }
         }
         val settlement = settlement(handle, turn, outcome)
+        driven.attempt.settled(outcome, (settlement as? Settlement.Answered)?.text)
         run.settled(handle.session, turn, outcome)
         if (organism.isSandboxed && workspaces.isPaused(organism, cell.id)) {
             workspaces.awaitAvailable(organism, cell.id)
@@ -209,6 +289,8 @@ internal class CellDriver(
             organism.target?.takeIf { it != target },
             organism.harnesses,
             organism.decisionMode,
+            organism.cellIdentity(cell.id),
+            organism.cellExecution(cell.id),
         )
     }
 
@@ -229,6 +311,7 @@ internal class CellDriver(
             return null
         }
         if (!isConnected) {
+            if (handle.isIdle()) driven.attempt.idle()
             val broke = Settlement.Broke(Breakdown.Harnesses)
             val result = machine.send(OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, broke))
             log.i { "organism ${organism.id.value} cell ${cell.id.value}: harnesses not connected, unsent, $result" }
@@ -236,14 +319,8 @@ internal class CellDriver(
             return null
         }
         journal.save(organism)
-        return handle.submit(phase.request, turnPrompt(organism, cell), organism.trust, phase.inputs(organism))
-    }
-
-    /** The profile-owned inputs the turn's work carries: the goal's at genesis, the message's at a follow-up. */
-    private fun CellPhase.Working.inputs(organism: Organism): List<ResourceRef> = when (val current = work) {
-        Work.Genesis -> organism.attachments
-        is Work.FollowUp -> current.attachments
-        Work.CheckInbox, is Work.Letters -> emptyList()
+        val claim = driven.attempt.claim
+        return handle.submit(claim.request, claim.prompt, organism.trust, claim.inputs, driven.attempt::prepare)
     }
 
     /** Whether the organism's harnesses are connected to the cell's session; a failure's reason stays in the log. */
@@ -261,18 +338,14 @@ internal class CellDriver(
     }
 
     /**
-     * An unknown outcome is neither success nor failure: only an answer that surely is this turn's settles it as
-     * answered, otherwise the turn broke (a zygote stalls and can be resumed instead of completing on nothing).
+     * Only a native terminal result can complete the logical turn. Marked partial output of an unknown request
+     * remains readable in history but cannot prove that the native work stopped.
      */
     private suspend fun settlement(handle: CellHandle, turn: TurnId, outcome: TurnOutcome): Settlement =
         when (outcome) {
             TurnOutcome.Completed -> Settlement.Answered(handle.answer(turn) ?: NO_ANSWER)
-
-            TurnOutcome.Unknown -> handle.answer(turn, isUnconfirmed = true)?.let(Settlement::Answered)
-                ?: Settlement.Broke(Breakdown.Unconfirmed)
-
+            TurnOutcome.Unknown -> Settlement.Broke(Breakdown.Unconfirmed)
             TurnOutcome.Cancelled -> Settlement.Broke(Breakdown.Interrupted)
-
             is TurnOutcome.Failed -> Settlement.Broke(Breakdown.Engine(outcome.failure))
         }
 
@@ -331,6 +404,7 @@ private data class DrivenCell(
     val cell: Cell,
     val phase: CellPhase.Working,
     val handle: CellHandle,
+    val attempt: OrganicNativeExecution,
 ) {
     val key: CellKey get() = CellKey(organism.id, cell.id)
 }

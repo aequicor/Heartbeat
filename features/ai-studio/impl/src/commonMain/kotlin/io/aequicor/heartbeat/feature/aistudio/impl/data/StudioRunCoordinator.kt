@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredExce
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDroppedException
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.NonCancellable
@@ -48,6 +49,17 @@ internal interface StudioRunHost {
 }
 
 /**
+ * Explicit capability for durable recovery publication. Preparation runs outside the coordinator lock, may take
+ * the route and journal locks, and must finish before Q becomes visible. Native IO belongs to executeRun.
+ */
+internal interface StudioRecoveryRunHost : StudioRunHost {
+    suspend fun reserveRecovery(request: StudioTurnRequest)
+
+    /** Persists a Stop latched during preparation, before the execution may be published. */
+    suspend fun recordRecoveryStop(request: StudioTurnRequest)
+}
+
+/**
  * Reserves a chat before action handoff, independently of the lifetime of the UI caller. One per profile: the studio
  * runtime and scheduled runs share its busy set.
  */
@@ -62,10 +74,32 @@ internal class StudioRunCoordinator(
     private val log = Log.tag("StudioRunCoordinator")
     private val lock = Mutex()
     private val busy = MutableStateFlow<Set<String>>(emptySet())
+    private val requests = MutableStateFlow<Map<String, ReservedRequest>>(emptyMap())
+    private val recoveryReservations = mutableMapOf<String, RecoveryReservation>()
     val occupied: StateFlow<Set<String>> = busy.asStateFlow()
 
     /** Whether a request or mutation of chat [id] runs now. */
     fun isBusy(id: String): Boolean = id in busy.value
+
+    /** Exact reserved attempt, available even before the host has prepared its journal or native handle. */
+    fun currentRequest(id: String): RequestId? = requests.value[id]?.request
+
+    /** Observation Q must never be cancelled as if it were a new native send of Q. */
+    fun currentSendRequest(id: String): RequestId? = requests.value[id]?.takeUnless { it.isRecovery }?.request
+
+    /**
+     * Captures a recovery Stop target and waits outside all locks for durable publication or failed initialization.
+     * It returns the captured Q even if that observer ended; it never substitutes a later reservation.
+     */
+    suspend fun requestRecoveryStop(id: String): RequestId? {
+        val reservation = lock.withLock {
+            recoveryReservations[id]?.also {
+                recoveryReservations[id] = it.copy(isStopRequested = true)
+            }
+        } ?: return null
+        reservation.ready.await()
+        return reservation.request
+    }
 
     /** Reserves a non-turn mutation without starting an agent or waiting behind a running request. */
     suspend fun <T> mutate(id: String, body: suspend () -> T): T {
@@ -94,15 +128,11 @@ internal class StudioRunCoordinator(
         require(request.submission == null || admission == null) {
             "A supplied submission gate must own its admission policy"
         }
-        val submission = request.submission ?: if (cancelBeforeSubmission || admission != null) {
-            StudioRunSubmission(admission)
-        } else {
-            null
-        }
+        val submission = request.submission ?: newSubmission(request, admission, cancelBeforeSubmission)
         val reserved = submission?.let { request.copy(submission = it) } ?: request
         while (true) {
             awaitAdmission(request.id, waitForIdle, admission)
-            val job = lock.withLock {
+            val launch = lock.withLock {
                 // A disabled background request waits without reserving the chat or changing its visible state.
                 when (admission?.first()) {
                     ScheduledWakeAdmission.Defer -> throw ScheduledWakeDeferredException()
@@ -112,32 +142,115 @@ internal class StudioRunCoordinator(
                 check(!profile.isClosed) { "Profile is closed" }
                 if (waitForIdle && request.id in busy.value) return@withLock null
                 check(request.id !in busy.value) { "Session is busy" }
-                host.startedRun(request.id, clock.now())
-                busy.value += request.id
-                // Install cleanup before an admission/caller cancellation can revoke the reserved request.
-                profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) {
-                    var outcome = RunOutcome.Failed
-                    try {
-                        host.prepareRun(request.id)
-                        beforeExecute()
-                        outcome = lifecycle.value.observe(reserved) { host.executeRun(reserved) }
-                        outcome
-                    } finally {
-                        // An owner/source may cancel preparation itself. Settle its receipt before leaving the job.
-                        // Only the short journal barrier and reservation cleanup survive caller cancellation.
-                        withContext(NonCancellable) {
-                            try {
-                                host.settledRun(reserved, outcome)
-                                submission?.cancel()
-                            } finally {
-                                finishRun(host, request.id, submission, onCancelledBeforeSubmission)
-                            }
-                        }
-                    }
+                launchReserved(host, reserved, submission, beforeExecute, onCancelledBeforeSubmission)
+            }
+            if (launch != null) {
+                launch.release.complete(Unit)
+                return awaitRun(launch.job, submission)
+            }
+        }
+    }
+
+    /** Called under [lock]; the suspended child installs cleanup before route preparation can start. */
+    private suspend fun launchReserved(
+        host: StudioRunHost,
+        request: StudioTurnRequest,
+        submission: StudioSubmissionGate?,
+        beforeExecute: suspend () -> Unit,
+        onCancelledBeforeSubmission: suspend () -> Unit,
+    ): RunLaunch {
+        val recovery = (host as? StudioRecoveryRunHost)?.takeIf { request.recoveryRequests.isNotEmpty() }
+        val release = CompletableDeferred<Unit>()
+        if (recovery == null) {
+            reserveRequest(host, request)
+            release.complete(Unit)
+        } else {
+            recoveryReservations[request.id] = RecoveryReservation(request.request)
+        }
+        busy.value += request.id
+        log.v { "Reserved pending profile execution" }
+        val job = profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) {
+            var outcome = RunOutcome.Failed
+            try {
+                release.await()
+                if (recovery != null) publishRecovery(recovery, request)
+                host.prepareRun(request.id)
+                beforeExecute()
+                outcome = lifecycle.value.observe(request) { host.executeRun(request) }
+                outcome
+            } finally {
+                withContext(NonCancellable) {
+                    settleReserved(host, request, outcome, submission, onCancelledBeforeSubmission)
                 }
             }
-            if (job != null) return awaitRun(job, submission)
         }
+        return RunLaunch(job, release)
+    }
+
+    private suspend fun settleReserved(
+        host: StudioRunHost,
+        request: StudioTurnRequest,
+        outcome: RunOutcome,
+        submission: StudioSubmissionGate?,
+        onCancelledBeforeSubmission: suspend () -> Unit,
+    ) {
+        try {
+            try {
+                host.settledRun(request, outcome)
+            } finally {
+                withContext(NonCancellable) { submission?.cancel() }
+            }
+        } finally {
+            withContext(NonCancellable) { finishRun(host, request.id, submission, onCancelledBeforeSubmission) }
+        }
+    }
+
+    /** No route/journal acquisition while [lock] is held; Stop waits on the independent ready barrier. */
+    private suspend fun publishRecovery(host: StudioRecoveryRunHost, request: StudioTurnRequest) {
+        host.reserveRecovery(request)
+        while (true) {
+            val isPublished = lock.withLock {
+                val reservation = checkNotNull(recoveryReservations[request.id])
+                check(reservation.request == request.request) { "Recovery reservation changed" }
+                if (reservation.isStopRequested && !reservation.isStopRecorded) return@withLock false
+                reserveRequest(host, request)
+                reservation.ready.complete(Unit)
+                true
+            }
+            if (isPublished) return
+            host.recordRecoveryStop(request)
+            lock.withLock {
+                val reservation = checkNotNull(recoveryReservations[request.id])
+                recoveryReservations[request.id] = reservation.copy(isStopRecorded = true)
+            }
+        }
+    }
+
+    /** Called under [lock], so a failed reservation cannot erase a later request. */
+    private suspend fun reserveRequest(host: StudioRunHost, request: StudioTurnRequest) {
+        requests.value += request.id to ReservedRequest(request.request, request.recoveryRequests.isNotEmpty())
+        log.v { "Recorded the exact chat execution reservation" }
+        var isStarted = false
+        try {
+            host.startedRun(request.id, clock.now())
+            isStarted = true
+        } finally {
+            if (!isStarted) requests.value -= request.id
+        }
+    }
+
+    private data class ReservedRequest(val request: RequestId, val isRecovery: Boolean)
+
+    private fun newSubmission(
+        request: StudioTurnRequest,
+        admission: Flow<ScheduledWakeAdmission>?,
+        cancelBeforeSubmission: Boolean,
+    ): StudioSubmissionGate? = if (cancelBeforeSubmission || admission != null ||
+        request.recoveryRequests.isNotEmpty()
+    ) {
+        StudioRunSubmission(admission, request.newRecoveryDelivery())
+    } else {
+        null
     }
 
     private suspend fun awaitAdmission(id: String, waitForIdle: Boolean, admission: Flow<ScheduledWakeAdmission>?) {
@@ -164,13 +277,26 @@ internal class StudioRunCoordinator(
                     host.finishedRun(id)
                 } finally {
                     withContext(NonCancellable) {
-                        lock.withLock { busy.value -= id }
+                        lock.withLock {
+                            busy.value -= id
+                            requests.value -= id
+                            recoveryReservations.remove(id)?.ready?.complete(Unit)
+                        }
                         log.v { "Released the chat execution reservation" }
                     }
                 }
             }
         }
     }
+
+    private data class RecoveryReservation(
+        val request: RequestId,
+        val ready: CompletableDeferred<Unit> = CompletableDeferred(),
+        val isStopRequested: Boolean = false,
+        val isStopRecorded: Boolean = false,
+    )
+
+    private data class RunLaunch(val job: Deferred<RunOutcome>, val release: CompletableDeferred<Unit>)
 
     private suspend fun awaitRun(job: Deferred<RunOutcome>, submission: StudioSubmissionGate?): RunOutcome =
         coroutineScope {
@@ -209,38 +335,102 @@ internal class StudioRunCoordinator(
  * The owning feature may defer or drop Preparing, but cannot revoke Submitted. Begin checks admission again
  * after preparation.
  */
-internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmission>? = null) :
-    StudioSubmissionGate {
+internal class StudioRunSubmission(
+    private val admission: Flow<ScheduledWakeAdmission>? = null,
+    override val recoveryDelivery: StudioRecoveryDelivery? = null,
+) : StudioSubmissionGate {
     private val log = Log.tag("StudioRunSubmission")
-    private val phase = MutableStateFlow(Phase.Preparing)
+    private val state = MutableStateFlow(SubmissionState(Phase.Preparing))
 
-    override val isCancelled: Boolean get() = phase.value in setOf(Phase.Cancelled, Phase.Deferred, Phase.Dropped)
-    override val hasBegun: Boolean get() = phase.value == Phase.Submitted
+    override val isCancelled: Boolean get() = state.value.phase in setOf(Phase.Cancelled, Phase.Deferred, Phase.Dropped)
+    override val hasBegun: Boolean get() = state.value.phase in setOf(Phase.Submitted, Phase.Retained)
+    override val isNativeRetentionSupported: Boolean get() = true
+    override val isRecoveryObservationSupported: Boolean get() = true
+
+    override suspend fun sealRecoveryNoSend(): StudioRecoveryNoSendProof? {
+        val delivery = recoveryDelivery ?: return null
+        while (true) {
+            val previous = state.value
+            if (previous.phase in setOf(Phase.Submitted, Phase.Retained)) return null
+            val refusal = when (previous.revoked ?: previous.phase) {
+                Phase.Deferred -> StudioRecoveryRefusal.Deferred
+                Phase.Dropped -> StudioRecoveryRefusal.Dropped
+                Phase.Preparing, Phase.Recovering, Phase.Cancelled -> StudioRecoveryRefusal.Cancelled
+                Phase.Submitted, Phase.Retained -> error("Accepted native ownership cannot prove NoSend")
+            }
+            val next = when (refusal) {
+                StudioRecoveryRefusal.Deferred -> Phase.Deferred
+                StudioRecoveryRefusal.Dropped -> Phase.Dropped
+                StudioRecoveryRefusal.Cancelled -> Phase.Cancelled
+            }
+            if (state.compareAndSet(previous, SubmissionState(next))) {
+                log.v { "Sealed recovery delivery before native entry" }
+                return StudioRecoveryNoSendProof(delivery, refusal)
+            }
+        }
+    }
 
     override suspend fun begin() {
         admission?.first()?.let(::revoke)
-        if (!phase.compareAndSet(Phase.Preparing, Phase.Submitted)) {
+        if (!state.compareAndSet(SubmissionState(Phase.Preparing), SubmissionState(Phase.Submitted))) {
             throw revocation() ?: CancellationException("Scheduled preparation was cancelled before native submission")
         }
         log.v { "Native submission took ownership of the scheduled run" }
     }
 
+    override suspend fun beginRecoveryObservation() {
+        admission?.first()?.let(::revoke)
+        if (!state.compareAndSet(SubmissionState(Phase.Preparing), SubmissionState(Phase.Recovering))) {
+            throw revocation() ?: CancellationException("Recovery observation was revoked before inspection")
+        }
+        log.v { "Retained profile ownership during native inspection" }
+    }
+
+    override suspend fun prepareRecoverySubmit() {
+        admission?.first()?.let(::revoke)
+        while (true) {
+            val previous = state.value
+            check(previous.phase == Phase.Recovering) { "Only native inspection may select a new submission" }
+            val next = SubmissionState(previous.revoked ?: Phase.Preparing)
+            if (!state.compareAndSet(previous, next)) continue
+            if (previous.revoked != null) {
+                throw revocation() ?: CancellationException("Recovery continuation was cancelled before submission")
+            }
+            log.v { "Native inspection selected a new admitted submission" }
+            return
+        }
+    }
+
     /** Already accepted native work retains profile ownership independently of admission for new submissions. */
-    fun adopt() {
-        check(phase.compareAndSet(Phase.Preparing, Phase.Submitted)) { "Native recovery ownership was revoked" }
+    override suspend fun retainNative(): Boolean {
+        while (true) {
+            val previous = state.value
+            check(
+                previous.phase in setOf(Phase.Preparing, Phase.Recovering),
+            ) { "Native recovery ownership was revoked" }
+            if (state.compareAndSet(previous, previous.copy(phase = Phase.Retained))) break
+        }
         log.v { "Recovered native turn retained profile ownership" }
+        return false
     }
 
     override suspend fun cancel(): Boolean {
-        val isCancelled = phase.compareAndSet(Phase.Preparing, Phase.Cancelled)
+        val isCancelled = revokeTo(Phase.Cancelled)
         log.v { "Scheduled preparation cancellation accepted=$isCancelled" }
         return isCancelled
     }
 
     override suspend fun awaitRevocation(): CancellationException? {
         val decisions = admission ?: return null
-        val decision = combine(phase, decisions) { current, next -> current to next }
-            .first { (current, next) -> current != Phase.Preparing || next != ScheduledWakeAdmission.Allow }.second
+        val decision = combine(state, decisions) { current, next -> current to next }
+            .first { (current, next) ->
+                if (current.phase == Phase.Recovering) {
+                    revoke(next)
+                    false
+                } else {
+                    current.phase != Phase.Preparing || next != ScheduledWakeAdmission.Allow
+                }
+            }.second
         revoke(decision)
         return revocation()
     }
@@ -251,17 +441,34 @@ internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmi
             ScheduledWakeAdmission.Defer -> Phase.Deferred
             ScheduledWakeAdmission.Drop -> Phase.Dropped
         }
-        val isRevoked = phase.compareAndSet(Phase.Preparing, next)
+        val isRevoked = revokeTo(next)
         log.v { "Scheduled preparation revocation accepted=$isRevoked" }
     }
 
-    private fun revocation(): CancellationException? = when (phase.value) {
-        Phase.Deferred -> StudioPreparationDeferred()
-        Phase.Dropped -> StudioPreparationDropped()
-        Phase.Preparing, Phase.Submitted, Phase.Cancelled -> null
+    /** One CAS state latches revocation without opening a cancellation window during observation. */
+    private fun revokeTo(next: Phase): Boolean {
+        while (true) {
+            val previous = state.value
+            val changed = when (previous.phase) {
+                Phase.Preparing -> previous.copy(phase = next)
+                Phase.Recovering -> previous.copy(revoked = previous.revoked ?: next)
+                Phase.Submitted, Phase.Retained, Phase.Cancelled, Phase.Deferred, Phase.Dropped -> return false
+            }
+            if (state.compareAndSet(previous, changed)) {
+                log.v { "Latched submission revocation while retaining native observation when needed" }
+                return previous.phase == Phase.Preparing
+            }
+        }
     }
 
-    private enum class Phase { Preparing, Submitted, Cancelled, Deferred, Dropped }
+    private fun revocation(): CancellationException? = when (state.value.phase) {
+        Phase.Deferred -> StudioPreparationDeferred()
+        Phase.Dropped -> StudioPreparationDropped()
+        Phase.Preparing, Phase.Recovering, Phase.Submitted, Phase.Retained, Phase.Cancelled -> null
+    }
+
+    private data class SubmissionState(val phase: Phase, val revoked: Phase? = null)
+    private enum class Phase { Preparing, Recovering, Submitted, Retained, Cancelled, Deferred, Dropped }
 }
 
 /** Internal admission cancellation, translated to the scheduler's retriable deferral after cleanup. */
@@ -289,4 +496,5 @@ internal fun studioTurnRequest(
         environment = environment,
         isUserPrompt = isUserPrompt,
         userInstruction = userInstruction,
+        origin = if (isUserPrompt) StudioTurnOrigin.Conversation else StudioTurnOrigin.UnknownService,
     )

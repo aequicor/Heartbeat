@@ -17,8 +17,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -28,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.answerOf
@@ -46,6 +50,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -85,6 +91,10 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
     /** Admitted sends and handles being stopped; admission and release share [mutex], never native IO. */
     private val submitting = mutableMapOf<ActiveSession, CompletableDeferred<Unit>>()
     private val stopping = mutableSetOf<ActiveSession>()
+    private val admissionsChanged = MutableStateFlow(0L)
+    private val provenStops = mutableMapOf<CellKey, MutableSet<SessionRef>>()
+    private val unconfirmedRefs = mutableMapOf<CellKey, MutableSet<SessionRef>>()
+    private val publications = mutableMapOf<ActiveSession, CellPublication>()
 
     /**
      * Replaced handles still to be let go: once a handle is closed its session is archived and its harness
@@ -99,23 +109,64 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
     /** Sleeps so far: a handle opened across a sleep is not kept; guarded by [mutex]. */
     private var sleeps = 0
 
-    override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
+    override suspend fun open(
+        key: CellKey,
+        route: CellRoute,
+        existing: SessionRef?,
+        generation: Int,
+        onOpened: suspend (SessionRef) -> Unit,
+    ): CellHandle {
         val awake = mutex.withLock { sleeps }
         val cached = acquire(key, route, existing, generation, awake)
-        if (cached != null) return cached
+        if (cached != null) {
+            return withContext(NonCancellable) {
+                publish(key, cached.active, onOpened)
+                cached
+            }
+        }
         // From its creation until it is cached nobody owns the handle: a cancelled caller would drop it unclosed, so
         // neither step may be cancelled.
         return withContext(NonCancellable) {
             try {
                 val opened = if (existing == null) create(route) else resume(existing, route)
+                publish(key, opened, onOpened)
                 retainOpened(key, opened, isCreated = existing == null, generation, awake, checked(route))
             } finally {
                 withContext(NonCancellable) {
                     mutex.withLock {
                         val others = (openers[key] ?: 1) - 1
                         if (others > 0) openers[key] = others else openers.remove(key)
+                        admissionsChanged.value++
                     }
                 }
+            }
+        }
+    }
+
+    private suspend fun publish(key: CellKey, opened: ActiveSession, onOpened: suspend (SessionRef) -> Unit) {
+        var isPublished = false
+        try {
+            onOpened(opened.ref)
+            isPublished = true
+        } finally {
+            if (!isPublished) {
+                withContext(NonCancellable) {
+                    mutex.withLock {
+                        lingering.getOrPut(key) { mutableListOf() } += opened
+                        publications[opened] = CellPublication(key, onOpened)
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun retryPublications(key: CellKey) {
+        val pending = mutex.withLock { publications.filterValues { it.key == key } }
+        pending.forEach { (handle, publication) ->
+            publication.publish(handle.ref)
+            mutex.withLock {
+                publications.remove(handle)
+                admissionsChanged.value++
             }
         }
     }
@@ -127,12 +178,13 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         existing: SessionRef?,
         generation: Int,
         awake: Int,
-    ): CellHandle? {
+    ): FacadeCellHandle? {
         while (true) {
             var stale: ActiveSession? = null
             val pending = mutex.withLock {
                 checkOpening(key, generation, awake)
                 generations[key] = generation
+                provenStops.remove(key)
                 stale = takeOutdated(key, route, existing)
                 val cached = handles[key]?.takeIf { it.isOpen() } ?: recoverHeld(key, existing)
                 if (cached != null) {
@@ -198,7 +250,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
                 // Archived once closed, by [releaseReplaced].
                 discard(key, stale, generation, isStopped = true, isArchived = false)
             } finally {
-                mutex.withLock { stopping -= stale }
+                withContext(NonCancellable) { mutex.withLock { stopping -= stale } }
             }
         }
 
@@ -211,9 +263,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         var isToArchive = false
         val entry = mutex.withLock {
             replaced[handle]?.takeUnless { it.isReleasing }?.also {
-                it.isReleasing = true
-                isToArchive = !it.isArchived
-                it.isArchived = true
+                isToArchive = it.beginRelease()
             }
         } ?: return@withContext
         if (isToArchive) archiveQuietly(handle.ref)
@@ -229,7 +279,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         } catch (e: Exception) {
             log.w(e) { "harness connections of a replaced cell session were not removed; retried later" }
         } finally {
-            mutex.withLock { entry.isReleasing = false }
+            withContext(NonCancellable) { mutex.withLock { entry.finishRelease() } }
         }
     }
 
@@ -305,29 +355,100 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
     }
 
     /** A wrapper keeps the generation and sleep epoch in which its driver acquired the handle. */
-    private fun wrap(key: CellKey, active: ActiveSession, route: CellRoute, generation: Int, awake: Int): CellHandle =
-        FacadeCellHandle(active, route) { send ->
-            // A native handoff can outlive its cancelled caller. Keep admission until its outcome is observed.
-            withContext(NonCancellable) {
-                mutex.withLock {
-                    val isCurrent = key !in lysed && sleeps == awake && generations[key] == generation
-                    val isAvailable = handles[key] === active && active !in stopping && active !in submitting
-                    if (!isCurrent || !isAvailable) throw closed()
-                    submitting[active] = CompletableDeferred()
-                }
-                try {
-                    send()
-                } finally {
-                    withContext(NonCancellable) {
-                        mutex.withLock { submitting.remove(active)?.complete(Unit) }
+    private fun wrap(
+        key: CellKey,
+        active: ActiveSession,
+        route: CellRoute,
+        generation: Int,
+        awake: Int,
+    ): FacadeCellHandle = FacadeCellHandle(active, route) { send ->
+        // A native handoff can outlive its cancelled caller. Keep admission until its outcome is observed.
+        withContext(NonCancellable) {
+            mutex.withLock {
+                val isCurrent = key !in lysed && sleeps == awake && generations[key] == generation
+                val isAvailable = handles[key] === active && active !in stopping && active !in submitting
+                if (!isCurrent || !isAvailable) throw closed()
+                submitting[active] = CompletableDeferred()
+            }
+            try {
+                send()
+            } finally {
+                withContext(NonCancellable) {
+                    mutex.withLock {
+                        submitting.remove(active)?.complete(Unit)
+                        admissionsChanged.value++
                     }
                 }
             }
         }
+    }
 
-    override suspend fun respond(key: CellKey, decision: PermissionDecision) {
+    override suspend fun freezeAdmissions() {
+        mutex.withLock { sleeps++ }
+    }
+
+    override suspend fun stopOwned(key: CellKey, ref: SessionRef, request: RequestId): OwnedTurnStop {
+        val active = mutex.withLock {
+            (listOfNotNull(handles[key]) + lingering[key].orEmpty()).firstOrNull {
+                it.ref == ref && it !in submitting && it !in stopping
+            }?.also { stopping += it }
+        } ?: return OwnedTurnStop.Unconfirmed
+        return try {
+            active.stopOwned(request)
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    stopping -= active
+                    admissionsChanged.value++
+                }
+            }
+        }
+    }
+
+    override suspend fun prepareRelease(key: CellKey, generation: Int, isFinal: Boolean): Set<SessionRef> {
+        mutex.withLock {
+            check(generation >= (generations[key] ?: 0)) { "A newer cell generation is active" }
+            if (isFinal) lysed += key
+        }
+        while (true) {
+            retryPublications(key)
+            val revision = admissionsChanged.value
+            val references = mutex.withLock {
+                check(generation >= (generations[key] ?: 0)) { "A newer cell generation is active" }
+                val owned = listOfNotNull(handles[key]) + lingering[key].orEmpty()
+                if (key in openers || owned.any { it in submitting || it in stopping }) {
+                    null
+                } else {
+                    (owned + replaced.filterValues { it.key == key }.keys).map { it.ref }.toSet() +
+                        unconfirmedRefs[key].orEmpty()
+                }
+            }
+            if (references != null) return references
+            admissionsChanged.first { it != revision }
+        }
+    }
+
+    override suspend fun closeReleased(key: CellKey, generation: Int): ReleaseOutcome {
+        val owned = mutex.withLock {
+            val owned = listOfNotNull(handles[key]) + lingering[key].orEmpty()
+            val isBusy = owned.any { it in submitting || it in stopping }
+            if (generation < (generations[key] ?: 0) || key in openers || isBusy) {
+                return ReleaseOutcome.Unconfirmed
+            }
+            handles.remove(key)
+            lingering.remove(key)
+            unconfirmedRefs.remove(key)
+            owned.firstOrNull()?.let { retired[key] = it.ref to generation }
+            owned.distinct()
+        }
+        return withContext(NonCancellable) {
+            if (owned.map { closeHeld(key, it) }.all { it }) ReleaseOutcome.Stopped else ReleaseOutcome.Unconfirmed
+        }
+    }
+
+    override suspend fun respond(key: CellKey, decision: PermissionDecision, relay: PermissionRelay?) {
         val handle = mutex.withLock { handles[key].takeIf { key !in lysed } } ?: throw closed()
-        handle.features.resolve(RequestsPermissions).orThrow().respond(decision)
+        handle.respondCellPermission(decision, relay)
     }
 
     override suspend fun release(
@@ -359,7 +480,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         }
         return withContext(NonCancellable) {
             // Completion of this generation proves the shared native turn ended, even if an older wrapper is stale.
-            val isClosed = held.first.map { closeHeld(key, it) }.all { it }
+            val isClosed = held.first.map { closeIdle(key, it) }.all { it }
             // A replaced session runs another native turn, which the cell's completion says nothing about: it is
             // stopped like a lysed cell's, and a stop that is not confirmed keeps it for the next release.
             val isStopped = held.second.map { stopHeld(key, it) }.all { it }
@@ -367,6 +488,16 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
             log.d { "cell ${key.cell.value} of ${key.organism.value} released (${ReleaseMode.Retire})" }
             if (isClosed && isStopped) ReleaseOutcome.Stopped else ReleaseOutcome.Unconfirmed
         }
+    }
+
+    private suspend fun closeIdle(key: CellKey, handle: ActiveSession): Boolean {
+        if (handle.state.value !is ActiveSessionState.Ready) {
+            mutex.withLock { lingering.getOrPut(key) { mutableListOf() } += handle }
+            return false
+        }
+        val isClosed = closeHeld(key, handle)
+        if (isClosed) mutex.withLock { provenStops.getOrPut(key) { mutableSetOf() } += handle.ref }
+        return isClosed
     }
 
     /**
@@ -377,25 +508,39 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
     private suspend fun lyse(key: CellKey, session: SessionRef?): ReleaseOutcome {
         val (held, isOpening) = mutex.withLock {
             lysed += key
+            session?.let { unconfirmedRefs.getOrPut(key) { mutableSetOf() } += it }
             handles.remove(key)?.let { lingering.getOrPut(key) { mutableListOf() } += it }
             lingering[key].orEmpty().toList() to ((openers[key] ?: 0) > 0)
         }
-        val isStopped = held.map { stopHeld(key, it) }.all { it } && !isOpening
+        val isCovered = mutex.withLock {
+            val covered = held.map { it.ref }.toSet() + provenStops[key].orEmpty()
+            unconfirmedRefs[key].orEmpty().all { it in covered }
+        }
+        val isStopped = held.map { stopHeld(key, it) }.all { it } && !isOpening && isCovered
         retryReplaced { it == key }
-        if (isStopped) session?.let { archiveQuietly(it) }
+        if (isStopped) {
+            mutex.withLock { unconfirmedRefs.remove(key) }
+            session?.let { archiveQuietly(it) }
+        }
         log.d { "cell ${key.cell.value} of ${key.organism.value} released (${ReleaseMode.Lyse}, stopped=$isStopped)" }
         return if (isStopped) ReleaseOutcome.Stopped else ReleaseOutcome.Unconfirmed
     }
 
     /** Stops one held handle and closes it once its turn is seen to stop; a failure leaves it owned. */
     private suspend fun stopHeld(key: CellKey, handle: ActiveSession): Boolean {
+        if (handle.logicalSession?.isHumanInteractive == true) return false
         mutex.withLock {
             if (handle in submitting || !stopping.add(handle)) return false
         }
         val isStopped = try {
             stopClaimed(key, handle)
         } finally {
-            withContext(NonCancellable) { mutex.withLock { stopping -= handle } }
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    stopping -= handle
+                    admissionsChanged.value++
+                }
+            }
         }
         return isStopped
     }
@@ -416,7 +561,9 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
                 lingering[key]?.remove(handle)
                 if (lingering[key]?.isEmpty() == true) lingering.remove(key)
             }
-            return closeHeld(key, handle)
+            val isClosed = closeHeld(key, handle)
+            if (isClosed) mutex.withLock { provenStops.getOrPut(key) { mutableSetOf() } += handle.ref }
+            return isClosed
         }
         return false
     }
@@ -424,13 +571,13 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
     override suspend fun isLysed(key: CellKey): Boolean = mutex.withLock { key in lysed }
 
     override suspend fun isReleased(key: CellKey, generation: Int): Boolean = mutex.withLock {
-        key !in handles && key !in lingering && key !in openers &&
+        key !in handles && key !in lingering && key !in openers && key !in unconfirmedRefs &&
             (key in lysed || (generations[key] ?: 0) <= generation)
     }
 
     override suspend fun hasPendingRelease(organism: OrganismId): Boolean = mutex.withLock {
         handles.keys.any { it.organism == organism } || lingering.keys.any { it.organism == organism } ||
-            openers.keys.any { it.organism == organism }
+            openers.keys.any { it.organism == organism } || unconfirmedRefs.keys.any { it.organism == organism }
     }
 
     override suspend fun releaseAll() {
@@ -463,9 +610,10 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         isStopped: Boolean,
         isArchived: Boolean,
     ) {
-        var isKept = isStopped
+        val isStopAllowed = isStopped && opened.logicalSession?.isHumanInteractive != true
+        var isKept = isStopAllowed
         try {
-            if (isStopped) isKept = !opened.stopTurn(LYSIS_WAIT)
+            if (isStopAllowed) isKept = !opened.stopTurn(LYSIS_WAIT)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -534,6 +682,8 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
             CreateSessionRequest(
                 route.target,
                 route.workspace,
+                logicalSession = route.logicalSession,
+                execution = route.execution,
                 areDetachedToolsEnabled = true,
                 areSessionHooksEnabled = route.harnesses.isNotEmpty(),
                 preselected = route.harnesses.takeIf { it.isNotEmpty() }?.let { mapOf(HarnessTools.GROUP to it) }
@@ -549,6 +699,8 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         val request = ResumeSessionRequest(
             route.target,
             route.workspace,
+            logicalSession = route.logicalSession,
+            execution = route.execution,
             areDetachedToolsEnabled = true,
             areSessionHooksEnabled = route.harnesses.isNotEmpty(),
         )
@@ -624,16 +776,30 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
  * A replaced handle of [key] still to be archived ([isArchived]) and disconnected from [harnesses]; [isReleasing] while
  * a release runs. Mutated only under the owner's mutex.
  */
-private class Replaced(
-    val key: CellKey,
-    val harnesses: Set<String>,
-    var isArchived: Boolean = false,
-    var isReleasing: Boolean = false,
-)
+private class Replaced(val key: CellKey, val harnesses: Set<String>) {
+    var isArchived: Boolean = false
+        private set
+    var isReleasing: Boolean = false
+        private set
+
+    /** Claims cleanup under the host mutex and returns whether archival still needs to be attempted. */
+    fun beginRelease(): Boolean {
+        check(!isReleasing)
+        isReleasing = true
+        val isArchiveNeeded = !isArchived
+        isArchived = true
+        return isArchiveNeeded
+    }
+
+    /** Allows a later cleanup retry after the current attempt has returned. */
+    fun finishRelease() {
+        isReleasing = false
+    }
+}
 
 /** One cell's open session; its turns run at the [route]'s effort and review model. */
 private class FacadeCellHandle(
-    private val active: ActiveSession,
+    val active: ActiveSession,
     private val route: CellRoute,
     private val submission: suspend (suspend () -> TurnId) -> TurnId,
 ) : CellHandle {
@@ -644,11 +810,20 @@ private class FacadeCellHandle(
 
     override fun activeTurn(): TurnId? = active.state.value.activeTurn()?.id
 
+    override fun isIdle(): Boolean = active.state.value is ActiveSessionState.Ready
+
+    override fun inspect(request: RequestId): Turn? {
+        val state = active.state.value
+        val turn = if (state is ActiveSessionState.Ready) state.lastTurn else state.activeTurn()
+        return turn?.takeIf { it.request == request && state !is ActiveSessionState.Unavailable }
+    }
+
     override suspend fun submit(
         request: RequestId,
         text: String,
         trust: TrustLevel?,
         attachments: List<ResourceRef>,
+        beforeSend: suspend (PromptRequest) -> Unit,
     ): TurnId = submission {
         active.submit(
             request,
@@ -658,6 +833,7 @@ private class FacadeCellHandle(
             route.reasoningEffort,
             route.reviewTarget,
             route.decisionMode,
+            beforeSend,
         ).also {
             if (active.state.value is ActiveSessionState.Unavailable) doubtful += it
         }
@@ -681,5 +857,18 @@ private class FacadeCellHandle(
 
     private companion object {
         const val ANSWER_ITEMS = 100
+    }
+}
+
+/** A returned native handle whose host receipt still needs its durable acknowledgement. */
+private data class CellPublication(val key: CellKey, val publish: suspend (SessionRef) -> Unit)
+
+private suspend fun ActiveSession.respondCellPermission(decision: PermissionDecision, relay: PermissionRelay?) {
+    if (relay == null) {
+        features.resolve(RequestsPermissions).orThrow().respond(decision)
+    } else {
+        check(ref == relay.session)
+        features.resolve(io.aequicor.heartbeat.feature.aiengine.facade.api.RelaysPermissions).orThrow()
+            .respond(relay, decision)
     }
 }

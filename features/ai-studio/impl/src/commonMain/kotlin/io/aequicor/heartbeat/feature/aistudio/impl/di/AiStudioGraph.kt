@@ -36,6 +36,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitching
 import io.aequicor.heartbeat.feature.aistudio.api.StudioFilePreview
 import io.aequicor.heartbeat.feature.aistudio.api.StudioLocalProjects
 import io.aequicor.heartbeat.feature.aistudio.api.StudioMessageQueueEnabled
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionModel
 import io.aequicor.heartbeat.feature.aistudio.impl.data.MachineStudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioWorkspaceToggle
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
@@ -106,6 +107,11 @@ object AiStudioToggleBindings {
     @Provides
     @IntoSet
     fun engineRuntime(): FeatureToggle<*> = StudioEngineRuntime
+
+    /** New starts are disabled until session roles and their UI are integrated. */
+    @Provides
+    @IntoSet
+    fun sessionModel(): FeatureToggle<*> = StudioSessionModel
 
     /** Human input retained by the profile until native acceptance. */
     @Provides

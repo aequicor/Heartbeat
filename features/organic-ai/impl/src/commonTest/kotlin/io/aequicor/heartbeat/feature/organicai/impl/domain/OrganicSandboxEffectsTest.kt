@@ -61,7 +61,7 @@ internal class OrganicSandboxEffectsTest : OrganicEffectsFixture() {
         assertEquals(listOf(WorkspaceRef("sandbox-kept")), cells.routes.map { it.workspace })
         assertTrue(machine.sent.none { it is OrganicAiIntent.Internal.WorkspaceBound })
 
-        val shared = organism(cell(C1)).copy(workspace = project)
+        val shared = organism(cell(C1)).copy(workspace = project, incarnation = "shared")
         effects.handle(OrganicAiEffect.Drive(shared, C1, request(C1)), machine)
         assertEquals(emptyList(), workspaces.prepared)
         assertEquals(project, cells.routes.last().workspace)
@@ -177,7 +177,10 @@ internal class OrganicSandboxEffectsTest : OrganicEffectsFixture() {
                 false
             }
             val thrown = assertFailsWith<Exception> {
-                effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
+                effects.handle(
+                    OrganicAiEffect.Drive(germinating.copy(incarnation = failure.message), C1, request(C1)),
+                    machine,
+                )
             }
             assertEquals(failure, thrown)
             assertEquals(listOf("begin c1 ${request(C1).value}", "lost - -"), workspaces.events)
@@ -189,6 +192,7 @@ internal class OrganicSandboxEffectsTest : OrganicEffectsFixture() {
     fun `cancelled session binding preserves an adopted native turn and its sandbox run`() = runTest {
         val recovering = sandboxed(cell(C1, phase = working(C1, isRecovery = true)).copy(session = null))
         cells.handle.active = TurnId("live")
+        seedRecovery(recovering, C1, TurnId("live"), WorkspaceRef("sandbox-c1"))
         workspaces.adoptable = TurnId("live")
         machine.refuse = {
             if (it is OrganicAiIntent.Internal.SessionBound) throw CancellationException("cancelled binding")
@@ -213,7 +217,8 @@ internal class OrganicSandboxEffectsTest : OrganicEffectsFixture() {
         cells.handle.onSubmit = {}
         cells.handle.onAwait = { error("handle closed") }
         assertFailsWith<IllegalStateException> {
-            effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
+            val other = sandboxed(cell(C1)).copy(incarnation = "follow-failure")
+            effects.handle(OrganicAiEffect.Drive(other, C1, request(C1)), machine)
         }
         assertEquals(listOf("accepted t1", "lost new t1"), workspaces.events.drop(1))
     }
@@ -228,17 +233,18 @@ internal class OrganicSandboxEffectsTest : OrganicEffectsFixture() {
     }
 
     @Test
-    fun `a turn the machine no longer takes is cancelled and its run settled as cancelled`() = runTest {
+    fun `a rejected observer leaves the accepted native run for lifecycle cleanup`() = runTest {
         machine.refuse = { it is OrganicAiIntent.Internal.TurnAccepted }
         effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
-        assertEquals("settled t1 ${TurnOutcome.Cancelled}", workspaces.events.last())
-        assertEquals(listOf(TurnId("t1")), cells.handle.cancelled)
+        assertEquals("accepted t1", workspaces.events.last())
+        assertEquals(emptyList(), cells.handle.cancelled)
     }
 
     @Test
     fun `a recovery adopts the live turn with the run that survived the restart`() = runTest {
         val recovering = sandboxed(cell(C1, phase = working(C1, isRecovery = true)))
         cells.handle.active = TurnId("live")
+        seedRecovery(recovering, C1, TurnId("live"), WorkspaceRef("sandbox-c1"))
         workspaces.adoptable = TurnId("live")
         effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
         assertEquals(
@@ -252,6 +258,7 @@ internal class OrganicSandboxEffectsTest : OrganicEffectsFixture() {
     fun `an unmatched live turn keeps its sandbox recovery barrier without a replacement run`() = runTest {
         val recovering = sandboxed(cell(C1, phase = working(C1, isRecovery = true)))
         cells.handle.active = TurnId("live")
+        seedRecovery(recovering, C1, TurnId("live"), WorkspaceRef("sandbox-c1"))
         val failure = assertFailsWith<EngineException> {
             effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
         }
@@ -263,10 +270,13 @@ internal class OrganicSandboxEffectsTest : OrganicEffectsFixture() {
     }
 
     @Test
-    fun `a recovery without a live turn starts a new sandbox run and submits`() = runTest {
+    fun `legacy recovery without native evidence cannot replace its sandbox run`() = runTest {
+        native.hasTracking = false
         val recovering = sandboxed(cell(C1, phase = working(C1, isRecovery = true)))
-        effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
-        assertEquals("begin c1 ${request(C1).value}", workspaces.events.first())
-        assertEquals(1, cells.handle.submitted.size)
+        assertFailsWith<IllegalStateException> {
+            effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
+        }
+        assertTrue(workspaces.events.isEmpty())
+        assertTrue(cells.handle.submitted.isEmpty())
     }
 }

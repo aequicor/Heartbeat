@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.SpawnTestHelpe
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
@@ -54,6 +55,7 @@ internal class WorkflowHelperDriverTest {
         assertEquals("Done", fixture.driver(progress).execute(KEY, DIGEST, "Task", OPTIONS))
         assertTrue(fixture.grants.pending().isEmpty())
         assertEquals(1, fixture.base.creates)
+        assertEquals(listOf(HelperConversationRole.Executor), fixture.base.roles)
         assertFalse(fixture.base.prompts.single().isRecovery)
     }
 

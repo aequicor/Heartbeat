@@ -2,17 +2,23 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -28,18 +34,19 @@ import io.aequicor.heartbeat.feature.organicai.impl.session
 /** Shared in-memory ports for the organic effect scenarios. */
 internal open class OrganicEffectsFixture {
     protected val journal = Journal()
+    protected val native = MemoryNativeJournal()
     protected val cells = Cells()
     protected val workspaces = Workspaces()
     protected val judges = Judges()
     protected val harnesses = Harnesses()
     protected val transcripts = SessionTranscripts { listOf(message(MessageRole.Assistant, "looping again")) }
     protected val effects = OrganicAiEffects(
-        journal,
         { TARGET },
         cells,
-        CellDriver(cells, journal, workspaces, harnesses),
-        ImmunityCourt(judges, transcripts),
+        CellDriver(cells, journal, workspaces, harnesses, native),
+        ImmunityCourt(judges, transcripts, native),
         workspaces,
+        TestOrganicExecutors(journal, cells),
     )
     protected val machine = Recorder()
 
@@ -60,11 +67,32 @@ internal open class OrganicEffectsFixture {
         }
     }
 
+    protected fun seedRecovery(source: Organism, cell: CellId, turn: TurnId, workspace: WorkspaceRef? = null) {
+        val request = io.aequicor.heartbeat.feature.organicai.impl.request(cell)
+        val claim = OrganicNativeClaim(
+            request.value,
+            source.executor(OrganicExecutorAddress.Kind.Cell, cell.value).id,
+            source.cellExecution(cell),
+            TARGET,
+            workspace,
+            request,
+            "original prompt",
+        )
+        native.seed(
+            source.id,
+            source.incarnation!!,
+            OrganicNativeAttempt(claim, OrganicNativeStage.Accepted, cells.handle.session, turn),
+        )
+        cells.handle.observed[request] = Turn(turn, request, TARGET)
+    }
+
     protected class Journal : OrganismJournal {
         var stored = emptyList<Organism>()
         val saved = mutableListOf<Organism>()
+        var failure: Exception? = null
         override suspend fun load(): List<Organism> = stored
         override suspend fun save(organism: Organism) {
+            failure?.let { throw it }
             saved += organism
         }
     }
@@ -157,6 +185,8 @@ internal open class OrganicEffectsFixture {
         override suspend fun deliberate(
             target: EngineTarget,
             prompt: String,
+            logicalSession: LogicalSessionContext?,
+            execution: SessionExecutionBinding?,
             onSession: suspend (SessionRef) -> Unit,
         ): String {
             prompts += target to prompt
@@ -177,14 +207,32 @@ internal open class OrganicEffectsFixture {
         /** False answers as a stale retirement does: nothing was let go. */
         var isReleased = true
 
-        override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
+        override suspend fun open(
+            key: CellKey,
+            route: CellRoute,
+            existing: SessionRef?,
+            generation: Int,
+            onOpened: suspend (SessionRef) -> Unit,
+        ): CellHandle {
             failOpen?.let { throw it }
             opened += key to existing
             routes += route
+            onOpened(handle.session)
             return handle
         }
 
-        override suspend fun respond(key: CellKey, decision: PermissionDecision) {
+        override suspend fun prepareRelease(key: CellKey, generation: Int, isFinal: Boolean): Set<SessionRef> {
+            if (isFinal) lysed += key
+            return opened.filter { it.first == key }.mapNotNull { it.second }.toSet()
+        }
+
+        override suspend fun closeReleased(key: CellKey, generation: Int): ReleaseOutcome = ReleaseOutcome.Stopped
+
+        override suspend fun respond(
+            key: CellKey,
+            decision: PermissionDecision,
+            relay: io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay?,
+        ) {
             responses += key to decision
         }
 
@@ -221,6 +269,13 @@ internal open class OrganicEffectsFixture {
 
         override suspend fun hasPendingRelease(organism: OrganismId) = false
 
+        override suspend fun stopOwned(key: CellKey, ref: SessionRef, request: RequestId): OwnedTurnStop =
+            OwnedTurnStop.Unconfirmed
+
+        override suspend fun freezeAdmissions() {
+            releasedAll++
+        }
+
         override suspend fun releaseAll() {
             releasedAll++
         }
@@ -239,17 +294,32 @@ internal open class OrganicEffectsFixture {
         val inputs = mutableListOf<List<ResourceRef>>()
 
         override fun activeTurn(): TurnId? = active
+        val observed = mutableMapOf<RequestId, Turn>()
+        override fun inspect(request: RequestId): Turn? = observed[request]
+        override fun isIdle(): Boolean = active == null
 
         override suspend fun submit(
             request: RequestId,
             text: String,
             trust: TrustLevel?,
             attachments: List<ResourceRef>,
+            beforeSend: suspend (PromptRequest) -> Unit,
         ): TurnId {
+            beforeSend(
+                PromptRequest(
+                    request,
+                    listOf(ContentPart.Text(text)) + attachments.map {
+                        if (it.mediaType.startsWith("image/")) ContentPart.Image(it) else ContentPart.Resource(it)
+                    },
+                    trust = trust,
+                ),
+            )
             onSubmit()
             submitted += request to text
             inputs += attachments
-            return TurnId("t1")
+            val turn = TurnId("t1")
+            observed[request] = Turn(turn, request, TARGET, outcome = outcome)
+            return turn
         }
 
         override suspend fun cancel(turn: TurnId) {

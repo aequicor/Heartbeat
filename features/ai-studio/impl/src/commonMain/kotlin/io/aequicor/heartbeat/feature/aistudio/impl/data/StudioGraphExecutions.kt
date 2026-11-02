@@ -8,39 +8,37 @@ import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
-import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.answerOf
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskPhase
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlin.time.Duration.Companion.seconds
 
 @Serializable
 internal data class GraphChatAttempt(
@@ -49,7 +47,13 @@ internal data class GraphChatAttempt(
     val checkpoint: String? = null,
     val recoveryRoot: String? = null,
     val causes: Set<RequestInitiator> = emptySet(),
+    val native: GraphNativeIdentity? = null,
+    val work: StudioGraphWorkSnapshot? = null,
 )
+
+/** Exact source of a graph result; an observer execution may differ from the native request. */
+@Serializable
+internal data class GraphNativeIdentity(val session: SessionRef, val request: RequestId, val turn: TurnId?)
 
 /** Native graph submissions and results survive a crash between studio completion and scheduler acknowledgement. */
 @SingleIn(ProfileScope::class)
@@ -59,8 +63,10 @@ internal class StudioGraphExecutions(
     private val runtime: StudioRuntime,
     private val runs: StudioRunCoordinator,
     private val host: StudioRunHost,
-    private val turns: StudioTurnHost,
     private val facade: EngineFacade,
+    private val attempts: StudioHelperAttempts,
+    private val observations: StudioConversationObservations,
+    private val efforts: EffortChoicesView,
 ) {
     private val log = Log.tag("StudioGraphExecutions")
     private val chats = stores.keyValue(ChatSpec)
@@ -75,32 +81,31 @@ internal class StudioGraphExecutions(
     ): GraphTaskResult {
         val known = lock.withLock { read() }
         val recovered = known.recoveryAttempt(chatId, previousExecution)
-        val previous = recovered?.result
-        if (previous != null && previous.phase !in setOf(GraphTaskPhase.RecoveryRequired, GraphTaskPhase.Cancelled)) {
-            return previous
-        }
+        val root = previousExecution?.let { known.graphWorkRoot(chatId, it) }
+        cachedResult(known, chatId, root)?.let { return it }
         val records = chats.get(ChatsKey).orEmpty()
         val record = records.first { it.id == chatId }
         check((record.executionWorkspace ?: record.projectId?.let(::WorkspaceRef)) == request.workspace) {
             "The helper workspace differs from its approved graph"
         }
-        val settings = settings(chatId, request)
+        val work = checkNotNull(retainGraphWork(recovered?.work, workSnapshot(chatId, request)))
         val execution = request.prompt.request.value
-        val recover = previousExecution?.takeIf { record.ref != null }?.let {
+        val recover = root?.takeIf { record.ref != null }?.let {
             (known.recoveryLineage(chatId, it).keys + it).map(::RequestId)
         }.orEmpty()
         val checkpoint = recovered?.checkpoint
-        val bound = record(execution, request.graphAttempt(chatId, checkpoint, previousExecution))
+        val incoming = request.graphAttempt(chatId, checkpoint, root)
+        val bound = record(execution, incoming.copy(work = work, causes = recovered?.causes ?: incoming.causes))
         log.i { "run graph assignment in a studio chat recovery=${recover.isNotEmpty()}" }
         runs.run(
             host,
             StudioTurnRequest(
                 chatId,
-                request.prompt.visible,
-                settings,
+                work.prompt,
+                checkNotNull(bound.work).settings,
                 WorktreeRunKind.Coding,
                 request.prompt.request,
-                directives = listOf(request.prompt.directive) + if (previousExecution != null) {
+                directives = listOf(work.directive) + if (previousExecution != null) {
                     listOf(
                         "Heartbeat restarted. Continue this assignment in the existing chat. " +
                             "Check effects of interrupted work before repeating it.",
@@ -112,14 +117,17 @@ internal class StudioGraphExecutions(
                 recoveryRequests = recover,
                 recoveryCheckpoint = checkpoint,
                 causes = bound.causes,
-                onTurnAccepted = { active, _ ->
+                origin = StudioTurnOrigin.GraphWork(RequestId(bound.recoveryRoot ?: execution)),
+                graphWork = work,
+                onNativeTurn = { active, native ->
                     val inspector = (active.features.resolve(RestoresSessionTurns) as? FeatureAccess.Available)?.feature
-                    val receipt = inspector?.checkpoint(request.prompt.request)
+                    val receipt = inspector?.checkpoint(native.request)
                     if (receipt != null) update(execution) { it.copy(checkpoint = receipt) }
                 },
-                onOutcome = { outcome ->
-                    val result = outcome.graphResult(answer(chatId))
-                    update(execution) { it.copy(result = result) }
+                onNativeOutcome = { outcome, evidence ->
+                    val identity = evidence?.let { GraphNativeIdentity(it.session, it.request, it.turn) }
+                    val result = outcome.graphResult(answer(identity))
+                    update(execution) { it.withCompletion(result, identity) }
                 },
             ),
             waitForIdle = true,
@@ -130,74 +138,40 @@ internal class StudioGraphExecutions(
             ?: GraphTaskResult(GraphTaskPhase.RecoveryRequired, "Native task outcome is not confirmed")
     }
 
-    private suspend fun settings(
-        chatId: String,
-        request: SpawnRequest,
-    ): io.aequicor.heartbeat.feature.aistudio.api.RunSettings {
+    private suspend fun cachedResult(
+        known: Map<String, GraphChatAttempt>,
+        chat: String,
+        root: String?,
+    ): GraphTaskResult? {
+        if (root == null) return null
+        val head = attempts.recoveryWork(HelperId(chat), RequestId(root))
+        val result = known.cachedGraphResult(chat, root, head)
+        return result?.takeUnless { it.phase == GraphTaskPhase.Cancelled && !head.isStopRequested }
+    }
+
+    private suspend fun workSnapshot(chatId: String, request: SpawnRequest): StudioGraphWorkSnapshot {
         val records = chats.get(ChatsKey).orEmpty()
         val record = records.first { it.id == chatId }
         val configurations = runtime.state.value.configurations
         val defaults = records.graphDefaults(request.parent, configurations, runtime.defaults())
-        return hostRunSettings(record, configurations[chatId]?.applied, defaults, request.target)
+        val configured = configurations[chatId]?.applied ?: record.configuration
+        val effort = if (configured?.modelId == request.target.studioModelId()) {
+            configured.reasoningEffort
+        } else {
+            (efforts.state.value as? EffortConfigurationState.Ready)?.effortFor(request.target)
+        }
+        return request.graphWork(hostRunSettings(record, configured, defaults, request.target))
+            .copy(reasoningEffort = effort)
     }
 
-    /** Cancellation is acknowledged only after native terminal state, including after a profile restart. */
+    /** Graph Stop uses the same durable roots and native head as result recovery, without model-changing opening. */
     suspend fun stop(chatId: String): Boolean {
         val known = lock.withLock { read().filterValues { it.chat == chatId } }
         val record = chats.get(ChatsKey).orEmpty().firstOrNull { it.id == chatId } ?: return false
-        if (record.ref == null) {
-            runtime.cancel(chatId)
-            return withTimeoutOrNull(30.seconds) {
-                runtime.state.first { chatId !in it.running }
-                true
-            } == true
-        }
-        val settings = hostRunSettings(record, runtime.state.value.configurations[chatId]?.applied, runtime.defaults())
-        val active = turns.openTurn(chatId, settings)
-        val inspector = (active.features.resolve(RestoresSessionTurns) as? FeatureAccess.Available)?.feature
-        if (inspector != null) {
-            val isStopped = inspectStop(active, known, inspector.inspect(known.values.lastOrNull()?.checkpoint))
-            if (isStopped != null) return isStopped
-        } else if (active.state.value is ActiveSessionState.Unavailable) {
-            active.features.requireFeature(ReconcilesSession).synchronize()
-        }
-        return stopActive(chatId, active, known.keys)
-    }
-
-    /** Null means a matched active turn was attached and still needs explicit cancellation. */
-    private suspend fun inspectStop(
-        active: io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession,
-        known: Map<String, GraphChatAttempt>,
-        inspected: TurnInspection,
-    ): Boolean? = when (inspected) {
-        TurnInspection.Idle -> true
-
-        TurnInspection.Unknown -> false
-
-        is TurnInspection.Observed -> when {
-            inspected.request.value !in known -> false
-
-            inspected.outcome != null -> true
-
-            else -> if (withTimeoutOrNull(30.seconds) {
-                    active.state.first {
-                        it.activeTurn()?.request == inspected.request ||
-                            it.lastCompletedTurn()?.request == inspected.request
-                    }
-                } == null
-            ) {
-                false
-            } else {
-                null
-            }
+        return stopGraphAssignments(known, record, runs.currentSendRequest(chatId), attempts) {
+            observations.cancel(record, it)
         }
     }
-
-    private suspend fun stopActive(
-        chatId: String,
-        active: io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession,
-        known: Set<String>,
-    ): Boolean = stopGraphTurn(active, known) { turn -> turns.requestStop(chatId, active, turn) }
 
     private suspend fun update(execution: String, change: (GraphChatAttempt) -> GraphChatAttempt) = lock.withLock {
         val records = read()
@@ -220,15 +194,13 @@ internal class StudioGraphExecutions(
         }
     }
 
-    private suspend fun answer(chatId: String): String = try {
-        val ref = chats.get(ChatsKey).orEmpty().firstOrNull { it.id == chatId }?.ref
-        if (ref == null) {
+    /** Missing turn evidence yields no text, including terminal-only native inspection after a restart. */
+    private suspend fun answer(native: GraphNativeIdentity?): String = try {
+        if (native == null) {
             ""
         } else {
-            val history = facade.sessions.get(ref).features.requireFeature(SessionHistory)
-            history.page(HistoryPageRequest(limit = 20)).items.filterIsInstance<SessionItem.Message>()
-                .lastOrNull { it.role == MessageRole.Assistant }?.parts?.filterIsInstance<ContentPart.Text>()
-                ?.joinToString("\n") { it.text }.orEmpty().take(SchedulerLimits.MAX_PAYLOAD)
+            val history = facade.sessions.get(native.session).features.requireFeature(SessionHistory)
+            graphAnswer(history.page(HistoryPageRequest(limit = 20)).items, native)
         }
     } catch (e: CancellationException) {
         throw e
@@ -264,27 +236,6 @@ internal fun TurnOutcome.graphResult(output: String): GraphTaskResult = GraphTas
 /** Parser diagnostics can contain private result text; retain only the failure type. */
 private class GraphJournalException(type: String) : IllegalStateException("Unreadable graph chat attempts ($type)")
 
-/**
- * Reconcile only the current recovery lineage. The scheduler retains its root across observer restarts; a new
- * explicit retry has a new root even if it crashes before journaling. A missing observer record cannot discard
- * a prior receipt, and an older retry's result cannot satisfy the new assignment. Map order is journal order.
- */
-internal fun Map<String, GraphChatAttempt>.recoveryAttempt(
-    chatId: String,
-    previousExecution: String?,
-): GraphChatAttempt? {
-    if (previousExecution == null) return null
-    return recoveryLineage(chatId, previousExecution).values.lastOrNull()
-}
-
-/** Only submissions of the same retry lineage may be adopted from native or cached session state. */
-internal fun Map<String, GraphChatAttempt>.recoveryLineage(
-    chatId: String,
-    root: String,
-): Map<String, GraphChatAttempt> = filter { (execution, attempt) ->
-    attempt.chat == chatId && (attempt.recoveryRoot ?: execution) == root
-}
-
 /** An exact execution cannot switch chats or recovery roots; replay may only add causal restrictions. */
 internal fun retainGraphAttempt(
     execution: String,
@@ -298,7 +249,10 @@ internal fun retainGraphAttempt(
     ) {
         "Graph execution identity changed"
     }
-    return previous.copy(causes = previous.causes + incoming.causes)
+    return previous.copy(
+        causes = previous.causes,
+        work = retainGraphWork(previous.work, incoming.work),
+    )
 }
 
 private fun SpawnRequest.graphAttempt(chat: String, checkpoint: String?, previousExecution: String?): GraphChatAttempt =
@@ -321,4 +275,16 @@ internal fun List<StudioChatRecord>.graphDefaults(
     val owner = firstOrNull { it.owns(parent) } ?: return base
     val approval = (configurations[owner.id]?.applied ?: owner.configuration)?.approval ?: return base
     return base.copy(approval = approval)
+}
+
+/** No last-message or last-prompt fallback: those may belong to independent work in this conversation. */
+internal fun graphAnswer(items: List<SessionItem>, native: GraphNativeIdentity): String =
+    native.turn?.let { answerOf(items, it, SchedulerLimits.MAX_PAYLOAD, isMarkedOnly = true) }.orEmpty()
+
+/** Loss of observation does not erase a previously recorded native address. */
+internal fun GraphChatAttempt.withCompletion(result: GraphTaskResult, native: GraphNativeIdentity?): GraphChatAttempt {
+    check(result.phase == GraphTaskPhase.RecoveryRequired || native != null) {
+        "A isConfirmed graph result needs actual native identity"
+    }
+    return copy(result = result, native = native ?: this.native)
 }

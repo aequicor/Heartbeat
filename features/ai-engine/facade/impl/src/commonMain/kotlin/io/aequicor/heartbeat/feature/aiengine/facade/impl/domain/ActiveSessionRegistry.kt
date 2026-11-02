@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -110,6 +111,10 @@ class ActiveSessionRegistry {
         }
         .firstOrNull { it != FeatureAccess.Unsupported }
 
+    /** Exact owner-mediated response through a borrowed live handle; the handle retains all authority checks. */
+    fun permissionRelay(ref: SessionRef): io.aequicor.heartbeat.feature.aiengine.facade.api.RelaysPermissions =
+        BorrowedPermissionRelay(ref) { handles.value }
+
     /** Observes execution without giving a reader ownership of a handle or permission to drive it. */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observe(ref: SessionRef): Flow<SessionObservationSnapshot?> = handles
@@ -205,6 +210,7 @@ class SessionPolicy(
     private val tools: ProfileAgentTools = NoAgentTools,
     val hooks: SessionHooks = NoSessionHooks,
     private val workspaces: io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces? = null,
+    val executions: SessionExecutionAccess? = null,
 ) {
     /** Observes authoritative adapter outcomes even for service sessions without lifecycle hooks. */
     fun observeNative(state: ActiveSessionState) {
@@ -221,8 +227,10 @@ class SessionPolicy(
         turn: Turn,
         userInstruction: String? = null,
         instructions: TrustedUserInstructions? = null,
+        logicalSession: LogicalSessionContext? = null,
     ) {
         tools.bindTurn(session, request, turn.id, turn.target, turn.decisionMode, turn.reviewTarget)
+        logicalSession?.let { tools.bindLogicalSession(session, request, turn.id, it) }
         if (instructions != null) {
             tools.bindUserInstructions(session, request, turn.id, instructions)
         } else {

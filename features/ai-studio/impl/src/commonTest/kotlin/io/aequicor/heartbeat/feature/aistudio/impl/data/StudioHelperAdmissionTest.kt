@@ -1,5 +1,10 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
@@ -8,11 +13,27 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.time.Instant
 
 class StudioHelperAdmissionTest {
+    @Test
+    fun `failed chat bookkeeping retires new admission before the executor can receive its gate`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val request = runRequest("record-fails").copy(id = record.id)
+        assertFailsWith<IllegalStateException> {
+            admission.prepareNewTurn(record, request) {
+                assertEquals(StudioHelperPhase.Preparing, attempts.receipt(HelperId(record.id), request.request)?.phase)
+                error("Record write failed")
+            }
+        }
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(HelperId(record.id), request.request)?.phase)
+    }
+
     private val record = StudioChatRecord(
         "helper",
         "Helper",
@@ -29,7 +50,7 @@ class StudioHelperAdmissionTest {
         assertEquals(StudioHelperPhase.Preparing, attempts.receipt(HelperId(record.id), request.request)?.phase)
         assertNotNull(admitted.submission).begin()
         assertEquals(StudioHelperPhase.Submitting, attempts.receipt(HelperId(record.id), request.request)?.phase)
-        assertFailsWith<IllegalStateException> {
+        assertFailsWith<EngineException> {
             admission.prepare(record, runRequest("another").copy(id = record.id))
         }
         assertFailsWith<IllegalStateException> { admission.prepare(record, request) }
@@ -77,13 +98,34 @@ class StudioHelperAdmissionTest {
     }
 
     @Test
-    fun `ordinary chats remain ordinary and prior scheduled admission still prevents helper native send`() = runTest {
+    fun `unconfirmed legacy root cannot lose its old native address to a failed new preparation`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val legacy = record.copy(
+            helper = null,
+            ref = SessionRef(EngineId("test"), SessionSourceId("local"), "native"),
+            lastRunRequest = RequestId("legacy-running"),
+        )
+        val next = runRequest("new-Q").copy(id = record.id)
+        var isRecorded = false
+
+        assertFailsWith<EngineException> {
+            admission.prepareNewTurn(legacy, next) { isRecorded = true }
+        }
+
+        assertFalse(isRecorded)
+        assertNull(attempts.receipt(HelperId(record.id), next.request))
+        assertNull(attempts.receipt(HelperId(record.id), checkNotNull(legacy.lastRunRequest)))
+    }
+
+    @Test
+    fun `ordinary root sends journal admission and retain their prior scheduled gate`() = runTest {
         val attempts = StudioHelperAttempts(ChecklistTestStores())
         val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
         val prior = StudioRunSubmission()
         val request = runRequest("wake").copy(id = record.id, submission = prior)
-        assertSame(request, admission.prepare(record.copy(helper = null), request))
-        val admitted = admission.prepare(record, request)
+        val admitted = admission.prepare(record.copy(helper = null), request)
+        assertEquals(StudioHelperPhase.Preparing, attempts.receipt(HelperId(record.id), request.request)?.phase)
         prior.cancel()
         assertFailsWith<kotlinx.coroutines.CancellationException> { checkNotNull(admitted.submission).begin() }
         admitted.submission?.cancel()

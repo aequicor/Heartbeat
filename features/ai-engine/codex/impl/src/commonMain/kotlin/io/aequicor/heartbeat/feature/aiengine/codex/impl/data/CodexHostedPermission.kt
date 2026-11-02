@@ -18,6 +18,7 @@ internal fun codexHostedPermission(turn: TurnId, approval: AgentToolApproval): P
         PermissionOption(PermissionOptionId("hosted.deny"), "Запретить", isOneTime = true),
     ),
     description = approval.description,
+    operationBinding = approval.binding,
 )
 
 internal val CodexHostedAllow: PermissionOptionId = PermissionOptionId("hosted.allow")

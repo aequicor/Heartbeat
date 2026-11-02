@@ -168,6 +168,7 @@ private fun hostedApproval(turn: Turn, action: AgentToolApproval): PermissionReq
         PermissionOption(HostedDeny, "Запретить", isOneTime = true),
     ),
     description = action.description,
+    operationBinding = action.binding,
 )
 
 private val HostedAllow = PermissionOptionId("hosted.allow")

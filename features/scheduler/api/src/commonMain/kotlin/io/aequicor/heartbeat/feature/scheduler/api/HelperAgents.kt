@@ -38,6 +38,8 @@ public data class HelperPrompt(
     val handoff: HelperHandoff? = null,
     /** Host text for the agent only, never shown in the transcript; part of the immutable attempt. */
     val directives: List<String> = emptyList(),
+    /** Replaced by the actual lease before host delivery; tool arguments never supply work ownership. */
+    val work: HelperWorkBinding? = null,
 ) {
     override fun toString(): String = "HelperPrompt(request=$request, isRecovery=$isRecovery)"
 }
@@ -155,6 +157,7 @@ public interface HelperAgents {
      * defaults. An explicit target is preserved. Every turn uses the shared profile security setting;
      * [trustCap] remains compatibility metadata and does not override it.
      * [model] carries the caller's effort and legacy review metadata, persisted with the helper.
+     * [role] is explicit for new executor producers; its default preserves existing script conversations.
      */
     public suspend fun create(
         lease: HelperLease,
@@ -163,6 +166,7 @@ public interface HelperAgents {
         title: String,
         trustCap: TrustLevel = TrustLevel.Ask,
         model: HelperModelOptions = HelperModelOptions(),
+        role: HelperConversationRole = HelperConversationRole.FullConversation,
     ): HelperId
 
     /** Sends one journaled attempt using its active lease; caller cancellation does not abandon accepted work. */

@@ -21,6 +21,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionControl
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
@@ -118,6 +120,9 @@ public interface FoundationEngineSets {
     /** Session hooks contributed by the features of the foundation (the facade of `engines` runs them). */
     public val sessionHooks: Set<SessionHook>
 
+    /** Canonical executor lifecycle authorities owned by the foundation. */
+    public val executionAuthorities: Set<SessionExecutionAuthority>
+
     /** Tool policy providers contributed by the features of the foundation. */
     public val toolPolicyProviders: Set<AgentToolPolicyProvider>
 
@@ -137,6 +142,9 @@ public interface FoundationEngineSets {
 public interface FoundationProfileEngineBindings {
     /** Sessions and models of the AI engines. */
     public val engineFacade: EngineFacade
+
+    /** Engine-owned executor admission and retirement barrier, accessed lazily. */
+    public val sessionExecutionControl: SessionExecutionControl
 
     /** Web search that research runs use. */
     public val searchEngine: SearchEngine

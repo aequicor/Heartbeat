@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
@@ -38,6 +39,9 @@ public interface EnginesProfileImports {
      * bundle (context ledger and handoff).
      */
     public val sessionHooks: Set<SessionHook>
+
+    /** Canonical lifecycle owners contributed by runtime bundles. */
+    public val executionAuthorities: Set<SessionExecutionAuthority>
 
     /** Offloads of long tool output of the `studio` bundle (context window optimization). */
     public val toolOutputOffloads: Set<ToolOutputOffload>
@@ -76,6 +80,11 @@ internal object EnginesBundleSets {
 
     @Provides
     @ElementsIntoSet
+    fun bundleExecutionAuthorities(imports: EnginesProfileImports): Set<SessionExecutionAuthority> =
+        imports.executionAuthorities
+
+    @Provides
+    @ElementsIntoSet
     fun bundleOffloads(imports: EnginesProfileImports): Set<ToolOutputOffload> = imports.toolOutputOffloads
 
     @Provides
@@ -107,6 +116,11 @@ internal object EnginesFoundationSets {
     @ElementsIntoSet
     fun foundationOffloads(foundation: FoundationProfileBindings): Set<ToolOutputOffload> =
         foundation.engineSets.toolOutputOffloads
+
+    @Provides
+    @ElementsIntoSet
+    fun foundationExecutionAuthorities(foundation: FoundationProfileBindings): Set<SessionExecutionAuthority> =
+        foundation.engineSets.executionAuthorities
 
     @Provides
     @ElementsIntoSet

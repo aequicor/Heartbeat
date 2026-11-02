@@ -20,9 +20,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatQueue
 import io.aequicor.heartbeat.feature.aistudio.api.StudioCorrection
 import io.aequicor.heartbeat.feature.aistudio.api.StudioMessageQueueEnabled
 import io.aequicor.heartbeat.feature.aistudio.api.StudioMessageQueues
@@ -32,7 +34,9 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueNotice
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueOutput
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedMessage
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedOrigin
 import io.aequicor.heartbeat.feature.aistudio.api.studioQueueMachineSpec
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -90,6 +94,7 @@ internal class StudioMessageQueueOwner(
     private val host: Lazy<StudioQueueHost>,
     private val runs: StudioRunCoordinator,
     private val toggles: FeatureToggles,
+    private val attempts: Lazy<StudioHelperAttempts>? = null,
 ) : StudioQueuePort {
     private val log = Log.tag("StudioMessageQueue")
     private val store = stores.keyValue(QueueSpec)
@@ -106,7 +111,14 @@ internal class StudioMessageQueueOwner(
         profile.coroutineScope.launch {
             try {
                 val stored = store.get(QueueKey) ?: StudioMessageQueues()
-                val restored = stored.copy(chats = stored.chats.mapValues { it.value.restored() })
+                val restored = stored.copy(
+                    chats = stored.chats.mapValues { (chat, queue) ->
+                        val quarantined = queue.restored()
+                        attempts?.value?.let { quarantined.reconcileCreatorReceipts(chat, it, isRestoring = true) }
+                            ?: quarantined
+                    },
+                )
+                if (restored != stored) store.set(QueueKey, restored)
                 val machine = launcher.launch(
                     studioQueueMachineSpec(restored),
                     profile,
@@ -154,6 +166,20 @@ internal class StudioMessageQueueOwner(
 
     override fun hasPending(chat: String): Boolean = mutableState.value.chat(chat).messages.isNotEmpty()
 
+    override fun isPending(chat: String, request: String): Boolean =
+        mutableState.value.chat(chat).messages.any { it.id == request }
+
+    override suspend fun snapshot(chat: String): StudioChatQueue = ready.await().state.value.durable.chat(chat)
+
+    override suspend fun retireFenced(chat: String, request: String) = mutate { machine ->
+        if (machine.state.value.data.chat(chat).messages.none { it.id == request }) return@mutate
+        commit(
+            machine,
+            StudioQueueIntent.Public.RetireFenced(chat, request, token()),
+            tokenOf = { it.operation },
+        )
+    }
+
     /** Native acceptance of this profile command survives the lifetime of its screen waiter. */
     override suspend fun enqueue(
         chat: String,
@@ -163,27 +189,47 @@ internal class StudioMessageQueueOwner(
     ) = profile.coroutineScope.async {
         mutex.withLock {
             val machine = ready.await()
+            val prior = machine.state.value.data.chat(chat).creatorMessages[message.id]
+            if (prior != null) {
+                check(prior == message) { "Creator delivery payload or origin changed" }
+                return@withLock
+            }
+            check(message.origin == StudioQueuedOrigin.Human || (!isCorrection && environment == null)) {
+                "Creator input cannot steer or replace the host environment"
+            }
             environment?.let { environments[message.id] = it }
             machine.send(StudioQueueIntent.Internal.Activity(runs.occupied.value, runs.occupied.value))
             commit(machine, StudioQueueIntent.Public.Enqueue(chat, message, token()), tokenOf = { it.operation })
-            // From this commit onward the profile owns the input, even if the requested follow-up action fails.
-            try {
-                if (isCorrection) {
-                    captureCorrection(machine, chat, message.id)
-                } else if (machine.state.value.data.chat(chat).isPaused) {
-                    commit(machine, StudioQueueIntent.Public.Resume(chat, token()), tokenOf = { it.operation })
-                }
-                if (!isCorrection) blocked.update { it - chat }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                log.w(error) { "Queue action failed after durable input admission" }
-                blocked.update { it + chat }
-                pauseCapturedInput(machine, chat)
-                notice(chat, false)
-            }
+            afterCapture(machine, chat, message, isCorrection)
         }
     }.await()
+
+    /** Failure after the input write cannot reject or duplicate the acknowledged message. */
+    private suspend fun afterCapture(
+        machine: Machine<StudioQueueState, StudioQueueIntent, StudioQueueOutput>,
+        chat: String,
+        message: StudioQueuedMessage,
+        isCorrection: Boolean,
+    ) {
+        if (message.origin != StudioQueuedOrigin.Human) return
+        try {
+            if (isCorrection) {
+                captureCorrection(machine, chat, message.id)
+            } else {
+                if (machine.state.value.data.chat(chat).isPaused) {
+                    commit(machine, StudioQueueIntent.Public.Resume(chat, token()), tokenOf = { it.operation })
+                }
+                blocked.update { it - chat }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error) { "Queue action failed after durable input admission" }
+            blocked.update { it + chat }
+            pauseCapturedInput(machine, chat)
+            notice(chat, false)
+        }
+    }
 
     /** A second write cannot turn a successful capture into a composer rejection. */
     private suspend fun pauseCapturedInput(
@@ -219,6 +265,11 @@ internal class StudioMessageQueueOwner(
         chat: String,
         message: String,
     ) {
+        check(
+            machine.state.value.data.chat(chat).messages.single { it.id == message }.origin == StudioQueuedOrigin.Human,
+        ) {
+            "Creator input cannot be used as human correction"
+        }
         val target = host.value.steeringTarget(chat)
         val key = if (target.isNative) message else token()
         check(key !in targets) { "Correction already admitted" }
@@ -279,7 +330,16 @@ internal class StudioMessageQueueOwner(
     }
 
     override suspend fun remove(chat: String, message: String) = mutate { machine ->
-        commit(machine, StudioQueueIntent.Public.Remove(chat, message, token()), tokenOf = { it.operation })
+        val row = machine.state.value.data.chat(chat).messages.single { it.id == message }
+        if (row.origin is StudioQueuedOrigin.Creator) {
+            val stopped = checkNotNull(attempts).value.requestStop(HelperId(chat), RequestId(message))
+            check(stopped.request == RequestId(message) && stopped.phase == StudioHelperPhase.NotSubmitted) {
+                "Creator delivery already entered native execution"
+            }
+            commit(machine, StudioQueueIntent.Public.RetireFenced(chat, message, token()), tokenOf = { it.operation })
+        } else {
+            commit(machine, StudioQueueIntent.Public.Remove(chat, message, token()), tokenOf = { it.operation })
+        }
         environments.remove(message)
         targets.remove(message)
         Unit
@@ -294,11 +354,28 @@ internal class StudioMessageQueueOwner(
     }
 
     override suspend fun resume(chat: String) = mutate { machine ->
+        reconcileCreatorRows(machine, chat)
         log.i { "Resume automatic queued input" }
         commit(machine, StudioQueueIntent.Public.Resume(chat, token()), tokenOf = { it.operation })
         blocked.update { it - chat }
         machine.send(StudioQueueIntent.Internal.Activity(runs.occupied.value, runs.occupied.value))
         Unit
+    }
+
+    private suspend fun reconcileCreatorRows(
+        machine: Machine<StudioQueueState, StudioQueueIntent, StudioQueueOutput>,
+        chat: String,
+    ) {
+        val journal = attempts?.value ?: return
+        val previous = machine.state.value.data.chat(chat)
+        val reconciled = previous.reconcileCreatorReceipts(chat, journal, isRestoring = false)
+        if (previous != reconciled) {
+            commit(
+                machine,
+                StudioQueueIntent.Internal.Reconciled(chat, previous, reconciled, token()),
+                tokenOf = { it.operation },
+            )
+        }
     }
 
     override suspend fun settled(chat: String, request: String, outcome: RunOutcome, isSubmitted: Boolean) =

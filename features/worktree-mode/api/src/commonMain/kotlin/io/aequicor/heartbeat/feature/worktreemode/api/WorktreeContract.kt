@@ -69,6 +69,8 @@ public sealed interface WorktreeIntent : MachineIntent {
             val request: RequestId,
             val kind: WorktreeRunKind = WorktreeRunKind.Coding,
             val target: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget? = null,
+            /** Host-declared source, checked against the exact durable expected action before extending lineage. */
+            val continuationOf: RequestId? = null,
         ) : Public
 
         /** Authoritative request acceptance binds hosted tools to a native session and turn. */

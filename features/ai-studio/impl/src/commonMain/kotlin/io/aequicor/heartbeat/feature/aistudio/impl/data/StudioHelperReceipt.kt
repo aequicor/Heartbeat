@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import kotlinx.serialization.Serializable
 
@@ -19,9 +20,13 @@ internal enum class StudioHelperTerminalOutcome { Completed, Failed, Cancelled, 
 @Serializable
 internal data class StudioHelperTerminal(
     val session: SessionRef,
-    val turn: TurnId,
+    val turn: TurnId?,
     val outcome: StudioHelperTerminalOutcome,
     val answer: String,
+    /** A terminal witness alone proves no output; marked bounded history may enrich it later. */
+    val isAnswerComplete: Boolean = turn != null && answer.isNotEmpty() &&
+        answer.length < SchedulerLimits.MAX_PAYLOAD &&
+        outcome != StudioHelperTerminalOutcome.Unknown,
 ) {
     init {
         require(answer.length <= SchedulerLimits.MAX_PAYLOAD)
@@ -39,7 +44,7 @@ internal data class StudioHelperTerminal(
         turn,
     )
 
-    override fun toString(): String = "StudioHelperTerminal(turn=$turn, outcome=$outcome)"
+    override fun toString(): String = "StudioHelperTerminal(turn=${turn?.value.orEmpty()}, outcome=$outcome)"
 }
 
 /** A missing fingerprint is permitted only for a tombstone created before prompt arrival. */
@@ -62,8 +67,31 @@ internal data class StudioHelperReceipt(
      * rollback, a later delivery of the same request is never prepared again.
      */
     val isFinal: Boolean = false,
+    /** New senders journal native entry; older Submitting receipts remain conservatively uncertain. */
+    val isNativeEntryTracked: Boolean = false,
+    /** The sender that crossed the actual native-call boundary, separate from cancellable policy preparation. */
+    val nativeEntryClaim: String? = null,
+    /** Durable external stop intent; an acknowledgement alone never changes the native outcome. */
+    val isStopRequested: Boolean = false,
+    /** Trusted causal requests captured before submission by conversation control. */
+    val causes: Set<RequestInitiator>? = null,
+    /** Immutable before begin; null is an unclassified older attempt, never an implicit work assignment. */
+    val policy: StudioAttemptPolicy? = null,
+    /** Persisted by the exact sender before native entry; absent legacy values grant no continuation authority. */
+    val executionSnapshot: StudioExecutionSnapshot? = null,
+    /** Actual native launch route of this node; virtual descendants do not inherit it. */
+    val nativeRoute: StudioRecoveryRoute? = null,
+    /** Exact producer-proven predecessor, never inferred from virtual lookup maps. */
+    val continuationOf: RequestId? = null,
+    /** Null denotes the existing terminal virtual-action edge; graph edges carry their native proof explicitly. */
+    val graphContinuation: StudioGraphContinuationProof? = null,
+    /** Revocation of future descendants does not itself interrupt an already accepted native turn. */
+    val isContinuationRevoked: Boolean = false,
+    /** Durable authorization for an automatic conversation follow-up; never inferred from its request id. */
+    val automaticSource: StudioConversationSource? = null,
 ) {
     init {
+        require(graphContinuation == null || graphContinuation.source == continuationOf)
         require(!isFinal || phase == StudioHelperPhase.NotSubmitted)
         require(fingerprint != null || phase == StudioHelperPhase.NotSubmitted)
         require(fingerprint != null || (handoff == null && preparedSession == null && submissionClaim == null))
@@ -73,10 +101,12 @@ internal data class StudioHelperReceipt(
             phase in setOf(StudioHelperPhase.Preparing, StudioHelperPhase.NotSubmitted) ||
                 handoff == null || preparedSession != null,
         )
-        require((session == null) == (turn == null))
-        require(phase != StudioHelperPhase.Accepted || session != null)
+        require(turn == null || session != null)
+        require(session == null || turn != null || phase == StudioHelperPhase.Terminal)
+        require(phase != StudioHelperPhase.Accepted || (session != null && turn != null))
         require((phase == StudioHelperPhase.Terminal) == (terminal != null))
         require(terminal == null || (terminal.session == session && terminal.turn == turn))
+        require(nativeEntryClaim == null || (isNativeEntryTracked && nativeEntryClaim == submissionClaim))
         require(phase !in setOf(StudioHelperPhase.Preparing, StudioHelperPhase.NotSubmitted) || session == null)
     }
 
@@ -86,11 +116,14 @@ internal data class StudioHelperReceipt(
         StudioHelperPhase.Accepted,
     )
 
-    fun requireNativeIdentity(session: SessionRef, turn: TurnId) {
+    fun requireNativeIdentity(session: SessionRef, turn: TurnId?) {
         check(
             preparedSession == null || preparedSession == session,
         ) { "Native helper differs from its prepared session" }
-        check(this.session == null || (this.session == session && this.turn == turn)) {
+        check(
+            this.session == null ||
+                (this.session == session && (this.turn == null || turn == null || this.turn == turn)),
+        ) {
             "Native helper identity does not match its receipt"
         }
     }

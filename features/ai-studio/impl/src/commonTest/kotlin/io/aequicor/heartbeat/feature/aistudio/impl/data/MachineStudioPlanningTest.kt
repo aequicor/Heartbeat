@@ -11,6 +11,9 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
@@ -26,6 +29,7 @@ import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -42,13 +46,79 @@ class MachineStudioPlanningTest {
     private val registry = Registry()
     private val toggle = Toggle()
 
-    private fun TestScope.planning() = MachineStudioPlanning(lazyOf(view), registry, toggle, TestClock(this))
+    private suspend fun TestScope.planning(
+        chats: List<StudioChatRecord> = listOf(StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST)),
+    ): MachineStudioPlanning {
+        val store = ChecklistTestStore(ChatSpec).apply { set(ChatsKey, chats) }
+        val records = object : StudioChatRecords {
+            override val store = store
+            override val lock = Mutex()
+        }
+        return MachineStudioPlanning(lazyOf(view), registry, toggle, TestClock(this), records)
+    }
 
     private fun plan(chat: String, mode: PlanMode = PlanMode.Planning) =
         Plan(PlanChat(chat), mode, updatedAt = Instant.fromEpochSeconds(0))
 
     private fun ready(vararg plans: Plan, bindings: Map<SessionRef, PlanChat> = emptyMap()) =
         PlanningState.Ready(plans.associateBy { it.chat }, bindings)
+
+    @Test
+    fun `executor future unknown and duplicate chats cannot mutate plans even through direct commands`() = runTest {
+        val root = LogicalSessionContext(LogicalSessionId("root"), SessionKind.Session)
+        val at = Instant.DISTANT_PAST
+        val rows = listOf(
+            StudioChatRecord("root", "Root", at),
+            StudioChatRecord(
+                "agent",
+                "Agent",
+                at,
+                identity = StudioSessionIdentity(
+                    StudioIdentityOrigin.AgentCreated,
+                    root.subagent(LogicalSessionId("agent")),
+                ),
+            ),
+            StudioChatRecord(
+                "future",
+                "Future",
+                at,
+                identity = StudioSessionIdentity(
+                    StudioIdentityOrigin.UserConversation,
+                    LogicalSessionContext(LogicalSessionId("future"), SessionKind.Session),
+                    version = 2,
+                ),
+            ),
+            StudioChatRecord("duplicate", "Duplicate", at),
+            StudioChatRecord("duplicate", "Duplicate", at),
+        )
+        view.state.value = ready()
+        val planning = planning(rows)
+        for (id in listOf("agent", "future", "unknown", "duplicate")) {
+            assertFalse(planning.enter(id))
+            assertFalse(planning.leave(id))
+            assertFalse(planning.approve(id, 0))
+            assertFalse(planning.write(id, "New instructions", 0))
+            assertFalse(planning.startImplementation(id, 0))
+        }
+        assertTrue(registry.sent.isEmpty())
+    }
+
+    @Test
+    fun `a full subsession keeps user planning when its creator is unavailable`() = runTest {
+        val root = LogicalSessionContext(LogicalSessionId("root"), SessionKind.Session)
+        val child = StudioChatRecord(
+            "child",
+            "Child",
+            Instant.DISTANT_PAST,
+            identity = StudioSessionIdentity(
+                StudioIdentityOrigin.AgentCreated,
+                root.subsession(LogicalSessionId("child")),
+            ),
+        )
+        view.state.value = ready()
+        assertTrue(planning(listOf(child)).enter("child"))
+        assertEquals(PlanChat("child"), assertIs<PlanningIntent.Public.Enter>(registry.sent.single()).chat)
+    }
 
     @Test
     fun `nothing reaches the machine while the toggle is off`() = runTest {

@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationUpdate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
@@ -18,19 +19,114 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackOutcome
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class StudioConfigurationControllerTest {
+    @Test
+    fun `freeze joins an old collector before admitting future preferences`() = runTest {
+        val f = StudioConfigurationFixture(this)
+        val native = f.add()
+        val session = f.access.sessions.getValue("chat")
+        f.controller.observe(f.access, "chat", session, f.target, isTurnAccepted = true)
+        runCurrent()
+        val saving = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        f.access.beforeSave = {
+            withContext(NonCancellable) {
+                saving.complete(Unit)
+                release.await()
+            }
+        }
+        native.configuration.value = f.initial.copy(reasoningEffort = "high")
+        saving.await()
+        val freeze = async { f.controller.freeze("chat", session) }
+        runCurrent()
+        val future = f.target.copy(model = ModelId("future"))
+        assertFalse(f.controller.configure(f.access, "chat", StudioSettingChange.Model(future.studioModelId())))
+        assertFalse(freeze.isCompleted)
+
+        release.complete(Unit)
+        freeze.await()
+        f.access.beforeSave = {}
+        assertTrue(f.controller.configure(f.access, "chat", StudioSettingChange.Model(future.studioModelId())))
+        runCurrent()
+        assertTrue(native.calls.isEmpty())
+        assertEquals(future.studioModelId(), f.access.records.getValue("chat").configuration?.modelId)
+        assertEquals(future.studioModelId(), f.access.states.getValue("chat").applied.modelId)
+    }
+
+    @Test
+    fun `final configuration persistence still owns the freeze barrier`() = runTest {
+        val f = StudioConfigurationFixture(this)
+        f.add()
+        val saving = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var writes = 0
+        f.access.beforeSave = {
+            writes++
+            if (writes == 2) {
+                saving.complete(Unit)
+                release.await()
+            }
+        }
+        val configure = async { f.controller.configure(f.access, "chat", StudioSettingChange.Effort("high")) }
+        saving.await()
+
+        assertFailsWith<IllegalStateException> { f.controller.freeze("chat", f.access.sessions.getValue("chat")) }
+        release.complete(Unit)
+        assertTrue(configure.await())
+        f.controller.freeze("chat", f.access.sessions.getValue("chat"))
+    }
+
+    @Test
+    fun `durable unresolved execution keeps model changes out of native session after restart`() = runTest {
+        val f = StudioConfigurationFixture(this)
+        val native = f.add()
+        f.access.isFrozen = true
+        val future = f.target.copy(model = ModelId("future"))
+
+        assertTrue(f.controller.configure(f.access, "chat", StudioSettingChange.Model(future.studioModelId())))
+        runCurrent()
+
+        assertTrue(native.calls.isEmpty())
+        assertTrue(f.access.attached.isEmpty())
+        assertEquals(f.target, f.access.records.getValue("chat").target)
+        assertEquals(future.studioModelId(), f.access.records.getValue("chat").configuration?.modelId)
+        assertEquals(future.studioModelId(), f.access.states.getValue("chat").applied.modelId)
+    }
+
+    @Test
+    fun `frozen observer cannot overwrite future preference with old native state`() = runTest {
+        val f = StudioConfigurationFixture(this)
+        val native = f.add()
+        val session = f.access.sessions.getValue("chat")
+        f.controller.observe(f.access, "chat", session, f.target, isTurnAccepted = true)
+        f.controller.freeze("chat", session)
+        val future = f.target.copy(model = ModelId("future"))
+
+        assertTrue(f.controller.configure(f.access, "chat", StudioSettingChange.Model(future.studioModelId())))
+        native.configuration.value = f.initial.copy(reasoningEffort = "high")
+        runCurrent()
+
+        assertTrue(native.calls.isEmpty())
+        assertEquals(f.target, f.access.records.getValue("chat").target)
+        assertEquals(future.studioModelId(), f.access.records.getValue("chat").configuration?.modelId)
+        assertEquals(future.studioModelId(), f.access.states.getValue("chat").applied.modelId)
+    }
+
     @Test
     fun `feedback uses the stored transcript anchor after the legacy carrier was cleared`() = runTest {
         val fixture = StudioConfigurationFixture(this)

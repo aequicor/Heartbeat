@@ -18,14 +18,15 @@ internal fun WorktreeTask.runStarted(command: WorktreeIntent.Public.RunStarted):
     val isAvailable = command.chatId == chatId && isPrepared && isIdle
     val isExpectedAction = expectedAction?.operation == command.request.value && expectedAction.kind == command.kind
     val isActionAllowed = phase != WorktreePhase.ActionWorking || isExpectedAction
-    return if (isAvailable && isActionAllowed) {
+    val source = command.continuationOf
+    return if (isAvailable && isActionAllowed && allowsContinuation(command, isExpectedAction)) {
         copy(
             phase = if (command.kind == WorktreeRunKind.Coding) WorktreePhase.Working else WorktreePhase.ActionWorking,
             run = WorktreeRun(command.request, command.kind),
             closedSubmission = null,
             actionRequest = null,
             pendingVirtualContinuation = false,
-            virtualContinuations = continuedRequests(command.request),
+            virtualContinuations = continuedRequests(command.request, source),
             failure = null,
             isCompletionDismissed = false,
             verifiedPullRequestUrl = null,
@@ -36,6 +37,14 @@ internal fun WorktreeTask.runStarted(command: WorktreeIntent.Public.RunStarted):
     } else {
         this
     }
+}
+
+/** Only an exact lifecycle claim may extend the lookup map; ordinary coding preserves it unchanged. */
+private fun WorktreeTask.allowsContinuation(command: WorktreeIntent.Public.RunStarted, isExpected: Boolean): Boolean {
+    val source = command.continuationOf ?: return !isExpected || expectedAction?.continuationOf == null
+    return isExpected && expectedAction?.continuationOf == source && run?.request == source &&
+        source != command.request && command.kind == WorktreeRunKind.Coding &&
+        source in virtualInterruptedRequests && run.outcome != null && run.outcome != TurnOutcome.Unknown
 }
 
 internal fun WorktreeTask.runAccepted(command: WorktreeIntent.Public.RunAccepted): WorktreeTask {
@@ -160,8 +169,8 @@ private fun WorktreeTask.canSignalCompletion(active: WorktreeRun, summary: Strin
 }
 
 /** Follows the logical helper request across fresh accepted turns without replaying the original. */
-private fun WorktreeTask.continuedRequests(request: RequestId): Map<String, String> {
-    val previous = run?.request?.takeIf { it in virtualInterruptedRequests } ?: return virtualContinuations
+private fun WorktreeTask.continuedRequests(request: RequestId, previous: RequestId?): Map<String, String> {
+    if (previous == null) return virtualContinuations
     return virtualContinuations.mapValues { (_, value) ->
         if (value == previous.value) request.value else value
     } + (previous.value to request.value)

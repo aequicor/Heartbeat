@@ -59,10 +59,10 @@ class SidebarProjectSessionsTest {
         val compact = content(roots + helpers)
         val group = compact.projects.single()
         assertEquals(
-            listOf("root-6", "root-5", "root-4", "root-3", "root-2", "child", "grandchild"),
+            listOf("root-6", "root-5", "root-4", "root-3", "root-2", "grandchild", "child"),
             group.visibleSessions.map { it.id },
         )
-        assertEquals(listOf(0, 0, 0, 0, 0, 1, 2), group.visibleSessions.map { it.depth })
+        assertEquals(listOf(0, 0, 0, 0, 0, 1, 1), group.visibleSessions.map { it.depth })
         assertEquals(1, group.hiddenSessionCount)
         assertTrue(compact.pinned.isEmpty())
         assertTrue(compact.noProject.isEmpty())

@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioQuestionContext
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.decision
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.followUpText
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.isPermissionRelay
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ownsQuestionnaireId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.questionnaireId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.toQuestionnaire
@@ -63,6 +64,7 @@ internal class StudioQuestionBridge(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
     private val settings: Lazy<StudioChatSettings>,
+    private val organic: Lazy<StudioOrganicPermissions>? = null,
 ) {
     private val log = Log.tag("StudioQuestions")
     private val lock = Mutex()
@@ -106,7 +108,10 @@ internal class StudioQuestionBridge(
                 .flatMapLatest { isEnabled ->
                     if (isEnabled) {
                         combine(
-                            runtime.value.state.map { it.permissions }.distinctUntilChanged(),
+                            combine(
+                                runtime.value.state.map { it.permissions }.distinctUntilChanged(),
+                                organic?.value?.permissions ?: flowOf(emptyList()),
+                            ) { studio, cells -> studio + cells },
                             machines.observe(QuestionnaireMachineKey).flatMapLatest {
                                 it?.state ?: flowOf(QuestionnaireState.Idle)
                             },
@@ -122,6 +127,7 @@ internal class StudioQuestionBridge(
 
     private suspend fun sync(permissions: List<StudioPermission>) {
         val current = permissions.associateBy { it.questionnaireId() }
+        pendingQuestions().filter { it.id.isPermissionRelay() && it.id !in current }.forEach { withdrawCurrent(it) }
         // Machine intents are sent outside the lock: their outputs are consumed by [deliverAnswers].
         val (resolved, changed) = lock.withLock {
             val resolved = live.keys - current.keys
@@ -202,6 +208,7 @@ internal class StudioQuestionBridge(
             val permission = delivery.permission
             when {
                 permission != null -> respondNatively(delivery, permission, answer)
+                question.id.isPermissionRelay() -> withdrawCurrent(question)
                 delivery.isNative -> log.i { "Ignore answer to an expired native request" }
                 answer == Answer.Skipped -> withdrawCurrent(question)
                 else -> followUp(delivery, answer)
@@ -221,9 +228,12 @@ internal class StudioQuestionBridge(
         }
     }
 
+    private suspend fun currentPermissions(): List<StudioPermission> =
+        runtime.value.state.value.permissions + organic?.value?.current().orEmpty()
+
     private suspend fun respondNatively(delivery: Delivery, permission: StudioPermission, answer: Answer) {
         val question = delivery.question
-        val current = runtime.value.state.value.permissions.firstOrNull { it.questionnaireId() == question.id }
+        val current = currentPermissions().firstOrNull { it.questionnaireId() == question.id }
         if (current != permission || permission.toQuestionnaire() != question) {
             log.i { "Ignore changed native request" }
             return
@@ -232,7 +242,7 @@ internal class StudioQuestionBridge(
         log.i { "Deliver native permission answer" }
         runtime.value.respond(permission, decision.optionId, decision.answer)
         // sync may already have replaced an identical-looking request with one from a later native turn.
-        val currentAfterDelivery = runtime.value.state.value.permissions.firstOrNull {
+        val currentAfterDelivery = currentPermissions().firstOrNull {
             it.questionnaireId() == question.id
         }
         if (currentAfterDelivery == null || currentAfterDelivery == permission) withdrawCurrent(question)
@@ -276,7 +286,7 @@ internal class StudioQuestionBridge(
         val replacement = pending(question.id)
         if (replacement != null && (replacement != question || delivery.isAccepted)) return
         if (delivery.isNative) {
-            val permission = runtime.value.state.value.permissions.firstOrNull { it.questionnaireId() == question.id }
+            val permission = currentPermissions().firstOrNull { it.questionnaireId() == question.id }
             if (permission != delivery.permission) return
         }
         reopen(question)

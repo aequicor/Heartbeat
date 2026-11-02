@@ -17,7 +17,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismStatusUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionStateUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionUi
@@ -135,13 +134,8 @@ class OrganismUiTest {
     }
 
     @Test
-    fun `a request with an input offers only its skip option`() {
-        val request = organism.toUi().permissions.single()
-        assertEquals(listOf(PermissionOptionUi("skip", "Skip")), request.options)
-        assertEquals(
-            listOf("c1", "tests", "t1", "p1"),
-            listOf(request.cell, request.cellName, request.turn, request.requestId),
-        )
+    fun `executor questions are routed through the owner bridge instead of direct cell buttons`() {
+        assertEquals(emptyList(), organism.toUi().permissions)
     }
 
     @Test

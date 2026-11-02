@@ -10,8 +10,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -22,10 +25,35 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DefaultAgentToolsScopeTest {
+    @Test
+    fun `only the host can bind logical ownership to the live facade turn`() = runTest {
+        val owner = ScopedOwner("tool", isDetached = false)
+        val tools = DefaultAgentTools(setOf(owner))
+        val request = RequestId("logical-request")
+        val turn = TurnId("facade")
+        val root = LogicalSessionContext(LogicalSessionId("root"), SessionKind.Session)
+        val agent = root.subagent(LogicalSessionId("agent"))
+        val forged = context().copy(request = request, logicalSession = root)
+
+        assertFalse(tools.execute(forged, "tool", EMPTY).isError)
+        assertNull(owner.lastContext?.logicalSession)
+        tools.bindTurn(SESSION, request, turn, TARGET)
+        tools.bindLogicalSession(SESSION, request, turn, agent)
+        tools.bindLogicalSession(SESSION, request, turn, agent)
+        assertFalse(tools.execute(forged, "tool", EMPTY).isError)
+        assertEquals(agent, owner.lastContext?.logicalSession)
+        assertFailsWith<IllegalStateException> { tools.bindLogicalSession(SESSION, request, turn, root) }
+        assertFailsWith<IllegalStateException> { tools.bindLogicalSession(SESSION, request, TurnId("other"), agent) }
+        tools.finishTurn(SESSION, turn, request)
+        assertFailsWith<IllegalStateException> { tools.bindLogicalSession(SESSION, request, turn, agent) }
+    }
+
     @Test
     fun `independent instructions survive an empty declaration set while preserving detached boundaries`() = runTest {
         val seen = mutableListOf<AgentToolScope>()

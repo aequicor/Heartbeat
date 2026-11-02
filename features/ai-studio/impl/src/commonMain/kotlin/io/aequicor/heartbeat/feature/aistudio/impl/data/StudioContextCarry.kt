@@ -35,6 +35,7 @@ internal class StudioContextCarry(
         expected: ActiveSession? = null,
         harnesses: Set<String>? = null,
         harnessSource: SessionRef? = null,
+        commit: StudioContextCommit = DirectStudioContextCommit,
     ): RunOutcome = locks.withLock(request.id) {
         val id = request.id
         val record = record(id).takeIf { it.isRolloverAllowed } ?: return@withLock RunOutcome.Failed
@@ -45,13 +46,20 @@ internal class StudioContextCarry(
             }
         }
         val seed = if (request.isBriefed) continuationSeed(items, request.isSummarized) else rolloverSeed(items)
-        write(id) { it.frozen(record.contextSegment + 1) }
-        // A briefed rollover ran the handoff summary turn last: its failure is not the chat's.
-        update(id) {
-            rolledOver(retainedRolloverSeed(items, seed)).copy(
-                pendingHarnesses = harnesses ?: pendingHarnesses,
-                pendingHarnessSource = pendingHarnessSource ?: harnessSource,
-            ).let { if (request.isBriefed) it.withoutFailure() else it }
+        commit.apply {
+            val current = record(id)
+            check(
+                current.ref == record.ref && current.runRevision == record.runRevision &&
+                    current.contextSegment == record.contextSegment,
+            ) { "Rollover source changed before commit" }
+            write(id) { it.frozen(record.contextSegment + 1) }
+            // A briefed rollover ran the handoff summary turn last: its failure is not the chat's.
+            update(id) {
+                rolledOver(retainedRolloverSeed(items, seed)).copy(
+                    pendingHarnesses = harnesses ?: pendingHarnesses,
+                    pendingHarnessSource = pendingHarnessSource ?: harnessSource,
+                ).let { if (request.isBriefed) it.withoutFailure() else it }
+            }
         }
         detach(id)
         RunOutcome.Completed
@@ -98,6 +106,7 @@ internal class StudioContextCarry(
         request: StudioTurnRequest,
         active: ActiveSession,
         harnesses: StudioHarnessAttach,
+        commit: StudioContextCommit = DirectStudioContextCommit,
         refresh: suspend () -> Unit,
     ) {
         check(active.canCarryEnvironment()) { "The previous native turn is still active or uncertain" }
@@ -110,7 +119,7 @@ internal class StudioContextCarry(
         check(current.harnessCarrySnapshot(harnesses) == snapshot) {
             "Harness connections changed while preparing carry"
         }
-        check(rollover(request, active, attached, source) == RunOutcome.Completed) {
+        check(rollover(request, active, attached, source, commit) == RunOutcome.Completed) {
             "This chat cannot replace its native context"
         }
     }
@@ -185,4 +194,14 @@ internal interface StudioCarriedHandles {
 
     /** Drops [closed] from conversation [id] once it is closed; a newer handle is kept. */
     suspend fun forget(id: String, closed: ActiveSession)
+}
+
+/** Local persistence boundary; implementations must release their journal barrier before native detach. */
+internal fun interface StudioContextCommit {
+    suspend fun apply(commit: suspend () -> Unit)
+}
+
+/** Direct local mutation when no automatic source needs an additional journal barrier. */
+internal object DirectStudioContextCommit : StudioContextCommit {
+    override suspend fun apply(commit: suspend () -> Unit) = commit()
 }

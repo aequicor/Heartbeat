@@ -22,6 +22,13 @@ internal interface StudioSessionHost {
     /** [preselected] reaches only a session created now ([CreateSessionRequest.preselected]); a resume ignores it. */
     suspend fun openTurn(id: String, settings: RunSettings, preselected: ToolChoices = emptyMap()): ActiveSession
 
+    /** A proven continuation may use its immutable model without changing the next independent turn's selection. */
+    suspend fun openRequestTurn(request: StudioTurnRequest, preselected: ToolChoices = emptyMap()): ActiveSession =
+        openTurn(request.id, request.settings, preselected)
+
+    /** Opens only the saved native route for observation, without applying this execution's configuration. */
+    suspend fun openRecoveryTurn(request: StudioTurnRequest): ActiveSession = openTurn(request.id, request.settings)
+
     /** Deferred choices were absent from [active] creation; a frozen adapter requires a fresh context. */
     suspend fun needsCarriedTools(id: String, active: ActiveSession): Boolean
 
@@ -41,7 +48,7 @@ internal suspend fun StudioSessionHost.openEnvironmentSession(
     preselected: ToolChoices,
     tools: ProfileAgentTools,
 ): StudioEnvironmentSession {
-    var active = openTurn(request.id, request.settings, preselected)
+    var active = openRequestTurn(request, preselected)
     val environment = request.environment
     var lease: AutoCloseable? = environment?.bind(active.ref)
     var isTransferred = false
@@ -57,7 +64,7 @@ internal suspend fun StudioSessionHost.openEnvironmentSession(
             rolloverTurn(request, active)
             lease?.close()
             lease = null
-            active = openTurn(request.id, request.settings, preselected)
+            active = openRequestTurn(request, preselected)
             lease = environment?.bind(active.ref)
             check(
                 !needsNewDeclarations(request, active, preselected, tools),

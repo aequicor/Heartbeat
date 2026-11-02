@@ -8,8 +8,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.isRejection
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
 
@@ -28,6 +32,27 @@ internal class StudioHelperSubmission(
     private var contextGuard: StudioHelperPromptGuard? = null
     private var boundSession: SessionRef? = null
     override val isCancelled: Boolean get() = cancelled.value
+    override val recoveryDelivery: StudioRecoveryDelivery? get() = prior?.recoveryDelivery
+
+    override suspend fun sealRecoveryNoSend(): StudioRecoveryNoSendProof? = prior?.sealRecoveryNoSend()
+        ?: recoveryDelivery?.let { attempts.retiredRecoverySender(it, claim) }
+
+    /** Rejects stale opening callbacks before they can change the configuration mode of a newer execution. */
+    suspend fun requireOpening() {
+        check(!isCancelled && attempts.unresolved(helper) == request) { "Opening no longer owns the execution" }
+        val receipt = checkNotNull(attempts.receipt(helper, request))
+        check(receipt.phase == StudioHelperPhase.Preparing && !receipt.isStopRequested) {
+            "Opening requires the exact unsubmitted preparation"
+        }
+    }
+
+    suspend fun continuationReceipt(): StudioHelperReceipt? =
+        attempts.receipt(helper, request)?.takeIf { it.continuationOf != null }
+
+    suspend fun freezeExecution(
+        snapshot: StudioExecutionSnapshot,
+        nativeRoute: StudioRecoveryRoute? = null,
+    ): StudioExecutionSnapshot = attempts.recordExecutionSnapshot(helper, request, claim, snapshot, nativeRoute)
 
     /** All production helper sends enter this scope, including manual turns in a marked chat. */
     suspend fun <T> withPreparation(session: SessionRef, workspace: WorkspaceRef?, block: suspend () -> T): T {
@@ -41,7 +66,19 @@ internal class StudioHelperSubmission(
             val preparedGuard = StudioHelperPromptGuard(admissions.decisions(helper, session, bound, workspace))
             guard = preparedGuard
             contextGuard = preparedGuard
-            return preparedGuard.watch(block)
+            return preparedGuard.watch {
+                coroutineScope {
+                    val preparation = this
+                    val revocation = launch(start = CoroutineStart.UNDISPATCHED) {
+                        awaitRevocation()?.let { preparation.cancel(it) }
+                    }
+                    try {
+                        block()
+                    } finally {
+                        revocation.cancel()
+                    }
+                }
+            }
         } finally {
             if (guard?.isSubmitted != true) {
                 withContext(NonCancellable) {
@@ -78,6 +115,9 @@ internal class StudioHelperSubmission(
      * NotSubmitted; a failure that may follow delivery (closed profile, timeout, crash) keeps acceptance unresolved.
      */
     suspend fun <T> send(native: suspend () -> T): T = try {
+        if (!enterNative()) {
+            throw CancellationException("The conversation native entry was revoked or already owned")
+        }
         native()
     } catch (e: EngineException) {
         if (e.failure.isRejection()) {
@@ -99,8 +139,12 @@ internal class StudioHelperSubmission(
 
     fun matches(helper: HelperId, request: RequestId): Boolean = this.helper == helper && this.request == request
 
+    /** Exact immutable request provenance; a missing journal is never an ordinary conversation fallback. */
+    suspend fun policy(): StudioAttemptPolicy? =
+        checkNotNull(attempts.receipt(helper, request)) { "Conversation request evidence is unavailable" }.policy
+
     override suspend fun awaitRevocation(): CancellationException? =
-        if (attempts.awaitSubmissionBoundary(helper, request) == StudioHelperPhase.NotSubmitted) {
+        if (attempts.awaitNativeEntryBoundary(helper, request) == StudioHelperPhase.NotSubmitted) {
             log.v { "Observed durable helper preparation revocation" }
             cancelled.value = true
             CancellationException("Helper preparation was revoked")
@@ -110,4 +154,16 @@ internal class StudioHelperSubmission(
 
     /** Only this sender's own claim can be retired, and only while no native acceptance was journaled. */
     private suspend fun retire(): Boolean = attempts.cancelBeforeNative(helper, request, boundSession, claim)
+
+    /** A lost entry-write acknowledgement still precedes native(), so this exact sender can retire its claim. */
+    private suspend fun enterNative(): Boolean {
+        var isAcknowledged = false
+        try {
+            val isEntered = attempts.enterNative(helper, request, claim)
+            isAcknowledged = true
+            return isEntered
+        } finally {
+            if (!isAcknowledged) withContext(NonCancellable) { retire() }
+        }
+    }
 }

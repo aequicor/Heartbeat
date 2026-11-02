@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import kotlinx.coroutines.CancellationException
@@ -79,20 +80,21 @@ internal class ManagedHelperLease(
 
     suspend fun prompt(id: HelperId, next: HelperPrompt): HelperSubmission {
         currentCoroutineContext().ensureActive()
+        val stamped = next.copy(work = HelperWorkBinding(owner, identity.reservation))
         val task = lock.withLock {
             check(!isClosing && helper == id) { "Helper lease is unavailable" }
             val previous = lastPrompt
-            if (previous?.request == next.request) {
-                check(previous == next) { "Helper request is immutable" }
+            if (previous?.request == stamped.request) {
+                check(previous == stamped) { "Helper request is immutable" }
                 return@withLock checkNotNull(submission)
             }
             check(operation?.isCompleted != false && request == null) { "Previous helper request is unresolved" }
-            request = next.request
-            lastPrompt = next
+            request = stamped.request
+            lastPrompt = stamped
             owned {
-                val result = host.promptHelper(id, next)
-                check(result.request == next.request) { "Host returned a different helper request" }
-                if (result is HelperSubmission.NotSubmitted) settled(next.request)
+                val result = host.promptHelper(id, stamped)
+                check(result.request == stamped.request) { "Host returned a different helper request" }
+                if (result is HelperSubmission.NotSubmitted) settled(stamped.request)
                 result
             }.also {
                 submission = it
@@ -210,6 +212,7 @@ internal class ManagedHelperLease(
         check(metadata.id == id && metadata.owner == owner && metadata.parent == parent) {
             "Host persisted different helper ownership"
         }
+        check(metadata.isRequestOwnershipResolved) { "Helper work attribution is unresolved" }
         service.bind(id, this)
         lock.withLock {
             helper = id

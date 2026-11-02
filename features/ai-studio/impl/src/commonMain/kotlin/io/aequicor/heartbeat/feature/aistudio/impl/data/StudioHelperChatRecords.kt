@@ -39,6 +39,12 @@ internal interface StudioHelperChatRecords {
     /** Ordinary chats never carry helper ownership. */
     suspend fun helperMetadata(helper: HelperId): HelperMetadata?
 
+    /** Persisted initial helper model policy; reading it never chooses or changes a model. */
+    suspend fun helperModel(helper: HelperId): HelperModelOptions = error("Helper model policy is unavailable")
+
+    /** True only for an authoritative empty target that has never entered the native send path. */
+    suspend fun helperHasNeverStarted(helper: HelperId): Boolean = false
+
     /** Exact persisted native reference; conflicting records fail instead of choosing one owner. */
     suspend fun helperMetadata(session: SessionRef): HelperMetadata?
 
@@ -79,6 +85,12 @@ internal fun newStudioHelperRecord(
         request.title,
         at,
         target = target,
+        identity = helperConversationIdentity(id, parent, request.role),
+        executor = if (request.role == io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole.Executor) {
+            StudioExecutorState(id)
+        } else {
+            null
+        },
         projectId = parent?.projectId,
         executionWorkspace = if (parent == null) request.workspace else parent.resolvedExecutionWorkspace(),
         helper = StudioHelperIdentity(

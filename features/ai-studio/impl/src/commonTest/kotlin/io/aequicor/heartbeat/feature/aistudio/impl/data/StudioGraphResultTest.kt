@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
@@ -17,6 +18,21 @@ import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class StudioGraphResultTest {
+    @Test
+    fun `graph result reads only its observed native turn even when another answer is newer`() {
+        val f = NativeHelperFixture()
+        val native = GraphNativeIdentity(f.ref, checkNotNull(f.turn.request), f.turn.id)
+        val messages = listOf(
+            f.message("own", "observed answer", checkNotNull(native.turn)),
+            f.message("later", "unrelated answer", TurnId("other")),
+        )
+
+        assertEquals("observed answer", graphAnswer(messages, native))
+        assertEquals("", graphAnswer(messages, native.copy(turn = TurnId("missing"))))
+        assertEquals("", graphAnswer(emptyList(), native))
+        assertEquals("", graphAnswer(messages, native.copy(turn = null)))
+    }
+
     @Test
     fun `partial output never replaces native failure evidence`() {
         val failure = EngineFailure.Unknown()

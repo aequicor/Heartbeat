@@ -33,6 +33,7 @@ internal class EngineStudioHelperRuns(
     private val coordinator: StudioRunCoordinator,
     private val native: StudioHelperNative,
     private val recovery: StudioHelperRecovery,
+    private val legacy: StudioLegacyRecovery,
     private val worktrees: StudioWorktrees? = null,
 ) : StudioHelperRuns {
     private val log = Log.tag("StudioHelperRuns")
@@ -71,10 +72,19 @@ internal class EngineStudioHelperRuns(
                 },
                 directives = prompt.directives,
                 submission = submission,
+                origin = StudioTurnOrigin.HelperWork,
                 onTurnAccepted = { active, turn -> accepted = active.ref to turn },
             ),
             waitForIdle = true,
         )
+    }
+
+    override suspend fun reconcileLegacy(helper: HelperId, request: RequestId): StudioLegacyObservation? {
+        val record = access.value.helperRecord(helper)
+        log.v { "Inspect legacy root native state before its first journaled send" }
+        if (record.ref == null || record.target == null) return null
+        val active = access.value.liveHelper(helper) ?: recovery.open(record) { access.value.openHelper(record) }
+        return active?.let { legacy.inspect(record, request, it) }
     }
 
     override suspend fun helperTerminal(helper: HelperId, request: RequestId): StudioHelperTerminal? {
@@ -82,6 +92,9 @@ internal class EngineStudioHelperRuns(
         log.v { "Read exact helper native result" }
         return if (record.ref == null || record.target == null) {
             null
+        } else if (record.executor?.isRetired == true) {
+            // Retirement already authorizes exact cleanup; ordinary resume would revive the fenced instance.
+            native.stop(record, request, access.value.liveHelper(helper))
         } else {
             native.result(record, request) {
                 access.value.liveHelper(helper) ?: recovery.open(record) { access.value.openHelper(record) }
@@ -108,7 +121,7 @@ internal class EngineStudioHelperRuns(
         if (record.worktreeTaskId == null) return ""
         val task = worktrees.tasks().first()[helper.value] ?: return ""
         if (task.virtualSandbox == null) return ""
-        val actual = task.virtualContinuations[request.value] ?: request.value
+        val actual = request.value
         val snapshot = task.virtualResultSnapshots[actual] ?: return ""
         return "\nHost note: integrate this helper's virtual result with sandbox_integrate: " +
             "workspace=${task.executionWorkspace?.value ?: "null"}, snapshot=$snapshot."

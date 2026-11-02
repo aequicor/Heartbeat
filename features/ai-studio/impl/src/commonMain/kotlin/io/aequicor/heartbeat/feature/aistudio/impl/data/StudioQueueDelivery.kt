@@ -19,6 +19,8 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueAction
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedMessage
+import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
@@ -90,6 +92,7 @@ internal class StudioQueueDelivery(
     private val authority: Lazy<StudioConfigurationAccess>,
     private val runs: StudioRunCoordinator,
     private val worktrees: StudioWorktrees,
+    private val queue: StudioQueuePort = NoStudioQueue,
 ) : StudioQueueHost {
     override suspend fun queuedRun(
         chat: String,
@@ -98,14 +101,38 @@ internal class StudioQueueDelivery(
         submission: StudioSubmissionGate,
         accepted: suspend () -> Unit,
     ) {
-        chats.value.validateQueuedInput(chat, environment)
+        val creator = message.origin as? StudioQueuedOrigin.Creator
+        if (creator == null) {
+            check(message.configuration == null && message.directives.isEmpty()) { "Invalid human queue metadata" }
+            chats.value.validateQueuedInput(chat, environment)
+        } else {
+            check(environment == null && message.userInstruction == null && message.attachments.isEmpty()) {
+                "Creator input cannot supply human authority or a host environment"
+            }
+            val saved = queue.snapshot(chat).creatorMessages[message.id]
+            check(
+                saved == message.copy(
+                    delivery = io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedDelivery.Pending,
+                ),
+            ) {
+                "Creator payload is not the admitted durable envelope"
+            }
+            checkNotNull(message.configuration) { "Creator execution configuration is missing" }
+            chats.value.validateCreatorInput(chat, creator)
+        }
         runs.run(
             host.value,
             studioTurnRequest(
                 chat, message.text, message.settings, WorktreeRunKind.Coding, RequestId(message.id),
                 attachments = message.attachments, onAccepted = accepted, environment = environment,
-                isUserPrompt = true, userInstruction = message.userInstruction,
-            ).copy(submission = submission),
+                isUserPrompt = creator == null, userInstruction = message.userInstruction,
+            ).copy(
+                submission = submission,
+                origin = StudioTurnOrigin.Conversation,
+                directives = message.directives,
+                causes = creator?.let { setOf(RequestInitiator(it.session, it.request)) }.orEmpty(),
+                queuedConfiguration = message.configuration,
+            ),
             waitForIdle = true,
         )
     }
@@ -118,7 +145,9 @@ internal class StudioQueueDelivery(
     override suspend fun steeringTarget(chat: String): StudioSteeringTarget = chats.value.steeringTarget(chat)
 
     override suspend fun steerQueued(target: StudioSteeringTarget, message: StudioQueuedMessage) {
+        check(message.origin == StudioQueuedOrigin.Human) { "Creator messages cannot steer a human turn" }
         check(!message.hasEnvironment) { "Steering cannot replace a captured host environment" }
+        chats.value.validateQueuedInput(target.chat, null)
         authority.value.captureUserInstructions(target.chat, RequestId(message.id), message.userInstruction)
         target.deliver(message)
     }
@@ -162,6 +191,8 @@ internal suspend fun cancelStudioNativeTurn(active: ActiveSession, worktrees: St
 /** Narrow profile boundary keeps Metro contribution providers independent of the concrete repository type. */
 internal interface StudioQueueAccess {
     suspend fun validateQueuedInput(chat: String, environment: StudioChatEnvironment?)
+    suspend fun validateCreatorInput(chat: String, origin: StudioQueuedOrigin.Creator): Unit =
+        error("Creator queue is unavailable")
     suspend fun steeringTarget(chat: String): StudioSteeringTarget
 }
 

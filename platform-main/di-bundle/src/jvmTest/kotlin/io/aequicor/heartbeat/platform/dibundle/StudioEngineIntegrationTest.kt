@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
@@ -210,7 +211,7 @@ class StudioEngineIntegrationTest {
             val native = engine.natives.single()
             assertEquals(workspace, engine.createdRequests.single().workspace)
             assertEquals(TrustLevel.Full, native.sent.single().trust)
-            assertTrue(
+            assertFalse(
                 native.sent.single().parts.filterIsInstance<ContentPart.Text>().any {
                     it.text.contains("Do not call scheduler_sleep")
                 },
@@ -626,9 +627,10 @@ class StudioEngineIntegrationTest {
         val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         native.cancelGate = gate
         native.isCancellationFailureEnabled = true
-        runtime.cancel(chat.id)
+        val stopped = async { assertFailsWith<EngineException> { runtime.cancel(chat.id) } }
         assertTrue(chat.id in runtime.state.value.running)
         gate.complete(Unit)
+        stopped.await()
         runtime.state.first { chat.id in it.stopFailures }
         assertTrue(chat.id in runtime.state.value.running)
         native.finish()

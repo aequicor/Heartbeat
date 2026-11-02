@@ -72,7 +72,7 @@ class OrganicAiMachineTest {
             version = 2,
             cells = finished.cells.map {
                 if (it.id == ZYGOTE) {
-                    it.copy(phase = working(ZYGOTE, turn = 2, isRecovery = true), turns = 2)
+                    it.copy(phase = working(ZYGOTE, turn = 2, isRecovery = false), turns = 2)
                 } else {
                     it
                 }
@@ -142,10 +142,10 @@ class OrganicAiMachineTest {
     }
 
     @Test
-    fun `a germinating cell starts over without recovery`() {
+    fun `a missing session binding still restores through the native journal`() {
         val germinating = organism(zygote = zygoteCell().copy(session = null))
         val awakened = germinating.awakened()
-        assertEquals(working(ZYGOTE, turn = 2, isRecovery = false), awakened.zygote.phase)
+        assertEquals(working(ZYGOTE, turn = 2, isRecovery = true), awakened.zygote.phase)
     }
 
     @Test
@@ -228,7 +228,7 @@ class OrganicAiMachineTest {
             effects = listOf(OrganicAiEffect.Persist(stalled)),
         )
         val resumed = organism(
-            zygote = zygoteCell(working(ZYGOTE, turn = 2, isRecovery = true), turns = 2),
+            zygote = zygoteCell(working(ZYGOTE, turn = 2, isRecovery = false), turns = 2),
             target = null,
             version = 3,
         )
@@ -363,9 +363,14 @@ class OrganicAiMachineTest {
             "Run tests",
             listOf(PermissionOption(PermissionOptionId("allow"), "Allow")),
         )
-        val awaiting = organism(zygote = zygoteCell(working(ZYGOTE).copy(awaiting = listOf(pending))))
+        val owner = io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext(
+            io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionId("owner"),
+            io.aequicor.heartbeat.feature.aiengine.facade.api.SessionKind.Session,
+        )
+        val full = organism().copy(conversation = owner)
+        val awaiting = full.copy(cells = listOf(zygoteCell(working(ZYGOTE).copy(awaiting = listOf(pending)))))
         spec.assertTransition(
-            living(organism()),
+            living(full),
             OrganicAiIntent.Internal.PermissionsChanged(ORGANISM, ZYGOTE, request(ZYGOTE), listOf(pending)),
             living(awaiting),
         )
@@ -376,7 +381,11 @@ class OrganicAiMachineTest {
             living(awaiting),
             effects = listOf(OrganicAiEffect.Respond(ORGANISM, ZYGOTE, decision)),
         )
-        spec.assertIgnored(living(organism()), OrganicAiIntent.Public.Decide(ORGANISM, ZYGOTE, decision))
+        spec.assertIgnored(living(full), OrganicAiIntent.Public.Decide(ORGANISM, ZYGOTE, decision))
+        spec.assertIgnored(
+            living(awaiting.copy(conversation = null)),
+            OrganicAiIntent.Public.Decide(ORGANISM, ZYGOTE, decision),
+        )
         spec.assertIgnored(
             living(awaiting),
             OrganicAiIntent.Public.Decide(ORGANISM, ZYGOTE, decision.copy(option = PermissionOptionId("deny"))),

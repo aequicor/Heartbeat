@@ -96,9 +96,16 @@ class SessionLauncherTest {
         val policy = SessionPolicy(fixture.routes, enabled, registry, fixture.context)
         val assembler = ActiveSessionAssembler(policy, backgroundScope)
         var handles = 0
-        val host = ActiveSessionHost { native, route, model, hooks ->
+        val host = ActiveSessionHost { native, route, model, options ->
             beforeOpenGate?.await()
-            assembler.assemble(native, route, model, TestHandleScope("h${++handles}", backgroundScope), hooks)
+            assembler.assemble(
+                native,
+                route,
+                model,
+                TestHandleScope("h${++handles}", backgroundScope),
+                options.areSessionHooksEnabled,
+                options.logicalSession,
+            )
         }
         pool = RuntimePool(fixture.context, registry::hasActiveTurn, registry::closeHandles)
         val launcher = SessionLauncher(
@@ -107,6 +114,7 @@ class SessionLauncherTest {
             sessions,
             host,
             fixture.context,
+            testExecutionAccess(),
         )
         capabilities = FacadeCapabilities(sessions, lazyOf(launcher), registry)
         runCurrent()

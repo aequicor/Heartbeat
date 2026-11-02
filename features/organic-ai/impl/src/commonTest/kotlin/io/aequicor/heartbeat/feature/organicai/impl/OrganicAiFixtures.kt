@@ -51,6 +51,7 @@ internal fun organism(
     target: EngineTarget? = TARGET,
 ): Organism = Organism(
     id = ORGANISM,
+    incarnation = "test-incarnation",
     goal = GOAL,
     target = target,
     immunityTarget = null,

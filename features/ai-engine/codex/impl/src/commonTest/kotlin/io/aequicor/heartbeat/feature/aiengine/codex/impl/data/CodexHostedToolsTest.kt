@@ -136,6 +136,7 @@ class CodexHostedToolsTest {
         fixture.callHosted()
         runCurrent()
         val request = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value).requests.single()
+        assertEquals("operation-A", request.operationBinding)
         assertEquals(0, tools.executions)
         assertEquals(workspace, tools.context?.workspace)
         assertEquals(turn, tools.context?.turn)
@@ -222,7 +223,8 @@ internal class HostedFixture(description: String = "Run command") : ProfileAgent
         if (scope.declared?.contains(spec.name) == false) "" else instructions(scope.workspace)
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         this.context = context
-        if (!context.permissions.request(AgentToolApproval(name, "Run command"))) return AgentToolResult("Denied", true)
+        val isApproved = context.permissions.request(AgentToolApproval(name, "Run command", binding = "operation-A"))
+        if (!isApproved) return AgentToolResult("Denied", true)
         executions++
         return AgentToolResult("done")
     }

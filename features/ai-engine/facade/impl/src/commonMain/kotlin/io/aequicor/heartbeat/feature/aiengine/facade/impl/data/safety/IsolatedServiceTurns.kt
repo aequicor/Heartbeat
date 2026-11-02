@@ -5,26 +5,26 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ArchivesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.answerOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -89,14 +89,17 @@ internal enum class ServiceTurnRefusal {
  * propagate to the owner, which must not log their messages.
  */
 internal class IsolatedServiceTurns(
-    private val facade: Lazy<EngineFacade>,
-    private val isolation: AgentSafetyIsolation,
+    private val host: ServiceTurnHost,
     private val slots: ServiceTurnSlots,
     private val scope: CoroutineScope,
     private val settleGrace: Duration,
     /** The owner's logger; its tag tells reviews from other service turns. */
     private val log: Log,
 ) {
+    private val handoffs = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+    private val facade get() = host.facade
+    private val isolation get() = host.isolation
+
     suspend fun run(turn: ServiceTurn): ServiceTurnOutcome {
         val target = turn.target
         val descriptor = facade.value.engines.state.value.firstOrNull { it.descriptor.id == target.engine }?.descriptor
@@ -111,25 +114,60 @@ internal class IsolatedServiceTurns(
             return ServiceTurnOutcome.Refused(ServiceTurnRefusal.Closing)
         }
         var session: ActiveSession? = null
+        var attempt: ServiceAttempt? = null
         try {
+            val claimed = host.journal.begin(turn, descriptor.nativeTools.map { it.name })
+            attempt = claimed
             return withTimeoutOrNull(turn.timeout) {
-                val opened = creates.feature.create(CreateSessionRequest(target, areSessionHooksEnabled = true))
-                session = opened
-                isolation.restrict(opened.ref, descriptor.nativeTools.map { it.name })
-                answer(opened, turn)
+                val opened = withContext(NonCancellable) {
+                    creates.feature.create(
+                        CreateSessionRequest(target, areSessionHooksEnabled = true, execution = claimed.binding),
+                    ).also {
+                        session = it
+                        isolation.restrict(it.ref, claimed.nativeTools)
+                        host.journal.opened(claimed.binding, it.ref)
+                    }
+                }
+                if (scope.isActive) {
+                    answer(opened, turn, claimed)
+                } else {
+                    ServiceTurnOutcome.Refused(ServiceTurnRefusal.Closing)
+                }
             } ?: ServiceTurnOutcome.Refused(ServiceTurnRefusal.Timeout)
         } finally {
-            val opened = session
-            if (opened == null) slots.releaseRunning() else withContext(NonCancellable) { dismiss(opened) }
+            withContext(NonCancellable) {
+                val opened = session
+                val claimed = attempt
+                if (opened != null && claimed != null) {
+                    dismiss(opened, claimed)
+                } else {
+                    if (claimed != null) cleanup("retire") { host.retire(claimed) }
+                    slots.releaseRunning()
+                }
+            }
         }
     }
 
-    private suspend fun answer(session: ActiveSession, turn: ServiceTurn): ServiceTurnOutcome {
+    private suspend fun answer(
+        session: ActiveSession,
+        turn: ServiceTurn,
+        attempt: ServiceAttempt,
+    ): ServiceTurnOutcome {
         val sends = session.features.resolve(SendsPrompts) as? FeatureAccess.Available
             ?: return ServiceTurnOutcome.Refused(ServiceTurnRefusal.NotSendable)
-        val sent = sends.feature.send(
-            PromptRequest(turn.request, listOf(ContentPart.Text(turn.text)), trust = TrustLevel.Ask),
-        )
+        val prompt = host.journal.prepare(attempt.binding)
+        val sent = handoffs.async(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                val accepted = sends.feature.send(prompt)
+                host.journal.accepted(attempt.binding, accepted)
+                Result.success(accepted)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "Service send failed" }
+                Result.failure(e)
+            }
+        }.await().getOrThrow()
         val ended = session.state.first {
             it is ActiveSessionState.Ready || it is ActiveSessionState.Unavailable ||
                 it is ActiveSessionState.AwaitingUserAction || it is ActiveSessionState.Closing ||
@@ -140,15 +178,19 @@ internal class IsolatedServiceTurns(
         ) {
             return ServiceTurnOutcome.Refused(ServiceTurnRefusal.Incomplete)
         }
+        host.journal.settled(attempt.binding, checkNotNull(ended.lastTurn))
+        return readAnswer(session, sent, turn.maxAnswerChars)
+    }
+
+    private suspend fun readAnswer(session: ActiveSession, sent: TurnId, maxAnswerChars: Int): ServiceTurnOutcome {
         val history = session.features.resolve(SessionHistory) as? FeatureAccess.Available
             ?: return ServiceTurnOutcome.Refused(ServiceTurnRefusal.NoHistory)
         val items = history.feature.page(HistoryPageRequest(limit = HISTORY_PAGE)).items
-        return ServiceTurnOutcome.Answered(answerOf(items, sent, maxChars = turn.maxAnswerChars))
+        return ServiceTurnOutcome.Answered(answerOf(items, sent, maxChars = maxAnswerChars))
     }
 
-    private suspend fun dismiss(session: ActiveSession) {
-        val turn = session.state.value.serviceTurn()
-        val isSettled = cleanup("stop") { stop(session, turn) }
+    private suspend fun dismiss(session: ActiveSession, attempt: ServiceAttempt) {
+        val isSettled = cleanup("stop") { stop(session, attempt) }
         if (isSettled && finish(session)) {
             slots.releaseRunning()
             return
@@ -158,7 +200,7 @@ internal class IsolatedServiceTurns(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             var isClosed = false
             try {
-                val isTerminal = withTimeoutOrNull(settleGrace) { awaitTerminal(session, turn) } != null
+                val isTerminal = awaitProof(session, attempt)
                 isClosed = if (isTerminal) finish(session) else cleanup("close") { session.close() }
                 val isAbandoned = !isTerminal || !isClosed
                 if (isAbandoned) {
@@ -174,28 +216,59 @@ internal class IsolatedServiceTurns(
         }
     }
 
-    /** A failed submission may not have reached the runtime; Unavailable must be reconciled before cancellation. */
-    private suspend fun stop(session: ActiveSession, turn: TurnId?) {
-        if (session.state.value is ActiveSessionState.Unavailable && !session.state.value.hasFinished(turn)) {
+    /** Retirement prevents late entry; only exact known native completion may release durable isolation. */
+    private suspend fun stop(session: ActiveSession, attempt: ServiceAttempt) {
+        host.retire(attempt)
+        var current = host.journal.get(attempt.binding)
+        if (current.session == null) current = host.journal.opened(attempt.binding, session.ref)
+        if (current.stage == ServiceStage.Settled) return
+        val observed = session.state.value.observed()?.takeIf {
+            it.request == current.request && it.target == current.target
+        }
+        if (current.stage == ServiceStage.Sending && observed != null) {
+            current = host.journal.accepted(attempt.binding, observed.id)
+        }
+        if (current.stage in setOf(ServiceStage.Opened, ServiceStage.Prepared)) {
+            host.journal.settled(attempt.binding)
+        } else {
+            stopEntered(session, current)
+        }
+    }
+
+    private suspend fun stopEntered(session: ActiveSession, attempt: ServiceAttempt) {
+        if (session.state.value is ActiveSessionState.Unavailable && session.state.value.terminal(attempt) == null) {
             (session.features.resolve(ReconcilesSession) as? FeatureAccess.Available)?.feature?.synchronize()
         }
-        val cancellable = when (val state = session.state.value) {
-            is ActiveSessionState.Running -> state.turn.id
+        val turn = when (val state = session.state.value) {
+            is ActiveSessionState.Running -> state.turn
 
-            is ActiveSessionState.AwaitingUserAction -> state.turn.id
+            is ActiveSessionState.AwaitingUserAction -> state.turn
 
             is ActiveSessionState.Ready, is ActiveSessionState.Submitting, is ActiveSessionState.Interrupting,
             is ActiveSessionState.Unavailable, is ActiveSessionState.Closing, ActiveSessionState.Closed,
             -> null
+        }?.takeIf { it.request == attempt.request && it.target == attempt.target }
+        if (turn != null) {
+            (session.features.resolve(CancelsTurns) as? FeatureAccess.Available)?.feature?.cancel(turn.id)
         }
-        if (turn != null && cancellable == turn) {
-            (session.features.resolve(CancelsTurns) as? FeatureAccess.Available)?.feature?.cancel(turn)
-        }
-        awaitTerminal(session, turn)
+        val ended = session.state.first { it.terminal(attempt) != null }
+        host.journal.settled(attempt.binding, checkNotNull(ended.terminal(attempt)))
     }
 
-    private suspend fun awaitTerminal(session: ActiveSession, turn: TurnId?): ActiveSessionState =
-        session.state.first { it.hasFinished(turn) }
+    private suspend fun awaitProof(session: ActiveSession, attempt: ServiceAttempt): Boolean = try {
+        withTimeoutOrNull(settleGrace) {
+            host.retire(attempt)
+            val current = host.journal.get(attempt.binding)
+            val ended = session.state.first { it.terminal(current) != null }
+            host.journal.settled(attempt.binding, checkNotNull(ended.terminal(current)))
+            true
+        } ?: false
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "Service terminal observation failed" }
+        false
+    }
 
     private suspend fun finish(session: ActiveSession): Boolean {
         cleanup("archive") {
@@ -223,8 +296,8 @@ internal class IsolatedServiceTurns(
     }
 }
 
-/** The turn a dismissed service session must see terminate: the current one, else the last. */
-private fun ActiveSessionState.serviceTurn(): TurnId? = when (this) {
+/** Exact observed identity, used only to preserve the original turn when native send lost its ACK. */
+private fun ActiveSessionState.observed(): Turn? = when (this) {
     is ActiveSessionState.Submitting -> turn
     is ActiveSessionState.Running -> turn
     is ActiveSessionState.AwaitingUserAction -> turn
@@ -232,17 +305,23 @@ private fun ActiveSessionState.serviceTurn(): TurnId? = when (this) {
     is ActiveSessionState.Unavailable -> activeTurn ?: lastTurn
     is ActiveSessionState.Ready -> lastTurn
     is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
-}?.id
+}
 
-/** Unavailable retains correlated completion; Closed only proves handle detachment, never native termination. */
-private fun ActiveSessionState.hasFinished(turn: TurnId?): Boolean = when (this) {
-    is ActiveSessionState.Ready -> turn == null || lastTurn?.id == turn
+/** Closed/Unknown and another request never prove service termination. */
+private fun ActiveSessionState.terminal(attempt: ServiceAttempt): Turn? {
+    val terminal = when (this) {
+        is ActiveSessionState.Ready -> lastTurn
 
-    is ActiveSessionState.Unavailable -> activeTurn == null && lastTurn != null && lastTurn?.id == turn
+        is ActiveSessionState.Unavailable -> lastTurn?.takeIf { activeTurn == null }
 
-    is ActiveSessionState.Submitting, is ActiveSessionState.Running, is ActiveSessionState.AwaitingUserAction,
-    is ActiveSessionState.Interrupting, is ActiveSessionState.Closing, ActiveSessionState.Closed,
-    -> false
+        is ActiveSessionState.Submitting, is ActiveSessionState.Running, is ActiveSessionState.AwaitingUserAction,
+        is ActiveSessionState.Interrupting, is ActiveSessionState.Closing, ActiveSessionState.Closed,
+        -> null
+    }
+    return terminal?.takeIf {
+        it.request == attempt.request && it.target == attempt.target &&
+            (attempt.turn == null || it.id == attempt.turn) && it.outcome != null && it.outcome != TurnOutcome.Unknown
+    }
 }
 
 private const val HISTORY_PAGE = 50

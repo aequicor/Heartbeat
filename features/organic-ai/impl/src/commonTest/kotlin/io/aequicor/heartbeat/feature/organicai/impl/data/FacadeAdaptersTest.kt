@@ -17,7 +17,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
@@ -306,7 +305,8 @@ class FacadeAdaptersTest {
         native.state.value = ActiveSessionState.Unavailable(EngineFailure.Unknown())
         assertEquals(TurnOutcome.Unknown, native.awaitTurn(turn) {})
         native.state.value = ActiveSessionState.Closed
-        assertTrue(native.awaitTurn(turn) {} is TurnOutcome.Failed)
+        assertEquals(TurnOutcome.Unknown, native.awaitTurn(turn) {})
+        assertFalse(native.stopTurn(1.seconds))
     }
 
     @Test
@@ -463,12 +463,12 @@ class FacadeAdaptersTest {
     }
 
     @Test
-    fun `a lysed cell this process holds no handle of counts as stopped and is archived`() = runTest {
+    fun `a cold saved reference stays unconfirmed without creating or resuming a handle`() = runTest {
         val native = FakeSession(session("stored"))
         val cells = cellSessions(FakeFacade(stored = mapOf(native.ref to native)))
-        assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Lyse))
-        assertTrue(native.isArchived)
-        assertEquals(ReleaseOutcome.Stopped, cells.release(key, null, ReleaseMode.Lyse))
+        assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, native.ref, ReleaseMode.Lyse))
+        assertFalse(native.isArchived)
+        assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, null, ReleaseMode.Lyse))
     }
 
     @Test
@@ -616,72 +616,16 @@ class FacadeAdaptersTest {
         assertFailsWith<EngineException> { cells.respond(key, decision) }
     }
 
-    @Test
-    fun `each judgement runs in its own tool-less session that is dismissed afterwards`() = runTest {
-        val first = FakeSession(session("judge-1"))
-        val second = FakeSession(session("judge-2"))
-        val facade = FakeFacade(ArrayDeque(listOf(first, second)))
-        val judges = FacadeJudgeSessions(facade)
-        // History carries the engine's own turn ids.
-        first.items = listOf(
-            message(MessageRole.User, "dossier", turn = "native-1", position = 0),
-            message(MessageRole.Assistant, "VERDICT spare", turn = "native-1", position = 1),
-        )
-        val sessions = mutableListOf<io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef>()
-        assertEquals("VERDICT spare", judges.deliberate(TARGET, "dossier") { sessions += it })
-        judges.deliberate(TARGET, "dossier") { sessions += it }
-        assertEquals(listOf(first.ref, second.ref), sessions)
-        facade.creations.forEach {
-            assertFalse(it.areDetachedToolsEnabled)
-            assertNull(it.workspace)
-            // Judges stay in a clean room: never the organism's harnesses, hooks or working instructions.
-            assertEquals(emptyMap(), it.preselected)
-            assertFalse(it.areSessionHooksEnabled)
-        }
-        listOf(first, second).forEach {
-            assertEquals(1, it.closes)
-            assertTrue(it.isArchived)
-        }
-        assertEquals(TrustLevel.Ask, first.prompts.single().trust)
-    }
+    private fun permission(turn: TurnId) = PermissionRequest(
+        PermissionRequestId("p1"),
+        turn,
+        "Run",
+        listOf(PermissionOption(PermissionOptionId("allow"), "Allow")),
+    )
+}
 
-    @Test
-    fun `a failed judgement still dismisses its session`() = runTest {
-        val judge = FakeSession(session("judge")).apply { finish = TurnOutcome.Failed(EngineFailure.Unknown()) }
-        assertFailsWith<EngineException> {
-            FacadeJudgeSessions(
-                FakeFacade(ArrayDeque(listOf(judge))),
-            ).deliberate(TARGET, "x") {}
-        }
-        assertEquals(1, judge.closes)
-        assertTrue(judge.isArchived)
-    }
-
-    @Test
-    fun `a judge that asks for permission is stopped`() = runTest {
-        val judge = FakeSession(session("judge")).apply { finish = null }
-        val facade = FakeFacade(ArrayDeque(listOf(judge)))
-        val answer = async { FacadeJudgeSessions(facade).deliberate(TARGET, "x") {} }
-        runCurrent()
-        val turn = TurnId("turn-1")
-        judge.state.value = ActiveSessionState.AwaitingUserAction(
-            Turn(turn, judge.prompts.single().id, TARGET),
-            listOf(permission(turn)),
-        )
-        assertEquals("", answer.await())
-        assertEquals(listOf(turn), judge.cancelled)
-    }
-
-    @Test
-    fun `an unconfirmed deliberation gives no verdict`() = runTest {
-        val judge = FakeSession(session("judge")).apply {
-            finish = TurnOutcome.Unknown
-            items = listOf(message(MessageRole.Assistant, "VERDICT kill", turn = "turn-1"))
-        }
-        assertEquals("", FacadeJudgeSessions(FakeFacade(ArrayDeque(listOf(judge)))).deliberate(TARGET, "x") {})
-        assertEquals(1, judge.closes)
-    }
-
+@OptIn(ExperimentalCoroutinesApi::class)
+class FacadeTranscriptAdaptersTest {
     @Test
     fun `transcripts are read from the stored session`() = runTest {
         val stored = FakeSession(session("stored")).apply { items = listOf(message(MessageRole.User, "hi")) }
@@ -701,11 +645,4 @@ class FacadeAdaptersTest {
         assertEquals(listOf(reopening), facade.resumptions)
         assertEquals(1, stored.closes)
     }
-
-    private fun permission(turn: TurnId) = PermissionRequest(
-        PermissionRequestId("p1"),
-        turn,
-        "Run",
-        listOf(PermissionOption(PermissionOptionId("allow"), "Allow")),
-    )
 }

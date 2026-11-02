@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.organicai.api
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
 
@@ -26,7 +27,7 @@ internal data class Step(
 )
 
 /** A user decision to deliver to [cell]. */
-internal data class Response(val cell: CellId, val decision: PermissionDecision)
+internal data class Response(val cell: CellId, val decision: PermissionDecision, val relay: PermissionRelay?)
 
 /** What [intent] does to the organisms, or null when it does not apply (unknown organism, stale or refused). */
 internal fun OrganicAiState.Living.evolve(intent: OrganismIntent): Step? {
@@ -42,11 +43,17 @@ internal fun OrganicAiState.Living.apply(step: Step): OrganicAiState.Living =
     copy(organisms = organisms + (step.organism.id to step.organism))
 
 /**
- * The organism as it continues after a restart: every working cell starts a fresh turn of the same work, a
- * recovery turn when its session exists. Observed turns and permission requests are gone.
+ * Restart creates fresh logical observers for working cells, never permission to replay native work. Native
+ * receipts restore the original requests. Unconfirmed ended organisms retry only exact cleanup.
  */
 internal fun Organism.awakened(): Organism {
-    if (!isDeveloping) return this
+    if (!isDeveloping) {
+        return if (sessions == SessionRelease.Unconfirmed) {
+            copy(sessions = SessionRelease.Releasing)
+        } else {
+            this
+        }
+    }
     val cells = cells.map { cell ->
         when (val phase = cell.phase) {
             is CellPhase.Working -> recover(cell, phase.work)
@@ -67,6 +74,8 @@ internal fun Conception.conceive(): Step {
         harnesses = harnesses,
         baseCommit = baseCommit,
         decisionMode = decisionMode,
+        conversation = conversation,
+        incarnation = incarnation,
     )
     val started = organism.updated(CellId.ZYGOTE) { organism.begin(it, Work.Genesis) }
     return if (target == null) {
@@ -82,7 +91,7 @@ private fun Organism.evolve(intent: OrganismIntent): Step? = when (intent) {
     is OrganicAiIntent.Internal.SessionsReleased -> sessionsReleased(intent.isConfirmed)
     is OrganicAiIntent.Public.Resume -> resume()
     is OrganicAiIntent.Public.FollowUp -> followUp(intent)
-    is OrganicAiIntent.Public.Decide -> decide(intent.cell, intent.decision)
+    is OrganicAiIntent.Public.Decide -> decide(intent.cell, intent.decision, intent.relay)
     is OrganicAiIntent.Internal.Targeted -> targeted(intent.target)
     is OrganicAiIntent.Internal.Unresolved -> unresolved()
     is OrganicAiIntent.Internal.Divide -> divide(intent)
@@ -128,7 +137,10 @@ private fun Organism.follow(cell: Cell, intent: TurnIntent): Step? {
 
         is OrganicAiIntent.Internal.TurnAccepted -> observe(cell, phase.copy(turn = intent.turn))
 
-        is OrganicAiIntent.Internal.PermissionsChanged -> observe(cell, phase.copy(awaiting = intent.pending))
+        is OrganicAiIntent.Internal.PermissionsChanged -> observe(
+            cell,
+            phase.copy(awaiting = intent.pending, relays = intent.relays),
+        )
 
         is OrganicAiIntent.Internal.TurnSettled -> settle(cell, intent.settlement)
 
@@ -163,10 +175,14 @@ private fun Organism.working(id: CellId, request: RequestId): Cell? =
 private fun Organism.observe(cell: Cell, phase: CellPhase.Working): Step =
     Step(updated(cell.id) { it.copy(phase = phase) }, isDurable = false)
 
-private fun Organism.decide(id: CellId, decision: PermissionDecision): Step? {
+private fun Organism.decide(id: CellId, decision: PermissionDecision, relay: PermissionRelay?): Step? {
     val phase = cell(id)?.phase as? CellPhase.Working ?: return null
     if (!isDeveloping || phase.awaiting.none { it.accepts(decision) }) return null
-    return Step(this, isDurable = false, response = Response(id, decision))
+    val isFullConversation = id == CellId.ZYGOTE && conversation != null
+    val isMediated = relay != null && relay in phase.relays && relay.accepts(decision)
+    if (!isFullConversation && !isMediated) return null
+    if (isFullConversation && relay != null) return null
+    return Step(this, isDurable = false, response = Response(id, decision, relay))
 }
 
 private fun Organism.targeted(target: EngineTarget): Step? {
@@ -196,7 +212,9 @@ private fun Organism.followUp(intent: OrganicAiIntent.Public.FollowUp): Step? {
 private fun Organism.resume(): Step? {
     val zygote = zygote
     if (status is OrganismStatus.Completed && isStopped && zygote.phase is CellPhase.Completed) {
-        val restarted = updated(zygote.id) { recover(it.copy(isAwaitingResults = false), Work.Genesis) }
+        val restarted = updated(
+            zygote.id,
+        ) { recover(it.copy(isAwaitingResults = false), Work.Genesis, isRecovery = false) }
             .copy(status = OrganismStatus.Developing)
         return if (target == null) Step(restarted, isResolving = true) else Step(restarted, drive = zygote.id)
     }
@@ -209,7 +227,7 @@ private fun Organism.resume(): Step? {
         )
     }
     val phase = zygote.phase as? CellPhase.Stalled ?: return null
-    val restarted = updated(zygote.id) { recover(it, phase.work) }
+    val restarted = updated(zygote.id) { recover(it, phase.work, isRecovery = false) }
     return if (target == null) Step(restarted, isResolving = true) else Step(restarted, drive = zygote.id)
 }
 
@@ -407,10 +425,14 @@ private fun Organism.excise(root: CellId, cause: DeathCause): Pair<Organism, Lis
 private fun Organism.wake(cell: Cell): Cell = begin(cell.copy(isAwaitingResults = false), Work.CheckInbox)
 
 /** Migrates old persisted letters turns before recovery; their result text can only be read through the tool. */
-private fun Organism.recover(cell: Cell, work: Work): Cell {
+private fun Organism.recover(cell: Cell, work: Work, isRecovery: Boolean = true): Cell {
     val legacy = work as? Work.Letters
     val restored = if (legacy == null) cell else cell.copy(inbox = legacy.letters + cell.inbox)
-    return begin(restored, if (legacy == null) work else Work.CheckInbox, isRecovery = cell.session != null)
+    return begin(
+        restored,
+        if (legacy == null) work else Work.CheckInbox,
+        isRecovery = isRecovery,
+    )
 }
 
 /** [cell] starting its next turn on [work] with a fresh request id. */

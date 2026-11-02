@@ -88,6 +88,12 @@ public data class CreateSessionRequest(
      * belong here, never values derived from model output or tool arguments.
      */
     val preselected: Map<String, Set<String>> = emptyMap(),
+    /** Host-persisted logical role; serialized/model requests cannot supply an ownership claim. */
+    @kotlinx.serialization.Transient
+    val logicalSession: LogicalSessionContext? = null,
+    /** Host-only executor incarnation; serialized requests cannot claim execution authority. */
+    @kotlinx.serialization.Transient
+    val execution: SessionExecutionBinding? = null,
 )
 
 /**
@@ -101,6 +107,12 @@ public data class ResumeSessionRequest(
     val areDetachedToolsEnabled: Boolean = false,
     /** Opts this handle's own turns into profile session hooks; service sessions leave this false. */
     val areSessionHooksEnabled: Boolean = false,
+    /** Restored by the owning host from its durable conversation record, never inferred from the native ref. */
+    @kotlinx.serialization.Transient
+    val logicalSession: LogicalSessionContext? = null,
+    /** Host-only executor incarnation; serialized requests cannot claim execution authority. */
+    @kotlinx.serialization.Transient
+    val execution: SessionExecutionBinding? = null,
 )
 
 /**
@@ -224,11 +236,15 @@ public data class PermissionRequest(
     val description: String? = null,
     /** Answer the engine expects together with the chosen option; null for a plain button choice. */
     val input: PermissionInput? = null,
+    /** Opaque exact host action snapshot, preserved by adapters and owner relays; never displayed or logged. */
+    val operationBinding: String? = null,
 ) {
     init {
         require(options.isNotEmpty())
         require(options.map { it.id }.distinct().size == options.size)
     }
+
+    override fun toString(): String = "PermissionRequest"
 }
 
 /** One selectable value of a choice input. */

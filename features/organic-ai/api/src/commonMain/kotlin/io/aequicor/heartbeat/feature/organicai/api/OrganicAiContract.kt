@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -90,6 +91,7 @@ public sealed interface OrganicAiIntent : MachineIntent {
             override val organism: OrganismId,
             val cell: CellId,
             val decision: PermissionDecision,
+            val relay: PermissionRelay? = null,
         ) : Public,
             OrganismIntent
     }
@@ -185,6 +187,7 @@ public sealed interface OrganicAiIntent : MachineIntent {
             override val cell: CellId,
             override val request: RequestId,
             val pending: List<PermissionRequest>,
+            val relays: List<PermissionRelay> = emptyList(),
         ) : Internal,
             TurnIntent
 
@@ -276,13 +279,13 @@ public sealed interface OrganicAiEffect : MachineEffect {
     /** Reads every organism of the journal. */
     public data object Restore : OrganicAiEffect
 
-    /** Saves the awakened [organisms] first, then drives their working cells and judges their open cases. */
+    /** Saves awakened snapshots, observes recorded requests, and retries cleanup of ended organisms. */
     public data class Revive(val organisms: List<Organism>) : OrganicAiEffect
 
     /** Drives the [cells] made Working by one transition, leaving every other turn and judge alone. */
     public data class DriveCells(val organism: Organism, val cells: List<CellId>) : OrganicAiEffect
 
-    /** Saves [organisms] (versions already written are skipped), cancels turns, releases handles, then Hibernated. */
+    /** Fences new handoffs, saves [organisms], attempts exact cell and judge stops, then reports Hibernated. */
     public data class Hibernate(val organisms: List<Organism>) : OrganicAiEffect
 
     /** Writes [organism] unless the journal has a newer version. */
@@ -298,8 +301,12 @@ public sealed interface OrganicAiEffect : MachineEffect {
     public data class Drive(val organism: Organism, val cell: CellId, val request: RequestId) : OrganicAiEffect
 
     /** Delivers the user's [decision] to the session of [cell]. */
-    public data class Respond(val organism: OrganismId, val cell: CellId, val decision: PermissionDecision) :
-        OrganicAiEffect
+    public data class Respond(
+        val organism: OrganismId,
+        val cell: CellId,
+        val decision: PermissionDecision,
+        val relay: PermissionRelay? = null,
+    ) : OrganicAiEffect
 
     /** Judges [case] in a fresh session that only sees the dossier, then reports the ruling. */
     public data class Judge(val organism: Organism, val case: CaseId) : OrganicAiEffect

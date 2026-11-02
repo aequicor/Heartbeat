@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitchFailure
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 
@@ -21,10 +22,29 @@ internal class StudioEngineSwitchHelpers(
     private val chats = stores.keyValue(ChatSpec)
 
     suspend fun <T> withIdleSource(record: StudioChatRecord, body: suspend () -> T): T =
-        if (record.helper == null) body() else routes.withIdleRoute(HelperId(record.id), attempts, body)
+        routes.withIdleRoute(HelperId(record.id), attempts, body = body)
+
+    /** The native close stays outside this callback; only context persistence holds the journal barrier. */
+    fun contextCommit(request: StudioTurnRequest, isPrepared: Boolean = false): StudioContextCommit =
+        StudioContextCommit { commit -> attempts.withAutomaticCommit(request, isPrepared, commit) }
+
+    /** A frozen tool manifest may move only the exact request still reserved before native preparation. */
+    suspend fun <T> withPreparingSource(
+        record: StudioChatRecord,
+        request: StudioTurnRequest,
+        reserved: RequestId?,
+        body: suspend () -> T,
+    ): T {
+        val gate = request.submission as? StudioHelperSubmission
+        check(record.id == request.id)
+        check(gate == null || (gate.matches(HelperId(record.id), request.request) && reserved == request.request)) {
+            "Conversation context preparation is not reserved by this request"
+        }
+        return routes.withIdleRoute(HelperId(record.id), attempts, gate, body)
+    }
 
     fun validate(record: StudioChatRecord, target: EngineTarget) {
-        if (record.helper != null) {
+        if (record.helper != null && !record.isHumanConversation) {
             val declared = facade.engines.state.value.firstOrNull { it.descriptor.id == target.engine }
                 ?.descriptor?.declaredFeatures.orEmpty()
             refuseUnless(AppliesTrustLevels.id in declared, StudioEngineSwitchFailure.Unsupported)
@@ -33,7 +53,7 @@ internal class StudioEngineSwitchHelpers(
 
     suspend fun identity(record: StudioChatRecord, target: EngineTarget): StudioHelperIdentity? {
         val helper = record.helper ?: return null
-        if (helper.model.reviewTarget != null) return helper
+        if (record.isHumanConversation || helper.model.reviewTarget != null) return helper
         val parent = helper.parentChatId?.let { id ->
             checkNotNull(chats.get(ChatsKey).orEmpty().firstOrNull { it.id == id }?.target) {
                 "The helper parent review model is unavailable"

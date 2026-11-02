@@ -35,6 +35,7 @@ internal class ClaudePermissionsTest {
         val running = assertIs<ActiveSessionState.Running>(fixture.state)
         assertTrue(request.id in running.turn.resolvedPermissions)
         assertEquals(2, saves)
+        assertEquals("operation-A", request.operationBinding)
         fixture.permissions.respond(PermissionDecision(request.turn, request.id, request.options.first().id))
         assertEquals(2, saves)
     }
@@ -58,6 +59,7 @@ internal class ClaudePermissionsTest {
         val pending = async { fixture.permissions.request(APPROVAL) }
         runCurrent()
         val request = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.state).requests.single()
+        assertEquals("operation-A", request.operationBinding)
         fixture.permissions.respond(PermissionDecision(request.turn, request.id, request.options.first().id))
         assertTrue(pending.await())
         assertEquals(2, saves)
@@ -79,4 +81,4 @@ internal class ClaudePermissionsTest {
     }
 }
 
-private val APPROVAL = AgentToolApproval("Bash", "Run command", "echo example")
+private val APPROVAL = AgentToolApproval("Bash", "Run command", "echo example", binding = "operation-A")

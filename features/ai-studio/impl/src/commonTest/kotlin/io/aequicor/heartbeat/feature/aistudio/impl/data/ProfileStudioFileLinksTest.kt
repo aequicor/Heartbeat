@@ -94,7 +94,13 @@ class ProfileStudioFileLinksTest {
 
         override suspend fun configurationSession(id: String, target: EngineTarget): ActiveSession = error("unused")
 
-        override suspend fun saveConfiguration(id: String, settings: StudioSessionSettings) = error("unused")
+        override suspend fun saveConfiguration(
+            id: String,
+            settings: StudioSessionSettings,
+            isFuturePreference: Boolean,
+        ) = error(
+            "unused",
+        )
 
         override suspend fun validateConfigurationTarget(target: EngineTarget) = error("unused")
 

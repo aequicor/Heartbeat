@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.scheduler.api.spi
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
@@ -14,6 +15,8 @@ public data class HelperCapacityRecoveryRecord(
     val owner: ActionId,
     val parent: SessionRef?,
     val helper: HelperId?,
+    /** Exact request already recorded by this producer; null grants no right to adopt the chat's latest turn. */
+    val request: RequestId? = null,
 ) {
     override fun toString(): String = "HelperCapacityRecoveryRecord(***)"
 }

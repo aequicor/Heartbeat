@@ -33,8 +33,9 @@ class SidebarHelpersTest {
         )
         val content = sidebarContent(listOf(project), sessions, setOf("child"), SidebarUi())
         assertTrue(content.pinned.isEmpty())
-        assertEquals(listOf("parentless", "root", "child", "grandchild", "sibling"), content.noProject.map { it.id })
-        assertEquals(listOf(0, 0, 1, 2, 1), content.noProject.map { it.depth })
+        assertEquals(listOf("parentless", "root", "grandchild", "child", "sibling"), content.noProject.map { it.id })
+        assertEquals(listOf(0, 0, 1, 1, 1), content.noProject.map { it.depth })
+        assertEquals("child", content.noProject.single { it.id == "grandchild" }.parentChatId)
         assertTrue(content.noProject.single { it.id == "child" }.isRunning)
         val pinned = sidebarContent(
             listOf(project),
@@ -42,7 +43,7 @@ class SidebarHelpersTest {
             emptySet(),
             SidebarUi(),
         )
-        assertEquals(listOf("root", "child", "grandchild", "sibling"), pinned.pinned.map { it.id })
+        assertEquals(listOf("root", "grandchild", "child", "sibling"), pinned.pinned.map { it.id })
         assertEquals(listOf("parentless"), pinned.noProject.map { it.id })
     }
 

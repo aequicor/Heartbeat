@@ -14,16 +14,35 @@ import kotlinx.coroutines.CancellationException
  * case and recent transcripts of its subjects. Nothing of an earlier case reaches a later one, so a long-lived
  * organism never makes its judge's context rot.
  */
-internal class ImmunityCourt(private val judges: JudgeSessions, private val transcripts: SessionTranscripts) {
+internal class ImmunityCourt(
+    private val judges: JudgeSessions,
+    private val transcripts: SessionTranscripts,
+    private val journal: OrganicNativeJournal,
+) {
     private val log = Log.tag("ImmunityCourt")
 
     suspend fun judge(organism: Organism, id: CaseId, onSession: suspend (SessionRef) -> Unit = {}): Ruling {
         val case = organism.cases.firstOrNull { it.id == id } ?: return Ruling.None("The case is already closed.")
         val target = organism.immunityTarget ?: organism.target
             ?: return Ruling.None("The immune system has no model.")
-        val dossier = case.subjects().associateWith { transcriptOf(organism, it) }
+        val execution = organism.judgeExecution(id)
+        val previous = journal.attempts(organism.id, checkNotNull(organism.incarnation))
+            .singleOrNull { it.claim.address == execution.instance.id }
+        val prompt = previous?.claim?.prompt ?: run {
+            val dossier = case.subjects().associateWith { transcriptOf(organism, it) }
+            judgePrompt(organism, case, dossier)
+        }
         log.i { "organism ${organism.id.value} case ${id.value}: judging in a fresh session" }
-        val ruling = parseRuling(case, judges.deliberate(target, judgePrompt(organism, case, dossier), onSession))
+        val ruling = parseRuling(
+            case,
+            judges.deliberate(
+                target,
+                prompt,
+                organism.judgeIdentity(id),
+                execution,
+                onSession,
+            ),
+        )
         log.i { "organism ${organism.id.value} case ${id.value}: ruling $ruling" }
         return ruling
     }

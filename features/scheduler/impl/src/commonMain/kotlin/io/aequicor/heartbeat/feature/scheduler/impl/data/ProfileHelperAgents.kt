@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadataLimits
@@ -25,6 +26,8 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.HelperWorkBinding
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoveryRecord
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
@@ -100,12 +103,9 @@ internal class ProfileHelperAgents(
             attempt.isAcquired = true
         }
         // Queueing may take time. Read persisted attempts again before binding recovered work.
-        val metadata = existing?.let { resolve(it) }?.also {
-            check(it.first === host) { "Helper host changed during recovery" }
-            it.second.checkOwner(owner, parent)
-        }?.second
+        val metadata = restoredMetadata(attempt, host, recovered)
         val created = ManagedHelperLease(
-            HelperLeaseIdentity(owner, acquisition, parent, existing, metadata?.lastRequest),
+            HelperLeaseIdentity(owner, acquisition, parent, existing, recovered?.request ?: metadata?.lastRequest),
             host,
             this,
             profile,
@@ -120,6 +120,23 @@ internal class ProfileHelperAgents(
             }
         }
         return created
+    }
+
+    private suspend fun restoredMetadata(
+        attempt: HelperAcquisition,
+        host: ScheduledSessionHost,
+        recovered: HelperCapacityRecoveryRecord?,
+    ): HelperMetadata? {
+        val existing = attempt.existing ?: return null
+        val actual = resolve(existing)
+        check(actual.first === host) { "Helper host changed during recovery" }
+        actual.second.checkOwner(attempt.owner, attempt.parent)
+        return reconcileWork(
+            host,
+            actual.second,
+            recovered?.request,
+            HelperWorkBinding(attempt.owner, recovered?.reservation),
+        )
     }
 
     /**
@@ -171,13 +188,13 @@ internal class ProfileHelperAgents(
     ): ManagedHelperLease? {
         val restored = existing?.let { resolve(it) }
         restored?.second?.checkOwner(owner, parent)
-        check(restored?.second?.lastRequest == null || restored.second.lastRequest == expectedRequest) {
-            "Scheduled helper request does not match its journal"
-        }
         val host = restored?.first ?: hosts.value.sortedByDescending { it.priority }
             .firstOrNull { it.canHostHelper(parent) } ?: return null
+        val metadata = restored?.second?.let {
+            reconcileWork(host, it, expectedRequest, HelperWorkBinding(owner, owner))
+        }
         val lease = ManagedHelperLease(
-            HelperLeaseIdentity(owner, owner, parent, existing, restored?.second?.lastRequest),
+            HelperLeaseIdentity(owner, owner, parent, existing, expectedRequest ?: metadata?.lastRequest),
             host,
             this,
             profile,
@@ -187,6 +204,36 @@ internal class ProfileHelperAgents(
         return lease
     }
 
+    /** Exact producer evidence may recover older attribution; a chat's newest unrelated turn is never adopted. */
+    private suspend fun reconcileWork(
+        host: ScheduledSessionHost,
+        metadata: HelperMetadata,
+        expected: RequestId?,
+        binding: HelperWorkBinding,
+    ): HelperMetadata {
+        if (expected == null) {
+            check(metadata.isRequestOwnershipResolved) { "Helper work needs its exact producer journal" }
+            return metadata
+        }
+        check(host.reconcileHelperWork(metadata.id, expected, binding)) { "Helper work attribution is unconfirmed" }
+        val updated = checkNotNull(host.helperMetadata(metadata.id)) { "Helper disappeared during reconciliation" }
+        check(updated.id == metadata.id && updated.owner == metadata.owner && updated.parent == metadata.parent) {
+            "Helper ownership changed during reconciliation"
+        }
+        val actual = updated.lastRequest
+        check(
+            actual == null || actual == expected || host.confirmsHelperContinuation(
+                updated.id,
+                expected,
+                actual,
+                binding,
+            ),
+        ) {
+            "Another work request is unresolved"
+        }
+        return updated
+    }
+
     override suspend fun create(
         lease: HelperLease,
         workspace: WorkspaceRef?,
@@ -194,10 +241,13 @@ internal class ProfileHelperAgents(
         title: String,
         trustCap: TrustLevel,
         model: HelperModelOptions,
+        role: HelperConversationRole,
     ): HelperId {
         val owned = lease as? ManagedHelperLease
         check(owned != null && owned.service === this) { "Foreign helper lease" }
-        return owned.create(HelperCreateRequest(owned.owner, owned.parent, workspace, target, title, trustCap, model))
+        return owned.create(
+            HelperCreateRequest(owned.owner, owned.parent, workspace, target, title, trustCap, model, role),
+        )
     }
 
     override suspend fun prompt(helper: HelperId, prompt: HelperPrompt): HelperSubmission = bound(

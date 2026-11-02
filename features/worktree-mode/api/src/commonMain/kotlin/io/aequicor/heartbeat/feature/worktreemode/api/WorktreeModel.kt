@@ -93,11 +93,22 @@ public data class WorktreeRun(
 
 /** Durable delivery request; an ambiguous delivery is not automatically repeated after a restart. */
 @Serializable
-public data class WorktreeActionRequest(val operation: String, val kind: WorktreeRunKind, val prompt: String)
+public data class WorktreeActionRequest(
+    val operation: String,
+    val kind: WorktreeRunKind,
+    val prompt: String,
+    /** Exact interrupted source assigned by the virtual lifecycle, never inferred from the next coding turn. */
+    val continuationOf: RequestId? = null,
+)
 
 /** Correlation retained after prompt handoff until the exact native submission is recorded. */
 @Serializable
-public data class WorktreeExpectedAction(val operation: String, val kind: WorktreeRunKind)
+public data class WorktreeExpectedAction(
+    val operation: String,
+    val kind: WorktreeRunKind,
+    /** Retains the source after delivery clears [WorktreeTask.actionRequest]. */
+    val continuationOf: RequestId? = null,
+)
 
 /**
  * Declared load class of a build command. The application build queue weighs concurrent builds by kind against the

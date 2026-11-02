@@ -49,6 +49,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionDiscoveryReport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionControl
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPage
@@ -56,6 +58,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
+import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -73,7 +76,9 @@ import kotlin.test.assertEquals
 internal class IsolatedTurnFixture {
     val target = EngineTarget(EngineId("test"), EngineBindingId("binding"), ModelId("model"))
     val ref = SessionRef(target.engine, SessionSourceId("source"), "review")
-    val policy = AgentSafetyToolPolicy()
+    val serviceStore = ServiceMemoryStore()
+    val journal = ServiceTurnJournal(serviceStore)
+    val policy = AgentSafetyToolPolicy(journal)
     var sawOffBeforeSend = false
     var closed = false
     var archived = false
@@ -88,6 +93,8 @@ internal class IsolatedTurnFixture {
     var failsOnReconcile = false
     var remainsActiveAfterReconcile = false
     var createGate: CompletableDeferred<Unit>? = null
+    var sendGate: CompletableDeferred<Unit>? = null
+    var ownedStops: StopsOwnedTurns? = null
     var finishesUnavailable = false
     var answer = """{"verdict":"safe","reason":"Only formats JSON"}"""
     val creations = mutableListOf<CreateSessionRequest>()
@@ -96,6 +103,9 @@ internal class IsolatedTurnFixture {
     private val turn = TurnId("review-turn")
     private val sends = object : SendsPrompts {
         override suspend fun send(request: PromptRequest): TurnId {
+            val binding = checkNotNull(creations.last().execution)
+            check(journal.enterPrompt(binding, ref, request.id))
+            sendGate?.await()
             prompts += request
             sawOffBeforeSend = policy.policy(ToolPolicyScope(session = ref))?.native?.get("shell") == ToolSwitch.Off
             assertEquals(TrustLevel.Ask, request.trust)
@@ -131,7 +141,11 @@ internal class IsolatedTurnFixture {
         override suspend fun cancel(turn: TurnId) {
             cancels++
             check(state.value is ActiveSessionState.Running || state.value is ActiveSessionState.AwaitingUserAction)
-            if (!ignoresCancel) state.value = ActiveSessionState.Ready(Turn(turn, null, target, TurnOutcome.Cancelled))
+            if (!ignoresCancel) {
+                state.value = ActiveSessionState.Ready(
+                    Turn(turn, prompts.lastOrNull()?.id, target, TurnOutcome.Cancelled),
+                )
+            }
         }
     }
     private val reconciler = object : ReconcilesSession {
@@ -209,7 +223,12 @@ internal class IsolatedTurnFixture {
                 ),
             )
             override suspend fun refresh(engine: EngineId): EngineInfo = error("unused")
-            override fun features(engine: EngineId) = reviewFeatures(mapOf(CreatesSessions to creates))
+            override fun features(engine: EngineId) = reviewFeatures(
+                buildMap {
+                    put(CreatesSessions, creates)
+                    ownedStops?.let { put(StopsOwnedTurns, it) }
+                },
+            )
         }
         override val sessions = object : SessionCatalog {
             override suspend fun page(query: SessionQuery, request: PageRequest): SessionPage = error("unused")
@@ -232,8 +251,16 @@ internal class IsolatedTurnFixture {
         override val providerUsage: ProviderUsageCatalog get() = error("unused")
     }
 
+    val control = object : SessionExecutionControl {
+        override suspend fun fence(binding: SessionExecutionBinding, persist: suspend () -> Unit) = persist()
+        override suspend fun awaitAdmissions(binding: SessionExecutionBinding) = Unit
+        override suspend fun references(binding: SessionExecutionBinding): Set<SessionRef> =
+            if (creations.any { it.execution == binding }) setOf(ref) else emptySet()
+    }
+    val host get() = ServiceTurnHost(lazyOf(facade), policy, journal, control)
+
     fun finish(turnId: TurnId = turn, isUnavailable: Boolean = false) {
-        val completed = Turn(turnId, null, target, TurnOutcome.Cancelled)
+        val completed = Turn(turnId, prompts.lastOrNull()?.id, target, TurnOutcome.Cancelled)
         state.value = if (isUnavailable) {
             ActiveSessionState.Unavailable(failure, lastTurn = completed)
         } else {

@@ -55,7 +55,7 @@ internal class StudioWorkspaceProjection(
         ) { rows, available, projects, tasks, checklistEvents ->
             StudioWorkspace(
                 projects.map { StudioProject(it.ref.value, it.name, StudioEnvironment.Local, "") },
-                rows.orEmpty().map { record ->
+                resolvedStudioIdentities(rows.orEmpty()).map { record ->
                     val workspace = record.executionWorkspace ?: record.projectId?.let(::WorkspaceRef)
                     StudioSession(
                         record.id, record.projectId, record.title, record.updatedAt,
@@ -77,6 +77,7 @@ internal class StudioWorkspaceProjection(
                                 workspace,
                             )
                         },
+                        hierarchy = record.sessionHierarchy(),
                     )
                 },
             )

@@ -44,6 +44,7 @@ internal class MachineStudioPlanning(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
     private val clock: Clock,
+    private val records: StudioChatRecords,
 ) : StudioPlanning {
     private val log = Log.tag("StudioPlanning")
 
@@ -64,14 +65,14 @@ internal class MachineStudioPlanning(
     }
 
     override suspend fun enter(chatId: String): Boolean {
-        val chat = chatOf(chatId) ?: return false
+        val chat = humanChatOf(chatId) ?: return false
         val ready = ready() ?: return false
         if (ready.plans[chat]?.mode == PlanMode.Planning) return true
         return userCommand("started planning", PlanningIntent.Public.Enter(chat, clock.now()))
     }
 
     override suspend fun leave(chatId: String): Boolean {
-        val chat = chatOf(chatId) ?: return false
+        val chat = humanChatOf(chatId) ?: return false
         ready() ?: return false
         return userCommand("left planning", PlanningIntent.Public.Leave(chat))
     }
@@ -112,19 +113,19 @@ internal class MachineStudioPlanning(
     }
 
     override suspend fun startImplementation(chatId: String, revision: Long): Boolean {
-        val chat = chatOf(chatId) ?: return false
+        val chat = humanChatOf(chatId) ?: return false
         ready() ?: return false
         return userCommand("started implementing the plan", PlanningIntent.Public.StartImplementation(chat, revision))
     }
 
     override suspend fun approve(chatId: String, revision: Long): Boolean {
-        val chat = chatOf(chatId) ?: return false
+        val chat = humanChatOf(chatId) ?: return false
         ready() ?: return false
         return userCommand("approved the plan", PlanningIntent.Public.Approve(chat, revision))
     }
 
     override suspend fun write(chatId: String, text: String, base: Long): Boolean {
-        val chat = chatOf(chatId) ?: return false
+        val chat = humanChatOf(chatId) ?: return false
         ready() ?: return false
         val edit = PlanningIntent.Public.Write(chat, PlanEdit.Replace(text), base, PlanAuthor.User, clock.now())
         return userCommand("edited the plan", edit)
@@ -146,6 +147,15 @@ internal class MachineStudioPlanning(
         }
         if (state !is PlanningState.Ready) log.w { "Plans are not available: ${state ?: "loading"}" }
         return state as? PlanningState.Ready
+    }
+
+    /** User plan mutations follow human chat rights; native read-only bindings use the separate internal path. */
+    private suspend fun humanChatOf(chatId: String): PlanChat? {
+        log.v { "Validate the human planning target" }
+        val chat = chatOf(chatId)
+        if (chat == null || !toggles.get(PlanningModeEnabled)) return null
+        val saved = resolvedStudioIdentities(records.store.get(ChatsKey).orEmpty()).singleOrNull { it.id == chatId }
+        return chat.takeIf { saved?.isHumanConversation == true }
     }
 
     private fun chatOf(chatId: String): PlanChat? = chatId.takeIf(::isValidPlanChat)?.let(::PlanChat)

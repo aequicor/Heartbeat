@@ -36,6 +36,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeInteractionDemand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionControl
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
@@ -100,6 +102,9 @@ internal interface FoundationProfileBundleImports {
 
     /** Sessions and models of the `engines` bundle. */
     val engineFacade: EngineFacade
+
+    /** Executor lifecycle barrier owned by the engines bundle. */
+    val sessionExecutionControl: SessionExecutionControl
 
     /** Web search of the `engines` bundle. */
     val searchEngine: SearchEngine
@@ -257,6 +262,9 @@ internal interface EngineOwnedSets {
     fun sessionHooks(): Set<SessionHook>
 
     @Multibinds(allowEmpty = true)
+    fun executionAuthorities(): Set<SessionExecutionAuthority>
+
+    @Multibinds(allowEmpty = true)
     fun toolPolicyProviders(): Set<AgentToolPolicyProvider>
 
     @Multibinds(allowEmpty = true)
@@ -374,6 +382,10 @@ internal object ProfileBundleImportBindings {
 internal object EngineServiceImportBindings {
     @Provides
     fun engineFacade(imports: FoundationProfileBundleImports): EngineFacade = imports.engineFacade
+
+    @Provides
+    fun executionControl(imports: FoundationProfileBundleImports): SessionExecutionControl =
+        imports.sessionExecutionControl
 
     @Provides
     fun searchEngine(imports: FoundationProfileBundleImports): SearchEngine = imports.searchEngine

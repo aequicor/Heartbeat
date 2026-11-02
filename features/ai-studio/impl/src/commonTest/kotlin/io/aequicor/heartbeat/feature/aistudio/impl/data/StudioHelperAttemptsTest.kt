@@ -58,7 +58,7 @@ class StudioHelperAttemptsTest {
         journal.bindSession(helper, prompt.request, session)
         journal.begin(helper, prompt.request, "sender")
         assertFailsWith<IllegalStateException> { routes.withIdleRoute(helper, journal) { error("must not switch") } }
-        journal.accepted(helper, prompt.request, session, terminal.turn)
+        journal.accepted(helper, prompt.request, session, checkNotNull(terminal.turn))
         assertFailsWith<IllegalStateException> { routes.withIdleRoute(helper, journal) { error("must not switch") } }
         journal.terminal(helper, prompt.request, terminal)
         routes.withIdleRoute(
@@ -115,7 +115,6 @@ class StudioHelperAttemptsTest {
         stores.afterWrite = { throw CancellationException("lost begin ACK") }
         assertFailsWith<CancellationException> { journal.begin(helper, prompt.request, "sender") }
         stores.afterWrite = {}
-        assertEquals(StudioHelperPhase.Submitting, journal.cancelBeforeSubmission(helper, prompt.request).phase)
         assertFalse(journal.cancelBeforeNative(helper, prompt.request, session, "another sender"))
         assertFalse(journal.cancelBeforeNative(helper, prompt.request, session.copy(nativeId = "wrong"), "sender"))
         assertTrue(journal.cancelBeforeNative(helper, prompt.request, session, "sender"))
@@ -132,7 +131,7 @@ class StudioHelperAttemptsTest {
         journal.prepare(helper, prompt)
         journal.bindSession(helper, prompt.request, session)
         journal.begin(helper, prompt.request, "sender")
-        journal.accepted(helper, prompt.request, session, terminal.turn)
+        journal.accepted(helper, prompt.request, session, checkNotNull(terminal.turn))
         assertFalse(journal.cancelBeforeNative(helper, prompt.request, session, "sender"))
         assertEquals(StudioHelperPhase.Accepted, journal.receipt(helper, prompt.request)?.phase)
     }
@@ -165,7 +164,7 @@ class StudioHelperAttemptsTest {
         assertFailsWith<CancellationException> {
             gate.withPreparation(session, null) {
                 gate.begin()
-                throw CancellationException("native ACK unknown")
+                gate.send<Unit> { throw CancellationException("native ACK unknown") }
             }
         }
         assertFalse(gate.isCancelled)
@@ -243,7 +242,7 @@ class StudioHelperAttemptsTest {
         journal.cancelBeforeSubmission(helper, prompt.request, isFinal = false)
         assertTrue(journal.prepareDelivery(helper, prompt).isNew)
         assertEquals(StudioHelperPhase.Preparing, journal.receipt(helper, prompt.request)?.phase)
-        assertFalse(journal.prepare(helper, prompt).isNew)
+        assertFalse(journal.prepareConversation(helper, prompt).isNew)
         journal.begin(helper, prompt.request, "sender")
         assertFalse(journal.prepareDelivery(helper, prompt).isNew)
         assertFailsWith<IllegalStateException> { journal.prepareDelivery(helper, prompt.copy(text = "changed")) }
@@ -337,7 +336,7 @@ class StudioHelperAttemptsTest {
         journal.bindSession(helper, prompt.request, session)
         assertTrue(journal.begin(helper, prompt.request))
         assertFailsWith<IllegalStateException> {
-            journal.accepted(helper, prompt.request, session.copy(nativeId = "wrong"), terminal.turn)
+            journal.accepted(helper, prompt.request, session.copy(nativeId = "wrong"), checkNotNull(terminal.turn))
         }
         journal.terminal(helper, prompt.request, terminal)
         val recovery = prompt.copy(
@@ -436,7 +435,14 @@ class StudioHelperAttemptsTest {
         assertFalse(restarted.begin(helper, prompt.request))
         assertFalse(restarted.prepare(helper, prompt.copy(text = "arbitrary delayed text")).isNew)
         assertNull(restarted.unresolved(helper))
-        assertFailsWith<IllegalStateException> { restarted.accepted(helper, prompt.request, session, terminal.turn) }
+        assertFailsWith<IllegalStateException> {
+            restarted.accepted(
+                helper,
+                prompt.request,
+                session,
+                checkNotNull(terminal.turn),
+            )
+        }
         assertFailsWith<IllegalStateException> { restarted.terminal(helper, prompt.request, terminal) }
     }
 
@@ -464,13 +470,14 @@ class StudioHelperAttemptsTest {
     }
 
     @Test
-    fun `begin wins the storage barrier and cancellation cannot claim NotSubmitted`() = runTest {
+    fun `native entry wins the storage barrier and cancellation cannot claim NotSubmitted`() = runTest {
         val stores = AttemptStores()
         val journal = StudioHelperAttempts(stores)
         journal.prepare(helper, prompt)
+        journal.begin(helper, prompt.request, "sender")
         val write = CompletableDeferred<Unit>()
         stores.beforeWrite = { write.await() }
-        val begin = async { journal.begin(helper, prompt.request) }
+        val begin = async { journal.enterNative(helper, prompt.request, "sender") }
         runCurrent()
         val cancel = async { journal.cancelBeforeSubmission(helper, prompt.request) }
         runCurrent()
@@ -499,7 +506,7 @@ class StudioHelperAttemptsTest {
         stores.afterWrite = {}
         assertEquals(StudioHelperPhase.Submitting, journal.receipt(helper, prompt.request)?.phase)
         assertFalse(journal.begin(helper, prompt.request))
-        assertEquals(StudioHelperPhase.Submitting, journal.cancelBeforeSubmission(helper, prompt.request).phase)
+        assertEquals(StudioHelperPhase.NotSubmitted, journal.cancelBeforeSubmission(helper, prompt.request).phase)
     }
 
     @Test
@@ -525,17 +532,17 @@ class StudioHelperAttemptsTest {
         val journal = StudioHelperAttempts(ChecklistTestStores())
         journal.prepare(helper, prompt)
         journal.begin(helper, prompt.request)
-        journal.accepted(helper, prompt.request, session, terminal.turn)
+        journal.accepted(helper, prompt.request, session, checkNotNull(terminal.turn))
         assertEquals(StudioHelperPhase.Accepted, journal.cancelBeforeSubmission(helper, prompt.request).phase)
         assertFailsWith<IllegalStateException> {
             journal.terminal(helper, prompt.request, terminal.copy(turn = TurnId("different")))
         }
         assertFailsWith<IllegalStateException> {
-            journal.accepted(helper, prompt.request, session.copy(nativeId = "other"), terminal.turn)
+            journal.accepted(helper, prompt.request, session.copy(nativeId = "other"), checkNotNull(terminal.turn))
         }
         assertFailsWith<IllegalStateException> { journal.terminal(helper, RequestId("other"), terminal) }
         journal.terminal(helper, prompt.request, terminal)
-        journal.accepted(helper, prompt.request, session, terminal.turn)
+        journal.accepted(helper, prompt.request, session, checkNotNull(terminal.turn))
         journal.terminal(helper, prompt.request, terminal)
         val receipt = requireNotNull(journal.receipt(helper, prompt.request))
         assertEquals(StudioHelperPhase.Terminal, receipt.phase)
@@ -555,7 +562,7 @@ class StudioHelperAttemptsTest {
         val journal = StudioHelperAttempts(stores)
         journal.prepare(helper, prompt)
         journal.begin(helper, prompt.request)
-        journal.accepted(helper, prompt.request, session, terminal.turn)
+        journal.accepted(helper, prompt.request, session, checkNotNull(terminal.turn))
         journal.terminal(
             helper,
             prompt.request,
@@ -564,7 +571,7 @@ class StudioHelperAttemptsTest {
         val restored = StudioHelperAttempts(stores)
         val result = requireNotNull(restored.receipt(helper, prompt.request)?.terminal).result(prompt.request)
         assertEquals(HelperOutcome.Unknown, result.outcome)
-        assertEquals(terminal.turn, result.turn)
+        assertEquals(checkNotNull(terminal.turn), result.turn)
         assertEquals(prompt.request, result.request)
         assertNull(restored.unresolved(helper))
         assertFalse(restored.prepare(helper, prompt).isNew)

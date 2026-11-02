@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.api
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import kotlin.time.Instant
 
@@ -16,6 +17,8 @@ public data class StudioPermission(
     val input: StudioPermissionInput? = null,
     /** Native turn identity; prevents retaining a stale request when another turn becomes unavailable. */
     val turnId: String? = null,
+    /** Exact executor operation presented by its owner; direct human permissions have no relay. */
+    val relay: PermissionRelay? = null,
 )
 
 /** Structured input of a permission; its options stay the submit and skip ([StudioPermissionOption.isSkip]) actions. */

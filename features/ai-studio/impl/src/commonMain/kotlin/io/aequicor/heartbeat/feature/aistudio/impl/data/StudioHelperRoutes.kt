@@ -22,10 +22,14 @@ internal class StudioHelperRoutes {
         return route.withLock { body() }
     }
 
-    suspend fun <T> withIdleRoute(helper: HelperId, attempts: StudioHelperAttempts, body: suspend () -> T): T =
-        withLock(helper) {
-            log.v { "Reserve idle helper route" }
-            refuseUnless(attempts.unresolved(helper) == null, StudioEngineSwitchFailure.Busy)
-            body()
-        }
+    suspend fun <T> withIdleRoute(
+        helper: HelperId,
+        attempts: StudioHelperAttempts,
+        preparing: StudioHelperSubmission? = null,
+        body: suspend () -> T,
+    ): T = withLock(helper) {
+        log.v { "Reserve idle helper route" }
+        refuseUnless(attempts.isContextIdle(helper, preparing), StudioEngineSwitchFailure.Busy)
+        body()
+    }
 }

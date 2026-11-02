@@ -80,6 +80,8 @@ public sealed interface SessionItem {
         val name: String,
         val arguments: String,
         val status: ToolCallStatus,
+        /** Background execution outlives its launch receipt; [status] alone does not prove its completion. */
+        val background: BackgroundTaskSnapshot? = null,
     ) : SessionItem {
         override fun toString(): String = "ToolCall(info=$info, status=$status)"
     }

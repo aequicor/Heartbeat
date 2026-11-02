@@ -33,8 +33,8 @@ internal val StudioTurnRequest.isHandoff: Boolean get() = request.value.startsWi
 /** Whether [this] item belongs to a frozen segment of an earlier native session. */
 internal val SessionItem.isFrozenSegment: Boolean get() = info.id.value.startsWith(FROZEN_PREFIX)
 
-/** Chats whose context the studio compacts: helpers and organisms keep their turns and identity to their owners. */
-internal val StudioChatRecord.isCompactable: Boolean get() = helper == null && organismId == null
+/** Full chats retain manual context operations independently of a historical helper-work marker. */
+internal val StudioChatRecord.isCompactable: Boolean get() = isHumanConversation && organismId == null
 
 /** Chats that may continue in a new session. */
 internal val StudioChatRecord.isRolloverAllowed: Boolean get() = isCompactable && ref != null

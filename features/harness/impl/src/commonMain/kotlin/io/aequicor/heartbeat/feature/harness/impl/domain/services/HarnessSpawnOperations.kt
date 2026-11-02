@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.AdaptiveAgent
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
@@ -152,6 +153,7 @@ internal class HarnessSpawnOperations(
                 submission.title,
                 TrustLevel.Ask,
                 HelperModelOptions(model?.reasoningEffort),
+                role = HelperConversationRole.FullConversation,
             )
             withContext(NonCancellable) {
                 entry.record = journal.bindHelper(entry.record.reservation, helper)

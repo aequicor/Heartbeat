@@ -159,7 +159,7 @@ private fun SessionSpecBuilder.permissionState() {
                 state.requests.any { request -> request.accepts(intent.decision) }
         }) {
             stay { state.copy(responding = state.responding + intent.decision.request) }
-            effect { ActiveSessionEffect.Decide(intent.decision) }
+            effect { ActiveSessionEffect.Decide(intent.decision, intent.relay) }
         }
         permissionAcknowledgements()
     }

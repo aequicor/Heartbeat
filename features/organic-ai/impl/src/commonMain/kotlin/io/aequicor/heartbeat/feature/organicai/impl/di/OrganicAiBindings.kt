@@ -30,6 +30,8 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.ImmunityCourt
 import io.aequicor.heartbeat.feature.organicai.impl.domain.JudgeSessions
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiEffects
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
+import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicExecutors
+import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicNativeJournal
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganismJournal
 import io.aequicor.heartbeat.feature.organicai.impl.domain.SessionTranscripts
 import kotlinx.coroutines.flow.collectLatest
@@ -42,6 +44,20 @@ import kotlinx.coroutines.launch
 @BindingContainer
 public object OrganicAiBindings {
     @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun permissionRelays(
+        machine: Lazy<OrganicAiMachine>,
+    ): io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicPermissionRelays =
+        io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicPermissionRelays { encoded, request ->
+            val address = io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicExecutorAddress.parse(encoded)
+            val current = (machine.value.state.value as? OrganicAiState.Living)?.organisms?.values
+                ?.singleOrNull { it.id.value == address.organism && it.incarnation == address.incarnation }
+            val phase = current?.cells?.singleOrNull { it.id.value == address.member }?.phase
+                as? io.aequicor.heartbeat.feature.organicai.api.CellPhase.Working
+            phase?.request == request
+        }
+
+    @Provides
     internal fun effects(
         journal: OrganismJournal,
         targets: DefaultTargets,
@@ -50,13 +66,16 @@ public object OrganicAiBindings {
         judges: JudgeSessions,
         transcripts: SessionTranscripts,
         harnesses: CellHarnesses,
+        native: OrganicNativeJournal,
+        executors: OrganicExecutors,
+        permissions: io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicPermissionRelays,
     ): OrganicAiEffects = OrganicAiEffects(
-        journal = journal,
         targets = targets,
         cells = cells,
-        driver = CellDriver(cells, journal, workspaces, harnesses),
-        court = ImmunityCourt(judges, transcripts),
+        driver = CellDriver(cells, journal, workspaces, harnesses, native, permissions),
+        court = ImmunityCourt(judges, transcripts, native),
         workspaces = workspaces,
+        executors = executors,
     )
 
     @Provides

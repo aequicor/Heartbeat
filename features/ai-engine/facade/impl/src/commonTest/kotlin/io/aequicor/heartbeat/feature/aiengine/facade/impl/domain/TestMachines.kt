@@ -167,6 +167,7 @@ internal class FakeNativeSession(
 
     /** Whether the published native turn carries the request id (adapters may not correlate). */
     var isCorrelationOnSend = true
+    var closeFailure: Exception? = null
     var closes = 0
     var closeGate: CompletableDeferred<Unit>? = null
     val models = mutableListOf<ModelId>()
@@ -258,6 +259,7 @@ internal class FakeNativeSession(
     override suspend fun close() {
         closes++
         closeGate?.await()
+        closeFailure?.let { throw it }
         native.value = ActiveSessionState.Closed
     }
 }

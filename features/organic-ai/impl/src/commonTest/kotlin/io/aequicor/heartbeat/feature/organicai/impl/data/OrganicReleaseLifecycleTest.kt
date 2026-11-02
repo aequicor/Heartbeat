@@ -31,9 +31,11 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.CellSessions
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellWorkspaces
 import io.aequicor.heartbeat.feature.organicai.impl.domain.ImmunityCourt
 import io.aequicor.heartbeat.feature.organicai.impl.domain.JudgeSessions
+import io.aequicor.heartbeat.feature.organicai.impl.domain.MemoryNativeJournal
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiEffects
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganismJournal
 import io.aequicor.heartbeat.feature.organicai.impl.domain.SessionTranscripts
+import io.aequicor.heartbeat.feature.organicai.impl.domain.TestOrganicExecutors
 import io.aequicor.heartbeat.feature.organicai.impl.organism
 import io.aequicor.heartbeat.feature.organicai.impl.session
 import kotlinx.coroutines.test.runTest
@@ -58,7 +60,7 @@ class OrganicReleaseLifecycleTest {
             return SendResult.Accepted
         }
     }
-    private var state = OrganicAiState.Living(mapOf(ORGANISM to organism(cell(C1))))
+    private var state = OrganicAiState.Living(mapOf(ORGANISM to organism(cell(C1)).withoutZygoteSession()))
 
     @Test
     fun `an unconfirmed abort remains unconfirmed across sleep and can be retried`() = runTest {
@@ -94,7 +96,7 @@ class OrganicReleaseLifecycleTest {
     fun `abort includes a previously lysed child whose native turn still runs`() = runTest {
         open()
         val dead = CellPhase.Dead(DeathCause.Lysed(CaseId("k1"), "killed"))
-        state = OrganicAiState.Living(mapOf(ORGANISM to organism(cell(C1, phase = dead))))
+        state = OrganicAiState.Living(mapOf(ORGANISM to organism(cell(C1, phase = dead)).withoutZygoteSession()))
         abort()
         assertFalse(current().isStopped)
         assertEquals(SessionRelease.Unconfirmed, current().sessions)
@@ -111,7 +113,7 @@ class OrganicReleaseLifecycleTest {
         val fresh = cellSessions(FakeFacade())
         effects(fresh).handle(OrganicAiEffect.Restore, recorder)
         val restored = (sent.last() as OrganicAiIntent.Internal.Restored).organisms.single()
-        assertEquals(SessionRelease.Released, restored.sessions)
+        assertEquals(SessionRelease.Unconfirmed, restored.sessions)
         // Finish the old test profile independently; the fresh profile must not adopt its handles.
         native.ignoresCancel = false
         cells.releaseAll()
@@ -121,6 +123,12 @@ class OrganicReleaseLifecycleTest {
         cells.open(CellKey(ORGANISM, C1), CellRoute(TARGET, null, null), null)
             .submit(RequestId("request"), "work", null)
     }
+
+    private fun Organism.withoutZygoteSession() = copy(
+        cells = cells.map {
+            if (it.id == CellId.ZYGOTE) it.copy(session = null) else it
+        },
+    )
 
     private fun current(): Organism = state.organisms.getValue(ORGANISM)
 
@@ -136,18 +144,24 @@ class OrganicReleaseLifecycleTest {
         effects(cells).handle(OrganicAiEffect.Hibernate(listOf(current())), recorder)
         effects(cells).handle(OrganicAiEffect.Restore, recorder)
         val restored = sent.last() as OrganicAiIntent.Internal.Restored
-        state = checkNotNull(
-            OrganicAiMachineSpec.resolve(OrganicAiState.Awakening, restored),
-        ).to as OrganicAiState.Living
+        val transition = checkNotNull(OrganicAiMachineSpec.resolve(OrganicAiState.Awakening, restored))
+        state = transition.to as OrganicAiState.Living
+        transition.effects.forEach { effects(cells).handle(it, recorder) }
+        val feedback = sent.filterIsInstance<OrganicAiIntent.Internal.SessionsReleased>().last()
+        state = checkNotNull(OrganicAiMachineSpec.resolve(state, feedback)).to as OrganicAiState.Living
     }
 
     private fun effects(sessions: CellSessions) = OrganicAiEffects(
-        journal,
         { null },
         sessions,
-        CellDriver(sessions, journal, NoWorkspaces, NoHarnesses),
-        ImmunityCourt(JudgeSessions { _, _, _ -> error("No judgement expected") }, SessionTranscripts { emptyList() }),
+        CellDriver(sessions, journal, NoWorkspaces, NoHarnesses, MemoryNativeJournal()),
+        ImmunityCourt(
+            JudgeSessions { _, _, _, _, _ -> error("No judgement expected") },
+            SessionTranscripts { emptyList() },
+            MemoryNativeJournal(),
+        ),
         NoWorkspaces,
+        TestOrganicExecutors(journal, sessions),
     )
 }
 
@@ -155,7 +169,7 @@ private class EncodedJournal : OrganismJournal {
     private var snapshot: String? = null
     override suspend fun load(): List<Organism> = snapshot?.let {
         listOf(
-            Json.decodeFromString<Organism>(it),
+            Json.decodeFromString<Organism>(it).copy(sessions = SessionRelease.Unconfirmed),
         )
     }.orEmpty()
     override suspend fun save(organism: Organism) {

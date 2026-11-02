@@ -57,6 +57,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionControl
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
@@ -122,6 +124,7 @@ internal class DefaultFoundationProfileBindings(
     @ForScope(ProfileScope::class) private val stores: Provider<DataStores>,
     private val studio: Provider<StudioRemoteScreens>,
     private val facade: Provider<EngineFacade>,
+    private val executionControl: Provider<SessionExecutionControl>,
     private val search: Provider<SearchEngine>,
     private val secretStore: Provider<SecretStore>,
     private val models: Provider<ModelProfilesView>,
@@ -133,20 +136,21 @@ internal class DefaultFoundationProfileBindings(
     private val sources: Provider<AuthSources>,
     private val prompts: Provider<IsolatedPrompts>,
     private val agentTools: Provider<ProfileAgentTools>,
-    private val tools: Provider<Set<AgentToolContribution>>,
-    private val analyzers: Provider<Set<NativeActionAnalysis>>,
-    private val offloads: Provider<Set<ToolOutputOffload>>,
-    private val registrations: Provider<Set<EngineRegistration>>,
-    private val hooks: Provider<Set<SessionHook>>,
-    private val toolPolicies: Provider<Set<AgentToolPolicyProvider>>,
-    private val contextPolicies: Provider<Set<ContextPolicyProvider>>,
-    private val virtualWorkspaces: Provider<Set<VirtualWorkspaceProvider>>,
-    private val configs: Provider<Set<ConfigSection>>,
-    private val scheduledHosts: Provider<Set<ScheduledSessionHost>>,
-    private val wakeOwners: Provider<Set<ScheduledWakeOwner>>,
-    private val eventOwners: Provider<Set<ScheduledEventOwner>>,
-    private val recoverySources: Provider<Set<HelperCapacityRecoverySource>>,
-    private val eventSources: Provider<Set<SchedulerEventSource>>,
+    tools: Provider<Set<AgentToolContribution>>,
+    analyzers: Provider<Set<NativeActionAnalysis>>,
+    offloads: Provider<Set<ToolOutputOffload>>,
+    registrations: Provider<Set<EngineRegistration>>,
+    hooks: Provider<Set<SessionHook>>,
+    executionAuthorities: Provider<Set<SessionExecutionAuthority>>,
+    toolPolicies: Provider<Set<AgentToolPolicyProvider>>,
+    contextPolicies: Provider<Set<ContextPolicyProvider>>,
+    virtualWorkspaces: Provider<Set<VirtualWorkspaceProvider>>,
+    configs: Provider<Set<ConfigSection>>,
+    scheduledHosts: Provider<Set<ScheduledSessionHost>>,
+    wakeOwners: Provider<Set<ScheduledWakeOwner>>,
+    eventOwners: Provider<Set<ScheduledEventOwner>>,
+    recoverySources: Provider<Set<HelperCapacityRecoverySource>>,
+    eventSources: Provider<Set<SchedulerEventSource>>,
     private val bus: Provider<SchedulerBus>,
 ) : FoundationProfileBindings,
     FoundationProfileEngineBindings,
@@ -161,6 +165,7 @@ internal class DefaultFoundationProfileBindings(
     override val secrets: SecretStore get() = secretStore()
     override val modelProfiles: ModelProfilesView get() = models()
     override val engineFacade: EngineFacade get() = facade()
+    override val sessionExecutionControl: SessionExecutionControl get() = executionControl()
     override val searchEngine: SearchEngine get() = search()
     override val attachmentsCatalog: AttachmentsCatalog get() = attachments()
     override val resourceResolver: ResourceResolver get() = resolver()
@@ -177,6 +182,7 @@ internal class DefaultFoundationProfileBindings(
         override val nativeActionAnalyzers: Set<NativeActionAnalysis> get() = analyzers()
         override val toolOutputOffloads: Set<ToolOutputOffload> get() = offloads()
         override val sessionHooks: Set<SessionHook> get() = hooks()
+        override val executionAuthorities: Set<SessionExecutionAuthority> get() = executionAuthorities()
         override val toolPolicyProviders: Set<AgentToolPolicyProvider> get() = toolPolicies()
         override val contextPolicyProviders: Set<ContextPolicyProvider> get() = contextPolicies()
         override val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider> get() = virtualWorkspaces()

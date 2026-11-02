@@ -46,6 +46,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
@@ -58,7 +59,12 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.NoStudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
@@ -69,15 +75,19 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRun
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import io.aequicor.heartbeat.feature.worktreemode.api.continueVirtual
 import io.aequicor.heartbeat.feature.worktreemode.api.runPrepared
 import io.aequicor.heartbeat.feature.worktreemode.api.transition
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -201,7 +211,11 @@ class StudioTurnExecutorTest {
         val result = async {
             coordinator.run(
                 host,
-                f.request.copy(request = RequestId("recovery"), recoveryRequests = listOf(f.request.request)),
+                f.request.copy(
+                    request = RequestId("recovery"),
+                    recoveryRequests = listOf(f.request.request),
+                    origin = StudioTurnOrigin.GraphWork(f.request.request),
+                ),
                 cancelBeforeSubmission = true,
                 admission = enabled.map { if (it) ScheduledWakeAdmission.Allow else ScheduledWakeAdmission.Defer },
             )
@@ -265,7 +279,13 @@ class StudioTurnExecutorTest {
         f.active.inspection = TurnInspection.Idle
         f.host.beforeSubmit = { f.active.state.value = ActiveSessionState.Ready(f.turn) }
         f.tools.release.complete(Unit)
-        f.executor.execute(f.host, f.request.copy(recoveryRequests = listOf(RequestId("old"))))
+        f.executor.execute(
+            f.host,
+            f.request.copy(
+                recoveryRequests = listOf(RequestId("old")),
+                origin = StudioTurnOrigin.GraphWork(RequestId("old")),
+            ),
+        )
         assertEquals(1, f.active.inspections)
         assertTrue(f.host.submitted != null)
     }
@@ -281,6 +301,7 @@ class StudioTurnExecutorTest {
             f.host,
             f.request.copy(
                 recoveryRequests = listOf(RequestId("old")),
+                origin = StudioTurnOrigin.GraphWork(RequestId("old")),
                 onOutcome = { outcome = it },
             ),
         )
@@ -300,6 +321,7 @@ class StudioTurnExecutorTest {
             f.request.copy(
                 recoveryRequests = listOf(RequestId("old")),
                 recoveryCheckpoint = "native receipt",
+                origin = StudioTurnOrigin.GraphWork(RequestId("old")),
                 onOutcome = { outcome = it },
             ),
         )
@@ -1370,7 +1392,820 @@ class StudioSubmissionRecoveryTest {
     }
 }
 
-private class TurnFixture(harnesses: StudioHarnessAttach = NoStudioHarnessAttach) {
+@OptIn(ExperimentalCoroutinesApi::class)
+class StudioJournaledRecoveryTest {
+    @Test
+    fun `production journal binds actual native before callbacks and persists its terminal`() = runTest {
+        val f = TurnFixture()
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val request = recovery(f)
+        val delivery = checkNotNull(request.newRecoveryDelivery())
+        f.host.recoveryJournal = StudioRecoveryJournal(attempts)
+        attempts.prepareRecovery(
+            HelperId(request.id),
+            StudioRecoveryWitness(
+                request.request,
+                f.request.request,
+                request.recoveryRequests.toSet(),
+                f.active.ref,
+                delivery = delivery,
+            ),
+        )
+        f.tools.release.complete(Unit)
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        var checkpointed = false
+        val running = async {
+            f.executor.execute(
+                f.host,
+                request.copy(
+                    submission = StudioRunSubmission(recoveryDelivery = delivery),
+                    onNativeTurn = { _, native ->
+                        val witness = checkNotNull(attempts.recovery(HelperId(request.id), request.request))
+                        assertEquals(native.request, witness.observed)
+                        assertEquals(native.turn, witness.turn)
+                        checkpointed = true
+                    },
+                ),
+            )
+        }
+        runCurrent()
+        assertFalse(running.isCompleted)
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(StudioRecoveryPhase.Observing, attempts.recovery(HelperId(request.id), request.request)?.phase)
+        f.active.state.value = ActiveSessionState.Ready(f.turn)
+
+        assertEquals(RunOutcome.Completed, running.await())
+        assertTrue(checkpointed)
+        val terminal = checkNotNull(attempts.recovery(HelperId(request.id), request.request))
+        assertEquals(StudioRecoveryPhase.Terminal, terminal.phase)
+        assertEquals(StudioHelperTerminalOutcome.Completed, terminal.outcome)
+        assertNull(attempts.receipt(HelperId(request.id), request.request))
+        assertTrue(f.host.stopTurns.isEmpty())
+    }
+
+    @Test
+    fun `journal disk failure retains adopted native without Stop and reports unknown persistence`() = runTest {
+        val f = TurnFixture()
+        val stores = ChecklistTestStores()
+        val attempts = StudioHelperAttempts(stores)
+        val request = recovery(f)
+        val delivery = checkNotNull(request.newRecoveryDelivery())
+        f.host.recoveryJournal = StudioRecoveryJournal(attempts)
+        attempts.prepareRecovery(
+            HelperId(request.id),
+            StudioRecoveryWitness(
+                request.request,
+                f.request.request,
+                request.recoveryRequests.toSet(),
+                f.active.ref,
+                delivery = delivery,
+            ),
+        )
+        stores.keyValue(HelperAttemptsSpec).failWrites = true
+        f.tools.release.complete(Unit)
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        var checkpointed = false
+        var outcome: TurnOutcome? = null
+
+        val running = async {
+            f.executor.execute(
+                f.host,
+                request.copy(
+                    submission = StudioRunSubmission(recoveryDelivery = delivery),
+                    onNativeTurn = { _, _ -> checkpointed = true },
+                    onOutcome = { outcome = it },
+                ),
+            )
+        }
+        runCurrent()
+        assertFalse(running.isCompleted)
+        assertTrue(f.host.stopTurns.isEmpty())
+        f.active.state.value = ActiveSessionState.Ready(f.turn)
+        running.await()
+
+        assertFalse(checkpointed)
+        assertEquals(TurnOutcome.Unknown, outcome)
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertNull(f.host.submitted)
+        assertEquals(StudioRecoveryPhase.Inspecting, attempts.recovery(HelperId(request.id), request.request)?.phase)
+    }
+
+    @Test
+    fun `lost profile observation preserves exact native binding as unknown`() = runTest {
+        for (isCancelled in listOf(false, true)) {
+            val f = TurnFixture()
+            val attempts = StudioHelperAttempts(ChecklistTestStores())
+            val request = recovery(f)
+            val delivery = checkNotNull(request.newRecoveryDelivery())
+            f.host.recoveryJournal = StudioRecoveryJournal(attempts)
+            attempts.prepareRecovery(
+                HelperId(request.id),
+                StudioRecoveryWitness(
+                    request.request,
+                    f.request.request,
+                    request.recoveryRequests.toSet(),
+                    f.active.ref,
+                    delivery = delivery,
+                ),
+            )
+            f.tools.release.complete(Unit)
+            f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+            f.active.inspection = TurnInspection.Observed(f.request.request, null)
+            val running = async {
+                f.executor.execute(f.host, request.copy(submission = StudioRunSubmission(recoveryDelivery = delivery)))
+            }
+            runCurrent()
+            if (isCancelled) {
+                running.cancelAndJoin()
+            } else {
+                f.active.state.value = ActiveSessionState.Closed
+                running.await()
+            }
+
+            val witness = checkNotNull(attempts.recovery(HelperId(request.id), request.request))
+            assertEquals(StudioRecoveryPhase.Unknown, witness.phase)
+            assertEquals(f.request.request, witness.observed)
+            assertEquals(f.turn.id, witness.turn)
+            assertFalse(witness.isInspectionCurrent)
+            assertNull(attempts.receipt(HelperId(request.id), request.request))
+            assertTrue(f.host.stopTurns.isEmpty())
+        }
+    }
+
+    @Test
+    fun `failed new send preparation closes its recovery without a phantom native receipt`() = runTest {
+        val f = TurnFixture()
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val request = recovery(f)
+        val delivery = checkNotNull(request.newRecoveryDelivery())
+        f.host.recoveryJournal = StudioRecoveryJournal(attempts)
+        attempts.prepareRecovery(
+            HelperId(request.id),
+            StudioRecoveryWitness(
+                request.request,
+                f.request.request,
+                request.recoveryRequests.toSet(),
+                f.active.ref,
+                delivery = delivery,
+            ),
+        )
+        f.active.inspection = TurnInspection.Idle
+        f.host.prepareNew = { error("Bookkeeping unavailable") }
+
+        f.executor.execute(f.host, request.copy(submission = StudioRunSubmission(recoveryDelivery = delivery)))
+
+        val witness = checkNotNull(attempts.recovery(HelperId(request.id), request.request))
+        assertEquals(StudioRecoveryPhase.NoSend, witness.phase)
+        assertNull(attempts.receipt(HelperId(request.id), request.request))
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertTrue(attempts.isContextIdle(HelperId(request.id)))
+    }
+
+    @Test
+    fun `terminal bookkeeping failure still persists mandatory recovery outcome`() = runTest {
+        val f = TurnFixture()
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val request = recovery(f)
+        val delivery = checkNotNull(request.newRecoveryDelivery())
+        f.host.recoveryJournal = StudioRecoveryJournal(attempts)
+        attempts.prepareRecovery(
+            HelperId(request.id),
+            StudioRecoveryWitness(
+                request.request,
+                f.request.request,
+                request.recoveryRequests.toSet(),
+                f.active.ref,
+                delivery = delivery,
+            ),
+        )
+        f.tools.release.complete(Unit)
+        f.host.refreshFailure = IllegalStateException("History unavailable")
+
+        f.executor.execute(f.host, request.copy(submission = StudioRunSubmission(recoveryDelivery = delivery)))
+
+        val witness = checkNotNull(attempts.recovery(HelperId(request.id), request.request))
+        assertEquals(StudioRecoveryPhase.Terminal, witness.phase)
+        assertEquals(StudioHelperTerminalOutcome.Completed, witness.outcome)
+        assertEquals(f.request.request, witness.observed)
+        assertTrue(f.host.stopTurns.isEmpty())
+    }
+
+    @Test
+    fun `cancelled recovery equal to execution cannot submit the same native identity again`() = runTest {
+        val f = TurnFixture()
+        f.active.inspection = TurnInspection.Observed(f.request.request, TurnOutcome.Cancelled)
+        val request = recovery(f).copy(request = f.request.request)
+
+        assertEquals(RunOutcome.Stopped, f.executor.execute(f.host, request))
+
+        assertNull(f.host.submitted)
+        assertTrue(f.host.preparations.isEmpty())
+        assertTrue(f.host.stopTurns.isEmpty())
+    }
+
+    private fun recovery(f: TurnFixture): StudioTurnRequest = f.request.copy(
+        request = RequestId("recovery"),
+        recoveryRequests = listOf(f.request.request),
+        origin = StudioTurnOrigin.GraphWork(f.request.request),
+    )
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class StudioNativeRecoveryTest {
+    @Test
+    fun `recovery observes through its dedicated opening without normal configuration`() = runTest {
+        val f = TurnFixture()
+        f.host.openFailure = IllegalStateException("Normal opening must not be used")
+        f.host.recoveryOpen = { f.active }
+        f.tools.release.complete(Unit)
+
+        assertEquals(RunOutcome.Completed, f.executor.execute(f.host, recovery(f)))
+
+        assertEquals(0, f.host.openCount)
+        assertNull(f.host.submitted)
+        assertTrue(f.host.preparations.isEmpty())
+        assertEquals(listOf(StudioNativeTurn(f.request.request, f.turn.id)), f.host.adoptedReceipts)
+    }
+
+    @Test
+    fun `host refuses journaled recovery even when the outer gate supports retention`() = runTest {
+        val f = TurnFixture()
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val record = StudioChatRecord(
+            f.request.id,
+            "Helper",
+            Instant.fromEpochMilliseconds(0),
+            helper = StudioHelperIdentity(ActionId("owner"), null, null, TrustLevel.Ask),
+        )
+        f.host.requireRecovery = { admission.requireNativeRecovery(record) }
+        val execution = recovery(f).copy(submission = StudioRunSubmission())
+        assertTrue(checkNotNull(execution.submission).isNativeRetentionSupported)
+        assertEquals(RunOutcome.Failed, f.executor.execute(f.host, execution))
+        assertEquals(0, f.host.openCount)
+        assertTrue(f.host.preparations.isEmpty())
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertTrue(f.host.adoptedReceipts.isEmpty())
+        assertNull(attempts.receipt(HelperId(record.id), execution.request))
+    }
+
+    @Test
+    fun `wrapped graph adoption retains actual native ownership when admission closes`() = runTest {
+        var settlements = 0
+        val f = TurnFixture(settlement = StudioTurnSettlement { _, _, _ -> settlements++ })
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        val native = StudioNativeTurn(f.request.request, f.turn.id)
+        val enabled = MutableStateFlow(true)
+        val coordinator = StudioRunCoordinator(ExecutorProfile(backgroundScope), Clock.System)
+        var checkpointRequest: RequestId? = null
+        var freshAcceptances = 0
+        val host = object : StudioRunHost {
+            override suspend fun startedRun(id: String, at: Instant) = Unit
+            override suspend fun finishedRun(id: String) = Unit
+            override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
+                val wrapped = object : StudioSubmissionGate by checkNotNull(request.submission) {}
+                return f.executor.execute(f.host, request.copy(submission = wrapped))
+            }
+        }
+        val execution = recovery(f).copy(
+            onNativeTurn = { _, observed -> checkpointRequest = observed.request },
+            onTurnAccepted = { _, _ -> freshAcceptances++ },
+        )
+        val result = async {
+            coordinator.run(
+                host,
+                execution,
+                cancelBeforeSubmission = true,
+                admission = enabled.map { if (it) ScheduledWakeAdmission.Allow else ScheduledWakeAdmission.Defer },
+            )
+        }
+        runCurrent()
+        assertEquals(listOf(native), f.host.adoptedReceipts)
+        assertTrue(f.host.preparations.isEmpty())
+        assertTrue(f.host.acceptedReceipts.isEmpty())
+        assertTrue(f.machine.sent.isEmpty())
+        assertNull(f.host.submitted)
+        assertEquals(native.request, checkpointRequest)
+        assertEquals(0, freshAcceptances)
+        enabled.value = false
+        runCurrent()
+        assertFalse(result.isCompleted)
+        assertTrue(coordinator.isBusy(execution.id))
+        val waiting = ActiveSessionState.Interrupting(f.turn.copy(outcome = null))
+        f.active.state.value = waiting
+        runCurrent()
+        assertEquals(waiting, f.host.permissionStates.last())
+        f.active.state.value = ActiveSessionState.Ready(f.turn)
+        f.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, result.await())
+        assertEquals(
+            listOf<Pair<StudioNativeTurn, TurnOutcome>>(native to TurnOutcome.Completed),
+            f.host.adoptedTerminalReceipts,
+        )
+        assertTrue(f.host.terminalReceipts.isEmpty())
+        assertEquals(0, settlements)
+        assertFalse(coordinator.isBusy(execution.id))
+    }
+
+    @Test
+    fun `pending stop at retention addresses the actual adopted turn`() = runTest {
+        val f = TurnFixture()
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        val gate = object : StudioSubmissionGate {
+            override val isCancelled = false
+            override val isNativeRetentionSupported = true
+            override val isRecoveryObservationSupported = true
+            override suspend fun beginRecoveryObservation() = Unit
+            override suspend fun prepareRecoverySubmit() = error("Recovery must not submit")
+            override suspend fun begin() = error("Recovery must not submit")
+            override suspend fun cancel() = false
+            override suspend fun awaitRevocation(): CancellationException? = null
+            override suspend fun retainNative() = true
+        }
+        val result = async { f.executor.execute(f.host, recovery(f).copy(submission = gate)) }
+        runCurrent()
+        assertEquals(listOf(f.turn.id), f.host.stopTurns)
+        assertFalse(result.isCompleted)
+        f.active.state.value = ActiveSessionState.Ready(f.turn.copy(outcome = TurnOutcome.Cancelled))
+        f.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Stopped, result.await())
+        assertTrue(f.host.acceptedReceipts.isEmpty())
+    }
+
+    @Test
+    fun `journaled recovery gate refuses adoption before opening the native session`() = runTest {
+        val f = TurnFixture()
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val helper = HelperId(f.request.id)
+        val execution = recovery(f)
+        attempts.prepareDelivery(
+            helper,
+            HelperPrompt(execution.request, execution.prompt),
+            execution.origin.deliveryPolicy(),
+        )
+        val saved = attempts.receipt(helper, execution.request)
+        val gate = StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, execution.request)
+        val wrapped = object : StudioSubmissionGate by gate {}
+        assertFalse(wrapped.isNativeRetentionSupported)
+        assertEquals(RunOutcome.Failed, f.executor.execute(f.host, execution.copy(submission = wrapped)))
+        assertEquals(0, f.host.openCount)
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertTrue(f.host.adoptedReceipts.isEmpty())
+        assertEquals(saved, attempts.receipt(helper, execution.request))
+    }
+
+    @Test
+    fun `a failed adopted checkpoint retains terminal evidence under the actual request`() = runTest {
+        val f = TurnFixture()
+        f.tools.release.complete(Unit)
+        var evidence: StudioRecoveryEvidence? = null
+        val execution = recovery(f).copy(
+            onNativeTurn = { _, _ -> error("Checkpoint write failed") },
+            onNativeOutcome = { _, native -> evidence = native },
+        )
+        assertEquals(RunOutcome.Completed, f.executor.execute(f.host, execution))
+        assertEquals(
+            listOf<Pair<StudioNativeTurn, TurnOutcome>>(
+                StudioNativeTurn(f.request.request, f.turn.id) to TurnOutcome.Completed,
+            ),
+            f.host.adoptedTerminalReceipts,
+        )
+        assertEquals(true, f.host.isTerminalHistoryCurrent)
+        assertEquals(
+            StudioRecoveryEvidence(f.active.ref, f.request.request, f.turn.id, TurnOutcome.Completed),
+            evidence,
+        )
+        assertTrue(f.host.acceptedReceipts.isEmpty())
+        assertTrue(f.host.terminalReceipts.isEmpty())
+        assertTrue(f.machine.sent.isEmpty())
+    }
+
+    @Test
+    fun `a failed live adopted checkpoint never cancels the native turn`() = runTest {
+        val f = TurnFixture()
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        val execution = recovery(f).copy(onNativeTurn = { _, _ -> error("Checkpoint unavailable") })
+
+        val run = async { f.executor.execute(f.host, execution) }
+        runCurrent()
+
+        assertFalse(run.isCompleted)
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(listOf(StudioNativeTurn(f.request.request, f.turn.id)), f.host.adoptedReceipts)
+        assertTrue(f.host.adoptedTerminalReceipts.isEmpty())
+        f.tools.release.complete(Unit)
+        f.active.state.value = ActiveSessionState.Ready(f.turn)
+        assertEquals(RunOutcome.Completed, run.await())
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(StudioNativeTurn(f.request.request, f.turn.id), f.host.adoptedTerminalReceipts.single().first)
+    }
+
+    @Test
+    fun `closed adopted handle reports Unknown with its actual native address`() = runTest {
+        val f = TurnFixture()
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        var evidence: StudioRecoveryEvidence? = null
+        val execution = recovery(f).copy(onNativeOutcome = { _, native -> evidence = native })
+        val run = async { f.executor.execute(f.host, execution) }
+        runCurrent()
+        f.tools.release.complete(Unit)
+        f.active.state.value = ActiveSessionState.Closed
+        run.await()
+
+        assertEquals(
+            StudioRecoveryEvidence(f.active.ref, f.request.request, f.turn.id, TurnOutcome.Unknown),
+            evidence,
+        )
+        assertTrue(f.host.stopTurns.isEmpty())
+    }
+
+    @Test
+    fun `a failed fresh acceptance checkpoint cannot cancel an accepted native turn`() = runTest {
+        val f = TurnFixture()
+        f.host.isIsolated = false
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        val request = f.request.copy(onTurnAccepted = { _, _ -> error("Acceptance checkpoint unavailable") })
+
+        val run = async { f.executor.execute(f.host, request) }
+        runCurrent()
+
+        assertFalse(run.isCompleted)
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(listOf(f.request.request to f.turn.id), f.host.acceptedReceipts)
+        f.tools.release.complete(Unit)
+        f.active.state.value = ActiveSessionState.Ready(f.turn)
+        assertEquals(RunOutcome.Completed, run.await())
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(f.request.request, f.host.terminalReceipts.single().first)
+    }
+
+    @Test
+    fun `terminal only recovery reports the outcome without fabricating native turn evidence`() = runTest {
+        var settlements = 0
+        val f = TurnFixture(settlement = StudioTurnSettlement { _, _, _ -> settlements++ })
+        f.active.state.value = ActiveSessionState.Ready()
+        f.active.inspection = TurnInspection.Observed(f.request.request, TurnOutcome.Completed)
+        var evidence: StudioRecoveryEvidence? = null
+        val execution = recovery(f).copy(
+            onNativeOutcome = { _, native -> evidence = native },
+            onNativeTurn = { _, _ -> error("No turn identity was observed") },
+            onTurnAccepted = { _, _ -> error("Nothing was submitted") },
+        )
+        assertEquals(RunOutcome.Completed, f.executor.execute(f.host, execution))
+        assertNull(f.host.submitted)
+        assertNull(f.tools.finished)
+        assertTrue(f.host.acceptedReceipts.isEmpty())
+        assertTrue(f.host.adoptedReceipts.isEmpty())
+        assertTrue(f.host.terminalReceipts.isEmpty())
+        assertTrue(f.host.adoptedTerminalReceipts.isEmpty())
+        assertTrue(f.machine.sent.isEmpty())
+        assertTrue(f.host.preparations.isEmpty())
+        assertEquals(0, settlements)
+        assertEquals(StudioRecoveryEvidence(f.active.ref, f.request.request, outcome = TurnOutcome.Completed), evidence)
+    }
+
+    @Test
+    fun `mandatory result persistence failure prevents completion acknowledgement`() = runTest {
+        val f = TurnFixture()
+        f.tools.release.complete(Unit)
+        val execution = recovery(f).copy(onNativeOutcome = { _, _ -> error("Result write failed") })
+
+        assertEquals(RunOutcome.Failed, f.executor.execute(f.host, execution))
+        assertTrue(f.host.stopTurns.isEmpty())
+        assertEquals(1, f.host.adoptedTerminalReceipts.size)
+    }
+
+    @Test
+    fun `admitted wrapper is revoked when worktree or native opening fails or provenance changes`() = runTest {
+        for (failure in listOf("worktree", "open", "provenance")) {
+            val f = TurnFixture()
+            val attempts = StudioHelperAttempts(ChecklistTestStores())
+            val helper = HelperId(f.request.id)
+            attempts.prepareConversation(helper, HelperPrompt(f.request.request, f.request.prompt))
+            val gate = StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, f.request.request)
+            f.host.prepareNew = {
+                it.copy(submission = gate, id = if (failure == "provenance") "foreign" else it.id)
+            }
+            if (failure == "worktree") f.machine.isPrepared = false
+            if (failure == "open") f.host.openFailure = IllegalStateException("Open failed")
+            assertEquals(RunOutcome.Failed, f.executor.execute(f.host, f.request))
+            assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(helper, f.request.request)?.phase)
+            assertNull(f.host.submitted)
+        }
+    }
+
+    @Test
+    fun `caller cancellation after admission retires the returned gate before native entry`() = runTest {
+        val f = TurnFixture()
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val helper = HelperId(f.request.id)
+        attempts.prepareConversation(helper, HelperPrompt(f.request.request, f.request.prompt))
+        val gate = StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, f.request.request)
+        f.host.prepareNew = { it.copy(submission = gate) }
+        f.host.beforeSubmit = { awaitCancellation() }
+        val execution = async { f.executor.execute(f.host, f.request) }
+        runCurrent()
+        assertEquals(StudioHelperPhase.Preparing, attempts.receipt(helper, f.request.request)?.phase)
+        execution.cancelAndJoin()
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(helper, f.request.request)?.phase)
+        assertNull(f.host.submitted)
+    }
+
+    @Test
+    fun `virtual continuation source reaches worktree preparation before native submission`() = runTest {
+        val f = TurnFixture()
+        val source = RequestId("interrupted")
+        val initial = (f.machine.state.value as WorktreeState.Ready).tasks.getValue("chat")
+        val pending = initial.copy(
+            run = WorktreeRun(source, outcome = TurnOutcome.Cancelled),
+            virtualInterruptedRequests = listOf(source),
+            pendingVirtualContinuation = true,
+        ).continueVirtual(f.request.request.value, "continue")
+            .transition(WorktreeIntent.Public.ActionDelivered("chat", f.request.request.value))
+        f.machine.state.value = WorktreeState.Ready(mapOf("chat" to pending))
+        val stores = ChecklistTestStores()
+        val attempts = StudioHelperAttempts(stores)
+        val helper = HelperId("chat")
+        val record = NativeHelperFixture().record.copy(id = "chat", ref = f.active.ref)
+        val snapshot = StudioExecutionSnapshot(
+            f.request.settings,
+            checkNotNull(record.target),
+            null,
+            null,
+            StudioHumanAuthority(),
+            setOf(RequestInitiator(f.active.ref, source)),
+        )
+        attempts.prepareConversation(helper, HelperPrompt(source, "original"))
+        attempts.begin(helper, source, "sender")
+        attempts.recordExecutionSnapshot(helper, source, "sender", snapshot)
+        attempts.accepted(helper, source, f.active.ref, TurnId("source"))
+        attempts.terminal(
+            helper,
+            source,
+            StudioHelperTerminal(
+                f.active.ref,
+                TurnId("source"),
+                StudioHelperTerminalOutcome.Cancelled,
+                "",
+            ),
+        )
+        stores.keyValue(ChatSpec).set(ChatsKey, listOf(record))
+        val admissions = emptyHelperAdmissions()
+        val continuation = StudioContinuationAdmission(
+            attempts,
+            admissions,
+            StudioWorktrees(executorRegistry(f.machine), f.tools),
+        )
+        val admission = StudioHelperAdmission(attempts, admissions, continuations = continuation)
+        val request = f.request.copy(continuationOf = source)
+        assertFailsWith<IllegalStateException> {
+            admission.prepareNewTurn(record, request) { error("recordStarted failed") }
+        }
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(helper, request.request)?.phase)
+        assertFalse(checkNotNull(attempts.receipt(helper, request.request)).isFinal)
+        f.host.prepareNew = { admission.prepareNewTurn(record, it) {} }
+        f.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, f.executor.execute(f.host, f.request.copy(continuationOf = source)))
+        val started = f.machine.sent.filterIsInstance<WorktreeIntent.Public.RunStarted>().single()
+        assertEquals(source, started.continuationOf)
+        assertEquals(snapshot.causes, f.host.submitted?.causes)
+        assertEquals(f.request.request, f.host.submitted?.request)
+    }
+
+    @Test
+    fun `fresh idle recovery prepares then reopens the actual worktree route before submitting`() = runTest {
+        val f = TurnFixture()
+        f.active.state.value = ActiveSessionState.Ready()
+        f.active.inspection = TurnInspection.Idle
+        val execution = recovery(f)
+        f.host.prepareNew = {
+            assertEquals(listOf("open"), f.events)
+            f.events += "admit"
+            it
+        }
+        val replacement = ExecutorSession(f.turn.copy(request = execution.request), "prepared-worktree")
+        f.host.replacement = replacement
+        f.host.openReplacementAt = 2
+        f.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, f.executor.execute(f.host, execution))
+        assertEquals(2, f.host.openCount)
+        assertEquals(listOf("open", "admit", "started", "open"), f.events.take(4))
+        assertEquals(listOf(execution), f.host.preparations)
+        assertEquals(replacement.ref to f.turn.id, f.tools.finished)
+        val started = f.machine.sent.filterIsInstance<WorktreeIntent.Public.RunStarted>().single()
+        assertEquals(execution.request, started.request)
+        val accepted = f.machine.sent.filterIsInstance<WorktreeIntent.Public.RunAccepted>().single()
+        assertEquals(replacement.ref, accepted.session)
+        assertEquals(execution.request, accepted.request)
+        assertEquals(listOf(execution.request to f.turn.id), f.host.acceptedReceipts)
+        assertTrue(f.host.adoptedReceipts.isEmpty())
+    }
+
+    @Test
+    fun `undeclared service recovery and unconfirmed submitting state cannot adopt or submit`() = runTest {
+        for (origin in listOf(
+            StudioTurnOrigin.UnknownService,
+            StudioTurnOrigin.Conversation,
+            StudioTurnOrigin.HelperWork,
+        )) {
+            val f = TurnFixture()
+            assertEquals(RunOutcome.Failed, f.executor.execute(f.host, recovery(f).copy(origin = origin)))
+            assertNull(f.host.submitted)
+            assertTrue(f.host.adoptedReceipts.isEmpty())
+            assertTrue(f.machine.sent.isEmpty())
+        }
+        val f = TurnFixture()
+        f.active.state.value = ActiveSessionState.Submitting(
+            PromptRequest(f.request.request, listOf(ContentPart.Text("Preparing"))),
+            f.turn.copy(outcome = null),
+        )
+        assertEquals(RunOutcome.Failed, f.executor.execute(f.host, recovery(f)))
+        assertNull(f.host.submitted)
+        assertTrue(f.host.adoptedReceipts.isEmpty())
+    }
+
+    @Test
+    fun `adoption requires the same current request and turn and a confirmed handle`() {
+        val f = TurnFixture()
+        val native = StudioNativeTurn(f.request.request, f.turn.id)
+        val running = f.turn.copy(outcome = null)
+        assertTrue(ActiveSessionState.Running(running).matches(native))
+        assertTrue(ActiveSessionState.Ready(f.turn).matches(native))
+        assertFalse(ActiveSessionState.Running(running.copy(request = RequestId("other"))).matches(native))
+        assertFalse(ActiveSessionState.Running(running.copy(id = TurnId("other"))).matches(native))
+        val prompt = PromptRequest(f.request.request, listOf(ContentPart.Text("Preparing")))
+        assertFalse(ActiveSessionState.Submitting(prompt, running).matches(native))
+        assertFalse(ActiveSessionState.Unavailable(EngineFailure.Unknown(), running).matches(native))
+        assertFalse(ActiveSessionState.Ready(f.turn.copy(outcome = TurnOutcome.Unknown)).matches(native))
+        assertFalse(ActiveSessionState.Closed.matches(native))
+    }
+
+    @Test
+    fun `defer and drop during suspended inspection preserve observation until R settles`() = runTest {
+        for (revoked in listOf(ScheduledWakeAdmission.Defer, ScheduledWakeAdmission.Drop)) {
+            val f = TurnFixture()
+            val release = CompletableDeferred<Unit>()
+            f.active.beforeInspection = { release.await() }
+            f.active.inspection = TurnInspection.Observed(f.request.request, null)
+            f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+            val admission = MutableStateFlow<ScheduledWakeAdmission>(ScheduledWakeAdmission.Allow)
+            val coordinator = StudioRunCoordinator(ExecutorProfile(backgroundScope), Clock.System)
+            val host = recoveryHost(f)
+            val running = async { coordinator.run(host, recovery(f), admission = admission) }
+            runCurrent()
+            assertEquals(1, f.active.inspections)
+            admission.value = revoked
+            runCurrent()
+            assertFalse(running.isCompleted)
+            assertTrue(coordinator.isBusy(f.request.id))
+            release.complete(Unit)
+            runCurrent()
+            assertEquals(listOf(StudioNativeTurn(f.request.request, f.turn.id)), f.host.adoptedReceipts)
+            assertTrue(f.host.stopTurns.isEmpty())
+            assertNull(f.host.submitted)
+            f.active.state.value = ActiveSessionState.Ready(f.turn)
+            f.tools.release.complete(Unit)
+            assertEquals(RunOutcome.Completed, running.await())
+            assertFalse(coordinator.isBusy(f.request.id))
+        }
+    }
+
+    @Test
+    fun `detaching the caller during inspection does not cancel the profile observer`() = runTest {
+        val f = TurnFixture()
+        val release = CompletableDeferred<Unit>()
+        f.active.beforeInspection = { release.await() }
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        val coordinator = StudioRunCoordinator(ExecutorProfile(backgroundScope), Clock.System)
+        val caller = async { coordinator.run(recoveryHost(f), recovery(f), cancelBeforeSubmission = true) }
+        runCurrent()
+        caller.cancelAndJoin()
+        assertTrue(coordinator.isBusy(f.request.id))
+        release.complete(Unit)
+        runCurrent()
+        assertEquals(1, f.host.adoptedReceipts.size)
+        assertTrue(f.host.stopTurns.isEmpty())
+        f.active.state.value = ActiveSessionState.Ready(f.turn)
+        f.tools.release.complete(Unit)
+        runCurrent()
+        assertFalse(coordinator.isBusy(f.request.id))
+    }
+
+    @Test
+    fun `idle after deferred inspection never prepares or sends Q`() = runTest {
+        val f = TurnFixture()
+        val release = CompletableDeferred<Unit>()
+        f.active.beforeInspection = { release.await() }
+        f.active.inspection = TurnInspection.Idle
+        f.active.state.value = ActiveSessionState.Ready()
+        val admission = MutableStateFlow<ScheduledWakeAdmission>(ScheduledWakeAdmission.Allow)
+        val coordinator = StudioRunCoordinator(ExecutorProfile(backgroundScope), Clock.System)
+        val running = async {
+            assertFailsWith<ScheduledWakeDeferredException> {
+                coordinator.run(recoveryHost(f), recovery(f), admission = admission)
+            }
+        }
+        runCurrent()
+        admission.value = ScheduledWakeAdmission.Defer
+        runCurrent()
+        release.complete(Unit)
+        running.await()
+        assertEquals(1, f.host.openCount)
+        assertTrue(f.host.preparations.isEmpty())
+        assertTrue(f.machine.sent.isEmpty())
+        assertNull(f.host.submitted)
+    }
+
+    @Test
+    fun `explicit stop during inspection cancels R after adoption without sending Q`() = runTest {
+        val f = TurnFixture()
+        val release = CompletableDeferred<Unit>()
+        f.active.beforeInspection = { release.await() }
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        f.active.state.value = ActiveSessionState.Running(f.turn.copy(outcome = null))
+        val coordinator = StudioRunCoordinator(ExecutorProfile(backgroundScope), Clock.System)
+        val running = async { coordinator.run(recoveryHost(f), recovery(f), cancelBeforeSubmission = true) }
+        runCurrent()
+        f.host.isStopRequested = true
+        release.complete(Unit)
+        runCurrent()
+        assertEquals(listOf(f.turn.id), f.host.stopTurns)
+        assertNull(f.host.submitted)
+        assertTrue(coordinator.isBusy(f.request.id))
+        f.active.state.value = ActiveSessionState.Ready(f.turn.copy(outcome = TurnOutcome.Cancelled))
+        f.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Stopped, running.await())
+    }
+
+    @Test
+    fun `a cancelled profile cannot enter native inspection through a gate without admission`() = runTest {
+        val f = TurnFixture()
+        f.host.requireRecovery = { currentCoroutineContext().cancel() }
+        val execution = async {
+            f.executor.execute(f.host, recovery(f).copy(submission = StudioRunSubmission()))
+        }
+        assertFailsWith<CancellationException> { execution.await() }
+        assertEquals(0, f.host.openCount)
+        assertEquals(0, f.active.inspections)
+        assertTrue(f.host.preparations.isEmpty())
+    }
+
+    @Test
+    fun `a cancelled profile cannot admit Q after native inspection returns idle`() = runTest {
+        val f = TurnFixture()
+        f.active.beforeInspection = { currentCoroutineContext().cancel() }
+        f.active.inspection = TurnInspection.Idle
+        f.active.state.value = ActiveSessionState.Ready()
+        val execution = async {
+            f.executor.execute(f.host, recovery(f).copy(submission = StudioRunSubmission()))
+        }
+        assertFailsWith<CancellationException> { execution.await() }
+        assertEquals(1, f.host.openCount)
+        assertTrue(f.host.preparations.isEmpty())
+        assertTrue(f.machine.sent.isEmpty())
+        assertNull(f.host.submitted)
+    }
+
+    @Test
+    fun `revocation before observation hold refuses inspection without native IO`() = runTest {
+        val f = TurnFixture()
+        val admission = MutableStateFlow<ScheduledWakeAdmission>(ScheduledWakeAdmission.Drop)
+        assertFailsWith<CancellationException> {
+            f.executor.execute(f.host, recovery(f).copy(submission = StudioRunSubmission(admission)))
+        }
+        assertEquals(0, f.host.openCount)
+        assertEquals(0, f.active.inspections)
+        assertTrue(f.host.preparations.isEmpty())
+    }
+
+    private fun recoveryHost(f: TurnFixture): StudioRunHost = object : StudioRunHost {
+        override suspend fun startedRun(id: String, at: Instant) = Unit
+        override suspend fun finishedRun(id: String) = Unit
+        override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
+            val gate = checkNotNull(request.submission)
+            val wrapped = object : StudioSubmissionGate by gate {}
+            return f.executor.execute(f.host, request.copy(submission = wrapped))
+        }
+    }
+
+    private fun recovery(f: TurnFixture): StudioTurnRequest = f.request.copy(
+        request = RequestId("recovery"),
+        recoveryRequests = listOf(f.request.request),
+        origin = StudioTurnOrigin.GraphWork(f.request.request),
+    )
+}
+
+private class TurnFixture(
+    harnesses: StudioHarnessAttach = NoStudioHarnessAttach,
+    settlement: StudioTurnSettlement = NoStudioTurnSettlement,
+) {
     val events = mutableListOf<String>()
     val request = StudioTurnRequest(
         "chat",
@@ -1393,7 +2228,13 @@ private class TurnFixture(harnesses: StudioHarnessAttach = NoStudioHarnessAttach
     val tools = ExecutorTools(events)
     val machine = ExecutorMachine(events)
     val host = ExecutorHost(active, turn, events)
-    val executor = StudioTurnExecutor(StudioWorktrees(executorRegistry(machine), tools), tools, host, harnesses)
+    val executor = StudioTurnExecutor(
+        StudioWorktrees(executorRegistry(machine), tools),
+        tools,
+        host,
+        harnesses,
+        settlement,
+    )
 
     fun mainTask() = WorktreeTask(
         "main-task",
@@ -1445,6 +2286,7 @@ private class ExecutorHost(
     private val events: MutableList<String>,
 ) : StudioTurnHost,
     StudioTurnObserver {
+    override var recoveryJournal: StudioRecoveryJournal? = null
     var openFailure: Exception? = null
     var replacement: ExecutorSession? = null
     var carriedRecord: StudioChatRecord? = null
@@ -1453,22 +2295,52 @@ private class ExecutorHost(
     var afterRollover: () -> Unit = {}
     val rollovers = mutableListOf<SessionRef>()
     var stopCheckFailure: Exception? = null
+    var isStopRequested = false
     var isNativeSubmissionEnabled = false
     var submitted: StudioTurnRequest? = null
     var isIsolated = true
     var openCount = 0
+    var openReplacementAt: Int? = null
     val opened = mutableListOf<Map<String, Set<String>>>()
     val permissionStates = mutableListOf<ActiveSessionState>()
     var beforeSubmit: suspend () -> Unit = {}
     val acceptedReceipts = mutableListOf<Pair<RequestId, TurnId>>()
     val terminalReceipts = mutableListOf<Triple<RequestId, TurnId, TurnOutcome>>()
+    val adoptedReceipts = mutableListOf<StudioNativeTurn>()
+    val adoptedTerminalReceipts = mutableListOf<Pair<StudioNativeTurn, TurnOutcome>>()
+    val stopTurns = mutableListOf<TurnId>()
     var terminalEvents = emptyList<String>()
     var isTerminalHistoryCurrent: Boolean? = null
     var acceptedFailure: Exception? = null
     var terminalFailure: Exception? = null
+    var refreshFailure: Exception? = null
+    val preparations = mutableListOf<StudioTurnRequest>()
+    var prepareNew: suspend (StudioTurnRequest) -> StudioTurnRequest = { it }
+    var requireRecovery: suspend (StudioTurnRequest) -> Unit = {}
+    var recoveryOpen: (suspend (StudioTurnRequest) -> ActiveSession)? = null
+    override suspend fun openRecoveryTurn(request: StudioTurnRequest): ActiveSession =
+        recoveryOpen?.invoke(request) ?: super.openRecoveryTurn(request)
+    override suspend fun requireNativeRecovery(request: StudioTurnRequest) = requireRecovery(request)
+    override suspend fun prepareNewTurn(request: StudioTurnRequest): StudioTurnRequest {
+        preparations += request
+        return prepareNew(request)
+    }
     override suspend fun acceptedTurn(request: StudioTurnRequest, active: ActiveSession, turn: TurnId) {
         acceptedReceipts += request.request to turn
         acceptedFailure?.let { throw it }
+    }
+    override suspend fun adoptedTurn(request: StudioTurnRequest, active: ActiveSession, native: StudioNativeTurn) {
+        adoptedReceipts += native
+    }
+    override suspend fun terminalAdoptedTurn(
+        request: StudioTurnRequest,
+        active: ActiveSession,
+        native: StudioNativeTurn,
+        outcome: TurnOutcome,
+        isHistoryCurrent: Boolean,
+    ) {
+        adoptedTerminalReceipts += native to outcome
+        this.isTerminalHistoryCurrent = isHistoryCurrent
     }
     override suspend fun terminalTurn(
         request: StudioTurnRequest,
@@ -1489,6 +2361,7 @@ private class ExecutorHost(
         preselected: Map<String, Set<String>>,
     ): ActiveSession {
         openCount++
+        if (openCount == openReplacementAt) active = checkNotNull(replacement)
         opened += carriedRecord?.withCarriedHarnesses(preselected) ?: preselected
         events += "open"
         openFailure?.let { throw it }
@@ -1531,13 +2404,15 @@ private class ExecutorHost(
     }
     override suspend fun shouldStop(id: String): Boolean {
         stopCheckFailure?.let { throw it }
-        return false
+        return isStopRequested
     }
     override suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId) {
+        stopTurns += turn
         events += "cancel"
     }
     override suspend fun observeHistory(id: String, history: SessionHistory): Unit = awaitCancellation()
     override suspend fun refreshHistory(id: String, history: SessionHistory) {
+        refreshFailure?.let { throw it }
         events += "refresh"
     }
     override suspend fun updatePermissions(id: String, state: ActiveSessionState) {
@@ -1572,6 +2447,7 @@ private class ExecutorSession(private val turn: Turn, nativeId: String = "sessio
     var senderFailure: EngineFailure? = null
     var inspection: TurnInspection? = null
     var inspections = 0
+    var beforeInspection: suspend () -> Unit = {}
     var inspectedCheckpoint: String? = null
     var frozenNames: Set<String>? = null
     private val frozenTools = object : FrozenHostedTools {
@@ -1581,6 +2457,7 @@ private class ExecutorSession(private val turn: Turn, nativeId: String = "sessio
         override suspend fun checkpoint(request: RequestId): String? = null
         override suspend fun inspect(checkpoint: String?): TurnInspection {
             inspections++
+            beforeInspection()
             inspectedCheckpoint = checkpoint
             return checkNotNull(inspection)
         }

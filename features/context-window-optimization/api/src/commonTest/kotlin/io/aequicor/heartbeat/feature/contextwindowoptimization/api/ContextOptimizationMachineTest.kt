@@ -84,9 +84,15 @@ class ContextOptimizationMachineTest {
     fun `a settled turn above the threshold makes an automatic compaction pending`() {
         spec.assertTransition(
             from = Ready(),
-            intent = Public.TurnSettled(Session, usage(85), Both),
+            intent = Public.TurnSettled(Session, usage(85), Both, sourceRequest = RequestId("settled")),
             to = Ready(
-                pending = mapOf(Session to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Auto)),
+                pending = mapOf(
+                    Session to PendingCompaction(
+                        CompactionMethod.Native,
+                        CompactionOrigin.Auto,
+                        sourceRequest = RequestId("settled"),
+                    ),
+                ),
                 marks = mapOf(Session to CompactionMark(attempts = 1)),
                 usage = mapOf(Session to usage(85)),
             ),

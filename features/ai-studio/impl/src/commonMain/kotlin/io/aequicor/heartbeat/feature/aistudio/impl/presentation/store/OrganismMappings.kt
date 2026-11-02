@@ -57,9 +57,13 @@ internal fun Organism.toUi(): OrganismUi = OrganismUi(
         cells.map { cell -> cell.toSubSession().copy(depth = depthOf(cell)) } +
             trials.map { it.toSubSession().copy(depth = 1) }
     ).toImmutableList(),
-    permissions = cells.flatMap { cell ->
-        (cell.phase as? CellPhase.Working)?.awaiting.orEmpty().map { it.toUi(cell) }
-    }.toImmutableList(),
+    permissions = cells.filter {
+        it.id == io.aequicor.heartbeat.feature.organicai.api.CellId.ZYGOTE &&
+            conversation != null
+    }
+        .flatMap { cell ->
+            (cell.phase as? CellPhase.Working)?.awaiting.orEmpty().map { it.toUi(cell) }
+        }.toImmutableList(),
 )
 
 private fun Organism.statusUi(): OrganismStatusUi = when {

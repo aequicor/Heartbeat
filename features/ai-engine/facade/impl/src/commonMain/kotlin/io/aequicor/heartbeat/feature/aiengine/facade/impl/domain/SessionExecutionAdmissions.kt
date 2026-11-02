@@ -1,0 +1,164 @@
+package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
+
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRelay
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionAuthority
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionInstance
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionExecutionOperation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+/**
+ * Serializes host retirement with admission, never with native RPC. Tickets cover the entire handoff, including
+ * late-open publication/cleanup. A caller cannot interpret an empty ticket set as native terminal evidence.
+ * Lock order is admissions then canonical host storage; providers and persist callbacks must not reenter it.
+ */
+class SessionExecutionAdmissions(private val authorities: Lazy<Set<SessionExecutionAuthority>>) {
+    private val log = Log.tag("SessionExecutionAdmissions")
+    private val mutex = Mutex()
+    private val fenced = mutableSetOf<SessionExecutionInstance>()
+    private val durable = mutableSetOf<SessionExecutionInstance>()
+    private val suspensions = mutableMapOf<SessionExecutionInstance, Int>()
+    private val tickets = mutableMapOf<SessionExecutionInstance, MutableSet<CompletableDeferred<Unit>>>()
+
+    /** Runs one admitted handoff; its ticket is registered before invoking any native code. */
+    suspend fun <T> admitted(
+        binding: SessionExecutionBinding,
+        entry: Pair<SessionRef, RequestId>? = null,
+        operation: SessionExecutionOperation = SessionExecutionOperation.Open,
+        permission: Pair<PermissionRelay, PermissionDecision>? = null,
+        block: suspend () -> T,
+    ): T {
+        val ticket = mutex.withLock {
+            requireAllowed(binding)
+            check(authority(binding).permitsOperation(binding, operation)) { "Executor operation is denied" }
+            permission?.let { requirePermission(binding, operation, it) }
+            if (entry != null) {
+                check(authority(binding).enterPrompt(binding, entry.first, entry.second)) {
+                    "Native request entry is unavailable or already consumed"
+                }
+            }
+            CompletableDeferred<Unit>().also { tickets.getOrPut(binding.instance) { mutableSetOf() }.add(it) }
+        }
+        var isReturned = false
+        try {
+            val result = block()
+            isReturned = true
+            return result
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            isReturned = true
+            throw e
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    // Cancellation does not prove the remote operation returned. Keep an unresolved ticket;
+                    // a timeout may report Unknown, but cannot turn interruption into a drained handoff.
+                    if (isReturned) {
+                        tickets[binding.instance]?.let {
+                            it.remove(ticket)
+                            if (it.isEmpty()) tickets.remove(binding.instance)
+                        }
+                        ticket.complete(Unit)
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun requirePermission(
+        binding: SessionExecutionBinding,
+        operation: SessionExecutionOperation,
+        permission: Pair<PermissionRelay, PermissionDecision>,
+    ) {
+        val (relay, decision) = permission
+        check(operation == SessionExecutionOperation.Respond && relay.binding == binding)
+        check(authorities.value.count { it.permitsPermissionOwner(relay) } == 1) {
+            "Permission owner is unavailable or ambiguous"
+        }
+        check(relay.accepts(decision) && authority(binding).enterPermission(relay, decision)) {
+            "Permission relay is stale, denied or already consumed"
+        }
+    }
+
+    /** Rechecks before publishing a late open; rejection must release the opened native handle. */
+    suspend fun check(binding: SessionExecutionBinding): Unit = mutex.withLock { requireAllowed(binding) }
+
+    /** Closes admission before canonical persistence; failed persistence leaves the volatile fence closed. */
+    suspend fun fence(binding: SessionExecutionBinding, persist: suspend () -> Unit): Unit = mutex.withLock {
+        fenced += binding.instance
+        // Failure deliberately keeps the volatile barrier closed, but cannot claim durable retirement.
+        persist()
+        durable += binding.instance
+        log.i { "execution instance admission durably fenced" }
+    }
+
+    /** Drains transient handoffs only; the access layer must additionally check durable opening reservations. */
+    suspend fun awaitAdmissions(binding: SessionExecutionBinding) {
+        val pending = mutex.withLock {
+            check(binding.instance in durable) { "Durable retirement must precede draining admissions" }
+            tickets[binding.instance].orEmpty().toList()
+        }
+        pending.forEach { it.await() }
+    }
+
+    /** Holds a reversible barrier through drain and cleanup, independently of permanent retirement. */
+    suspend fun <T> suspended(binding: SessionExecutionBinding, block: suspend () -> T): T {
+        val pending = mutex.withLock {
+            suspensions[binding.instance] = (suspensions[binding.instance] ?: 0) + 1
+            tickets[binding.instance].orEmpty().toList()
+        }
+        return try {
+            pending.forEach { it.await() }
+            block()
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    val remaining = checkNotNull(suspensions[binding.instance]) - 1
+                    if (remaining == 0) {
+                        suspensions.remove(
+                            binding.instance,
+                        )
+                    } else {
+                        suspensions[binding.instance] = remaining
+                    }
+                }
+            }
+        }
+    }
+
+    /** Validates the immutable caller payload without consuming its later native handoff. */
+    suspend fun checkPrompt(
+        binding: SessionExecutionBinding,
+        session: SessionRef,
+        target: EngineTarget,
+        request: PromptRequest,
+    ) = mutex.withLock {
+        requireAllowed(binding)
+        check(
+            authority(binding).permitsPrompt(binding, session, target, request),
+        ) { "Executor prompt is not authorized" }
+    }
+
+    private fun authority(binding: SessionExecutionBinding): SessionExecutionAuthority =
+        checkNotNull(authorities.value.singleOrNull { it.provider == binding.instance.provider }) {
+            "Execution authority is unavailable or ambiguous"
+        }
+
+    private suspend fun requireAllowed(binding: SessionExecutionBinding) {
+        check(binding.instance !in suspensions) { "Execution instance is suspended" }
+        check(binding.instance !in fenced) { "Execution instance is retired" }
+        check(authority(binding).permits(binding)) { "Execution authority is unavailable or denied" }
+    }
+}

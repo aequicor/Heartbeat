@@ -2,6 +2,12 @@ package io.aequicor.heartbeat.feature.aistudio.api
 
 import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -11,6 +17,64 @@ class StudioMessageQueueTest {
     private val second = first.copy(id = "second", text = "Second")
     private val data = StudioMessageQueues(mapOf("chat" to StudioChatQueue(listOf(first, second))))
     private val spec = studioQueueMachineSpec(data)
+
+    @Test
+    fun `creator input joins FIFO and its complete envelope survives acceptance and restart`() {
+        val creator = first.copy(
+            id = "creator",
+            origin = StudioQueuedOrigin.Creator(
+                LogicalSessionId("owner"),
+                SessionRef(EngineId("engine"), SessionSourceId("source"), "native"),
+                RequestId("cause"),
+            ),
+            directives = listOf("Agent origin"),
+        )
+        val initial = StudioQueueState(data)
+        val captured = data.withChat(
+            "chat",
+            data.chat("chat").copy(
+                messages = listOf(first, second, creator),
+                creatorMessages = mapOf(creator.id to creator),
+            ),
+        )
+        spec.assertTransition(
+            initial,
+            StudioQueueIntent.Public.Enqueue("chat", creator, "capture"),
+            initial.copy(data = captured, saving = "capture"),
+            effects = listOf(StudioQueueEffect.Save("capture", captured)),
+        )
+        val active = captured.withChat(
+            "chat",
+            captured.chat("chat").copy(
+                messages = listOf(creator.copy(delivery = StudioQueuedDelivery.Sending)),
+                activeRequest = creator.id,
+            ),
+        )
+        val accepted = active.withChat("chat", active.chat("chat").copy(messages = emptyList()))
+        spec.assertTransition(
+            StudioQueueState(active),
+            StudioQueueIntent.Internal.Accepted("chat", creator.id, "accepted"),
+            StudioQueueState(active).copy(data = accepted, saving = "accepted"),
+            effects = listOf(StudioQueueEffect.Save("accepted", accepted)),
+        )
+        val restored = Json.decodeFromString<StudioMessageQueues>(Json.encodeToString(accepted))
+        assertEquals(creator, restored.chat("chat").restored().creatorMessages[creator.id])
+        spec.assertIgnored(StudioQueueState(restored), StudioQueueIntent.Public.Enqueue("chat", creator, "replay"))
+        val busy = StudioQueueState(captured, busy = setOf("chat"), steerable = setOf("chat"))
+        spec.assertIgnored(busy, StudioQueueIntent.Public.Steer("chat", creator.id, "steer"))
+        spec.assertIgnored(
+            busy,
+            StudioQueueIntent.Public.Interrupt("chat", StudioCorrection(creator.id, "token", "active"), "stop"),
+        )
+        val fenced = active.withChat("chat", active.chat("chat").copy(messages = emptyList(), activeRequest = null))
+        spec.assertTransition(
+            StudioQueueState(active),
+            StudioQueueIntent.Public.RetireFenced("chat", creator.id, "cancel"),
+            StudioQueueState(active).copy(data = fenced, saving = "cancel"),
+            effects = listOf(StudioQueueEffect.Save("cancel", fenced)),
+        )
+        assertEquals(creator, fenced.chat("chat").creatorMessages[creator.id])
+    }
 
     @Test
     fun `interrupt confirmation waits for idle then dispatches the selected correction`() {

@@ -37,7 +37,7 @@ internal class StudioHelperNative(
     private val log = Log.tag("StudioHelperNative")
 
     /**
-     * Saves terminal evidence of a journaled helper request. History is read only for an unresolved receipt; a
+     * Saves terminal evidence of a journaled helper request. History enriches unresolved or terminal receipts; a
      * failure leaves the receipt for later reconciliation and never fails the observed turn.
      */
     suspend fun remember(
@@ -53,6 +53,7 @@ internal class StudioHelperNative(
             val receipt = attempts.receipt(helper, request)
             if (receipt == null) log.w { "Helper turn has no journaled request; terminal evidence is not saved" }
             if (receipt == null || receipt.phase !in NATIVE_PHASES) return@evidence null
+            receipt.requireNativeIdentity(session, turn)
             check(record.ref == session) { "Helper native identity changed" }
             val settled = confirmed(record, Turn(turn, request, checkNotNull(record.target), outcome))
                 ?: return@evidence null
@@ -82,31 +83,64 @@ internal class StudioHelperNative(
 
     suspend fun stop(record: StudioChatRecord, request: RequestId, active: ActiveSession?): StudioHelperTerminal? =
         evidence {
-            val ref = record.ref ?: return@evidence null
-            val target = record.target ?: return@evidence null
             val receipt = attempts.receipt(HelperId(record.id), request) ?: return@evidence null
-            val capability = facade.engines.features(ref.engine).resolve(StopsOwnedTurns)
-            val turn = if (capability is FeatureAccess.Available) {
-                val result = capability.feature.stop(
-                    ref,
-                    request,
-                    OwnedTurnAccess(target, record.resolvedExecutionWorkspace()),
-                )
-                (result as? OwnedTurnStop.Confirmed)?.turn ?: return@evidence null
-            } else if (capability == FeatureAccess.Unsupported) {
-                stopLive(active?.takeIf { it.ref == ref }, request, receipt.turn) ?: return@evidence null
-            } else {
-                return@evidence null
-            }
-            check(turn.request == request) {
-                "Helper stop returned another request"
-            }
-            val localTurn = receipt.turn ?: turn.id
-            tools.finishTurn(ref, localTurn, request)
-            val outcome = checkNotNull(turn.outcome)
-            val items = stoppedHistory(ref, active, outcome) ?: return@evidence null
-            terminal(ref, localTurn, turn, items)
+            val session = record.ref ?: return@evidence null
+            receipt.requireNativeIdentity(session, receipt.turn)
+            check(
+                receipt.nativeRoute == null || receipt.nativeRoute == StudioRecoveryRoute(
+                    checkNotNull(record.target),
+                    record.resolvedExecutionWorkspace(),
+                ),
+            ) { "Native stop route differs from its launch" }
+            stopExact(record, request, receipt.turn, active)
         }
+
+    /** Exact observed legacy work may be stopped without manufacturing a new-send receipt. */
+    suspend fun stopObserved(
+        record: StudioChatRecord,
+        witness: StudioRecoveryWitness,
+        active: ActiveSession?,
+    ): StudioHelperTerminal? = evidence {
+        check(record.ref == witness.session) { "Recovery native context changed" }
+        check(witness.phase in setOf(StudioRecoveryPhase.Observing, StudioRecoveryPhase.Unknown)) {
+            "Recovery has no active native observation"
+        }
+        check(witness.isStopRequested) { "Recovery stop intent was not journaled" }
+        val request = checkNotNull(witness.observed) { "Recovery native request is unknown" }
+        stopExact(record, request, witness.turn, active, isHistoryRequired = false)
+    }
+
+    private suspend fun stopExact(
+        record: StudioChatRecord,
+        request: RequestId,
+        expectedTurn: TurnId?,
+        active: ActiveSession?,
+        isHistoryRequired: Boolean = true,
+    ): StudioHelperTerminal? {
+        val ref = record.ref ?: return null
+        val target = record.target ?: return null
+        val capability = facade.engines.features(ref.engine).resolve(StopsOwnedTurns)
+        val turn = if (capability is FeatureAccess.Available) {
+            val result = capability.feature.stop(
+                ref,
+                request,
+                OwnedTurnAccess(target, record.resolvedExecutionWorkspace()),
+            )
+            (result as? OwnedTurnStop.Confirmed)?.turn ?: return null
+        } else if (capability == FeatureAccess.Unsupported) {
+            stopLive(active?.takeIf { it.ref == ref }, request, expectedTurn) ?: return null
+        } else {
+            return null
+        }
+        check(turn.request == request && turn.target == target) {
+            "Helper stop returned another request or target"
+        }
+        val localTurn = expectedTurn ?: turn.id
+        tools.finishTurn(ref, localTurn, request)
+        val outcome = checkNotNull(turn.outcome)
+        val items = if (isHistoryRequired) stoppedHistory(ref, active, outcome) ?: return null else emptyList()
+        return terminal(ref, localTurn, turn, items)
+    }
 
     private suspend fun stoppedHistory(
         ref: SessionRef,
@@ -213,7 +247,7 @@ internal class StudioHelperNative(
     private companion object {
         const val STOP_WAIT_MILLIS = 30_000L
 
-        /** Unresolved native phases; terminal, revoked or missing receipts never read history again. */
-        val NATIVE_PHASES = setOf(StudioHelperPhase.Submitting, StudioHelperPhase.Accepted)
+        /** Unresolved native phases; revoked or missing receipts never read history. */
+        val NATIVE_PHASES = setOf(StudioHelperPhase.Submitting, StudioHelperPhase.Accepted, StudioHelperPhase.Terminal)
     }
 }

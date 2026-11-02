@@ -53,6 +53,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
+import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -107,7 +108,8 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
 
     /** Ends the running turn with [outcome]. */
     fun end(turn: TurnId, outcome: TurnOutcome) {
-        state.value = ActiveSessionState.Ready(Turn(turn, null, TARGET, outcome))
+        val request = state.value.activeTurn()?.takeIf { it.id == turn }?.request
+        state.value = ActiveSessionState.Ready(Turn(turn, request, TARGET, outcome))
     }
 
     private val sends = object : SendsPrompts {
@@ -130,6 +132,7 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
             beforeCancel()
             // As the facade, an unavailable session takes no cancellation.
             if (state.value is ActiveSessionState.Unavailable) throw EngineException(EngineFailure.Unknown())
+            if (state.value.activeTurn()?.id != turn) return
             cancelled += turn
             cancelFailure?.let { throw it }
             if (!ignoresCancel) end(turn, TurnOutcome.Cancelled)
@@ -195,6 +198,7 @@ internal class FakeFacade(
     private val hasStoredHistory: Boolean = true,
 ) : EngineFacade {
     val creations = mutableListOf<CreateSessionRequest>()
+    var ownedStops: StopsOwnedTurns? = null
     var onCreate: suspend () -> Unit = {}
     var onResume: suspend () -> Unit = {}
 
@@ -213,8 +217,12 @@ internal class FakeFacade(
     override val engines: EngineCatalog = object : EngineCatalog {
         override val state: StateFlow<List<EngineInfo>> = MutableStateFlow(emptyList())
         override suspend fun refresh(engine: EngineId): EngineInfo = error("unused")
-        override fun features(engine: EngineId): EngineFeatures =
-            FakeFeatures(mapOf(CreatesSessions to FeatureAccess.Available(creates)))
+        override fun features(engine: EngineId): EngineFeatures = FakeFeatures(
+            buildMap {
+                put(CreatesSessions, FeatureAccess.Available(creates))
+                ownedStops?.let { put(StopsOwnedTurns, FeatureAccess.Available(it)) }
+            },
+        )
     }
 
     override val sessions: SessionCatalog = object : SessionCatalog {

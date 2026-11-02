@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LogicalSessionContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeConfirmation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
@@ -123,10 +124,31 @@ internal class DefaultAgentTools(
         callsLock.withLock {
             val key = session to request
             val previous = boundTurns[key]
-            val next = BoundTurn(turn, target ?: previous?.target, decisionMode, reviewTarget ?: previous?.reviewTarget)
+            val next = BoundTurn(
+                turn,
+                target ?: previous?.target,
+                decisionMode,
+                reviewTarget ?: previous?.reviewTarget,
+                previous?.logicalSession,
+            )
             check(previous == null || previous == next) { "Request already has a different execution identity" }
             boundTurns[key] = next
             userInstructions.inherit(session, request)
+        }
+    }
+
+    override suspend fun bindLogicalSession(
+        session: SessionRef,
+        request: RequestId,
+        turn: TurnId,
+        context: LogicalSessionContext,
+    ) {
+        callsLock.withLock {
+            val key = session to request
+            val bound = checkNotNull(boundTurns[key]) { "Logical context needs a bound turn" }
+            check(bound.turn == turn && session to turn !in finishedTurns) { "Logical context needs the live turn" }
+            check(bound.logicalSession == null || bound.logicalSession == context) { "Logical context changed" }
+            boundTurns[key] = bound.copy(logicalSession = context)
         }
     }
 
@@ -317,6 +339,7 @@ internal class DefaultAgentTools(
                 trusted = context.copy(
                     turn = bound?.turn ?: context.turn,
                     historyTurn = context.turn,
+                    logicalSession = bound?.logicalSession,
                     target = bound?.target ?: context.target,
                     authorization = null,
                     userInstruction = bound?.let { userInstructions.get(context.session, context.request) },
@@ -648,6 +671,7 @@ internal class DefaultAgentTools(
         val target: EngineTarget?,
         val decisionMode: AgentToolDecisionMode,
         val reviewTarget: EngineTarget?,
+        val logicalSession: LogicalSessionContext? = null,
     )
 
     /**

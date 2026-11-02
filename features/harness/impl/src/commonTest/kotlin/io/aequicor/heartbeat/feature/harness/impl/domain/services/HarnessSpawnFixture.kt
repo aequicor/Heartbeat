@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperConversationRole
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadata
@@ -119,6 +120,7 @@ internal class SpawnTestHelpers(private val trace: MutableList<String>) : Helper
     var result: HelperResult? = null
     var release: suspend () -> HelperReleaseResult = { HelperReleaseResult.Released }
     var submission: (HelperPrompt) -> HelperSubmission = { HelperSubmission.Accepted(it.request, dispatchSession) }
+    val roles = mutableListOf<HelperConversationRole>()
     var creates = 0
     val workspaces = mutableListOf<WorkspaceRef?>()
     val created = mutableListOf<SpawnTestCreated>()
@@ -147,8 +149,10 @@ internal class SpawnTestHelpers(private val trace: MutableList<String>) : Helper
         title: String,
         trustCap: TrustLevel,
         model: HelperModelOptions,
+        role: HelperConversationRole,
     ): HelperId {
         check(trustCap == TrustLevel.Ask)
+        roles += role
         beforeCreate()
         creates++
         workspaces += workspace

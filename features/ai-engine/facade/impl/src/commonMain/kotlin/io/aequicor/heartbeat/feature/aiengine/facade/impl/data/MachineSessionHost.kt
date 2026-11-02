@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionEf
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionHost
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeContext
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionHandleScope
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionHostOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -51,13 +52,21 @@ class MachineSessionHost(
         native: ActiveSession,
         route: ExecutionRoute,
         model: ModelId,
-        areSessionHooksEnabled: Boolean,
+        options: SessionHostOptions,
     ): ActiveSession = withContext(dispatchers.main + NonCancellable) {
         val id = context.token("h_")
         log.i { "open handle id=$id engine=${route.engine.value}" }
         val owned = scopes.child(profile, "aiengine-$id")
         try {
-            assembler.assemble(native, route, model, OwnedHandle(id, owned), areSessionHooksEnabled)
+            assembler.assemble(
+                native,
+                route,
+                model,
+                OwnedHandle(id, owned),
+                options.areSessionHooksEnabled,
+                options.logicalSession,
+                options.execution,
+            )
         } catch (e: CancellationException) {
             owned.close()
             throw e
