@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.api
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
@@ -18,13 +19,16 @@ public fun interface IsolatedPrompts {
 public data class IsolatedPrompt(
     val target: EngineTarget,
     val text: String,
-    /** Bounds session creation and the whole turn. */
+    /** Bounds queueing, creation and the whole turn; strict caller return never joins pending cleanup. */
     val timeout: Duration = 2.minutes,
-    /** The final answer is cut to this length. */
+    /** Legacy service answers are cut to this length; strict answers exceeding it return ResponseTooLarge. */
     val maxAnswerChars: Int = DEFAULT_ANSWER_CHARS,
+    /** Opt-in strict single-request execution; an unsupported adapter refuses before any model request. */
+    val constraints: IsolatedPromptConstraints? = null,
 ) {
     init {
         require(text.isNotBlank()) { "An isolated prompt needs text" }
+        require(constraints == null || timeout.isFinite()) { "Strict isolated prompts need a finite timeout" }
         require(timeout.isPositive()) { "An isolated prompt needs a positive timeout" }
         require(maxAnswerChars in 1..MAX_ANSWER_CHARS) { "Isolated answer budget is out of range" }
     }
@@ -39,6 +43,21 @@ public data class IsolatedPrompt(
         /** Upper bound of one answer. */
         public const val MAX_ANSWER_CHARS: Int = 128 * 1024
     }
+}
+
+/**
+ * Strict host check: a fresh user-only context, no instructions, history, tools, hooks or discovery; exactly one
+ * provider request without retries or fallback. [expectedSource] fixes every source field except its label.
+ * The adapter must enforce [maxOutputTokens] on the wire or refuse before dispatch. No chat is created or saved.
+ * This path has no tool dispatcher; any tool response is incomplete and is never executed.
+ */
+public data class IsolatedPromptConstraints(val expectedSource: AuthSource, val maxOutputTokens: Int) {
+    init {
+        require(expectedSource.info.label.isEmpty()) { "Isolated source context must exclude its label" }
+        require(maxOutputTokens in 1..MAX_OUTPUT_TOKENS) { "Isolated output token budget is out of range" }
+    }
+
+    override fun toString(): String = "IsolatedPromptConstraints(maxOutputTokens=$maxOutputTokens)"
 }
 
 /** Outcome of one isolated prompt. */
@@ -57,6 +76,18 @@ public enum class IsolatedPromptFailure {
     /** The engine cannot open a separate tool-less session (or its tool catalog is unknown). */
     Unsupported,
 
+    /** The adapter cannot prove the strict execution contract without dispatching. */
+    IsolationUnproven,
+
+    /** The provider cannot enforce the requested output-token limit. */
+    TokenLimitUnproven,
+
+    /** The complete source context changed before dispatch or while answering. */
+    SourceChanged,
+
+    /** A strict answer exceeded the character budget; it was not silently truncated. */
+    ResponseTooLarge,
+
     /** The capacity stayed full for the queue wait. */
     Busy,
 
@@ -72,3 +103,5 @@ public enum class IsolatedPromptFailure {
     /** The provider or runtime failed. */
     Failed,
 }
+
+private const val MAX_OUTPUT_TOKENS = 4096

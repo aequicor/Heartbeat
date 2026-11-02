@@ -1,22 +1,14 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.withoutLabel
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckAspect
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckIncomplete
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckOutcome
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckProblem
 
 /** Label-free, exact auth context. No secret resolution, credential-helper execution or model IO occurs here. */
-internal fun AuthSource.modelCheckContext(): AuthSource {
-    val info = info.copy(label = "")
-    return when (this) {
-        is AuthSource.ManagedKey -> copy(info = info)
-        is AuthSource.ExternalKey -> copy(info = info)
-        is AuthSource.CliLogin -> copy(info = info)
-        is AuthSource.CredentialHelper -> copy(info = info)
-        is AuthSource.NoAuth -> copy(info = info)
-    }
-}
+internal fun AuthSource.modelCheckContext(): AuthSource = withoutLabel()
 
 /**
  * Fixed host probes and deterministic assessment. Common visible link/credential requests are warnings, not a

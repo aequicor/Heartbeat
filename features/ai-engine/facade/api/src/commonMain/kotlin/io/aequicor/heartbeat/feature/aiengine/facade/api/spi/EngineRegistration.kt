@@ -18,6 +18,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
@@ -26,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlin.time.TimeMark
 
 /** Engine-specific authentication context. Only the factory decides which parts contribute to its context key. */
 public data class EngineContext(
@@ -124,6 +128,22 @@ public interface EngineFactory {
 
     /** Lists models visible through the exact source/context; source material is resolved inside trusted adapters. */
     public suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo>
+
+    /**
+     * Optional strict execution of [IsolatedPrompt.constraints]. Must not bind, prepare a regular runtime, discover
+     * models, resolve workspace instructions, run hooks/tools or persist session/configuration/history. A fresh
+     * context and explicit provider token cap, one round and no transport retries are mandatory. Unsupported
+     * implementations refuse before model IO. Cancellation must cancel the request and finish owned cleanup
+     * before returning; facade retains capacity until then. Recheck [deadline] immediately before provider dispatch
+     * and after any suspending setup; it includes queueing and route validation, not a fresh timeout.
+     * Source material stays inside the trusted adapter.
+     */
+    public suspend fun answerIsolated(
+        prompt: IsolatedPrompt,
+        source: AuthSource,
+        context: EngineContext,
+        deadline: TimeMark,
+    ): IsolatedAnswer = IsolatedAnswer.Unavailable(IsolatedPromptFailure.IsolationUnproven)
 
     /**
      * Creates a runtime after route checks. Pool by engine/source within a profile, across all workspaces.

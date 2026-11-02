@@ -1,10 +1,13 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.withoutLabel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptConstraints
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.managedKey
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -74,6 +77,22 @@ class FacadeIsolatedPromptsTest {
         val answer = prompts(f).ask(IsolatedPrompt(f.target, "Pick", timeout = 5.seconds))
         assertEquals(IsolatedAnswer.Unavailable(IsolatedPromptFailure.Timeout), answer)
         assertTrue(f.policy.policy(ToolPolicyScope(session = f.ref)) != null)
+    }
+
+    @Test
+    fun `strict request never falls back to normal service session`() = runTest {
+        val f = IsolatedTurnFixture()
+        val prompt = IsolatedPrompt(
+            f.target,
+            "READY",
+            constraints = IsolatedPromptConstraints(managedKey().withoutLabel(), 32),
+        )
+        assertEquals(
+            IsolatedAnswer.Unavailable(IsolatedPromptFailure.IsolationUnproven),
+            prompts(f).ask(prompt),
+        )
+        assertTrue(f.creations.isEmpty())
+        assertTrue(f.prompts.isEmpty())
     }
 
     private fun TestScope.prompts(f: IsolatedTurnFixture) = FacadeIsolatedPrompts(
