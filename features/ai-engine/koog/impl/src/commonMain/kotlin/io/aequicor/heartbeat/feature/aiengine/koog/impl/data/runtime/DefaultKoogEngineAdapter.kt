@@ -25,6 +25,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
@@ -65,6 +67,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.time.TimeMark
 import kotlin.uuid.Uuid
 
 @SingleIn(ProfileScope::class)
@@ -143,6 +146,14 @@ internal class DefaultKoogEngineAdapter(
             }
         }
     }
+
+    override suspend fun answerIsolated(
+        prompt: IsolatedPrompt,
+        source: AuthSource,
+        context: EngineContext,
+        deadline: TimeMark,
+        beforeDispatch: suspend () -> Unit,
+    ): IsolatedAnswer = KoogIsolatedPrompts(access).answer(prompt, source, context, deadline, beforeDispatch)
 
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = onMain {
         mutex.withLock {

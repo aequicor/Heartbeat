@@ -65,6 +65,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.job
 import kotlinx.coroutines.test.TestScope
@@ -132,12 +133,23 @@ internal class KoogTestFixture(test: TestScope) {
         },
         toggles,
     )
+    var isolatedTransport: KoogTransport? = null
+    var isolatedOpen: ((IsolatedKoogRequest) -> KoogClient?)? = null
     val access = KoogAccess(
         connections,
         secrets,
         toggles,
         profile,
         object : KoogTransport {
+            override fun openIsolated(
+                key: String?,
+                origin: EndpointOrigin,
+                basePath: String?,
+                request: IsolatedKoogRequest,
+            ): KoogClient? = isolatedOpen?.invoke(
+                request,
+            ) ?: isolatedTransport?.openIsolated(key, origin, basePath, request)
+
             override fun open(
                 provider: KoogProvider,
                 key: String?,
@@ -262,11 +274,16 @@ internal class FakeExecutor : PromptExecutor() {
     var closed = 0
     var failure: Exception? = null
     var nextFailure: Exception? = null
+    var streamOverride: Flow<StreamFrame>? = null
     override fun executeStreaming(prompt: Prompt, model: LLModel, tools: List<ToolDescriptor>): Flow<StreamFrame> =
         flow {
             prompts += prompt
             models += model
             this@FakeExecutor.tools += tools
+            streamOverride?.let {
+                emitAll(it)
+                return@flow
+            }
             failure?.let { throw it }
             nextFailure?.let {
                 nextFailure = null

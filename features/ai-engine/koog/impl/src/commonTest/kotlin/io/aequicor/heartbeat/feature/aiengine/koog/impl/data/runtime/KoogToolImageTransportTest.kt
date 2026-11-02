@@ -36,7 +36,7 @@ class KoogToolImageTransportTest {
                 respond(reply(provider), headers = headersOf(HttpHeaders.ContentType, "application/json"))
             }
             HttpClient(engine).use { http ->
-                SdkKoogTransport(http).open(provider, "mock-key", "test").use { client ->
+                SdkKoogTransport(http, TestKoogPlatform).open(provider, "mock-key", "test").use { client ->
                     val input = prompt("capture") {
                         system(KOOG_RESOURCE_BOUNDARY)
                         user("Inspect the screen")

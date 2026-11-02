@@ -13,12 +13,14 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.withoutLabel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -31,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnection
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnections
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.currentCoroutineContext
@@ -143,38 +146,58 @@ internal class KoogAccess(
             ?: fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.NotAuthenticated)))
     }
 
-    suspend fun open(connection: KoogConnection, model: String? = null): KoogClient {
+    suspend fun open(
+        connection: KoogConnection,
+        model: String? = null,
+        isolated: IsolatedKoogRequest? = null,
+    ): KoogClient {
         val provider = koogProvider(connection.source)
             ?: fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
         return when (val source = connection.source) {
             is AuthSource.ManagedKey -> {
                 val secret = read(source)
                 secret.use {
-                    revalidate(connection)
+                    revalidate(connection, isIsolated = isolated != null)
                     it.reveal { chars ->
-                        transport.open(
-                            provider,
-                            chars.concatToString(),
-                            model,
-                            source.scope.origin,
-                            source.scope.basePath,
-                        )
+                        openTransport(provider, chars.concatToString(), model, source, isolated)
                     }
                 }
             }
 
             is AuthSource.NoAuth -> {
-                revalidate(connection)
-                transport.open(provider, null, model, source.scope.origin, source.scope.basePath)
+                revalidate(connection, isIsolated = isolated != null)
+                openTransport(provider, null, model, source, isolated)
             }
 
             else -> fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
         }
     }
 
-    private suspend fun revalidate(connection: KoogConnection) {
+    private fun openTransport(
+        provider: KoogProvider,
+        key: String?,
+        model: String?,
+        source: AuthSource,
+        isolated: IsolatedKoogRequest?,
+    ): KoogClient = if (isolated == null) {
+        transport.open(provider, key, model, source.scope.origin, source.scope.basePath)
+    } else {
+        require(isolated.provider == provider && isolated.model == model) { "Strict Koog route mismatch" }
+        transport.openIsolated(key, source.scope.origin, source.scope.basePath, isolated)
+            ?: throw IsolatedKoogRefusal(
+                IsolatedPromptFailure.IsolationUnproven,
+            )
+    }
+
+    private suspend fun revalidate(connection: KoogConnection, isIsolated: Boolean) {
         currentCoroutineContext().ensureActive()
-        if (route(connection.binding.id) != connection) {
+        val current = route(connection.binding.id)
+        val isMatching = if (isIsolated) {
+            current.binding == connection.binding && current.source.withoutLabel() == connection.source.withoutLabel()
+        } else {
+            current == connection
+        }
+        if (!isMatching) {
             fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.SourceChanged)))
         }
     }
