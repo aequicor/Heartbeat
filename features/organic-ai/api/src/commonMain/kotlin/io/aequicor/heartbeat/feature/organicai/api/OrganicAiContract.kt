@@ -276,13 +276,13 @@ public sealed interface OrganicAiEffect : MachineEffect {
     /** Reads every organism of the journal. */
     public data object Restore : OrganicAiEffect
 
-    /** Saves the awakened [organisms] first, then drives their working cells and judges their open cases. */
+    /** Saves awakened snapshots, observes recorded requests, and retries cleanup of ended organisms. */
     public data class Revive(val organisms: List<Organism>) : OrganicAiEffect
 
     /** Drives the [cells] made Working by one transition, leaving every other turn and judge alone. */
     public data class DriveCells(val organism: Organism, val cells: List<CellId>) : OrganicAiEffect
 
-    /** Saves [organisms] (versions already written are skipped), cancels turns, releases handles, then Hibernated. */
+    /** Fences new handoffs, saves [organisms], attempts exact cell and judge stops, then reports Hibernated. */
     public data class Hibernate(val organisms: List<Organism>) : OrganicAiEffect
 
     /** Writes [organism] unless the journal has a newer version. */

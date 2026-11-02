@@ -92,7 +92,7 @@ public val OrganicAiMachineSpec: MachineSpec<OrganicAiState, OrganicAiIntent, Or
                 }
                 effect {
                     intent.organisms.map(Organism::awakened)
-                        .filter { it.isDeveloping }
+                        .filter { it.isDeveloping || it.sessions == SessionRelease.Releasing }
                         .takeIf { it.isNotEmpty() }
                         ?.let(OrganicAiEffect::Revive)
                 }

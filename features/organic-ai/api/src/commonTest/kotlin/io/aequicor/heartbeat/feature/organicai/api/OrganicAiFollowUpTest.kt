@@ -70,13 +70,18 @@ class OrganicAiFollowUpTest {
                 if (it.id == ZYGOTE) it.copy(phase = CellPhase.Stalled(Breakdown.Interrupted, work)) else it
             },
         )
+        val explicit = recovered.copy(
+            cells = recovered.cells.map {
+                if (it.id == ZYGOTE) it.copy(phase = working(ZYGOTE, turn = 3, work = work)) else it
+            },
+        )
         spec.assertTransition(
             living(stalled),
             OrganicAiIntent.Public.Resume(ORGANISM),
-            living(recovered),
+            living(explicit),
             effects = listOf(
-                OrganicAiEffect.Persist(recovered),
-                OrganicAiEffect.Drive(recovered, ZYGOTE, request(ZYGOTE, 3)),
+                OrganicAiEffect.Persist(explicit),
+                OrganicAiEffect.Drive(explicit, ZYGOTE, request(ZYGOTE, 3)),
             ),
         )
     }

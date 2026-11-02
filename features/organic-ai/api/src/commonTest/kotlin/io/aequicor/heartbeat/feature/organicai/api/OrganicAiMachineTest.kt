@@ -72,7 +72,7 @@ class OrganicAiMachineTest {
             version = 2,
             cells = finished.cells.map {
                 if (it.id == ZYGOTE) {
-                    it.copy(phase = working(ZYGOTE, turn = 2, isRecovery = true), turns = 2)
+                    it.copy(phase = working(ZYGOTE, turn = 2, isRecovery = false), turns = 2)
                 } else {
                     it
                 }
@@ -142,10 +142,10 @@ class OrganicAiMachineTest {
     }
 
     @Test
-    fun `a germinating cell starts over without recovery`() {
+    fun `a missing session binding still restores through the native journal`() {
         val germinating = organism(zygote = zygoteCell().copy(session = null))
         val awakened = germinating.awakened()
-        assertEquals(working(ZYGOTE, turn = 2, isRecovery = false), awakened.zygote.phase)
+        assertEquals(working(ZYGOTE, turn = 2, isRecovery = true), awakened.zygote.phase)
     }
 
     @Test
@@ -228,7 +228,7 @@ class OrganicAiMachineTest {
             effects = listOf(OrganicAiEffect.Persist(stalled)),
         )
         val resumed = organism(
-            zygote = zygoteCell(working(ZYGOTE, turn = 2, isRecovery = true), turns = 2),
+            zygote = zygoteCell(working(ZYGOTE, turn = 2, isRecovery = false), turns = 2),
             target = null,
             version = 3,
         )

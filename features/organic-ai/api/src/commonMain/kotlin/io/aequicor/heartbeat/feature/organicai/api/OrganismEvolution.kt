@@ -42,11 +42,17 @@ internal fun OrganicAiState.Living.apply(step: Step): OrganicAiState.Living =
     copy(organisms = organisms + (step.organism.id to step.organism))
 
 /**
- * The organism as it continues after a restart: every working cell starts a fresh turn of the same work, a
- * recovery turn when its session exists. Observed turns and permission requests are gone.
+ * Restart creates fresh logical observers for working cells, never permission to replay native work. Native
+ * receipts restore the original requests. Unconfirmed ended organisms retry only exact cleanup.
  */
 internal fun Organism.awakened(): Organism {
-    if (!isDeveloping) return this
+    if (!isDeveloping) {
+        return if (sessions == SessionRelease.Unconfirmed) {
+            copy(sessions = SessionRelease.Releasing)
+        } else {
+            this
+        }
+    }
     val cells = cells.map { cell ->
         when (val phase = cell.phase) {
             is CellPhase.Working -> recover(cell, phase.work)
@@ -198,7 +204,9 @@ private fun Organism.followUp(intent: OrganicAiIntent.Public.FollowUp): Step? {
 private fun Organism.resume(): Step? {
     val zygote = zygote
     if (status is OrganismStatus.Completed && isStopped && zygote.phase is CellPhase.Completed) {
-        val restarted = updated(zygote.id) { recover(it.copy(isAwaitingResults = false), Work.Genesis) }
+        val restarted = updated(
+            zygote.id,
+        ) { recover(it.copy(isAwaitingResults = false), Work.Genesis, isRecovery = false) }
             .copy(status = OrganismStatus.Developing)
         return if (target == null) Step(restarted, isResolving = true) else Step(restarted, drive = zygote.id)
     }
@@ -211,7 +219,7 @@ private fun Organism.resume(): Step? {
         )
     }
     val phase = zygote.phase as? CellPhase.Stalled ?: return null
-    val restarted = updated(zygote.id) { recover(it, phase.work) }
+    val restarted = updated(zygote.id) { recover(it, phase.work, isRecovery = false) }
     return if (target == null) Step(restarted, isResolving = true) else Step(restarted, drive = zygote.id)
 }
 
@@ -409,10 +417,14 @@ private fun Organism.excise(root: CellId, cause: DeathCause): Pair<Organism, Lis
 private fun Organism.wake(cell: Cell): Cell = begin(cell.copy(isAwaitingResults = false), Work.CheckInbox)
 
 /** Migrates old persisted letters turns before recovery; their result text can only be read through the tool. */
-private fun Organism.recover(cell: Cell, work: Work): Cell {
+private fun Organism.recover(cell: Cell, work: Work, isRecovery: Boolean = true): Cell {
     val legacy = work as? Work.Letters
     val restored = if (legacy == null) cell else cell.copy(inbox = legacy.letters + cell.inbox)
-    return begin(restored, if (legacy == null) work else Work.CheckInbox, isRecovery = cell.session != null)
+    return begin(
+        restored,
+        if (legacy == null) work else Work.CheckInbox,
+        isRecovery = isRecovery,
+    )
 }
 
 /** [cell] starting its next turn on [work] with a fresh request id. */
