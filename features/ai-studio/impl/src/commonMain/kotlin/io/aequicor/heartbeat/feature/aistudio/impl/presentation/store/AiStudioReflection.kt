@@ -119,4 +119,5 @@ internal fun StudioSession.toUi(): SessionUi = SessionUi(
     parentChatId = parentChatId,
     isHelper = isHelper,
     executionWorkspace = treeAccess?.workspace?.value,
+    hierarchy = hierarchy?.toUi(),
 )

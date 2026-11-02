@@ -64,9 +64,14 @@ data class SessionUi(
     val isNestedInSidebar: Boolean = false,
     /** Actual execution directory reference, which differs from [projectId] for worktree chats. */
     val executionWorkspace: String? = null,
+    /** Explicit current roles use a non-null envelope even if their metadata is unknown or damaged. */
+    val hierarchy: SessionHierarchyUi? = null,
 ) {
     /** Work is pending even when no engine turn is currently executing. */
     val isWaiting: Boolean get() = isAwaitingPermission || scheduledWait != null || isAwaitingChecklist
+
+    /** Compatibility for older interactive DTOs; current unknown/executor roles never gain input from absence. */
+    val isHumanInteractive: Boolean get() = hierarchy?.isHumanInteractive ?: true
 }
 
 /** Title being edited inline; [origin] is the list row or pane header hosting the field. */

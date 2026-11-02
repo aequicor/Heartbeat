@@ -1,9 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 /**
- * A stable preorder of logical helper chats, independent of native subagent trees. Missing parents and cyclic
- * ancestry become roots, so filtered, archived or malformed metadata never makes a conversation unreachable.
- * The caller supplies sibling order; descendants inherit their root's visible sidebar section.
+ * Two-level grouping of full conversations, independent of native execution trees. Creator and visual root
+ * remain distinct. Missing roots and invalid ancestry keep a conversation reachable as an ungrouped row.
+ * Older DTOs use their historical parent links, flattened under the last known root. Visibility is a caller concern.
  */
 class SidebarSessionTree(sessions: List<SessionUi>) {
     private val indexed = sessions.distinctBy { it.id }.associateBy { it.id }
@@ -31,10 +31,38 @@ class SidebarSessionTree(sessions: List<SessionUi>) {
     }
 
     private fun parentOf(session: SessionUi): String? {
+        val hierarchy = session.hierarchy ?: return legacyRoot(session)
+        return fullRoot(session, hierarchy)
+    }
+
+    private fun fullRoot(session: SessionUi, hierarchy: SessionHierarchyUi): String? {
+        if (hierarchy.role != SessionRoleUi.Subsession) return null
+        return hierarchy.rootSessionId?.takeIf { id ->
+            val root = indexed[id]
+            val isFullRoot = root?.hierarchy?.let {
+                it.role == SessionRoleUi.Session && it.rootSessionId == id
+            } ?: (root != null && legacyRoot(root) == null)
+            id != session.id && root?.projectId == session.projectId && isFullRoot
+        }
+    }
+
+    private fun legacyRoot(session: SessionUi): String? {
         val parent = session.parentChatId?.takeIf { it in indexed } ?: return null
         val seen = mutableSetOf(session.id)
         var ancestor: String? = parent
-        while (ancestor != null && seen.add(ancestor)) ancestor = indexed[ancestor]?.parentChatId
-        return parent.takeIf { ancestor == null }
+        var root = parent
+        while (ancestor != null && seen.add(ancestor)) {
+            val row = indexed[ancestor] ?: break
+            if (!row.isHumanInteractive) return null
+            root = ancestor
+            ancestor = parentLink(row)
+        }
+        return root.takeIf { ancestor == null }
+    }
+
+    private fun parentLink(row: SessionUi): String? = if (row.hierarchy == null) {
+        row.parentChatId?.takeIf { it in indexed }
+    } else {
+        row.hierarchy.rootSessionId?.takeIf { it != row.id && it in indexed }
     }
 }

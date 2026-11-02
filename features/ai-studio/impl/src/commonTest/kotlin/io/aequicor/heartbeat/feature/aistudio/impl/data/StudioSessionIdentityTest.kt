@@ -82,6 +82,23 @@ class StudioSessionIdentityTest {
     }
 
     @Test
+    fun `an internal execution cannot claim full conversation authority while its raw metadata remains readable`() {
+        val rootContext = LogicalSessionContext(LogicalSessionId(root.id), SessionKind.Session)
+        val contexts = listOf(rootContext, rootContext.subsession(LogicalSessionId("child")))
+        for (context in contexts) {
+            val original = chat(context.id.value).copy(
+                identity = StudioSessionIdentity(StudioIdentityOrigin.InternalExecution, context),
+            )
+            val canonical = resolvedStudioIdentities(listOf(original)).single()
+            assertEquals(original.identity, canonical.identity)
+            assertEquals("InvalidInternalExecutionKind", canonical.identityIssue)
+            assertNull(canonical.logicalSession)
+            assertEquals(false, canonical.isHumanConversation)
+            assertNull(canonical.sessionHierarchy().rootSessionId)
+        }
+    }
+
+    @Test
     fun `unsupported versions and changed owners cannot become an ordinary root`() {
         val context = LogicalSessionContext(LogicalSessionId(root.id), SessionKind.Session)
         val unknown = root.copy(

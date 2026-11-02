@@ -641,3 +641,39 @@ typed-detekt успешны (прежние три serializer/inference диаг
 sidebar/dropdown используют отдельный проверенный ownerAnchorId. Native selection не
 смешивается с logical executor id; отсутствующие native model/stop capability не берутся
 от корня. Обязательны serializer unknown/legacy, owner isolation и render-регрессии.
+
+### UI hierarchy projection — выполненный подготовительный этап
+
+Canonical StudioChatRecord теперь проецируется через StudioSessionHierarchy в nullable
+SessionHierarchyUi. Wire envelope содержит version и raw kind; typed accessor распознаёт
+только текущие роли. Старый DTO без envelope остаётся interactive, но canonical projector
+всегда выдаёт non-null metadata, включая Unknown для future/повреждённых/duplicate записей.
+LegacyInteractive с потерянной ancestry сохраняет human rights отдельно от root/creator.
+Unknown не публикует control links. InternalExecution с full kind теперь отклоняется уже
+canonical resolver как InvalidInternalExecutionKind, raw identity сохраняется; production
+writers такого сочетания не найдены. InternalExecution без context остаётся read-only.
+
+SidebarSessionTree использует verified family root, creator не меняется; глубина 0/1.
+Старые parent links сплющиваются только для presentation. Дети второго уровня сортируются
+по прежнему caller/sibling order, поэтому grandchild с более свежей активностью теперь
+может идти раньше своего creator. Mixed current/legacy DTO с промежуточным не-корнем
+не создаёт третий уровень. Missing/cyclic/project-mismatched links не прячут полный чат.
+
+Фильтр visibility Subagent пока НЕ включён: он должен появиться атомарно с owner menu/open
+и read-only viewer controls, чтобы hosted executor не потерял единственную точку открытия.
+isHelper остаётся compatibility scheduling marker; новые role/access решения его не читают.
+Следующий UI шаг: ownerAnchorId, объединённый список только своих logical/native executors,
+hide во всех sidebar разделах, title «Owner · Executor», standard disabled composer без hint,
+действия только доказанных capabilities, thin bracket/chevron и единое selected shading.
+Нативные SessionTrees не содержат модели или stop capability: показывать actual target из
+наблюдения либо Unknown, не подставлять root model и не останавливать owner вместо executor.
+Для hosted executor Stop до включения должен иметь durable instance fence, а не только
+cancel последнего request. После этого — render-сверка с утверждённым session-model.pen.
+
+Проверка `build/verification/session-hierarchy-projection-final2.log`: Studio impl 964/964,
+screen-model 97/97, целевые sidebar UI 6/6; DI и обычный/typed detekt успешны.
+Typed screen-model имеет 34 прежние generated serializer/inference диагностики в unchanged
+remote/StudioViewCodec, StudioViewSchema и StudioViewTransfer; в новых/изменённых источниках
+диагностик нет. Лог диагностики `build/verification/typed-detekt-screen-model-debug.log`.
+Studio typed analysis сохраняет прежние три диагностики. Полное покрытие анализом не заявляется.
+Архитектурное read-only ревью — APPROVE после mixed-DTO и InternalExecution проверок.

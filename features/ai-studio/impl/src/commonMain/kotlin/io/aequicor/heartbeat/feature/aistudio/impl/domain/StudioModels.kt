@@ -49,6 +49,8 @@ data class StudioSession(
     val isHelper: Boolean = false,
     /** Route for observing native descendants without attaching an execution handle. */
     val treeAccess: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess? = null,
+    /** Null is reserved for older producers; the canonical repository always supplies explicit role metadata. */
+    val hierarchy: StudioSessionHierarchy? = null,
 )
 
 /** Projects and sessions shown in the sidebar. */

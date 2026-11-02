@@ -59,6 +59,17 @@ private class StudioIdentityResolver(private val records: List<StudioChatRecord>
             return StudioIdentityResolution(existing, record.identityIssue ?: "UnresolvedCreator")
         }
         val context = existing.context ?: return unresolved("InvalidIdentityContext", existing)
+        return verifyContext(record, existing, context)
+    }
+
+    private fun verifyContext(
+        record: StudioChatRecord,
+        existing: StudioSessionIdentity,
+        context: LogicalSessionContext,
+    ): StudioIdentityResolution {
+        if (existing.origin == StudioIdentityOrigin.InternalExecution && context.kind != SessionKind.Subagent) {
+            return unresolved("InvalidInternalExecutionKind", existing)
+        }
         val issue = when {
             context.id.value != record.id -> "IdentityMismatch"
             context.kind == SessionKind.Session -> null
