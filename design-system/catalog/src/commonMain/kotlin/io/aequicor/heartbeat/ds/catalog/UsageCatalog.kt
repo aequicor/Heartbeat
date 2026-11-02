@@ -10,9 +10,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbCard
 import io.aequicor.heartbeat.ds.components.HbComposerUsageButton
-import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbProgressBar
 import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.HbUsageSection
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.resources.HbString
@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 @Composable
 internal fun UsageCatalog(modifier: Modifier = Modifier) {
     var selected by remember { mutableStateOf<Int?>(null) }
+    var section by remember { mutableStateOf(HbUsageSection.Context) }
     val title = hbString(HbString.UsageTitle)
     val limits = hbString(HbString.UsageLimits)
     HbCard(modifier.fillMaxWidth().testTag("usage-catalog")) {
@@ -37,7 +38,10 @@ internal fun UsageCatalog(modifier: Modifier = Modifier) {
                     accessibleLabel = title,
                     quotaPercent = listOf(20, 55, 72, 79, 85, 93, 78, null)[index],
                     quotaLabel = "5h",
-                ) { UsageCatalogDetails(percent) }
+                    section = section,
+                    onSectionChange = { section = it },
+                    quotaAccessibleLabel = limits,
+                ) { UsageCatalogDetails(percent, section) }
             }
             HbComposerUsageButton(
                 61,
@@ -66,14 +70,14 @@ internal fun UsageCatalog(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun UsageCatalogDetails(percent: Int?) {
-    if (percent != null) {
+private fun UsageCatalogDetails(percent: Int?, section: HbUsageSection) {
+    if (section == HbUsageSection.Context) {
         HbRow {
             HbText(hbString(HbString.UsageContext), Modifier.weight(1f))
-            HbText("$percent%")
+            HbText(percent?.let { "$it%" } ?: "—")
         }
-        HbProgressBar(percent / 100f)
-        HbDivider()
+        if (percent != null) HbProgressBar(percent / 100f)
+        return
     }
     HbRow {
         HbText(hbString(HbString.UsageWeekly), Modifier.weight(1f))

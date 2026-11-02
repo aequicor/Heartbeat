@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextBreakdownUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageCreditsUi
@@ -13,6 +14,7 @@ internal fun ContextUsage.toUi(): ContextUsageUi = ContextUsageUi(
     usedTokens,
     capacityTokens,
     capacityTokens?.let { (usedTokens.toDouble() / it * PERCENT_MAX).coerceIn(0.0, PERCENT_MAX).roundToInt() },
+    breakdown?.let { ContextBreakdownUi(it.instructions, it.history, it.tools, it.files) },
 )
 
 internal fun ProviderUsageSnapshot.toUi(): ProviderUsageUi = ProviderUsageUi(

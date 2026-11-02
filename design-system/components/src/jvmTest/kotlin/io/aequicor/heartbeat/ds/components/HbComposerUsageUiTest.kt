@@ -56,6 +56,55 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class HbComposerUsageUiTest {
     @Test
+    fun `empty telemetry has one actionable dash and partial telemetry restores independent segments`() =
+        runSkikoComposeUiTest(size = Size(620f, 500f)) {
+            var known by mutableStateOf(false)
+            setContent {
+                UsageTestHost {
+                    HbComposerUsageButton(null, "Usage", false, {}, hasContextData = known) { }
+                }
+            }
+            onNodeWithText("—").assertIsDisplayed()
+            onNodeWithTag("usage-limits").assertDoesNotExist()
+            runOnIdle { known = true }
+            onNodeWithTag("usage-context").assertIsDisplayed()
+            onNodeWithTag("usage-limits").assertIsDisplayed()
+        }
+
+    @Test
+    fun `clicking the other anchor segment switches the open popup without dismissing or losing its origin`() =
+        runSkikoComposeUiTest(size = Size(620f, 500f)) {
+            var open by mutableStateOf(false)
+            var section by mutableStateOf(HbUsageSection.Context)
+            setContent {
+                UsageTestHost {
+                    HbComposerUsageButton(
+                        61,
+                        "Usage",
+                        open,
+                        { open = it },
+                        quotaPercent = 78,
+                        quotaLabel = "5h",
+                        section = section,
+                        onSectionChange = { section = it },
+                    ) { HbText("Section: $section") }
+                }
+            }
+            onNodeWithTag("usage-context").performClick()
+            onNodeWithText("Section: Context").assertIsDisplayed()
+            onNodeWithTag("usage-limits").performMouseInput {
+                moveTo(center)
+                press()
+                release()
+            }
+            onNodeWithText("Section: Limits").assertIsDisplayed()
+            onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Usage"))
+                .performKeyInput { pressKey(Key.Escape) }
+            onNodeWithTag("usage-limits").assertIsFocused()
+            runOnIdle { assertFalse(open) }
+        }
+
+    @Test
     fun `context ring takes the green amber and red accents by occupancy`() {
         for (dark in listOf(false, true)) {
             runSkikoComposeUiTest(size = Size(480f, 240f)) {
@@ -118,7 +167,7 @@ class HbComposerUsageUiTest {
             for (value in listOf(61, 0, 100)) {
                 runOnIdle { percent = value }
                 onNodeWithText("$value%").assertIsDisplayed()
-                onNodeWithContentDescription("Usage").assert(
+                onNodeWithTag("usage-context").assert(
                     SemanticsMatcher.expectValue(
                         SemanticsProperties.ProgressBarRangeInfo,
                         ProgressBarRangeInfo(value / 100f, 0f..1f),
@@ -164,12 +213,12 @@ class HbComposerUsageUiTest {
                 }
             }
             for (key in listOf(Key.Enter, Key.Spacebar, Key.DirectionDown)) {
-                onNodeWithContentDescription("Usage").performSemanticsAction(SemanticsActions.RequestFocus)
-                onNodeWithContentDescription("Usage").performKeyInput { pressKey(key) }
+                onNodeWithTag("usage-context").performSemanticsAction(SemanticsActions.RequestFocus)
+                onNodeWithTag("usage-context").performKeyInput { pressKey(key) }
                 onNodeWithText("Context window").assertIsDisplayed()
                 onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Usage"))
                     .performKeyInput { pressKey(Key.Escape) }
-                onNodeWithContentDescription("Usage").assertIsFocused()
+                onNodeWithTag("usage-context").assertIsFocused()
                 runOnIdle { assertFalse(isOpen) }
             }
         }
@@ -185,7 +234,7 @@ class HbComposerUsageUiTest {
                     HbComposerUsageButton(61, "Usage", isOpen, { isOpen = it }) { UsageDetails() }
                 }
             }
-            onNodeWithContentDescription("Usage").performClick()
+            onNodeWithTag("usage-context").performClick()
             onNodeWithText("Outside").performMouseInput {
                 moveTo(center)
                 press()
@@ -217,7 +266,7 @@ class HbComposerUsageUiTest {
                             )
                         }
                     }
-                    val trigger = onNodeWithContentDescription("Usage")
+                    val trigger = onNodeWithTag("usage-context")
                     if (width < 1200f) {
                         val bounds = trigger.fetchSemanticsNode().boundsInRoot
                         assertTrue(bounds.width >= 48f && bounds.height >= 48f)
@@ -243,7 +292,7 @@ class HbComposerUsageUiTest {
     }
 
     @Test
-    fun `quota border survives compaction and every state keeps fixed geometry`() =
+    fun `quota bar survives compaction and every state keeps fixed geometry`() =
         runSkikoComposeUiTest(size = Size(620f, 500f)) {
             var context by mutableStateOf<Int?>(null)
             var quota by mutableStateOf<Int?>(null)
@@ -269,15 +318,15 @@ class HbComposerUsageUiTest {
                 context = 64
                 quota = 100
             }
-            val bounds = onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot
-            assertEquals(80f, bounds.width)
-            assertEquals(50f, bounds.height)
+            val bounds = onNodeWithTag("usage-meter").fetchSemanticsNode().boundsInRoot
+            assertEquals(112f, bounds.width)
+            assertEquals(32f, bounds.height)
             assertTrue(usageImage().hasUsageColor(quotaColor))
             runOnIdle { compacting = true }
             onNodeWithText("64%").assertDoesNotExist()
-            onNodeWithText("5h").assertDoesNotExist()
+            onNodeWithText("5h").assertIsDisplayed()
             assertTrue(usageImage().hasUsageColor(quotaColor))
-            assertEquals(bounds, onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot)
+            assertEquals(bounds, onNodeWithTag("usage-meter").fetchSemanticsNode().boundsInRoot)
             runOnIdle {
                 compacting = false
                 context = null
@@ -285,30 +334,29 @@ class HbComposerUsageUiTest {
             }
             onNodeWithText("0%").assertDoesNotExist()
             assertFalse(usageImage().hasUsageColor(quotaColor))
-            assertEquals(bounds, onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot)
+            assertEquals(bounds, onNodeWithTag("usage-meter").fetchSemanticsNode().boundsInRoot)
             runOnIdle { loading = true }
             onNodeWithText("…").assertIsDisplayed()
-            assertEquals(bounds, onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot)
+            assertEquals(bounds, onNodeWithTag("usage-meter").fetchSemanticsNode().boundsInRoot)
         }
 
     @Test
-    fun `the protruding quota chip is clickable inside the reserved hit region`() =
-        runSkikoComposeUiTest(size = Size(620f, 500f)) {
-            var isOpen by mutableStateOf(false)
-            setContent {
-                UsageTestHost {
-                    HbComposerUsageButton(72, "Usage", isOpen, { isOpen = it }, quotaPercent = 78, quotaLabel = "5h") {
-                        UsageDetails()
-                    }
+    fun `the quota segment opens details from its own hit region`() = runSkikoComposeUiTest(size = Size(620f, 500f)) {
+        var isOpen by mutableStateOf(false)
+        setContent {
+            UsageTestHost {
+                HbComposerUsageButton(72, "Usage", isOpen, { isOpen = it }, quotaPercent = 78, quotaLabel = "5h") {
+                    UsageDetails()
                 }
             }
-            onNodeWithContentDescription("Usage").performMouseInput {
-                moveTo(androidx.compose.ui.geometry.Offset(width / 2f, 2f))
-                press()
-                release()
-            }
-            onNodeWithText("Context window").assertIsDisplayed()
         }
+        onNodeWithTag("usage-limits").performMouseInput {
+            moveTo(center)
+            press()
+            release()
+        }
+        onNodeWithText("Context window").assertIsDisplayed()
+    }
 
     @Test
     fun `progress bar exposes the same clamped fraction that is drawn`() =
@@ -329,7 +377,7 @@ class HbComposerUsageUiTest {
 
 @OptIn(ExperimentalTestApi::class)
 private fun SkikoComposeUiTest.usageImage(): BufferedImage {
-    val bounds = onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot
+    val bounds = onNodeWithTag("usage-meter").fetchSemanticsNode().boundsInRoot
     return captureToImage().toAwtImage().getSubimage(
         bounds.left.toInt(),
         bounds.top.toInt(),

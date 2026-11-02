@@ -25,8 +25,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_chip_hours
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_chip_week
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compacting
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context_unavailable
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_credits
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_empty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limit_unknown
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens
@@ -51,6 +51,29 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent a
 @OptIn(ExperimentalTestApi::class)
 class StudioUsageUiTest {
     @Test
+    fun `native breakdown displays partial categories and falls back when the next snapshot omits it`() =
+        runSkikoComposeUiTest(size = Size(390f, 800f)) {
+            var usage by mutableStateOf(
+                ContextUsageUi(
+                    1000,
+                    2000,
+                    50,
+                    io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextBreakdownUi(100, 600, null, 50),
+                ),
+            )
+            setContent { UsageHost(pane().copy(contextUsage = usage), compact = true) }
+            onNodeWithTag("usage-context").performClick()
+            onNodeWithText("100").assertIsDisplayed()
+            onNodeWithText("600").assertIsDisplayed()
+            onNodeWithText("50").assertIsDisplayed()
+            onNodeWithText("250").assertIsDisplayed()
+            runOnIdle { usage = usage.copy(breakdown = null) }
+            onNodeWithText("100").assertDoesNotExist()
+            onNodeWithText("600").assertDoesNotExist()
+            onNodeWithText("250").assertDoesNotExist()
+        }
+
+    @Test
     fun `unknown capacity shows tokens without a percentage and still offers manual compaction`() =
         runSkikoComposeUiTest(size = Size(420f, 800f)) {
             val events = mutableListOf<StudioIntent>()
@@ -71,7 +94,7 @@ class StudioUsageUiTest {
                 UsageHost(content, compact = true, onIntent = events::add)
             }
             onNodeWithContentDescription(unknownTokens).assertIsDisplayed()
-            onNodeWithTag("usage-0").performClick()
+            onNodeWithTag("usage-context").performClick()
             onNodeWithText(unknownLimit).assertIsDisplayed()
             onNodeWithText(unknownTokens).assertIsDisplayed()
             onNodeWithText("0%").assertDoesNotExist()
@@ -79,7 +102,7 @@ class StudioUsageUiTest {
             runOnIdle { assertEquals(StudioIntent.CompactContext(0), events.last()) }
             runOnIdle { content = content.copy(contextUsage = ContextUsageUi(4096, 8192, 50)) }
             onNodeWithText("50%").assertIsDisplayed()
-            onNodeWithTag("usage-0").performClick()
+            onNodeWithTag("usage-context").performClick()
             onNodeWithText(knownTokens).assertIsDisplayed()
             onNodeWithText(unknownLimit).assertDoesNotExist()
         }
@@ -91,7 +114,8 @@ class StudioUsageUiTest {
             setContent { UsageHost(content) }
             onNodeWithTag("usage-0").assertDoesNotExist()
             runOnIdle { content = content.copy(providerUsage = provider()) }
-            onNodeWithTag("usage-0").assertIsDisplayed().performClick()
+            onNodeWithTag("usage-context").assertIsDisplayed().performClick()
+            onNodeWithTag("usage-tab-Limits").performClick()
             onNodeWithText("Weekly").assertIsDisplayed()
             onNodeWithText("99%").assertIsDisplayed()
             onNodeWithText("0%").assertDoesNotExist()
@@ -107,7 +131,7 @@ class StudioUsageUiTest {
                     var limitsTitle = ""
                     val empty = ProviderUsageUi(persistentListOf(), null, null, null, true)
                     setContent {
-                        unknownContext = stringResource(Res.string.usage_context_unavailable)
+                        unknownContext = stringResource(Res.string.usage_empty)
                         limitsTitle = stringResource(Res.string.usage_limits)
                         UsageHost(
                             pane().copy(
@@ -119,9 +143,9 @@ class StudioUsageUiTest {
                             onIntent = events::add,
                         )
                     }
-                    onNodeWithTag("usage-0").assertIsDisplayed().performClick()
+                    onNodeWithTag("usage-context").assertIsDisplayed().performClick()
                     onNodeWithText(unknownContext).assertIsDisplayed()
-                    onNodeWithText(limitsTitle).assertDoesNotExist()
+                    onNodeWithText("Plan without metrics").assertDoesNotExist()
                     onNodeWithText("0%").assertDoesNotExist()
                     runOnIdle { assertEquals(listOf<StudioIntent>(StudioIntent.RefreshUsage("model")), events) }
                     val directory = File("build/previews").apply { mkdirs() }
@@ -151,13 +175,13 @@ class StudioUsageUiTest {
                 tokens = stringResource(Res.string.usage_tokens, "4096", "8192")
                 UsageHost(content)
             }
-            onNodeWithTag("usage-0").performClick()
+            onNodeWithTag("usage-context").performClick()
             onNodeWithText(tokens).assertIsDisplayed()
-            onNodeWithText(limitsTitle).assertDoesNotExist()
+            onNodeWithText("Plan without metrics").assertDoesNotExist()
             runOnIdle { content = content.copy(providerUsage = empty) }
             onNodeWithText(tokens).assertIsDisplayed()
             onNodeWithText("Plan without metrics", substring = true).assertDoesNotExist()
-            onNodeWithText(limitsTitle).assertDoesNotExist()
+            onNodeWithText("Plan without metrics").assertDoesNotExist()
             runOnIdle {
                 content = content.copy(
                     providerUsage = empty.copy(
@@ -167,10 +191,12 @@ class StudioUsageUiTest {
                 )
             }
             onNodeWithText(limitsTitle).assertIsDisplayed()
+            onNodeWithTag("usage-tab-Limits").performClick()
             onNodeWithText(creditsTitle).assertIsDisplayed()
             runOnIdle { content = content.copy(providerUsage = null) }
-            onNodeWithText(limitsTitle).assertDoesNotExist()
+            onNodeWithText("Plan without metrics").assertDoesNotExist()
             onNodeWithText(creditsTitle).assertDoesNotExist()
+            onNodeWithTag("usage-tab-Context").performClick()
             onNodeWithText(tokens).assertIsDisplayed()
         }
 
@@ -214,7 +240,7 @@ class StudioUsageUiTest {
             val events = mutableListOf<StudioIntent>()
             setContent { UsageHost(pane().copy(contextUsage = ContextUsageUi(0, 1000, 0)), onIntent = events::add) }
             onNodeWithText("0%").assertIsDisplayed()
-            onNodeWithTag("usage-0").performClick()
+            onNodeWithTag("usage-context").performClick()
             runOnIdle { assertEquals(listOf<StudioIntent>(StudioIntent.RefreshUsage("model")), events) }
         }
 
@@ -236,7 +262,8 @@ class StudioUsageUiTest {
                 ),
             )
             setContent { UsageHost(content) }
-            onNodeWithTag("usage-0").performClick()
+            onNodeWithTag("usage-context").performClick()
+            onNodeWithTag("usage-tab-Limits").performClick()
             onNodeWithText("Weekly").assertIsDisplayed()
             runOnIdle { content = content.copy(contextUsage = ContextUsageUi(1000, 1000, 100)) }
             onNodeWithText("61%").assertDoesNotExist()
@@ -259,7 +286,8 @@ class StudioUsageUiTest {
                             compact = width < 500f,
                         )
                     }
-                    onNodeWithTag("usage-0").performClick()
+                    onNodeWithTag("usage-context").performClick()
+                    onNodeWithTag("usage-tab-Limits").performClick()
                     onNodeWithText("Weekly").assertIsDisplayed()
                     val directory = File("build/previews").apply { mkdirs() }
                     check(
@@ -270,6 +298,7 @@ class StudioUsageUiTest {
                         ),
                     )
                     runOnIdle { context = ContextUsageUi(78080, null, null) }
+                    onNodeWithTag("usage-tab-Context").performClick()
                     onNodeWithText(unknownTokens).assertIsDisplayed()
                     check(
                         ImageIO.write(
@@ -295,7 +324,7 @@ class StudioUsageUiTest {
                 contextUsage = ContextUsageUi(42, 1000, 4),
             )
             setContent { UsageHost(content, onIntent = events::add) }
-            onNodeWithTag("usage-0").performClick()
+            onNodeWithTag("usage-context").performClick()
             runOnIdle {
                 assertEquals(
                     listOf<StudioIntent>(StudioIntent.RefreshUsage("confirmed-model")),
@@ -331,7 +360,7 @@ class StudioUsageUiTest {
             }
             onNodeWithText(hourChip).assertIsDisplayed()
             onNodeWithText("12%").assertIsDisplayed()
-            onNodeWithTag("usage-0").performClick()
+            onNodeWithTag("usage-limits").performClick()
             onNodeWithText("100%").assertIsDisplayed()
             onNodeWithText("93%").assertIsDisplayed()
         }

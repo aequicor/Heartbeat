@@ -13,7 +13,18 @@ import kotlin.time.Instant
 @Serializable
 @SerialName("ContextUsageUi")
 @Immutable
-data class ContextUsageUi(val usedTokens: Long, val capacityTokens: Long?, val percent: Int?)
+data class ContextUsageUi(
+    val usedTokens: Long,
+    val capacityTokens: Long?,
+    val percent: Int?,
+    val breakdown: ContextBreakdownUi? = null,
+)
+
+/** Disjoint native categories of the same snapshot; null is unknown, not zero. */
+@Serializable
+@SerialName("ContextBreakdownUi")
+@Immutable
+data class ContextBreakdownUi(val instructions: Long?, val history: Long?, val tools: Long?, val files: Long?)
 
 /** One known provider quota window. */
 @Serializable
