@@ -253,6 +253,17 @@ class StudioHelperNativeTest {
     }
 
     @Test
+    fun `stop proof from a different target never settles the exact request`() = runTest {
+        val fixture = NativeHelperFixture()
+        fixture.prepare()
+        fixture.stop = OwnedTurnStop.Confirmed(
+            fixture.turn.copy(target = fixture.target.copy(binding = EngineBindingId("foreign"))),
+        )
+        assertNull(fixture.native.stop(fixture.record, fixture.turn.request!!, active = null))
+        assertEquals(emptyList(), fixture.finished)
+    }
+
+    @Test
     fun `foreign stop result never settles the owned receipt`() = runTest {
         val fixture = NativeHelperFixture()
         fixture.prepare()

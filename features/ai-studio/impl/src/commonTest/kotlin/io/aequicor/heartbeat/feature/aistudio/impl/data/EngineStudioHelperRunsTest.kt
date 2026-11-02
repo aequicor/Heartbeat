@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.time.Instant
 
@@ -128,16 +130,36 @@ class EngineStudioHelperRunsTest {
         assertEquals(listOf("Return a summary"), executed.directives)
     }
 
+    @Test
+    fun `retired cold executor obtains exact cleanup proof without ordinary resume`() = runTest {
+        val fixture = NativeHelperFixture()
+        fixture.prepare()
+        fixture.stop = OwnedTurnStop.Confirmed(fixture.turn.copy(outcome = TurnOutcome.Unknown))
+        val runs = helperRuns(
+            this,
+            fixture,
+            live = null,
+            record = fixture.record.copy(executor = StudioExecutorState("incarnation", isRetired = true)),
+        )
+        val result = assertNotNull(runs.helperTerminal(helper, fixture.turn.request!!))
+        assertEquals(StudioHelperTerminalOutcome.Unknown, result.outcome)
+        assertEquals(fixture.turn.request, fixture.stopped?.get(1))
+        assertEquals(0, fixture.historyReads)
+        fixture.stop = OwnedTurnStop.Unconfirmed
+        assertNull(runs.helperTerminal(helper, fixture.turn.request!!))
+    }
+
     private fun helperRuns(
         scope: CoroutineScope,
         fixture: NativeHelperFixture,
         live: ActiveSession?,
         host: StudioRunHost = HelperRunsHost(),
         worktrees: StudioWorktrees? = null,
+        record: StudioChatRecord = fixture.record,
     ) = EngineStudioHelperRuns(
         lazyOf(
             object : StudioHelperAccess {
-                override suspend fun helperRecord(helper: HelperId) = fixture.record
+                override suspend fun helperRecord(helper: HelperId) = record
                 override suspend fun openHelper(record: StudioChatRecord): ActiveSession = error("Must not open")
                 override suspend fun liveHelper(helper: HelperId): ActiveSession? = live
             },

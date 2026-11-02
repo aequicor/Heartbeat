@@ -132,8 +132,8 @@ internal class StudioHelperNative(
         } else {
             return null
         }
-        check(turn.request == request) {
-            "Helper stop returned another request"
+        check(turn.request == request && turn.target == target) {
+            "Helper stop returned another request or target"
         }
         val localTurn = expectedTurn ?: turn.id
         tools.finishTurn(ref, localTurn, request)

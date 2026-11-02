@@ -92,6 +92,9 @@ internal class EngineStudioHelperRuns(
         log.v { "Read exact helper native result" }
         return if (record.ref == null || record.target == null) {
             null
+        } else if (record.executor?.isRetired == true) {
+            // Retirement already authorizes exact cleanup; ordinary resume would revive the fenced instance.
+            native.stop(record, request, access.value.liveHelper(helper))
         } else {
             native.result(record, request) {
                 access.value.liveHelper(helper) ?: recovery.open(record) { access.value.openHelper(record) }

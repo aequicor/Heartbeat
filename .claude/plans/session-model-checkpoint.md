@@ -13,6 +13,22 @@
 Источники: [стандарт v1](../rules/session-hierarchy.md), [основной план и аудит](session-model-unification.md), [правила проекта](../../CLAUDE.md), [превью](../../design/features/ai-studio/previews/session-model/README.md).
 Стандарт не содержит миграцию; совместимость, миграция и последовательность работ находятся в плане разработки.
 
+## Isolated service ownership — deb79707c
+
+- Strict service journal сохраняет immutable original request/payload/target и native binding до create/send.
+  InternalExecution не получает logical human owner. Restart не восстанавливает право отправки.
+- Operation-aware admission запрещает service steering/config/respond; одноразовый send entry переживает потерю ACK.
+  Profile-owned handoff продолжается после timeout ожидания; late ACK сохраняется до cleanup.
+- Retire/fence/drain и exact cold Stop не используют ordinary resume. Unknown/Closed не являются proof; durable
+  tool isolation сохраняется, пока нет известного terminal или explicit Confirmed Stop.
+- Actual graph test подтверждает общий singleton journal host/authority, один send, ответ, close и запрет repeat create.
+- Verify: facade API 155 / impl 661 (12 Windows-only skips), Studio 1148, organic impl 272, harness 923,
+  DI integrations 7; failures/errors 0. Ordinary/typed detekt, facade iOS, shrink + obfuscate smoke успешны.
+  Typed facade analysis сообщает 24 diagnostics — ограничение покрытия анализа. Scoped review без blockers.
+- Commit staged/range: 21 172/25 000 tokens, 21 files (warning). Полный PR всё ещё требует оставшихся шагов 4–8.
+- Следом: чтение результата retired Studio executor через exact Stop без ordinary resume, затем owner mediation,
+  background normalization, согласованный UI и финальные verify/E2E/pr-review-and-fix с `/reviewed`.
+
 ## Exact-request facade admission — 9e9589204
 
 - Опубликован `9e958920426c9255f3fc9ceaafaf9ee6033eaa96`: 5028 tokens, 7 files, staged/range PASS.
