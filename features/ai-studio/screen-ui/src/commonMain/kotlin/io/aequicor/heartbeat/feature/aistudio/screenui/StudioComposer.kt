@@ -414,7 +414,11 @@ private fun StudioComposerContext(
     }
     HbColumn(Modifier.fillMaxWidth().then(measureWidth), gap = HbTheme.spacing.s) {
         if (!content.isMessageQueueEnabled) {
-            HbFlowRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+            HbFlowRow(
+                Modifier.fillMaxWidth(),
+                gap = HbTheme.spacing.s,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 StudioComposerContextControls(content, onIntent, presentation)
             }
         } else {
@@ -433,7 +437,11 @@ private fun StudioQueueComposerContext(
     val isWide = presentation == ComposerPresentation.Wide
     HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
         HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
-            HbFlowRow(Modifier.weight(1f), gap = HbTheme.spacing.s) {
+            HbFlowRow(
+                Modifier.weight(1f),
+                gap = HbTheme.spacing.s,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 StudioComposerContextControls(content, onIntent, presentation)
             }
             if (isWide) PaneExecutionStatus(content)

@@ -56,21 +56,22 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class HbComposerUsageUiTest {
     @Test
-    fun `context ring takes the brand amber and red accents by occupancy`() {
+    fun `context ring takes the green amber and red accents by occupancy`() {
         for (dark in listOf(false, true)) {
             runSkikoComposeUiTest(size = Size(480f, 240f)) {
                 var percent by mutableIntStateOf(40)
                 val accents = mutableMapOf<Int, Int>()
                 setContent {
                     UsageTestHost(dark, density = 2f) {
-                        accents[40] = HbTheme.colors.brand.toArgb()
-                        accents[85] = HbTheme.colors.warning.toArgb()
-                        accents[100] = HbTheme.colors.error.toArgb()
+                        accents[40] = HbTheme.colors.usageLow.toArgb()
+                        accents[66] = HbTheme.colors.usageWarning.toArgb()
+                        accents[85] = HbTheme.colors.usageHigh.toArgb()
+                        accents[100] = HbTheme.colors.usageCritical.toArgb()
                         HbComposerUsageButton(percent, "Usage", false, {}) { }
                     }
                 }
                 val directory = File("build/previews").apply { mkdirs() }
-                for (value in listOf(40, 85, 100)) {
+                for (value in listOf(40, 66, 85, 100)) {
                     runOnIdle { percent = value }
                     val image = usageImage()
                     for ((level, accent) in accents) {
@@ -198,12 +199,12 @@ class HbComposerUsageUiTest {
 
     @Test
     fun `usage panels fit desktop and mobile in light and dark with readable progress and touch targets`() {
-        for (width in listOf(1280f, 420f)) {
+        for (width in listOf(1280f, 834f, 390f)) {
             for (dark in listOf(false, true)) {
                 runSkikoComposeUiTest(size = Size(width, 800f)) {
                     var isOpen by mutableStateOf(false)
                     setContent {
-                        UsageTestHost(dark, isMobile = width == 420f) {
+                        UsageTestHost(dark, isMobile = width < 1200f) {
                             HbChatComposer(
                                 "", {}, {}, {}, "Send", "Stop",
                                 modifier = Modifier.fillMaxWidth().testTag("composer"),
@@ -217,7 +218,7 @@ class HbComposerUsageUiTest {
                         }
                     }
                     val trigger = onNodeWithContentDescription("Usage")
-                    if (width == 420f) {
+                    if (width < 1200f) {
                         val bounds = trigger.fetchSemanticsNode().boundsInRoot
                         assertTrue(bounds.width >= 48f && bounds.height >= 48f)
                     }
@@ -240,6 +241,74 @@ class HbComposerUsageUiTest {
             }
         }
     }
+
+    @Test
+    fun `quota border survives compaction and every state keeps fixed geometry`() =
+        runSkikoComposeUiTest(size = Size(620f, 500f)) {
+            var context by mutableStateOf<Int?>(null)
+            var quota by mutableStateOf<Int?>(null)
+            var compacting by mutableStateOf(false)
+            var loading by mutableStateOf(false)
+            var quotaColor = 0
+            setContent {
+                UsageTestHost {
+                    quotaColor = HbTheme.colors.usageCritical.toArgb()
+                    HbComposerUsageButton(
+                        context,
+                        "Usage",
+                        false,
+                        {},
+                        isCompacting = compacting,
+                        quotaPercent = quota,
+                        quotaLabel = "5h",
+                        isLoading = loading,
+                    ) { }
+                }
+            }
+            runOnIdle {
+                context = 64
+                quota = 100
+            }
+            val bounds = onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot
+            assertEquals(80f, bounds.width)
+            assertEquals(50f, bounds.height)
+            assertTrue(usageImage().hasUsageColor(quotaColor))
+            runOnIdle { compacting = true }
+            onNodeWithText("64%").assertDoesNotExist()
+            onNodeWithText("5h").assertDoesNotExist()
+            assertTrue(usageImage().hasUsageColor(quotaColor))
+            assertEquals(bounds, onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot)
+            runOnIdle {
+                compacting = false
+                context = null
+                quota = null
+            }
+            onNodeWithText("0%").assertDoesNotExist()
+            assertFalse(usageImage().hasUsageColor(quotaColor))
+            assertEquals(bounds, onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot)
+            runOnIdle { loading = true }
+            onNodeWithText("…").assertIsDisplayed()
+            assertEquals(bounds, onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot)
+        }
+
+    @Test
+    fun `the protruding quota chip is clickable inside the reserved hit region`() =
+        runSkikoComposeUiTest(size = Size(620f, 500f)) {
+            var isOpen by mutableStateOf(false)
+            setContent {
+                UsageTestHost {
+                    HbComposerUsageButton(72, "Usage", isOpen, { isOpen = it }, quotaPercent = 78, quotaLabel = "5h") {
+                        UsageDetails()
+                    }
+                }
+            }
+            onNodeWithContentDescription("Usage").performMouseInput {
+                moveTo(androidx.compose.ui.geometry.Offset(width / 2f, 2f))
+                press()
+                release()
+            }
+            onNodeWithText("Context window").assertIsDisplayed()
+        }
 
     @Test
     fun `progress bar exposes the same clamped fraction that is drawn`() =

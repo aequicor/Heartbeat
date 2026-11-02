@@ -3,28 +3,27 @@ package io.aequicor.heartbeat.ds.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,17 +31,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -61,14 +53,15 @@ import io.aequicor.heartbeat.ds.tokens.HbMotion
 private val log = Log.tag("DS/ComposerUsage")
 
 /**
- * Controlled usage disclosure in a composer. A known [contextPercent] renders a flat pill with a small
- * determinate ring and the percentage; the ring fills clockwise from 12 o'clock, eases between values and
- * turns amber from 80% and red at 100%. While [isCompacting] the fill fades and a sweep circles the ring
- * until the new, smaller occupancy arrives; the caller states compaction in [accessibleLabel] as well.
- * Null renders the caller's localized [label] (for example, "Limits") without implying zero usage.
- * The owner omits this control when no usage information is available and supplies the detail [content].
- * Enter, Space and arrow keys open the panel; Escape and outside clicks dismiss it and restore focus.
- * The shared Foundation implementation deliberately follows the flat composer style on every platform.
+ * Fixed-size context and quota disclosure shared across all hosts through Foundation.
+ * [contextPercent] fills the inner ring and colors the percentage independently of [quotaPercent],
+ * which follows the pill perimeter clockwise from its top center. [quotaLabel] names that window.
+ * Unknown measurements stay neutral. [isLoading] shows a sweep and an ellipsis; [isCompacting]
+ * replaces the entire inner content with a centered sweep while the quota perimeter keeps working.
+ * The visual pill matches other composer controls: 80x32 on desktop and 96x44 on touch hosts.
+ * Its hit region covers the overlapping chip, with the same reserved space in every state.
+ * Touch targets stay at least 48dp. Motion follows the theme's reduction setting.
+ * Enter, Space and arrow keys open details; Escape and outside clicks dismiss and restore focus.
  */
 @Composable
 public fun HbComposerUsageButton(
@@ -80,6 +73,9 @@ public fun HbComposerUsageButton(
     accessibleLabel: String = label,
     enabled: Boolean = true,
     isCompacting: Boolean = false,
+    quotaPercent: Int? = null,
+    quotaLabel: String? = null,
+    isLoading: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val focus = remember { FocusRequester() }
@@ -98,11 +94,16 @@ public fun HbComposerUsageButton(
             val trigger = Modifier.focusRequester(focus)
                 .semantics { contentDescription = accessibleLabel }
                 .usageOpenKeys(enabled) { changeExpanded(true) }
-            if (contextPercent == null) {
-                HbButton(label, { changeExpanded(!isOpen) }, trigger, style = HbButtonStyle.Ghost, enabled = enabled)
-            } else {
-                ComposerUsageMeter(contextPercent, isCompacting, { changeExpanded(!isOpen) }, trigger, enabled)
-            }
+            ComposerUsageMeter(
+                contextPercent,
+                quotaPercent,
+                quotaLabel,
+                isLoading,
+                isCompacting,
+                { changeExpanded(!isOpen) },
+                trigger,
+                enabled,
+            )
         }
         if (isOpen) ComposerUsagePopup(accessibleLabel, { changeExpanded(false) }, content = content)
     }
@@ -120,7 +121,10 @@ private fun Modifier.usageOpenKeys(enabled: Boolean, onOpen: () -> Unit): Modifi
 
 @Composable
 private fun ComposerUsageMeter(
-    percent: Int,
+    percent: Int?,
+    quotaPercent: Int?,
+    quotaLabel: String?,
+    isLoading: Boolean,
     isCompacting: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -131,127 +135,120 @@ private fun ComposerUsageMeter(
     val isHovered by interactions.collectIsHoveredAsState()
     val isPressed by interactions.collectIsPressedAsState()
     val colors = HbTheme.colors
+    val dimensions = HbTheme.dimensions
     val motion = HbTheme.motion
-    val base = HbTheme.surfaces.composerPill
-    val background = when {
-        enabled && isPressed -> colors.pressedOverlay.compositeOver(base)
-        enabled && isHovered -> colors.interactionHoverOverlay.compositeOver(base)
-        else -> base
-    }
-    val value = percent.coerceIn(0, PERCENT_MAX)
-    val level = when {
-        !enabled -> colors.textSecondary
-        value >= CRITICAL_PERCENT -> colors.error
-        value >= WARNING_PERCENT -> colors.warning
-        else -> colors.brand
-    }
-    val accent by animateColorAsState(level, usageSpec(motion.normalMillis, motion), label = "usage-accent")
+    val background = usageBackground(enabled, isPressed, isHovered)
+    val value = percent?.coerceIn(0, PERCENT_MAX)
+    val accent = usageAccent(value, enabled)
+    val quotaAccent = usageAccent(quotaPercent, enabled)
     val progress by animateFloatAsState(
-        value / PERCENT_MAX.toFloat(),
+        (value ?: 0) / PERCENT_MAX.toFloat(),
         usageSpec(motion.slowMillis, motion),
         label = "usage-progress",
     )
-    val shownPercent by animateIntAsState(value, usageSpec(motion.slowMillis, motion), label = "usage-percent")
-    val shape = RoundedCornerShape(HbTheme.dimensions.controlCornerRadius)
+    val quotaProgress = animateFloatAsState(
+        (quotaPercent ?: 0).coerceIn(0, PERCENT_MAX) / PERCENT_MAX.toFloat(),
+        usageSpec(motion.slowMillis, motion),
+        label = "quota-progress",
+    )
+    val shownPercent by animateIntAsState(value ?: 0, usageSpec(motion.slowMillis, motion), label = "usage-percent")
+    val shape = RoundedCornerShape(percent = 50)
+    val chipSpace = if (dimensions.isDesktop) dimensions.usageQuotaChipHeight else dimensions.usageQuotaChipHeight / 2
     Box(
-        modifier.heightIn(min = controlTargetSize(HbTheme.dimensions.composerPillHeight))
-            .widthIn(min = maxOf(HbTheme.dimensions.composerUsageMinWidth, HbTheme.dimensions.touchTarget))
-            .hbFocusOutline(isFocused, shape)
-            .background(background, shape)
-            .semantics { progressBarRangeInfo = ProgressBarRangeInfo(value / PERCENT_MAX.toFloat(), 0f..1f) }
-            .clickable(interactions, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
-        contentAlignment = Alignment.Center,
+        modifier.size(
+            dimensions.composerUsageMinWidth,
+            maxOf(dimensions.composerUsageHeight + chipSpace, dimensions.touchTarget),
+        )
+            .semantics {
+                if (value != null && !isCompacting && !isLoading) {
+                    progressBarRangeInfo = ProgressBarRangeInfo(value / PERCENT_MAX.toFloat(), 0f..1f)
+                }
+            }
+            .clickable(interactions, indication = null, enabled = enabled, role = Role.Button, onClick = onClick),
+        contentAlignment = if (dimensions.isDesktop) Alignment.Center else Alignment.BottomCenter,
     ) {
-        HbRow(gap = HbTheme.spacing.xs) {
-            UsageRing(progress, accent, isCompacting)
-            HbText(
-                "$shownPercent%",
-                style = HbTheme.typography.caption,
-                color = if (isCompacting) colors.textSecondary else colors.textPrimary,
-                maxLines = 1,
-            )
+        Box(
+            Modifier.size(dimensions.composerUsageMinWidth, dimensions.composerUsageHeight)
+                .hbFocusOutline(isFocused, shape)
+                .background(background, shape)
+                .usageQuotaBorder(quotaProgress, quotaAccent, colors.outlineSubtle, dimensions.usageQuotaStrokeWidth),
+            contentAlignment = Alignment.Center,
+        ) {
+            UsageMeterContent(value, isLoading, isCompacting, progress, shownPercent, accent)
+            if (!isLoading && !isCompacting) UsageQuotaChip(quotaLabel, quotaPercent, background, quotaAccent)
         }
     }
 }
 
-private fun <T> usageSpec(durationMillis: Int, motion: HbMotion): AnimationSpec<T> =
-    if (motion.isReducedMotion) snap() else tween(durationMillis, easing = FastOutSlowInEasing)
-
-/**
- * Determinate ring filled clockwise from 12 o'clock by [progress]. While [isCompacting] the filled part fades
- * back and a comet-like sweep circles the ring; under reduced motion the sweep stays still.
- */
 @Composable
-private fun UsageRing(progress: Float, color: Color, isCompacting: Boolean, modifier: Modifier = Modifier) {
-    val track = HbTheme.colors.outlineSubtle
-    val strokeWidth = HbTheme.dimensions.usageRingStrokeWidth
-    val fillAlpha by animateFloatAsState(
-        if (isCompacting) COMPACTING_FILL_ALPHA else 1f,
-        usageSpec(HbTheme.motion.normalMillis, HbTheme.motion),
-        label = "usage-fill",
-    )
-    Box(
-        modifier.size(HbTheme.dimensions.usageRingSize).drawBehind {
-            val stroke = strokeWidth.toPx()
-            val inset = stroke / 2f
-            val arcSize = Size(size.width - stroke, size.height - stroke)
-            drawCircle(track, radius = (size.minDimension - stroke) / 2f, style = Stroke(stroke))
-            if (progress > 0f) {
-                drawArc(
-                    color.copy(alpha = color.alpha * fillAlpha),
-                    startAngle = -QUARTER_TURN,
-                    sweepAngle = FULL_TURN * progress.coerceAtMost(1f),
-                    useCenter = false,
-                    topLeft = Offset(inset, inset),
-                    size = arcSize,
-                    style = Stroke(stroke, cap = StrokeCap.Round),
-                )
-            }
-        },
-    ) {
-        if (isCompacting) CompactionSweep(color, Modifier.matchParentSize())
+@ReadOnlyComposable
+private fun usageBackground(enabled: Boolean, isPressed: Boolean, isHovered: Boolean): Color {
+    val colors = HbTheme.colors
+    val base = HbTheme.surfaces.composerPill
+    return when {
+        enabled && isPressed -> colors.pressedOverlay.compositeOver(base)
+        enabled && isHovered -> colors.interactionHoverOverlay.compositeOver(base)
+        else -> base
     }
 }
 
-/** The sweep turns in the draw phase only, so the meter does not recompose on every frame. */
 @Composable
-private fun CompactionSweep(color: Color, modifier: Modifier = Modifier) {
-    val motion = HbTheme.motion
-    val strokeWidth = HbTheme.dimensions.usageRingStrokeWidth
-    val transition = rememberInfiniteTransition(label = "usage-compaction")
-    val turn = transition.animateFloat(
-        initialValue = 0f,
-        targetValue = if (motion.isReducedMotion) 0f else FULL_TURN,
-        animationSpec = infiniteRepeatable(tween(motion.usageCompactionMillis, easing = LinearEasing)),
-        label = "usage-compaction-turn",
+private fun usageAccent(percent: Int?, enabled: Boolean): Color {
+    val colors = HbTheme.colors
+    val accent by animateColorAsState(
+        if (enabled) colors.usageColor(percent) else colors.textSecondary,
+        usageSpec(HbTheme.motion.normalMillis, HbTheme.motion),
+        label = "usage-accent",
     )
-    Box(
-        modifier.graphicsLayer { rotationZ = turn.value }.drawBehind {
-            val stroke = strokeWidth.toPx()
-            val inset = stroke / 2f
-            val brush = Brush.sweepGradient(
-                0f to color.copy(alpha = 0f),
-                COMET_SWEEP / FULL_TURN to color,
-                center = center,
-            )
-            drawArc(
-                brush,
-                startAngle = 0f,
-                sweepAngle = COMET_SWEEP,
-                useCenter = false,
-                topLeft = Offset(inset, inset),
-                size = Size(size.width - stroke, size.height - stroke),
-                style = Stroke(stroke, cap = StrokeCap.Round),
-            )
-        },
-    )
+    return accent
 }
 
+@Composable
+private fun UsageMeterContent(
+    value: Int?,
+    isLoading: Boolean,
+    isCompacting: Boolean,
+    progress: Float,
+    shownPercent: Int,
+    accent: Color,
+) {
+    if (isCompacting) {
+        UsageRing(0f, HbTheme.colors.textSecondary, true)
+    } else {
+        HbRow(gap = HbTheme.spacing.xs) {
+            UsageRing(if (isLoading) 0f else progress, accent, isLoading)
+            val text = when {
+                isLoading -> "…"
+                value == null -> "—"
+                else -> "$shownPercent%"
+            }
+            HbText(text, style = HbTheme.typography.label, color = accent, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.UsageQuotaChip(label: String?, percent: Int?, background: Color, accent: Color) {
+    val dimensions = HbTheme.dimensions
+    val shape = RoundedCornerShape(percent = 50)
+    Box(
+        Modifier.align(Alignment.TopCenter).offset(y = -dimensions.usageQuotaChipHeight / 2)
+            .height(dimensions.usageQuotaChipHeight)
+            .background(background, shape)
+            .border(dimensions.borderWidth, if (percent == null) HbTheme.colors.outlineSubtle else accent, shape)
+            .padding(horizontal = HbTheme.spacing.s),
+        contentAlignment = Alignment.Center,
+    ) {
+        HbText(
+            label?.takeIf { percent != null } ?: "—",
+            style = HbTheme.typography.caption,
+            color = accent,
+            maxLines = 1,
+        )
+    }
+}
+
+internal fun <T> usageSpec(durationMillis: Int, motion: HbMotion): AnimationSpec<T> =
+    if (motion.isReducedMotion) snap() else tween(durationMillis, easing = FastOutSlowInEasing)
+
 private const val PERCENT_MAX = 100
-private const val WARNING_PERCENT = 80
-private const val CRITICAL_PERCENT = 100
-private const val QUARTER_TURN = 90f
-private const val FULL_TURN = 360f
-private const val COMET_SWEEP = 140f
-private const val COMPACTING_FILL_ALPHA = 0.35f

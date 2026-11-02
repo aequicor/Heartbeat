@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.screenui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,8 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_chip_hours
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_chip_week
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compacting
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context_unavailable
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_credits
@@ -96,7 +99,7 @@ class StudioUsageUiTest {
 
     @Test
     fun `a route without quota shows only context in every theme and width`() {
-        for (width in listOf(1280f, 420f)) {
+        for (width in listOf(1280f, 834f, 390f)) {
             for (dark in listOf(false, true)) {
                 runSkikoComposeUiTest(size = Size(width, 800f)) {
                     val events = mutableListOf<StudioIntent>()
@@ -225,7 +228,7 @@ class StudioUsageUiTest {
 
     @Test
     fun `usage details fit desktop and compact viewports in both themes`() {
-        for (width in listOf(1280f, 420f)) {
+        for (width in listOf(1280f, 834f, 390f)) {
             for (dark in listOf(false, true)) {
                 runSkikoComposeUiTest(size = Size(width, 800f)) {
                     var context by mutableStateOf(ContextUsageUi(78080, 128000, 61))
@@ -283,6 +286,38 @@ class StudioUsageUiTest {
             }
         }
 
+    @Test
+    fun `quota chip follows the most consumed window and remains independent of context`() =
+        runSkikoComposeUiTest(size = Size(900f, 800f)) {
+            val fiveHour = UsageWindowUi("five", "five_hour", 20, null, 300)
+            val weekly = UsageWindowUi("week", "seven_day", 93, null, 10080)
+            var content by mutableStateOf(
+                pane().copy(
+                    contextUsage = ContextUsageUi(120, 1000, 12),
+                    providerUsage = provider().copy(windows = persistentListOf(fiveHour, weekly)),
+                ),
+            )
+            var weekChip = ""
+            var hourChip = ""
+            setContent {
+                weekChip = stringResource(Res.string.usage_chip_week)
+                hourChip = stringResource(Res.string.usage_chip_hours, 5)
+                UsageHost(content)
+            }
+            onNodeWithText(weekChip).assertIsDisplayed()
+            onNodeWithText("12%").assertIsDisplayed()
+            runOnIdle {
+                content = content.copy(
+                    providerUsage = provider().copy(windows = persistentListOf(fiveHour.copy(percent = 100), weekly)),
+                )
+            }
+            onNodeWithText(hourChip).assertIsDisplayed()
+            onNodeWithText("12%").assertIsDisplayed()
+            onNodeWithTag("usage-0").performClick()
+            onNodeWithText("100%").assertIsDisplayed()
+            onNodeWithText("93%").assertIsDisplayed()
+        }
+
     private fun pane(): PaneContent {
         val pane = PaneUi(0)
         val state = AiStudioScreenState(
@@ -309,7 +344,10 @@ private fun UsageHost(
     onIntent: (StudioIntent) -> Unit = {},
 ) {
     HbTheme(darkTheme = dark, dimensions = if (compact) HbDimensions.Mobile else HbDimensions.Desktop) {
-        Box(Modifier.fillMaxSize().padding(HbTheme.spacing.xl), contentAlignment = Alignment.BottomCenter) {
+        Box(
+            Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).padding(HbTheme.spacing.xl),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
             StudioComposer(content, onIntent, isCompact = compact)
         }
     }

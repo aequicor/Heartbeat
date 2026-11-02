@@ -185,7 +185,6 @@
     <string name="usage_unlimited">Unlimited</string>
     <string name="usage_expires">Expires %1$s</string>
     <string name="usage_stale">Last update %1$s · may be out of date</string>
-    <string name="usage_last_measurement">Last confirmed measurement; excludes the unsent draft</string>
     <string name="usage_window_week">Weekly</string>
     <string name="usage_window_hours">%1$d-hour limit</string>
     <string name="usage_window_minutes">%1$d-minute limit</string>
@@ -411,4 +410,8 @@
     <string name="file_preview_unavailable_hint">It may have been moved or deleted, or it cannot be read.</string>
     <string name="file_preview_binary">This is not a text file</string>
     <string name="file_preview_too_large">The file is larger than 1 MB</string>
+    <string name="usage_chip_hours">%1$dh</string>
+    <string name="usage_chip_week">Wk</string>
+    <string name="usage_chip_month">Mo</string>
+    <string name="usage_window_month">Monthly</string>
 </resources>

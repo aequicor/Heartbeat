@@ -73,18 +73,23 @@ public fun HbRow(
     )
 }
 
-/** Wrapping layout for controls and chips, using the same theme gap in both axes. */
+/**
+ * Wrapping layout for controls and chips, using the same theme gap in both axes.
+ * [verticalAlignment] positions items within each line, e.g. mixed-height composer controls.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 public fun HbFlowRow(
     modifier: Modifier = Modifier,
     gap: Dp = HbTheme.spacing.s,
+    verticalAlignment: Alignment.Vertical = Alignment.Top,
     content: @Composable FlowRowScope.() -> Unit,
 ) {
     FlowRow(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(gap),
         verticalArrangement = Arrangement.spacedBy(gap),
+        itemVerticalAlignment = verticalAlignment,
         content = content,
     )
 }
