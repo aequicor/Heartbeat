@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
@@ -20,9 +21,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
@@ -32,6 +36,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.runTest
@@ -44,6 +50,36 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class StudioContinuabilityTest {
+    @Test
+    fun `a retired native session is closed and dropped so the next message can resume`() = runTest {
+        val handle = ContinuitySession(
+            ActiveSessionState.Unavailable(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed)),
+        )
+        val handles = mutableMapOf<String, ActiveSession>("chat" to handle)
+        assertNull(handles.live("chat"))
+        assertEquals(1, handle.closes)
+        assertTrue(handles.isEmpty())
+    }
+
+    @Test
+    fun `a transient unavailable session remains owned for reconciliation`() = runTest {
+        val handle = ContinuitySession(ActiveSessionState.Unavailable(EngineFailure.Unknown()))
+        val handles = mutableMapOf<String, ActiveSession>("chat" to handle)
+        assertEquals(handle, handles.live("chat"))
+        assertEquals(0, handle.closes)
+    }
+
+    @Test
+    fun `a closed native session with an unresolved turn stays available for reconciliation`() = runTest {
+        val turn = Turn(TurnId("turn"), null, EngineTarget(EngineId("engine"), EngineBindingId("b"), ModelId("m")))
+        val handle = ContinuitySession(
+            ActiveSessionState.Unavailable(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed), turn),
+        )
+        val handles = mutableMapOf<String, ActiveSession>("chat" to handle)
+        assertEquals(handle, handles.live("chat"))
+        assertEquals(0, handle.closes)
+    }
+
     @Test
     fun `a failed close retains the handle until retry releases it`() = runTest {
         val handle = ContinuitySession(ActiveSessionState.Closing())

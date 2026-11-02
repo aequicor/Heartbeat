@@ -155,6 +155,24 @@ class DeepSeekRecoveryTest {
     }
 
     @Test
+    fun `profile shutdown waits for a child whose closure already started`() = runTest {
+        val h = groupHarness()
+        val a = h.group.create(CreateSessionRequest(h.target("a")))
+        val gate = CompletableDeferred<Unit>()
+        h.connections.single().transportCloseGate = gate
+        val closing = async { a.close() }
+        runCurrent()
+        val shutdown = async { h.group.close() }
+        runCurrent()
+        assertFalse(shutdown.isCompleted)
+        gate.complete(Unit)
+        runCurrent()
+        closing.await()
+        shutdown.await()
+        assertTrue(h.connections.single().closed.isCompleted)
+    }
+
+    @Test
     fun `failure closing one process does not leave the other process running`() = runTest {
         val h = groupHarness()
         h.group.create(CreateSessionRequest(h.target("a")))
@@ -369,6 +387,7 @@ private class RecoveryConnection(private val prefix: String = "session") : AcpCo
     var stalled: String? = null
     var acknowledgeCancel = false
     var closeGate: CompletableDeferred<Unit>? = null
+    var transportCloseGate: CompletableDeferred<Unit>? = null
     var failOnClose = false
     var submitted: (String) -> Unit = {}
     private var next = 0
@@ -410,6 +429,7 @@ private class RecoveryConnection(private val prefix: String = "session") : AcpCo
         if (acknowledgeCancel) prompts.getValue(sessionId).complete(AcpPromptResult("cancelled"))
     }
     override suspend fun close() {
+        transportCloseGate?.await()
         closed.complete(Unit)
         prompts.values.forEach { it.completeExceptionally(AcpException.Disconnected()) }
         check(!failOnClose) { "Simulated transport close failure" }

@@ -117,7 +117,11 @@ internal class DeepSeekRuntimeGroup(
             var failure: Exception? = null
             snapshot.forEach {
                 try {
-                    it.close()
+                    try {
+                        it.close()
+                    } finally {
+                        withContext(NonCancellable) { it.awaitRetired() }
+                    }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {

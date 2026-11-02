@@ -592,7 +592,7 @@ internal class DeepSeekSession(
                     ActiveSessionState.Closed
                 } else {
                     ActiveSessionState.Unavailable(
-                        EngineFailure.Transport(TransportFailureReason.ServiceUnavailable),
+                        EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed),
                         lastTurn = finished,
                     )
                 },

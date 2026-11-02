@@ -36,7 +36,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SteeringRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SteersTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstruction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
@@ -109,12 +108,13 @@ class ManagedActiveSessionTest {
         // DSH publishes terminal evidence and retirement without an intervening collector dispatch.
         native.native.value = ActiveSessionState.Ready(finished)
         native.native.value = ActiveSessionState.Unavailable(
-            EngineFailure.Transport(TransportFailureReason.ServiceUnavailable),
+            EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed),
             lastTurn = finished,
         )
         runCurrent()
 
-        val settled = assertIs<ActiveSessionState.Ready>(session.state.value)
+        val settled = assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed), settled.failure)
         assertEquals(local, settled.lastTurn?.id)
         assertEquals(TurnOutcome.Unknown, settled.lastTurn?.outcome)
     }
