@@ -3,7 +3,8 @@ package io.aequicor.heartbeat.feature.computeruse.impl.data
 /**
  * One piece of a typed string: either a run of characters or a control key that must arrive as a key press.
  * Splitting lets the Unicode backend carry the characters untouched while newline, tab and backspace keep their key
- * semantics (focus moves, submit, erase) on every host, which plain character events would not provide.
+ * semantics (focus moves, submit, erase). Windows background window input instead posts ordered WM_CHAR for
+ * newline/backspace, and refuses Tab before typing because it cannot reliably move the target thread's focus.
  */
 internal sealed interface TextSegment {
     /** Characters typed as they are, without any key semantics. */

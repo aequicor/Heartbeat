@@ -69,6 +69,14 @@ internal interface WindowCatalog {
 
 /** Applies mouse and keyboard events in host logical screen coordinates (AWT user space on desktop). */
 internal interface InputInjector {
+    /**
+     * Binds input resources to one capture; null keeps this injector. The returned driver lives only for that capture.
+     */
+    suspend fun forCapture(mode: ComputerUseMode): InputInjector? = null
+
+    /** Window-addressed drivers do not need, and must never request, foreground activation. */
+    val isForegroundRequired: Boolean get() = true
+
     /** `false` on hosts without input injection or without the required permission. */
     val isAvailable: Boolean
 

@@ -423,7 +423,8 @@ class DesktopInputInjectorTest {
 
         override fun idle() = Unit
 
-        override fun typeUnicode(text: String): Boolean {
+        override fun typeUnicode(text: String, checkpoint: () -> Unit): Boolean {
+            checkpoint()
             typedUnicode += text
             events += "typeUnicode:$text"
             return !isUnicodeRefused

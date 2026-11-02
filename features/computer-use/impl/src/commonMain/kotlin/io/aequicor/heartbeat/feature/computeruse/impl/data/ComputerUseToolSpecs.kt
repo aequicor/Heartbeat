@@ -159,10 +159,25 @@ private val OBSERVE_SCHEMA = schema(
        "description":"After the input, record up to this long until the screen settles; returns keyframes"}""",
 )
 
-private fun description(family: ToolFamily, verb: ToolVerb): String = when (verb) {
+private fun description(family: ToolFamily, verb: ToolVerb): String = actionDescription(family, verb) +
+    if (family == ToolFamily.Window && (verb == ToolVerb.Type || verb == ToolVerb.Key)) {
+        " On Windows, click the target control first. Only single unmodified keys are supported; " +
+            "Ctrl/Alt/Shift/Win combinations and Tab return UnsupportedKey. " +
+            "Use window_type for exact Unicode text; embedded Tab returns UnsupportedCharacter."
+    } else {
+        ""
+    }
+
+private fun actionDescription(family: ToolFamily, verb: ToolVerb): String = when (verb) {
     ToolVerb.Capture -> when (family) {
         ToolFamily.Desktop -> "Start capturing the whole desktop (or one monitor); returns the first frame."
-        ToolFamily.Window -> "Start capturing one application window (windowId from window_list); returns a frame."
+
+        ToolFamily.Window ->
+            "Start capturing one application window (windowId from window_list); returns a frame. " +
+                "On Windows, input uses background window messages without activation or moving the user cursor. " +
+                "Only client-area controls are supported; minimized windows are unavailable. " +
+                "Some apps ignore messages; " +
+                "verify each action with a screenshot. No automatic fallback to desktop input."
     }
 
     ToolVerb.Screenshot -> "Capture one reduced frame of the active ROI of ${family.area} with its geometry."
