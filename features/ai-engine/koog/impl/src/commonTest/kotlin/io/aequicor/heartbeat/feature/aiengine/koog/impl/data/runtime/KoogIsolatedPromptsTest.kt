@@ -21,7 +21,6 @@ import io.ktor.client.engine.mock.MockEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.job
@@ -185,7 +184,7 @@ class KoogIsolatedPromptsTest {
         HttpClient(MockEngine { error("no request expected") }).use { application ->
             val f = fixture()
             val owned = application.config { }
-            val pending = Job(owned.coroutineContext.job)
+            val pending = holdHttpCleanup(owned)
             val original = CancellationException("construction cancelled")
             f.isolatedOpen = { spec ->
                 spec.lease.add(owned)
@@ -196,7 +195,7 @@ class KoogIsolatedPromptsTest {
                 runCurrent()
                 assertFalse(call.isCompleted)
             } finally {
-                pending.complete()
+                pending.complete(Unit)
             }
             val cancelled = assertFailsWith<CancellationException> { call.await() }
             assertTrue(generateSequence<Throwable>(cancelled) { it.cause }.take(8).any { it === original })
@@ -210,7 +209,7 @@ class KoogIsolatedPromptsTest {
         HttpClient(MockEngine { error("no request expected") }).use { application ->
             val f = fixture()
             val owned = application.config { }
-            val pending = Job(owned.coroutineContext.job)
+            val pending = holdHttpCleanup(owned)
             f.isolatedOpen = { spec ->
                 spec.lease.add(owned)
                 error("private construction failure")
@@ -220,7 +219,7 @@ class KoogIsolatedPromptsTest {
                 runCurrent()
                 assertFalse(call.isCompleted)
             } finally {
-                pending.complete()
+                pending.complete(Unit)
             }
             call.await()
             assertTrue(owned.coroutineContext.job.isCompleted)
@@ -232,7 +231,7 @@ class KoogIsolatedPromptsTest {
     fun `cleanup joins the intermediate lease and SDK child without closing the application client`() = runTest {
         HttpClient(MockEngine { error("no HTTP request expected") }).use { application ->
             val base = application.config { }
-            val pending = Job(base.coroutineContext.job)
+            val pending = holdHttpCleanup(base)
             val lease = OwnedKoogHttpLease().apply { add(base) }
             val factory = OwnedKoogHttpFactory(KtorKoogHttpClient.Factory(baseClient = base), lease)
             val child = factory.create(
@@ -251,7 +250,7 @@ class KoogIsolatedPromptsTest {
                 runCurrent()
                 assertFalse(cleanup.isCompleted)
             } finally {
-                pending.complete()
+                pending.complete(Unit)
             }
             cleanup.await()
             assertTrue(base.coroutineContext.job.isCompleted)

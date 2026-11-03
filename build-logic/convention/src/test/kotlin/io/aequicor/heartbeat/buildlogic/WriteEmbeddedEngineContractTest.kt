@@ -7,8 +7,8 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class WriteEmbeddedEngineContractTest {
@@ -87,6 +87,20 @@ class WriteEmbeddedEngineContractTest {
         assertFailsWith<IllegalArgumentException> { task.write() }
         task.packageName.set("not a package")
         assertFailsWith<IllegalArgumentException> { task.write() }
+    }
+
+    @Test
+    fun `changing the generated package removes the previous source class`() {
+        val task = fixture()
+        task.write()
+        val previous = outputFile(task)
+        assertTrue(previous.exists())
+        task.packageName.set("io.test.data.generated")
+        task.write()
+        assertFalse(previous.exists())
+        val current = task.outputDirectory.file("io/test/data/generated/EmbeddedEngineBuild.kt").get().asFile
+        assertTrue(current.readText().startsWith("package io.test.data.generated"))
+        assertEquals(listOf(current), task.outputDirectory.get().asFile.walk().filter { it.isFile }.toList())
     }
 
     private fun fixture(): WriteEmbeddedEngineContract {

@@ -69,7 +69,10 @@ abstract class WriteEmbeddedEngineContract : DefaultTask() {
         val sdkHash = hash(entries.joinToString("\n") { it.key + "\u0000" + it.sha256 }.toByteArray())
         val host = sourceHash(facadeSources.files)
         val connector = sourceHash(connectorSources.files)
-        val output = outputDirectory.file(namespace.replace('.', '/') + "/EmbeddedEngineBuild.kt").get().asFile
+        // This task owns the whole output directory; a package change must not leave stale source classes.
+        val directory = outputDirectory.get().asFile
+        check(!directory.exists() || directory.deleteRecursively()) { "Could not replace generated embedded contract" }
+        val output = directory.resolve(namespace.replace('.', '/') + "/EmbeddedEngineBuild.kt")
         output.parentFile.mkdirs()
         output.writeText(render(namespace, host, connector, sdkHash, entries))
     }

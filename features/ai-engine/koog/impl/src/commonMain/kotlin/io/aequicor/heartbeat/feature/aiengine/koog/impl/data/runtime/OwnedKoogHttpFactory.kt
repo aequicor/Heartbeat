@@ -59,18 +59,16 @@ internal class OwnedKoogHttpLease {
         clients += client
     }
 
-    /** Cancels owned jobs when graceful close fails, including a preceding executor close failure. */
-    fun close(isForced: Boolean = false) {
+    /** Abort every owned client before joining: Ktor SSE acquisition can outlive a cancelled consumer. */
+    fun close() {
         // Collect synchronous cleanup failures so one broken plugin cannot strand the remaining children.
         // Cancellation is retained and rethrown after all close attempts, with priority over other failures.
         val failures = clients.mapNotNull { client ->
-            var isClosed = false
             runCatching {
                 try {
                     client.close()
-                    isClosed = true
                 } finally {
-                    if (isForced || !isClosed) client.coroutineContext.job.cancel()
+                    client.coroutineContext.job.cancel()
                 }
             }.exceptionOrNull()
         }

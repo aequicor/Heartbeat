@@ -34,13 +34,13 @@ class KoogTransportLifecycleTest {
                 val sdk = SdkKoogTransport(application, TestKoogPlatform).open(provider, "synthetic-key", "test")
                 val owned = clients.filter { it !== application }
                 assertTrue(owned.size >= 2, "Intermediate and SDK children must both be tracked")
-                val pending = Job(owned.last().coroutineContext.job)
+                val pending = holdHttpCleanup(owned.last())
                 val cleanup = async { sdk.closeAndAwait() }
                 try {
                     runCurrent()
                     assertFalse(cleanup.isCompleted)
                 } finally {
-                    pending.complete()
+                    pending.complete(Unit)
                 }
                 cleanup.await()
                 assertTrue(owned.all { it.coroutineContext.job.isCompleted })
@@ -101,13 +101,13 @@ class KoogTransportLifecycleTest {
             }
             entered.await()
             val owned = clients.filter { it !== application }
-            val pending = Job(owned.last().coroutineContext.job)
+            val pending = holdHttpCleanup(owned.last())
             call.cancel()
             try {
                 runCurrent()
                 assertFalse(call.isCompleted)
             } finally {
-                pending.complete()
+                pending.complete(Unit)
             }
             assertFailsWith<CancellationException> { call.await() }
             assertTrue(owned.all { it.coroutineContext.job.isCompleted })

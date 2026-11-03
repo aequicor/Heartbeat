@@ -58,9 +58,14 @@ import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
+import io.ktor.client.HttpClient
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -68,7 +73,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 
 internal class KoogTestFixture(test: TestScope) {
@@ -345,3 +353,18 @@ internal class FakeSecrets : SecretStore {
 
 internal fun <F : EngineFeature> EngineFeatures.require(key: EngineFeatureKey<F>): F =
     (resolve(key) as FeatureAccess.Available).feature
+
+/** A real child cleanup, which remains owned after cancellation until the test releases its resource. */
+@OptIn(ExperimentalCoroutinesApi::class)
+internal fun TestScope.holdHttpCleanup(client: HttpClient): CompletableDeferred<Unit> {
+    val release = CompletableDeferred<Unit>()
+    CoroutineScope(coroutineContext + client.coroutineContext.job).launch {
+        try {
+            awaitCancellation()
+        } finally {
+            withContext(NonCancellable) { release.await() }
+        }
+    }
+    runCurrent()
+    return release
+}

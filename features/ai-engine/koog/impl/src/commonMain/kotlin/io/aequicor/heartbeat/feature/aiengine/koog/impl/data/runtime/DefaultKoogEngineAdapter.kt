@@ -50,6 +50,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SourceDiscovery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineAdapter
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
@@ -59,6 +61,7 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -80,6 +83,7 @@ internal class DefaultKoogEngineAdapter(
     private val search: SearchEngine,
     private val workspaces: KoogWorkspaces,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val candidates: KoogCandidates = UnsupportedKoogCandidates,
 ) : KoogEngineAdapter {
     private val log = Log.tag("KoogEngine")
     private val mutex = Mutex()
@@ -96,6 +100,23 @@ internal class DefaultKoogEngineAdapter(
     }
 
     override suspend fun checkRequirements(): EngineAvailability = EngineAvailability.Available
+
+    override suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? = onMain {
+        coroutineScope {
+            val operation = currentCoroutineContext().job
+            val registration = profile.onClose { operation.cancel() }
+            try {
+                // Only lifetime is checked here: no toggle, connection, vault, history or config reads.
+                currentCoroutineContext().ensureActive()
+                candidates.open(request, deadline)
+            } finally {
+                registration.dispose()
+            }
+        }
+    }
 
     override fun accepts(source: AuthSource, context: EngineContext): Boolean =
         context.engine == KoogEngineId && koogProvider(source) != null

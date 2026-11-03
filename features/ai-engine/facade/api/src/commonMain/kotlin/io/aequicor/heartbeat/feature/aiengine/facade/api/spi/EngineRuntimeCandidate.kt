@@ -15,9 +15,11 @@ public data class EngineRuntimeCandidateRequest(val identity: RuntimeIdentity, v
 
 /**
  * One-use owner of a restricted process/client and the exact artifact/configuration contract it checked.
- * Acquisition and baseline use no real credentials, user/project configuration, model prompts, hooks, tools,
+ * Acquisition and baseline use no real credentials, user/project configuration, outbound model prompts, hooks, tools,
  * login or user history writes. All resources remain owned even if acquisition is cancelled before returning.
  * Implementations must clean up such an interrupted acquisition themselves.
+ * Synthetic protocol fixtures may exercise the actual SDK only through a socket-free, finite offline transport;
+ * they do not establish ordinary session behavior, loaded-artifact provenance or admission by themselves.
  *
  * An external executable is pinned through a protected immutable copy or an already held process: hashing a
  * mutable path and reopening it after assessment does not bind the evidence to the launched artifact. Embedded

@@ -47,7 +47,7 @@ class EmbeddedEngineContractConventionPlugin : Plugin<Project> {
             include("src/*Main/kotlin/**", "build.gradle.kts")
         }
         val namespace = "io.aequicor.heartbeat.feature." + path.removePrefix(":features:").split(':')
-            .joinToString(".") { it.replace("-", "") } + ".generated"
+            .joinToString(".") { it.replace("-", "") } + ".data.generated"
         val generate = tasks.register<WriteEmbeddedEngineContract>("generateEmbeddedEngineContract") {
             sourceRoot.set(rootProject.layout.projectDirectory)
             facadeSources.from(hostInputs, sharedInputs)

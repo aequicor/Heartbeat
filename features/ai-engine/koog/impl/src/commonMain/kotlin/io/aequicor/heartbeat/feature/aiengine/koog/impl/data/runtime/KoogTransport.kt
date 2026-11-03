@@ -37,7 +37,7 @@ internal class KoogClient(
     val executor: PromptExecutor,
     val reasoning: suspend (models: List<String>) -> Map<String, List<String>>? = { null },
     val usage: KoogUsageCapture = KoogUsageCapture(),
-    private val closeOwned: (isForced: Boolean) -> Unit = {},
+    private val closeOwned: () -> Unit = {},
     private val awaitClosed: suspend () -> Unit = {},
     val observedFinishReason: () -> String? = { null },
     val models: suspend () -> List<LLModel>,
@@ -47,7 +47,7 @@ internal class KoogClient(
     override fun close() {
         // These are synchronous close attempts; collect cancellation until both owners have been visited.
         val executorResult = runCatching { executor.close() }
-        val ownedResult = runCatching { closeOwned(executorResult.isFailure) }
+        val ownedResult = runCatching { closeOwned() }
         rethrowKoogCleanupFailures(listOfNotNull(executorResult.exceptionOrNull(), ownedResult.exceptionOrNull()))
     }
 
