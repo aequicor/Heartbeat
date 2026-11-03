@@ -99,13 +99,18 @@ internal class JvmKimiBackend(
 
     /** The panel inspects the same CLI that sessions start, rather than treating the adapter as built in. */
     override suspend fun inspect(launch: LaunchContext): Installation = withContext(dispatchers.io) {
-        val located = try {
-            setup.locate(launch)
+        val (runtime, source) = try {
+            setup.locateControlled(launch)
         } catch (error: EngineException) {
             log.w(error) { "Controlled Kimi runtime is missing or invalid" }
             return@withContext Installation(source = InstallSource.Missing, isRunnable = false)
         }
-        val isRunnable = located.path?.let { probe(it) } == true
+        val located = Installation(source, KIMI_RUNTIME_VERSION, runtime.executable)
+        if (!isKnownKimiRelease(runtime)) {
+            log.w { "Kimi runtime does not match the pinned release" }
+            return@withContext located.copy(isRunnable = false)
+        }
+        val isRunnable = probe(runtime.executable)
         located.copy(
             source = if (isRunnable) located.source else InstallSource.Missing,
             isRunnable = isRunnable,

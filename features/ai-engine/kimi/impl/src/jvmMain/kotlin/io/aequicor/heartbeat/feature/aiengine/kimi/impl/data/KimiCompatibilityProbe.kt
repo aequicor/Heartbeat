@@ -43,19 +43,27 @@ import java.nio.file.attribute.BasicFileAttributes
  * Explicit, credential-free ACP inspection of the exact selected artifact. Only initialize is sent: no login,
  * sessions, prompts or tools. A handshake establishes wire/ABI facts, never the full behavioral baseline.
  */
-@Inject
-internal class KimiCompatibilityProbe(
+internal class KimiCompatibilityProbe internal constructor(
     private val setup: KimiRuntimeSetup,
     private val transports: AcpStdioTransportFactory,
     private val clients: AcpClientFactory,
     private val dispatchers: DispatcherProvider,
+    private val isTrusted: (KimiControlledRuntime) -> Boolean,
 ) {
+    @Inject
+    constructor(
+        setup: KimiRuntimeSetup,
+        transports: AcpStdioTransportFactory,
+        clients: AcpClientFactory,
+        dispatchers: DispatcherProvider,
+    ) : this(setup, transports, clients, dispatchers, ::isKnownKimiRelease)
+
     suspend fun inspect(installation: Installation, launch: LaunchContext): EngineCompatibilityObservation =
         withTimeout(PROBE_TIMEOUT_MS) {
             val (runtime, source) = setup.locateControlled(launch)
             val isSameSource = installation.source == source && installation.path == runtime.executable &&
                 installation.version == KIMI_RUNTIME_VERSION
-            if (!installation.isRunnable || !isSameSource) {
+            if (!installation.isRunnable || !isSameSource || !isTrusted(runtime)) {
                 throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
             }
             withKimiProbeDirectory(dispatchers) { directory ->

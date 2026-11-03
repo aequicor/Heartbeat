@@ -45,6 +45,16 @@ import kotlin.time.Instant
 
 class KimiCompatibilityProbeTest {
     @Test
+    fun `self consistent but unpinned artifact is rejected before a transport is opened`() = runTest {
+        Fixture().use { fixture ->
+            assertFailsWith<EngineException> {
+                fixture.releaseProbe.inspect(fixture.installation, fixture.launch)
+            }
+            assertEquals(null, fixture.command)
+        }
+    }
+
+    @Test
     fun `explicit handshake isolates credentials and records facts without claiming baseline`() = runTest {
         Fixture().use { fixture ->
             assertEquals(null, fixture.command, "Construction must not probe")
@@ -265,6 +275,13 @@ class KimiCompatibilityProbeTest {
             }
         }
         val probe = KimiCompatibilityProbe(
+            KimiRuntimeSetup(NoManagedKimiRuntime, TestKimiDispatchers, resourcesDirectory = null),
+            transports,
+            clients,
+            TestKimiDispatchers,
+            { true },
+        )
+        val releaseProbe = KimiCompatibilityProbe(
             KimiRuntimeSetup(NoManagedKimiRuntime, TestKimiDispatchers, resourcesDirectory = null),
             transports,
             clients,

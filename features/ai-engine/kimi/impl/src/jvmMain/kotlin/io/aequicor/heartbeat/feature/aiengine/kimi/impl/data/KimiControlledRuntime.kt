@@ -26,6 +26,24 @@ internal data class KimiControlledRuntime(val executable: String, val fingerprin
     override fun toString(): String = "KimiControlledRuntime"
 }
 
+/**
+ * Independently pinned executable digests from the public runtime-kimi-2.4.0-hb7 release. This preflight rejects
+ * locally self-consistent replacements, but does not bind the subsequently executed process to these bytes and
+ * therefore is not runtime admission or a behavioral baseline.
+ */
+internal fun isKnownKimiRelease(runtime: KimiControlledRuntime): Boolean =
+    KIMI_RUNTIME_VERSION == "2.4.0-hb7" && KIMI_SOURCE_COMMIT == "f26e4d91ef8d5d233f6c20b42a150f96924d4f5e" &&
+        KIMI_PERMISSION_GATE == 1 &&
+        KimiReleaseExecutables[runtime.target] == runtime.fingerprint
+
+private val KimiReleaseExecutables = mapOf(
+    "darwin-arm64" to "56da8b554a4de311e80d8642d1c85bc6ec2fe2b73d65e1e2e6a0603959b24e00",
+    "darwin-x64" to "7ccf0717d224e496bfbead9962ceb7dac362d33430a3af45c67ce324ed529a79",
+    "linux-x64" to "ecdedc6830b94cdab8d71954221d38754cae191871326663e74d77ab021b14e4",
+    "win32-arm64" to "1c5c9e156f35f7337061c8c454daad594535c90b6d471a0a5d0a01a4d0c1ef3f",
+    "win32-x64" to "9d826c6cd991ab0b87d58efcfd24862e57cf27a40fa077ddd40abc7a7f39d620",
+)
+
 /** [checkCancellation] is called while hashing so a large artifact cannot retain a cancelled panel request. */
 internal fun kimiControlledRuntime(
     resourcesDirectory: String? = System.getProperty("compose.application.resources.dir"),
