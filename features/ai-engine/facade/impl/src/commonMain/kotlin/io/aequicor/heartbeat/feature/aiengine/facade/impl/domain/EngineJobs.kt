@@ -29,6 +29,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.PackageOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
@@ -73,14 +75,18 @@ class EngineJobs(
 
     /** Starts [action] for [engine]; Busy while another job of the engine runs. */
     suspend fun start(engine: EngineId, action: EngineAction) = guard.withLock {
-        if (running[engine]?.isActive == true) {
+        if (running.containsKey(engine)) {
             log.w { "job refused, another one runs engine=${engine.value}" }
             throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
         }
         log.i { "job started engine=${engine.value} action=${action::class.simpleName.orEmpty()}" }
         published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now())) }
         if (action is EngineAction.Login) codes[engine] = Channel(Channel.CONFLATED)
-        running[engine] = context.scope.launch { run(engine, action) }
+        val start = CompletableDeferred<Unit>()
+        val job = context.scope.launch(start = CoroutineStart.UNDISPATCHED) { run(engine, action, start) }
+        running[engine] = job
+        start.complete(Unit)
+        Unit
     }
 
     /** Cancels the running job of [engine]; its cleanup still runs. */
@@ -106,10 +112,11 @@ class EngineJobs(
         channel.trySend(code)
     }
 
-    private suspend fun run(engine: EngineId, action: EngineAction) {
+    private suspend fun run(engine: EngineId, action: EngineAction, start: CompletableDeferred<Unit>) {
         // Stays Cancelled unless the job completes; the outcome is published even when the job is cancelled.
         var outcome: JobPhase = JobPhase.Cancelled
         try {
+            start.await()
             outcome = perform(engine, action)
         } finally {
             withContext(NonCancellable) {
@@ -300,8 +307,8 @@ class EngineJobs(
             running.remove(engine)
             codes.remove(engine)
             progress.remove(engine)
+            published.update { all -> all[engine]?.let { all + (engine to it.copy(phase = phase)) } ?: all }
         }
-        published.update { all -> all[engine]?.let { all + (engine to it.copy(phase = phase)) } ?: all }
         log.i { "job finished engine=${engine.value} outcome=${phase::class.simpleName.orEmpty()}" }
     }
 

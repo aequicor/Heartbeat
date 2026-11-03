@@ -370,6 +370,41 @@ class EngineJobsTest {
     }
 
     @Test
+    fun `cancelled job owns its slot until staged cleanup finishes`() = runTest {
+        val cleanup = CompletableDeferred<Unit>()
+        manager.isInspectHanging = true
+        installs.onDiscard = { cleanup.await() }
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        jobs.cancel(engine)
+        runCurrent()
+
+        val busy = assertFailsWith<EngineException> { jobs.start(engine, EngineAction.Uninstall) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), busy.failure)
+        assertEquals(JobPhase.Checking, jobs.jobs.value.getValue(engine).phase)
+
+        cleanup.complete(Unit)
+        runCurrent()
+        assertEquals(JobPhase.Cancelled, jobs.jobs.value.getValue(engine).phase)
+        jobs.start(engine, EngineAction.Uninstall)
+        runCurrent()
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+    }
+
+    @Test
+    fun `cancelling before dispatch still releases the job slot`() = runTest {
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        jobs.cancel(engine)
+        runCurrent()
+        assertEquals(JobPhase.Cancelled, jobs.jobs.value.getValue(engine).phase)
+        jobs.start(engine, EngineAction.Uninstall)
+        runCurrent()
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+    }
+
+    @Test
     fun `a package job runs the configurator with the launch configuration and restarts idle runtimes`() = runTest {
         val packages = JobPackages()
         val values = EngineConfigValues(mapOf(ConfigDocumentId("settings") to ConfigDocument.Text("x")))
@@ -554,6 +589,7 @@ private class JobInstalls : ManagedInstallStore {
     var uninstalled = 0
     var candidateVersion: String? = null
     var onActivate: suspend () -> Unit = {}
+    var onDiscard: suspend () -> Unit = {}
     override val state = MutableStateFlow(emptyMap<EngineId, ManagedInstall>())
 
     override suspend fun refresh() = Unit
@@ -584,6 +620,7 @@ private class JobInstalls : ManagedInstallStore {
     }
 
     override suspend fun discard(staged: StagedInstall) {
+        onDiscard()
         discarded++
     }
 
