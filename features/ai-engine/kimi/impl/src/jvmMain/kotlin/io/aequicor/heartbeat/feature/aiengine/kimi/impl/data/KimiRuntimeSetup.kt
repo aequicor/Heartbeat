@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparationFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeInstaller
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -73,12 +75,7 @@ internal class KimiRuntimeSetup internal constructor(
 
     /** Revalidates the actual selected artifact and returns its digest without trusting a prior inspection. */
     suspend fun locateControlled(launch: LaunchContext): Pair<KimiControlledRuntime, InstallSource> {
-        val managed = if (launch.isInstallCandidate) {
-            requireNotNull(launch.managed)
-        } else {
-            installer.find(KimiEngine.Id, KIMI_RUNTIME_VERSION, kimiRuntimeTarget())
-                ?: launch.managed?.takeIf { it.version == KIMI_RUNTIME_VERSION }
-        }
+        val managed = selectedManaged(launch)
         val runtime = withContext(dispatchers.io) {
             val context = currentCoroutineContext()
             try {
@@ -95,6 +92,27 @@ internal class KimiRuntimeSetup internal constructor(
             }
         }
         return runtime to if (managed == null) InstallSource.Bundled else InstallSource.Managed
+    }
+
+    private suspend fun selectedManaged(launch: LaunchContext): ManagedInstall? = if (launch.isInstallCandidate) {
+        requireNotNull(launch.managed)
+    } else if (launch.settings.runtime == RuntimePreference.Managed) {
+        launch.managed ?: throw EngineException(
+            io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure.Engine(
+                io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason.RequirementsNotMet,
+            ),
+        )
+    } else if (launch.settings.runtime == RuntimePreference.Bundled) {
+        null
+    } else if (launch.settings.runtime == RuntimePreference.Auto) {
+        installer.find(KimiEngine.Id, KIMI_RUNTIME_VERSION, kimiRuntimeTarget())
+            ?: launch.managed?.takeIf { it.version == KIMI_RUNTIME_VERSION }
+    } else {
+        throw EngineException(
+            io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure.Engine(
+                io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason.RequirementsNotMet,
+            ),
+        )
     }
 
     suspend fun prepare(manager: EngineManager) = mutex.withLock {
