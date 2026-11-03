@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckGeneration
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckReceipt
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -22,6 +24,7 @@ internal class FakeModelChecks : ModelChecks {
         onFinished: () -> Unit,
         relatedBindings: Set<EngineBindingId>,
         relatedTargets: (ModelSelection) -> Set<EngineTarget>,
+        sourceEdit: ModelCheckSourceEdit?,
         save: suspend () -> ModelSelection,
     ): ModelCheckBatchResult<ModelSelection> {
         started += targets
@@ -39,4 +42,8 @@ internal class FakeModelChecks : ModelChecks {
     override fun revoke(binding: EngineBindingId) {
         revokedBindings += binding
     }
+    override fun beginSourceEdit(source: AuthSourceId): ModelCheckSourceEdit =
+        ModelCheckSourceEdit(source, ModelCheckGeneration("11111111-1111-1111-1111-111111111111"))
+
+    override fun finishSourceEdit(edit: ModelCheckSourceEdit) = Unit
 }

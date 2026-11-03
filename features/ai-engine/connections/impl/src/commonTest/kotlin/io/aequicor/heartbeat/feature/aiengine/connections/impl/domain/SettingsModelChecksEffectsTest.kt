@@ -98,6 +98,40 @@ class SettingsModelChecksEffectsTest {
     }
 
     @Test
+    fun `an in-flight edit hides prior reports until fresh checks complete`() = runTest {
+        val f = CoordinatorFixture(this, IsolatedPrompts { answer(it.text) })
+        f.coordinator.saveAndCheck(setOf(f.target)) { f.selections.update { it.withDefault(f.target) } }
+        runCurrent()
+        assertEquals(1, f.coordinator.observe().first().size)
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        f.facade.editSource = { edit, receipt ->
+            started.complete(Unit)
+            release.await()
+            receipt(edit.expected)
+        }
+        val request = ConnectionEdit(
+            f.target.binding,
+            ConnectionMethodId("local"),
+            CheckSource,
+            "Local",
+            CheckSource.scope.origin,
+        )
+        val task = async {
+            f.settings().handle(
+                EngineConnectionsEffect.Edit(request, id, setOf(f.target), setOf(f.target.binding)),
+                RecordingScope(),
+            )
+        }
+        started.await()
+        assertTrue(f.coordinator.observe().first().isEmpty())
+        release.complete(Unit)
+        task.await()
+        runCurrent()
+        assertEquals(1, f.coordinator.observe().first().size)
+    }
+
+    @Test
     fun `editing checks models enabled while the source write is in flight`() = runTest {
         val checked = mutableListOf<ModelId>()
         val f = CoordinatorFixture(

@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.connections.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckGeneration
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckReceipt
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckRevision
@@ -14,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlin.uuid.Uuid
@@ -36,6 +38,7 @@ internal class ModelCheckOwner {
         state.update {
             it.copy(
                 runs = it.runs + targets.associateWith { run },
+                runSources = it.runSources + targets.associateWith { _ -> it.availableSources() },
                 epochs = it.epochs + bindings.associateWith { run },
             )
         }
@@ -60,6 +63,7 @@ internal class ModelCheckOwner {
         state.update {
             it.copy(
                 runs = it.runs.filterKeys { target -> target.binding != binding },
+                runSources = it.runSources.filterKeys { target -> target.binding != binding },
                 blocked = it.blocked + binding,
                 auth = it.auth + (binding to auth),
                 epochs = it.epochs + (binding to auth),
@@ -68,15 +72,54 @@ internal class ModelCheckOwner {
         log.v { "Model check binding ownership revoked" }
     }
 
+    /** Fence every route of a source before editing, including bindings created concurrently. */
+    fun beginSourceEdit(source: AuthSourceId): ModelCheckSourceEdit {
+        val token = generation()
+        state.update {
+            it.copy(
+                sourceVersions = it.sourceVersions + (source to token),
+                editing = it.editing + (source to (it.editing[source].orEmpty() + token)),
+            )
+        }
+        log.v { "Model check source edit started" }
+        return ModelCheckSourceEdit(source, token)
+    }
+
+    /** Release only this edit; overlapping writes keep the source fenced until all finish. */
+    fun finishSourceEdit(edit: ModelCheckSourceEdit) {
+        state.update {
+            val remaining = it.editing[edit.source].orEmpty() - edit.token
+            val editing = if (remaining.isEmpty()) {
+                it.editing - edit.source
+            } else {
+                it.editing + (edit.source to remaining)
+            }
+            it.copy(editing = editing)
+        }
+        log.v { "Model check source edit finished" }
+    }
+
+    /** Wait within the batch deadline for overlapping writes, unless a newer edit has superseded this one. */
+    suspend fun awaitSource(edit: ModelCheckSourceEdit): Boolean {
+        val current = state.first { it.sourceVersions[edit.source] != edit.token || edit.source !in it.editing }
+        return current.sourceVersions[edit.source] == edit.token
+    }
+
     /** Reserve known bindings and snapshot other ownership before a source write. */
-    fun reserve(bindings: Set<EngineBindingId>): ModelCheckReservation {
+    fun reserve(bindings: Set<EngineBindingId>, edit: ModelCheckSourceEdit? = null): ModelCheckReservation {
         val run = generation()
         while (true) {
             val previous = state.value
             val next = previous.copy(epochs = previous.epochs + bindings.associateWith { run })
             if (state.compareAndSet(previous, next)) {
                 log.v { "Model check bindings reserved count=${bindings.size}" }
-                return ModelCheckReservation(run, bindings, previous.epochs)
+                val sources = previous.availableSources().toMutableMap()
+                if (edit != null && previous.sourceVersions[edit.source] == edit.token &&
+                    edit.token in previous.editing[edit.source].orEmpty()
+                ) {
+                    sources[edit.source] = edit.token
+                }
+                return ModelCheckReservation(run, bindings, previous.epochs, sources)
             }
         }
     }
@@ -98,6 +141,7 @@ internal class ModelCheckOwner {
             val discovered = accepted.map { it.binding }.toSet() - reservation.bindings
             val next = previous.copy(
                 runs = previous.runs + accepted.associateWith { reservation.run },
+                runSources = previous.runSources + accepted.associateWith { reservation.sources },
                 epochs = previous.epochs + accepted.associate { it.binding to reservation.run },
                 // A newly discovered binding did not receive the source-wide revocation before the write.
                 blocked = previous.blocked + discovered,
@@ -115,7 +159,8 @@ internal class ModelCheckOwner {
 
     fun isCurrent(run: ModelCheckGeneration, revision: ModelCheckRevision, context: ModelCheckContext): Boolean {
         val owner = state.value
-        return owner.runs[revision.target] == run && revision == revision(revision.target, context, owner)
+        return owner.runs[revision.target] == run && owner.acceptsSource(revision.target, revision.source.info.id) &&
+            revision == revision(revision.target, context, owner)
     }
 
     /**
@@ -131,7 +176,8 @@ internal class ModelCheckOwner {
         } else {
             target.binding !in owner.blocked
         }
-        return isOwned && receipt.revision == revision(target, context, owner)
+        return isOwned && owner.acceptsSource(target, receipt.revision.source.info.id) &&
+            receipt.revision == revision(target, context, owner)
     }
 
     private fun revision(target: EngineTarget, context: ModelCheckContext, owner: Ownership): ModelCheckRevision? {
@@ -148,7 +194,11 @@ internal class ModelCheckOwner {
                 ModelCheckGeneration(selection),
                 source,
                 ModelCheckRevision.CURRENT_DEFINITION,
-                if (source.info.revision == AuthRevision.Unknown) owner.auth[target.binding] ?: profileAuth else null,
+                if (source.info.revision == AuthRevision.Unknown) {
+                    combineGeneration(owner.auth[target.binding] ?: profileAuth, owner.sourceVersions[source.info.id])
+                } else {
+                    null
+                },
             )
         } else {
             null
@@ -172,7 +222,10 @@ internal data class ModelCheckReservation(
     val run: ModelCheckGeneration,
     val bindings: Set<EngineBindingId>,
     val epochs: Map<EngineBindingId, ModelCheckGeneration>,
+    val sources: Map<AuthSourceId, ModelCheckGeneration>,
 )
+
+internal data class ModelCheckSourceEdit(val source: AuthSourceId, val token: ModelCheckGeneration)
 
 /** Canonical cached route data and the actual storage-owned selection; no discovery is performed to obtain it. */
 internal data class ModelCheckContext(
@@ -189,10 +242,25 @@ private data class Ownership(
     val blocked: Set<EngineBindingId> = emptySet(),
     val auth: Map<EngineBindingId, ModelCheckGeneration> = emptyMap(),
     val epochs: Map<EngineBindingId, ModelCheckGeneration> = emptyMap(),
+    val sourceVersions: Map<AuthSourceId, ModelCheckGeneration> = emptyMap(),
+    val editing: Map<AuthSourceId, Set<ModelCheckGeneration>> = emptyMap(),
+    val runSources: Map<EngineTarget, Map<AuthSourceId, ModelCheckGeneration>> = emptyMap(),
 ) {
+    fun availableSources(): Map<AuthSourceId, ModelCheckGeneration> = sourceVersions - editing.keys
+
+    fun acceptsSource(target: EngineTarget, source: AuthSourceId): Boolean = source !in editing &&
+        if (target in runs) runSources[target]?.get(source) == sourceVersions[source] else source !in sourceVersions
+
     override fun toString(): String = "ModelCheckOwnership"
 }
 
 private fun generation(): ModelCheckGeneration = ModelCheckGeneration(Uuid.random().toString())
+private fun combineGeneration(a: ModelCheckGeneration, b: ModelCheckGeneration?): ModelCheckGeneration {
+    if (b == null) return a
+    val value = a.value.zip(b.value) { left, right ->
+        if (left == '-') '-' else (left.digitToInt(16) xor right.digitToInt(16)).toString(16).single()
+    }.joinToString("")
+    return ModelCheckGeneration(value)
+}
 private const val MAX_ID_CHARS = 1024
 private const val MAX_REVISION_CHARS = 256

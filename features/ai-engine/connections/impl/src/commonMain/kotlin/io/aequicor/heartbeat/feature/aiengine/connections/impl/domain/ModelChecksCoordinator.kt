@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.connections.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckGeneration
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckReceipt
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckReport
@@ -55,9 +56,10 @@ internal class ModelChecksCoordinator(
         onFinished: () -> Unit,
         relatedBindings: Set<EngineBindingId>,
         relatedTargets: (ModelSelection) -> Set<EngineTarget>,
+        sourceEdit: ModelCheckSourceEdit?,
         save: suspend () -> ModelSelection,
     ): ModelCheckBatchResult<ModelSelection> {
-        val reservation = relatedBindings.takeIf { it.isNotEmpty() }?.let(owner::reserve)
+        val reservation = relatedBindings.takeIf { it.isNotEmpty() }?.let { owner.reserve(it, sourceEdit) }
         val run = reservation?.run ?: owner.begin(targets)
         if (reservation != null) owner.claim(reservation, targets)
         val result = batch.execute(
@@ -67,7 +69,9 @@ internal class ModelChecksCoordinator(
                 onSaved = onSaved,
                 onFinished = onFinished,
                 revisions = { saved ->
-                    val eligible = if (reservation == null) {
+                    val eligible = if (sourceEdit != null && !owner.awaitSource(sourceEdit)) {
+                        emptySet()
+                    } else if (reservation == null) {
                         targets
                     } else {
                         owner.claim(
@@ -104,6 +108,10 @@ internal class ModelChecksCoordinator(
         owner.revoke(binding)
         clearObsolete(setOf(binding))
     }
+
+    override fun beginSourceEdit(source: AuthSourceId): ModelCheckSourceEdit = owner.beginSourceEdit(source)
+
+    override fun finishSourceEdit(edit: ModelCheckSourceEdit) = owner.finishSourceEdit(edit)
 
     private suspend fun currentContext(target: EngineTarget): ModelCheckContext {
         val selection = selections.observe().first()

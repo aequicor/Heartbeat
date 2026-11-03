@@ -53,15 +53,18 @@ internal class EngineConnectionsEffects(
     }
 
     private suspend fun edit(effect: EngineConnectionsEffect.Edit, machine: EffectScope<EngineConnectionsIntent>) {
+        val sourceEdit = checks.beginSourceEdit(effect.request.expected.info.id)
         val related = services.facade.bindings.state.value
             .filter { it.authSource == effect.request.expected.info.id }
             .map { it.id }.toSet() + effect.relatedBindings
         try {
             related.forEach(checks::revoke)
         } catch (error: CancellationException) {
+            checks.finishSourceEdit(sourceEdit)
             effect.request.key?.close()
             throw error
         } catch (error: Exception) {
+            checks.finishSourceEdit(sourceEdit)
             effect.request.key?.close()
             throw error
         }
@@ -69,9 +72,13 @@ internal class EngineConnectionsEffects(
         val result = checks.saveAndCheck(
             effect.checkTargets,
             onSaved = { machine.send(EngineConnectionsIntent.Internal.Checking(effect.id)) },
-            onFinished = { effect.request.key?.close() },
+            onFinished = {
+                checks.finishSourceEdit(sourceEdit)
+                effect.request.key?.close()
+            },
             relatedBindings = related,
             relatedTargets = { selection -> relatedTargets(selection, effect.request.expected.info.id) },
+            sourceEdit = sourceEdit,
         ) {
             try {
                 val current = selections.observe().first()
@@ -84,6 +91,7 @@ internal class EngineConnectionsEffects(
                     current
                 }
                 editBinding(effect.request, failure)
+                checks.finishSourceEdit(sourceEdit)
                 // The source is already committed. Re-read choices atomically and initialize missing generations;
                 // failure here must never turn the confirmed source write into a retryable edit failure.
                 refreshSelection(selection)

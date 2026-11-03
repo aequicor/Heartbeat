@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelCheckReceipt
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -16,8 +17,11 @@ internal interface ModelChecks {
         onFinished: () -> Unit = {},
         relatedBindings: Set<EngineBindingId> = emptySet(),
         relatedTargets: (ModelSelection) -> Set<EngineTarget> = { emptySet() },
+        sourceEdit: ModelCheckSourceEdit? = null,
         save: suspend () -> ModelSelection,
     ): ModelCheckBatchResult<ModelSelection>
     fun revoke(targets: Set<EngineTarget>)
     fun revoke(binding: EngineBindingId)
+    fun beginSourceEdit(source: AuthSourceId): ModelCheckSourceEdit
+    fun finishSourceEdit(edit: ModelCheckSourceEdit)
 }

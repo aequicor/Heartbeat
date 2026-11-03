@@ -14,6 +14,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -24,6 +27,78 @@ import kotlin.test.assertTrue
 
 class ModelCheckOwnerTest {
     private val target = checkReport().revision.target
+
+    @Test
+    fun `source fence hides unseen bindings and checks started during a write`() {
+        val owner = ModelCheckOwner()
+        val context = context()
+        val receipt = ModelCheckReceipt.from(checkReport())
+        assertTrue(owner.accepts(receipt, context))
+        val edit = owner.beginSourceEdit(CheckSource.info.id)
+        assertFalse(owner.accepts(receipt, context))
+        val during = owner.begin(setOf(target))
+        val revision = assertNotNull(owner.revision(target, context))
+        assertFalse(owner.isCurrent(during, revision, context))
+        owner.finishSourceEdit(edit)
+        assertFalse(owner.isCurrent(during, revision, context))
+        assertFalse(owner.accepts(receipt, context))
+        val after = owner.begin(setOf(target))
+        assertTrue(owner.isCurrent(after, assertNotNull(owner.revision(target, context)), context))
+    }
+
+    @Test
+    fun `source edit keeps previously unseen historical receipts revoked after it finishes`() {
+        val owner = ModelCheckOwner()
+        val receipt = ModelCheckReceipt.from(checkReport())
+        val edit = owner.beginSourceEdit(CheckSource.info.id)
+        assertFalse(owner.accepts(receipt, context()))
+        owner.finishSourceEdit(edit)
+        assertFalse(owner.accepts(receipt, context()))
+    }
+
+    @Test
+    fun `only the current source edit releases its fence`() {
+        val owner = ModelCheckOwner()
+        val older = owner.beginSourceEdit(CheckSource.info.id)
+        val newer = owner.beginSourceEdit(CheckSource.info.id)
+        owner.finishSourceEdit(older)
+        val run = owner.begin(setOf(target))
+        val revision = assertNotNull(owner.revision(target, context()))
+        assertFalse(owner.isCurrent(run, revision, context()))
+        owner.finishSourceEdit(newer)
+        assertFalse(owner.isCurrent(run, revision, context()))
+        val after = owner.begin(setOf(target))
+        assertTrue(owner.isCurrent(after, assertNotNull(owner.revision(target, context())), context()))
+    }
+
+    @Test
+    fun `finishing a newer source edit cannot expose an older write still in flight`() {
+        val owner = ModelCheckOwner()
+        val older = owner.beginSourceEdit(CheckSource.info.id)
+        val newer = owner.beginSourceEdit(CheckSource.info.id)
+        owner.finishSourceEdit(newer)
+        val during = owner.begin(setOf(target))
+        val revision = assertNotNull(owner.revision(target, context()))
+        assertFalse(owner.isCurrent(during, revision, context()))
+        owner.finishSourceEdit(older)
+        assertFalse(owner.isCurrent(during, revision, context()))
+        val after = owner.begin(setOf(target))
+        assertTrue(owner.isCurrent(after, assertNotNull(owner.revision(target, context())), context()))
+    }
+
+    @Test
+    fun `the latest edit waits for older overlapping writes before checking`() = runTest {
+        val owner = ModelCheckOwner()
+        val older = owner.beginSourceEdit(CheckSource.info.id)
+        val newer = owner.beginSourceEdit(CheckSource.info.id)
+        owner.finishSourceEdit(newer)
+        val wait = async { owner.awaitSource(newer) }
+        yield()
+        assertFalse(wait.isCompleted)
+        owner.finishSourceEdit(older)
+        assertTrue(wait.await())
+        assertFalse(owner.awaitSource(older))
+    }
 
     @Test
     fun `a late save can claim newly selected models only while its binding reservation remains current`() {
