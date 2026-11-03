@@ -47,7 +47,7 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
         val startup = processes.startup(launch)
         val executable = startup.executable
         val isPresent = executable != null && Files.isRegularFile(executable) && Files.isExecutable(executable)
-        val isRunnable = isPresent || isPiPendingDownload(startup.source, executable, processes.canPrepare())
+        val isRunnable = isPresent || isPiPendingDownload(startup.source, executable, processes.canPrepare(launch))
         val version = when {
             executable == null || !isPresent -> null
             startup.source == InstallSource.Bundled -> processes.bundledVersion()

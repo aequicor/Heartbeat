@@ -149,8 +149,9 @@ internal class PiProcessLauncher(
     }
 
     /** Requirements probes may report a pinned runtime as usable without downloading it. */
-    suspend fun canPrepare(): Boolean = startup().source.let { source ->
-        source != InstallSource.Custom && source != InstallSource.Managed && distribution.release != null
+    suspend fun canPrepare(launch: LaunchContext? = null): Boolean = startup(launch).let { selected ->
+        selected.isBundledPreparationAllowed && distribution.release != null &&
+            selected.source in setOf(InstallSource.Bundled, InstallSource.Missing)
     }
 
     @HighFrequency

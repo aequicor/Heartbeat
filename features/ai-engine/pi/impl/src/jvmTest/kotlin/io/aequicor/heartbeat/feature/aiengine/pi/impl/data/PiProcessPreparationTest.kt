@@ -64,11 +64,28 @@ class PiProcessPreparationTest {
         for (preference in listOf(RuntimePreference.Managed, RuntimePreference.System)) {
             val context: (Path) -> LaunchContext = { LaunchContext(settings = LaunchSettings(runtime = preference)) }
             withLauncher(context) { launcher, distribution, cache, _ ->
+                assertFalse(launcher.canPrepare())
                 assertFailsWith<EngineException> { launcher.prepare() }
                 assertEquals(0, cache.calls)
                 assertNull(distribution.executable())
                 assertTrue(launcher.preparation.value is EnginePreparation.Failed)
             }
+        }
+    }
+
+    @Test
+    fun `preparability follows the inspected launch rather than the saved choice`() = runTest {
+        val managed: (Path) -> LaunchContext = {
+            LaunchContext(settings = LaunchSettings(runtime = RuntimePreference.Managed))
+        }
+        withLauncher(managed) { launcher, _, cache, _ ->
+            val bundled = LaunchContext(settings = LaunchSettings(runtime = RuntimePreference.Bundled))
+            assertFalse(launcher.canPrepare())
+            assertTrue(launcher.canPrepare(bundled))
+            val inspection = DesktopPiManager(launcher, piDispatchers()).inspect(bundled)
+            assertEquals(InstallSource.Bundled, inspection.source)
+            assertTrue(inspection.isRunnable)
+            assertEquals(0, cache.calls)
         }
     }
 
