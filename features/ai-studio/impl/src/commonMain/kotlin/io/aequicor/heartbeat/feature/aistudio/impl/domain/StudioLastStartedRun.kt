@@ -8,6 +8,9 @@ internal interface StudioLastStartedRun {
     /** Observes the one saved snapshot; reading never starts a native session. */
     fun observe(): Flow<StudioSessionSettings?>
 
+    /** Latest acceptance since profile creation, available before any observer receives it. */
+    fun latest(): StudioSessionSettings? = null
+
     /** Captures acceptance synchronously; profile-owned persistence never delays native ownership. */
     fun capture(settings: StudioSessionSettings)
 }

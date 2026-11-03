@@ -152,6 +152,9 @@ interface StudioBackend {
     /** Views of foreign sessions; the demo workspace has none. */
     suspend fun sessionViews(): StudioSessionViews = StudioSessionViews { _, _ -> flowOf(emptyList()) }
 
+    /** Reads the latest accepted run without waiting for persistence or an observation. */
+    suspend fun latestAccepted(): io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings? = null
+
     /** Handler of the studio machine effects. */
     suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent>
 }

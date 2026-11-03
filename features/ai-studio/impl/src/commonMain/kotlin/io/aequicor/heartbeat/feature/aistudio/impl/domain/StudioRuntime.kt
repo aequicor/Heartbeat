@@ -9,13 +9,35 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueueAction
 import io.aequicor.heartbeat.feature.aistudio.api.StudioQueuedMessage
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 
+/** Profile-owned start-page snapshots and preference persistence. */
+interface StudioRuntimeDefaults {
+    /** Restores start-page preferences and awaits route-scoped effort loading before the screen becomes ready. */
+    suspend fun defaults(): RunSettings
+
+    /** Current route-bound effort choices for models discovered after empty startup defaults. */
+    fun snapshotEfforts(modelIds: List<String>): Map<String, String?> = emptyMap()
+
+    /** Latest in-memory acceptance since this profile opened, read without storage or observer delay. */
+    fun latestAccepted(): StudioSessionSettings? = null
+
+    /** Observes accepted start-page choices, including choices retained in memory after a failed write. */
+    fun observeDefaults(): Flow<RunSettings> = flow { emit(defaults()) }
+
+    /** Persists start-page preferences; cancelling the screen waiter does not cancel the accepted write. */
+    suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {
+        error("Start-page preference persistence is unavailable")
+    }
+}
+
 /** Profile service: accepted work and history observation outlive any individual screen. */
 interface StudioRuntime :
+    StudioRuntimeDefaults,
     StudioRuntimeConfiguration,
     StudioQueueRuntime {
     val state: StateFlow<StudioRuntimeState>
@@ -28,17 +50,6 @@ interface StudioRuntime :
 
     /** Explicit panel-open refresh; telemetry failure never fails a turn. */
     suspend fun refreshUsage(modelId: String) = Unit
-
-    /** Restores start-page preferences and awaits route-scoped effort loading before the screen becomes ready. */
-    suspend fun defaults(): RunSettings
-
-    /** Observes accepted start-page choices, including choices retained in memory after a failed write. */
-    fun observeDefaults(): Flow<RunSettings> = flow { emit(defaults()) }
-
-    /** Persists start-page preferences; cancelling the screen waiter does not cancel the accepted write. */
-    suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {
-        error("Start-page preference persistence is unavailable")
-    }
 
     /** Starts profile-owned work and awaits its outcome; cancelling this waiter only detaches it. */
     suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome

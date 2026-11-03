@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class ToggleStudioBackendTest {
@@ -34,6 +35,7 @@ class ToggleStudioBackendTest {
             views = lazy { error("session views are not requested by this test") },
         )
         assertSame(demo, backend.repository())
+        assertNull(backend.latestAccepted())
         assertIs<AiStudioEffects>(backend.effects())
     }
 

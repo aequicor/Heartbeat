@@ -62,6 +62,8 @@ internal class KeyValueStudioLastStartedRun(
         }
         .combine(current) { saved, captured -> captured?.settings ?: saved }
 
+    override fun latest(): StudioSessionSettings? = current.value?.settings
+
     override fun capture(settings: StudioSessionSettings) {
         check(!profile.isClosed) { "The profile is closed" }
         current.update { Receipt((it?.ordinal ?: 0) + 1, settings) }

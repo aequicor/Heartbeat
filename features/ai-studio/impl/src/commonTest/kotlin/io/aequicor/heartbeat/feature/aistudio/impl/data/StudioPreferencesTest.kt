@@ -215,6 +215,7 @@ class StudioPreferencesTest {
         writing.await()
         screen.cancelAndJoin()
         started.capture(last)
+        assertEquals(last, started.latest())
         assertEquals(last, started.observe().first())
         release.complete(Unit)
         runCurrent()

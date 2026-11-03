@@ -53,8 +53,10 @@ internal class ToggleStudioBackend(
 
     override suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent> = select().effects
 
+    override suspend fun latestAccepted() = select().runtime?.latestAccepted()
+
     override suspend fun sessionViews(): StudioSessionViews =
-        if (select().repository !is InMemoryStudioRepository) views.value else super.sessionViews()
+        if (select().runtime != null) views.value else super.sessionViews()
 
     private suspend fun select(): Selected = lock.withLock {
         selected ?: create().also { selected = it }
@@ -63,17 +65,19 @@ internal class ToggleStudioBackend(
     private suspend fun create(): Selected = if (toggles.get(StudioEngineRuntime)) {
         log.i { "Studio uses the engine runtime" }
         val repository = engineRepository.value
+        val runtime = engineRuntime.value
         Selected(
             repository,
             EngineStudioEffects(
                 repository,
-                engineRuntime.value,
+                runtime,
                 availability,
                 projects?.value,
                 planning?.value ?: StudioPlanning.None,
                 plans?.value ?: StudioPlanRuntime.None,
                 autoContinue?.value ?: StudioAutoContinuePort.None,
             ),
+            runtime,
         )
     } else {
         log.i { "Studio uses the demo workspace" }
@@ -84,5 +88,6 @@ internal class ToggleStudioBackend(
     private data class Selected(
         val repository: StudioRepository,
         val effects: EffectHandler<AiStudioEffect, AiStudioIntent>,
+        val runtime: StudioRuntime? = null,
     )
 }
