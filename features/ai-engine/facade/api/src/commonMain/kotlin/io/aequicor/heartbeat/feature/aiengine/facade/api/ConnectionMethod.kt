@@ -121,3 +121,33 @@ public suspend fun AuthSources.create(
         is ConnectionMethod.NoAuth -> register(AuthSourceDraft.NoAuth(label, scope))
     }
 }
+
+/**
+ * Edits an existing source using this method's endpoint policy. The caller must first establish that the method
+ * belongs to the source's engine and that every binding using the source can accept the changed scope. [key] is
+ * optional for an API-key source and retains its existing value when absent. The caller retains ownership of it.
+ * [onSaved] has the same receipt and cancellation contract as [AuthSources.editIfUnchanged].
+ */
+public suspend fun AuthSources.edit(
+    method: ConnectionMethod,
+    expected: AuthSource,
+    label: String,
+    origin: EndpointOrigin = expected.scope.origin,
+    key: Secret? = null,
+    basePath: String? = expected.scope.basePath,
+    onSaved: (AuthSource) -> Unit,
+) {
+    val scope = method.scopeFor(origin, basePath)
+    require(expected.scope.provider == method.provider.id) { "Source belongs to another provider" }
+    when (method) {
+        is ConnectionMethod.ApiKey -> require(expected is AuthSource.ManagedKey) { "Expected a managed key" }
+
+        is ConnectionMethod.NoAuth -> {
+            require(expected is AuthSource.NoAuth) { "Expected a no-auth source" }
+            require(key == null) { "A no-auth source cannot receive a key" }
+        }
+
+        is ConnectionMethod.CliLogin -> error("CLI login sources cannot be edited")
+    }
+    editIfUnchanged(expected, label, scope, key, onSaved)
+}
