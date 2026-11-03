@@ -5,6 +5,8 @@ import kotlinx.coroutines.ensureActive
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.archivers.tar.TarConstants
 import org.apache.commons.compress.archivers.zip.ZipFile
+import org.apache.commons.compress.utils.SeekableInMemoryByteChannel
+import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -21,6 +23,12 @@ internal class PiRuntimeArchive(private val maxBytes: Long = MAX_BYTES, private 
         return extraction.inventory
     }
 
+    suspend fun extract(archive: ByteArray, root: Path, isZip: Boolean): Map<String, String> {
+        val extraction = Extraction(root, isZip, isWritingFiles = true)
+        if (isZip) extractZip(archive, extraction) else extractTar(ByteArrayInputStream(archive), extraction)
+        return extraction.inventory
+    }
+
     /** Computes the archive inventory without trusting or writing the installed runtime. */
     suspend fun inventory(archive: Path, root: Path, isZip: Boolean): Map<String, String> {
         val extraction = Extraction(root, isZip, isWritingFiles = false)
@@ -28,8 +36,23 @@ internal class PiRuntimeArchive(private val maxBytes: Long = MAX_BYTES, private 
         return extraction.inventory
     }
 
+    suspend fun inventory(archive: ByteArray, root: Path, isZip: Boolean): Map<String, String> {
+        val extraction = Extraction(root, isZip, isWritingFiles = false)
+        if (isZip) extractZip(archive, extraction) else extractTar(ByteArrayInputStream(archive), extraction)
+        return extraction.inventory
+    }
+
     private suspend fun extractZip(archive: Path, extraction: Extraction) {
-        ZipFile.builder().setPath(archive).get().use { zip ->
+        extractZip(ZipFile.builder().setPath(archive).get(), extraction)
+    }
+
+    private suspend fun extractZip(archive: ByteArray, extraction: Extraction) {
+        val channel = SeekableInMemoryByteChannel(archive)
+        extractZip(ZipFile.builder().setSeekableByteChannel(channel).get(), extraction)
+    }
+
+    private suspend fun extractZip(file: ZipFile, extraction: Extraction) {
+        file.use { zip ->
             val entries = zip.entries
             while (entries.hasMoreElements()) {
                 val item = entries.nextElement()
@@ -45,7 +68,11 @@ internal class PiRuntimeArchive(private val maxBytes: Long = MAX_BYTES, private 
     }
 
     private suspend fun extractTar(archive: Path, extraction: Extraction) {
-        Files.newInputStream(archive).use { input ->
+        extractTar(Files.newInputStream(archive), extraction)
+    }
+
+    private suspend fun extractTar(source: InputStream, extraction: Extraction) {
+        source.use { input ->
             TarArchiveInputStream(GZIPInputStream(input)).use { tar ->
                 var item = tar.nextEntry
                 while (item != null) {

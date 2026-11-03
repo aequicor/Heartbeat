@@ -29,6 +29,9 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.StandardOpenOption.CREATE_NEW
+import java.nio.file.StandardOpenOption.READ
+import java.security.MessageDigest
+import java.util.HexFormat
 import java.util.UUID
 
 /**
@@ -81,13 +84,14 @@ internal class PiRuntimeDistribution(
      */
     suspend fun prepare(progress: suspend (EnginePreparation) -> Unit): Path = mutex.withLock {
         val pin = checkNotNull(release) { "Pi runtime pin is unavailable" }
-        var archive: Path? = null
+        var archive: ByteArray? = null
         val expected = trustedInventory ?: run {
             val verified = artifacts.prepare(pin.artifact) { bytes, total ->
                 progress(EnginePreparation.Downloading(bytes, total))
             }
-            archive = verified
-            val inventory = withContext(dispatchers.io) { PiRuntimeArchive().inventory(verified, root, pin.isZip) }
+            val snapshot = withContext(dispatchers.io) { piArchiveSnapshot(verified, pin.artifact.download.sha256) }
+            archive = snapshot
+            val inventory = withContext(dispatchers.io) { PiRuntimeArchive().inventory(snapshot, root, pin.isZip) }
             trustedInventory = inventory
             inventory
         }
@@ -98,8 +102,11 @@ internal class PiRuntimeDistribution(
         }
         progress(EnginePreparation.Installing)
         log.i { "Preparing pinned Pi runtime version=${pin.version}" }
-        val source = archive ?: artifacts.prepare(pin.artifact) { bytes, total ->
-            progress(EnginePreparation.Downloading(bytes, total))
+        val source = archive ?: run {
+            val verified = artifacts.prepare(pin.artifact) { bytes, total ->
+                progress(EnginePreparation.Downloading(bytes, total))
+            }
+            withContext(dispatchers.io) { piArchiveSnapshot(verified, pin.artifact.download.sha256) }
         }
         progress(EnginePreparation.Installing)
         val installed = withContext(dispatchers.io) { install(pin, source, expected) }
@@ -160,7 +167,7 @@ internal class PiRuntimeDistribution(
         return Files.isExecutable(directory.resolve(pin.executable))
     }
 
-    private suspend fun install(pin: PiRuntimeRelease, archive: Path, expected: Map<String, String>): Path {
+    private suspend fun install(pin: PiRuntimeRelease, archive: ByteArray, expected: Map<String, String>): Path {
         Files.createDirectories(root)
         require(isRuntimeDirectory(root)) { "Pi cache root is not a directory" }
         val parent = Files.createDirectories(versionRoot(pin))
@@ -220,6 +227,27 @@ private const val MARKER = ".heartbeat-runtime.json"
 private const val MAX_POINTER_BYTES = 128
 private const val MAX_MARKER_BYTES = 2L * 1024 * 1024
 private const val MAX_FILES = 10_000
+private const val MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+
+/** Hash exactly the bounded bytes subsequently read by both archive operations. */
+internal suspend fun piArchiveSnapshot(path: Path, expected: String): ByteArray {
+    val length = Files.size(path)
+    require(length in 1..MAX_ARCHIVE_BYTES.toLong()) { "Pi archive size is unsupported" }
+    val bytes = ByteArray(length.toInt())
+    Files.newInputStream(path, READ, NOFOLLOW_LINKS).use { input ->
+        var offset = 0
+        while (offset < bytes.size) {
+            currentCoroutineContext().ensureActive()
+            val count = input.read(bytes, offset, bytes.size - offset)
+            require(count > 0) { "Pi archive changed during reading" }
+            offset += count
+        }
+        require(input.read() == -1) { "Pi archive changed during reading" }
+    }
+    val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
+    require(actual == expected) { "Pi archive digest differs" }
+    return bytes
+}
 
 /** NOFOLLOW_LINKS alone treats Windows junctions as ordinary directories. */
 private fun isRuntimeDirectory(path: Path): Boolean = Files.isDirectory(path, NOFOLLOW_LINKS) && !isRuntimeLink(path)

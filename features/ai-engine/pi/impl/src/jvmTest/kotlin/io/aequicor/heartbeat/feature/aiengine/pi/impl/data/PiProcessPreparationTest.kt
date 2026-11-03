@@ -229,7 +229,7 @@ class PiProcessPreparationTest {
     ) = piTemporary { root ->
         val dispatchers = piDispatchers()
         val cache = PiArtifactFixture(piArchive(root))
-        val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, dispatchers)
+        val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, dispatchers)
         val launch = context(root)
         val client = HttpClient(MockEngine { error("Preparation must not use provider APIs") })
         val oldResources = System.getProperty(RESOURCES_PROPERTY)

@@ -12,6 +12,8 @@ import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.apache.commons.compress.archivers.tar.TarConstants
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
+import java.util.HexFormat
 import java.util.zip.GZIPOutputStream
 
 internal data class PiArchiveEntry(val name: String, val body: String = "", val type: Byte = TarConstants.LF_NORMAL)
@@ -39,16 +41,22 @@ internal fun piArchive(
     return file
 }
 
-internal fun piRelease(): PiRuntimeRelease = PiRuntimeRelease(
+internal fun piRelease(archive: Path): PiRuntimeRelease = PiRuntimeRelease(
     "0.87.1",
     "darwin-arm64",
     ReleaseArtifact(
         "pi-darwin-arm64.tar.gz",
-        ReleaseDownload("https://github.com/pi.tar.gz", "a".repeat(64), null, setOf("github.com")),
+        ReleaseDownload(
+            "https://github.com/pi.tar.gz",
+            HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(archive))),
+            null,
+            setOf("github.com"),
+        ),
     ),
 )
 
 internal class PiArtifactFixture(val archive: Path) : VerifiedArtifactCache {
+    val release: PiRuntimeRelease = piRelease(archive)
     var calls = 0
     var before: suspend () -> Unit = {}
     override suspend fun prepare(artifact: ReleaseArtifact, progress: suspend (Long, Long?) -> Unit): Path {
