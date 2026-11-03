@@ -207,8 +207,11 @@ class EngineManagementService(
         if (launch.context(id) != inspectedLaunch || preferences.load().launchOf(id) != savedLaunch) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
         }
-        val isProbeAllowed = inspected.installation.compatibilityObservation?.decision?.isBaselineAllowed != false &&
-            !inspected.isCompatibilityProbeFailed
+        val isProbeAllowed = manager == null ||
+            (
+                inspected.installation.compatibilityObservation?.decision?.isBaselineAllowed == true &&
+                    !inspected.isCompatibilityProbeFailed
+            )
         if (engine.enablement.isEnabled && isProbeAllowed) refreshAvailability(id)
         if (launch.context(id) != inspectedLaunch || preferences.load().launchOf(id) != savedLaunch) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
@@ -252,7 +255,7 @@ class EngineManagementService(
         val installation = bounded("inspect") { manager.inspect(launchContext) }
         val current = installation.value
         val observed = current?.let { inspectCompatibility(engine, manager, it, launchContext) }
-        val compatibility = manager.compatibilityOf(current, observed)
+        val compatibility = compatibilityOf(observed)
         val isRuntimeLocated = hasRunnableInstallation(current)
         val isLoginAllowed = isRuntimeLocated && permitsFollowingInspection(observed)
         val login = if (isLoginAllowed) {
@@ -285,20 +288,17 @@ class EngineManagementService(
         )
     }
 
-    private fun EngineManager.compatibilityOf(
-        current: Installation?,
-        observed: Bounded<EngineCompatibilityObservation?>?,
-    ): Compatibility = when {
+    private fun compatibilityOf(observed: Bounded<EngineCompatibilityObservation?>?): Compatibility = when {
         observed?.failure != null -> Compatibility.Unknown
         observed?.value != null -> observed.value.decision.status
-        else -> current?.version?.let(::compatibility) ?: Compatibility.Unknown
+        else -> Compatibility.Unknown
     }
 
     private fun hasRunnableInstallation(installation: Installation?): Boolean =
         installation != null && installation.source != InstallSource.Missing && installation.isRunnable
 
     private fun permitsFollowingInspection(observed: Bounded<EngineCompatibilityObservation?>?): Boolean =
-        observed?.value?.decision?.isBaselineAllowed != false && observed?.failure == null
+        observed?.value?.decision?.isBaselineAllowed == true && observed.failure == null
 
     private suspend fun inspectCompatibility(
         engine: EngineId,

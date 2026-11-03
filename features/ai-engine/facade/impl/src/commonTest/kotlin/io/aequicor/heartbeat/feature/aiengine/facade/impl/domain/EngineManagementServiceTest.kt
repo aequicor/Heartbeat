@@ -158,6 +158,22 @@ class EngineManagementServiceTest {
     }
 
     @Test
+    fun `missing structured compatibility never starts login or availability probes`() = runTest {
+        manager.installation = Installation(InstallSource.System, version = "1.2.0")
+        manager.legacyCompatibility = Compatibility.Verified
+        val service = service()
+        runCurrent()
+        val result = service.inspect(cliId)
+        runCurrent()
+        assertEquals(1, manager.compatibilityChecks)
+        assertEquals(0, manager.loginChecks)
+        assertTrue(catalog.refreshes.isEmpty())
+        assertNull(result.installation.compatibilityObservation)
+        assertEquals(Compatibility.Unknown, result.installation.compatibility)
+        assertEquals(LoginState.Unknown, result.login)
+    }
+
+    @Test
     fun `a launch change waits for its old inspect and never restores the old report afterwards`() = runTest {
         val gate = CompletableDeferred<Unit>()
         manager.installation = Installation(InstallSource.System, "1.2.0", "/test/cli")
@@ -452,6 +468,7 @@ class EngineManagementServiceTest {
     @Test
     fun `an inspection records the adapter's installation login and launch warnings`() = runTest {
         manager.installation = Installation(InstallSource.System, "1.2.0", "/usr/local/bin/cli")
+        manager.observation = observation()
         manager.login = LoginState.SignedIn("me@example.com")
         manager.warnings = listOf(LaunchProblem(LaunchOption.Executable, LaunchProblemReason.NotFound))
         launchContext = LaunchContext(LaunchSettings(executable = "/opt/cli"))
