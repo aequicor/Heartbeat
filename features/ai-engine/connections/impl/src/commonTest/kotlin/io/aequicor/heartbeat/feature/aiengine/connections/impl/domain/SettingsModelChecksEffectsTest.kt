@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthException
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperationId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEffect
@@ -12,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.ModelSelecti
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.ModelSelectionKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -35,6 +39,30 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsModelChecksEffectsTest {
     private val id = ConnectionOperationId(42)
+
+    @Test
+    fun `stale source edit reports its conflict instead of an unknown error`() = runTest {
+        val f = CoordinatorFixture(this, IsolatedPrompts { error("A rejected edit must not probe") })
+        val failure = AuthFailure(AuthFailureReason.SourceChanged, CheckSource.info.id)
+        f.facade.editSource = { _, _ -> throw AuthException(failure) }
+        val request = ConnectionEdit(
+            f.target.binding,
+            ConnectionMethodId("local"),
+            CheckSource,
+            "Local",
+            CheckSource.scope.origin,
+        )
+        val machine = RecordingScope<EngineConnectionsIntent>()
+
+        f.settings().handle(EngineConnectionsEffect.Edit(request, id, emptySet(), setOf(f.target.binding)), machine)
+
+        assertEquals(
+            listOf<EngineConnectionsIntent>(
+                EngineConnectionsIntent.Internal.ApplyFailed(EngineFailure.Authentication(failure), id),
+            ),
+            machine.intents,
+        )
+    }
 
     @Test
     fun `editing initializes legacy diagnostic generations and checks enabled models`() = runTest {

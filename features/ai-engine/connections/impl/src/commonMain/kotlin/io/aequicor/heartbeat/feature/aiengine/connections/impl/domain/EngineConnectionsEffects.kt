@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.connections.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthException
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionsSnapshot
@@ -10,7 +11,9 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsE
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -19,6 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -60,6 +64,7 @@ internal class EngineConnectionsEffects(
             effect.request.key?.close()
             throw error
         }
+        val failure = MutableStateFlow<EngineFailure?>(null)
         val result = checks.saveAndCheck(
             effect.checkTargets,
             onSaved = { machine.send(EngineConnectionsIntent.Internal.Checking(effect.id)) },
@@ -75,7 +80,7 @@ internal class EngineConnectionsEffects(
                 } else {
                     current
                 }
-                services.facade.bindings.edit(effect.request) {}
+                editBinding(effect.request, failure)
                 selection
             } finally {
                 effect.request.key?.close()
@@ -90,12 +95,24 @@ internal class EngineConnectionsEffects(
             )
 
             is ModelCheckBatchResult.Failed -> if (result.saved == null) {
-                EngineConnectionsIntent.Internal.ApplyFailed(EngineFailure.Unknown(), effect.id)
+                EngineConnectionsIntent.Internal.ApplyFailed(failure.value ?: EngineFailure.Unknown(), effect.id)
             } else {
                 EngineConnectionsIntent.Internal.Applied(effect.id)
             }
         }
         machine.send(completion)
+    }
+
+    private suspend fun editBinding(request: ConnectionEdit, failure: MutableStateFlow<EngineFailure?>) {
+        try {
+            services.facade.bindings.edit(request) {}
+        } catch (error: AuthException) {
+            failure.value = EngineFailure.Authentication(error.failure)
+            throw error
+        } catch (error: EngineException) {
+            failure.value = error.failure
+            throw error
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
