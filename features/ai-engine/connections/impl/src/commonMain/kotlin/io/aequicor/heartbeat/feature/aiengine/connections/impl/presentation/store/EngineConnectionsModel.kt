@@ -6,21 +6,30 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
+import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointBaseUrl
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.canonicalBaseUrl
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.canonicalOrigin
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsOutput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.EngineConnectionsScope
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ModelDescriptions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.isCompatibleOriginAllowed
 import kotlinx.collections.immutable.toImmutableSet
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.PipelineContext
@@ -36,11 +45,34 @@ sealed interface EngineConnectionsScreenIntent : MVIIntent {
     /** Local view state only; these events never start IO. */
     sealed interface Local : EngineConnectionsScreenIntent
 
+    /** Local actions in the connection editor. */
+    sealed interface EditAction : Local
+
     /** Focuses an engine. */
     data class SelectEngine(val id: String) : Local
 
     /** Focuses a connection of the focused engine. */
     data class SelectConnection(val id: String) : Local
+
+    /** Opens and edits a local credential draft; the existing secret is never loaded into it. */
+    data object StartEdit : EditAction
+
+    /** Changes the connection name. */
+    data class EditLabel(val value: String) : EditAction
+
+    /** Changes the proposed server address. */
+    data class EditOrigin(val value: String) : EditAction
+
+    /** Changes the new key without logging it. */
+    data class EditKey(val value: String) : EditAction {
+        override fun toString(): String = "EditKey(***)"
+    }
+
+    /** Discards the unsaved draft. */
+    data object CancelEdit : EditAction
+
+    /** Submits the draft once. */
+    data object SaveEdit : EngineConnectionsScreenIntent
 
     /** Probes the focused engine's installation. */
     data object ProbeEngine : Change
@@ -157,6 +189,11 @@ class EngineConnectionsModel(
         intent: EngineConnectionsScreenIntent,
     ) {
         when (intent) {
+            EngineConnectionsScreenIntent.StartEdit -> {
+                sendTo(machine, EngineConnectionsIntent.Public.DismissError)
+                updateState { localChange(EngineConnectionsScreenIntent.StartEdit, machine.state.value) }
+            }
+
             is EngineConnectionsScreenIntent.Local -> updateState { localChange(intent, machine.state.value) }
 
             EngineConnectionsScreenIntent.RetryLoad -> sendTo(machine, EngineConnectionsIntent.Public.RetryLoad)
@@ -164,6 +201,8 @@ class EngineConnectionsModel(
             EngineConnectionsScreenIntent.RetryFailed -> sendTo(machine, EngineConnectionsIntent.Public.RetryFailed)
 
             EngineConnectionsScreenIntent.DismissError -> sendTo(machine, EngineConnectionsIntent.Public.DismissError)
+
+            EngineConnectionsScreenIntent.SaveEdit -> saveEdit()
 
             is EngineConnectionsScreenIntent.SetDefaultModel -> {
                 updateState { editModel(intent.id, true) }
@@ -196,6 +235,79 @@ class EngineConnectionsModel(
             updateState { copy(confirmDisconnect = null) }
         }
     }
+
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PipelineContext<
+        EngineConnectionsScreenState,
+        EngineConnectionsScreenIntent,
+        EngineConnectionsScreenAction,
+    >.saveEdit() {
+        var screen = EngineConnectionsScreenState()
+        withState { screen = this }
+        val draft = screen.editDraft?.takeUnless { screen.isSaving || screen.isEditFailure || it.form.label.isBlank() }
+            ?: return
+        val active = machine.state.value as? EngineConnectionsState.Active ?: return
+        val endpoint = draft.endpoint()
+        val error = when {
+            endpoint == null -> FormError.InvalidOrigin
+
+            CompatibleProtocol.entries.any { it.provider.id == draft.method.provider.id } &&
+                !isCompatibleOriginAllowed(endpoint.origin) -> FormError.InsecureOrigin
+
+            else -> null
+        }
+        if (error != null) {
+            updateState { copy(editDraft = editDraft?.copy(formError = error)) }
+        } else {
+            sendEdit(draft, active.operationSequence + 1, requireNotNull(endpoint))
+        }
+    }
+
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PipelineContext<
+        EngineConnectionsScreenState,
+        EngineConnectionsScreenIntent,
+        EngineConnectionsScreenAction,
+    >.sendEdit(
+        draft: ConnectionEditDraft,
+        sequence: Long,
+        endpoint: EndpointBaseUrl,
+    ) {
+        updateState {
+            copy(
+                editDraft = editDraft?.copy(
+                    form = editDraft.form.copy(key = SecretText()),
+                    submittedSequence = sequence,
+                    formError = null,
+                ),
+            )
+        }
+        val key = draft.form.key.value.trim().takeIf { it.isNotEmpty() }?.let { Secret(it.toCharArray()) }
+        val edit = ConnectionEdit(
+            EngineBindingId(draft.binding),
+            draft.method.id,
+            draft.source,
+            draft.form.label.trim(),
+            endpoint.origin,
+            endpoint.basePath,
+            key,
+        )
+        var isAccepted = false
+        try {
+            withContext(NonCancellable) {
+                isAccepted = sendTo(machine, EngineConnectionsIntent.Public.Edit(edit)) == SendResult.Accepted
+            }
+        } finally {
+            if (!isAccepted) key?.close()
+        }
+        if (!isAccepted) updateState { copy(editDraft = editDraft?.copy(submittedSequence = null)) }
+    }
+}
+
+private fun ConnectionEditDraft.endpoint(): EndpointBaseUrl? = when {
+    method.isPathEditable -> canonicalBaseUrl(form.origin)
+    method.isOriginEditable -> canonicalOrigin(form.origin)?.let(::EndpointBaseUrl)
+    else -> EndpointBaseUrl(source.scope.origin, source.scope.basePath)
 }
 
 /** Translates a change request into a machine operation against the focused engine and connection. */
@@ -257,10 +369,12 @@ private fun EngineConnectionsScreenState.localChange(
         if (connections.none { it.id == intent.id }) {
             this
         } else {
-            val selected = copy(selectedConnection = intent.id, confirmDisconnect = null)
+            val selected = copy(selectedConnection = intent.id, confirmDisconnect = null, editDraft = null)
             (if (selectedConnection == intent.id) selected else selected.clearModelDraft()).reflect(current)
         }
     }
+
+    is EngineConnectionsScreenIntent.EditAction -> editForm(intent, current)
 
     is EngineConnectionsScreenIntent.RequestDisconnect ->
         if (connections.any { it.id == intent.id }) copy(confirmDisconnect = intent.id) else this
@@ -278,6 +392,52 @@ private fun EngineConnectionsScreenState.localChange(
     EngineConnectionsScreenIntent.DismissCheckDetails -> copy(checkDetails = null)
 }
 
+private fun EngineConnectionsScreenState.editForm(
+    intent: EngineConnectionsScreenIntent.EditAction,
+    current: EngineConnectionsState,
+): EngineConnectionsScreenState = when (intent) {
+    EngineConnectionsScreenIntent.StartEdit -> startEdit(current)
+
+    is EngineConnectionsScreenIntent.EditLabel -> copy(
+        editDraft = editDraft?.copy(
+            form = editDraft.form.copy(label = intent.value),
+            formError = null,
+        ),
+    )
+
+    is EngineConnectionsScreenIntent.EditOrigin -> copy(
+        editDraft = editDraft?.copy(
+            form = editDraft.form.copy(origin = intent.value),
+            formError = null,
+        ),
+    )
+
+    is EngineConnectionsScreenIntent.EditKey -> copy(
+        editDraft = editDraft?.copy(
+            form = editDraft.form.copy(key = SecretText(intent.value)),
+            formError = null,
+        ),
+    )
+
+    EngineConnectionsScreenIntent.CancelEdit -> if (isSaving) this else copy(editDraft = null)
+}
+
+private fun EngineConnectionsScreenState.startEdit(current: EngineConnectionsState): EngineConnectionsScreenState {
+    if (isSaving) return this
+    val snapshot = (current as? EngineConnectionsState.Active)?.snapshot ?: return this
+    val engine = snapshot.engines.singleOrNull { it.descriptor.id.value == selectedEngine } ?: return this
+    val binding = engine.bindings.singleOrNull { it.id.value == selectedConnection } ?: return this
+    val source = snapshot.sources.singleOrNull { it.info.id == binding.authSource } ?: return this
+    val method = engine.descriptor.connectionMethods.editMethod(source) ?: return this
+    val form = CredentialForm(source.info.label, source.scope.origin.value + source.scope.basePath.orEmpty())
+    return copy(
+        editDraft = ConnectionEditDraft(binding.id.value, source, method, form),
+        isEditOutcomePending = false,
+        failure = null,
+        isEditFailure = false,
+    )
+}
+
 /** Immutable routing input supplied by the connections entry; not a new profile authority. */
 data class EngineConnectionsTarget(val engine: EngineId? = null)
 
@@ -287,5 +447,6 @@ private fun EngineConnectionsScreenState.selectEngine(
 ): EngineConnectionsScreenState = if (fixedEngine != null && id != fixedEngine) {
     this
 } else {
-    copy(selectedEngine = id, selectedConnection = null, confirmDisconnect = null).clearModelDraft().reflect(current)
+    copy(selectedEngine = id, selectedConnection = null, confirmDisconnect = null, editDraft = null)
+        .clearModelDraft().reflect(current)
 }

@@ -9,13 +9,22 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSecretId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.AvailabilityUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectionEditDraft
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectionRowUi
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CredentialForm
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EnginePreparationUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineRowUi
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.MethodKindUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.MethodRowUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelRowUi
@@ -25,6 +34,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.checkedSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.openCheckDetails
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
+import io.aequicor.heartbeat.feature.aiengine.facade.api.scopeFor
 import kotlinx.collections.immutable.persistentListOf
 import java.io.File
 import javax.imageio.ImageIO
@@ -77,6 +87,34 @@ class ConnectionsSnapshotTest {
                     EngineConnectionsContent(checked.openCheckDetails(target), {}, {}, null, { _, _ -> })
                 }
                 render("connections", width, isDark) { EngineConnectionsContent(connections, {}, {}, {}, { _, _ -> }) }
+                val source = AuthSource.ManagedKey(
+                    AuthSourceInfo(AuthSourceId("source"), "Рабочий OpenAI", AuthRevision.Known("r1")),
+                    ApiKeyMethod.scopeFor(),
+                    AuthSecretId("secret"),
+                )
+                val editing = connections.copy(
+                    editDraft = ConnectionEditDraft(
+                        "c1",
+                        source,
+                        ApiKeyMethod,
+                        CredentialForm("Рабочий OpenAI", ApiKeyMethod.origin.value),
+                    ),
+                )
+                render("connection-edit", width, isDark) {
+                    EngineConnectionsContent(editing, {}, {}, null, { _, _ -> })
+                }
+                render("connection-edit-saving", width, isDark) {
+                    EngineConnectionsContent(editing.copy(isSaving = true), {}, {}, null, { _, _ -> })
+                }
+                render("connection-edit-conflict", width, isDark) {
+                    EngineConnectionsContent(
+                        editing.copy(failure = FailureUi.ConnectionChanged, isEditFailure = true),
+                        {},
+                        {},
+                        null,
+                        { _, _ -> },
+                    )
+                }
                 render("wizard", width, isDark) { ConnectWizardContent(wizard, {}) }
                 render("preparing", width, isDark) {
                     ConnectWizardContent(

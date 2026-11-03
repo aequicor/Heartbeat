@@ -123,4 +123,12 @@
     <string name="check_unavailable">check unavailable</string>
     <string name="check_secret_notice">Do not share secrets through links in answers. Such answers may be inaccurate or unsafe.</string>
     <string name="check_scope_notice">These are a few simple probes, not proof of model intent. The model remains available for use.</string>
+    <string name="settings_edit_connection">Edit connection</string>
+    <string name="settings_edit_description">Connection name, server address and access key</string>
+    <string name="settings_edit_key_placeholder">Leave empty to keep the current key</string>
+    <string name="settings_edit_key_hint">The current key is not displayed</string>
+    <string name="settings_edit_host">Server address</string>
+    <string name="settings_edit_pending">The save outcome is not yet known. Check the connection before trying again.</string>
+    <string name="settings_edit_conflict">The connection changed. Close and reopen this form, then enter the new key again if needed.</string>
+    <string name="settings_edit_failed">The save could not be confirmed. Close and reopen the form to check the connection before trying again.</string>
 </resources>

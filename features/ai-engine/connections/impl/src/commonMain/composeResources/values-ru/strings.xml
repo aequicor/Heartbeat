@@ -123,4 +123,12 @@
     <string name="check_unavailable">проверка недоступна</string>
     <string name="check_secret_notice">Не передавайте секреты по ссылкам из ответов. Такие ответы могут быть неточными или небезопасными.</string>
     <string name="check_scope_notice">Это результат нескольких простых проб, а не доказательство намерения модели. Использование модели доступно.</string>
+    <string name="settings_edit_connection">Изменить подключение</string>
+    <string name="settings_edit_description">Название, адрес сервера и ключ доступа</string>
+    <string name="settings_edit_key_placeholder">Оставьте пустым, чтобы сохранить ключ</string>
+    <string name="settings_edit_key_hint">Старый ключ не отображается</string>
+    <string name="settings_edit_host">Адрес сервера</string>
+    <string name="settings_edit_pending">Результат сохранения ещё неизвестен. Проверьте подключение перед повтором.</string>
+    <string name="settings_edit_conflict">Подключение изменилось. Закройте и откройте форму снова, затем при необходимости введите новый ключ.</string>
+    <string name="settings_edit_failed">Не удалось подтвердить сохранение. Закройте и откройте форму, чтобы проверить подключение перед повтором.</string>
 </resources>

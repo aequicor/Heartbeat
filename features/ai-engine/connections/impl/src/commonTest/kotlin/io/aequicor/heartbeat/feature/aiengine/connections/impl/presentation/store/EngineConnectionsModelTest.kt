@@ -1,13 +1,18 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store
 
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSecretId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsOutput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
@@ -15,17 +20,93 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.scopeFor
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EngineConnectionsModelTest {
+    @Test
+    fun `editing sends a conditional source snapshot and clears the typed key`() = runTest {
+        val source = AuthSource.ManagedKey(
+            AuthSourceInfo(AuthSourceId("home-source"), "Work", AuthRevision.Known("r1")),
+            ApiKeyMethod.scopeFor(),
+            AuthSecretId("key"),
+        )
+        val snapshot = settingsSnapshot().copy(sources = listOf(source))
+        machine.state.value = EngineConnectionsState.Active(snapshot)
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.StartEdit)
+        model.store.intent(EngineConnectionsScreenIntent.EditLabel("Renamed"))
+        model.store.intent(EngineConnectionsScreenIntent.EditKey("new-secret"))
+        model.store.intent(EngineConnectionsScreenIntent.SaveEdit)
+        runCurrent()
+
+        val request = machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Edit>().single().edit
+        assertEquals(source, request.expected)
+        assertEquals("Renamed", request.label)
+        assertEquals("", assertNotNull(screen.states.value.editDraft).form.key.value)
+        assertEquals("new-secret", assertNotNull(request.key).reveal { it.concatToString() })
+        request.key?.close()
+        machine.state.value = EngineConnectionsState.Active(snapshot, operationSequence = 1)
+        runCurrent()
+        assertNull(screen.states.value.editDraft)
+    }
+
+    @Test
+    fun `a rejected edit closes its secret and retains an empty editable form`() = runTest {
+        val source = AuthSource.ManagedKey(
+            AuthSourceInfo(AuthSourceId("home-source"), "Work", AuthRevision.Known("r1")),
+            ApiKeyMethod.scopeFor(),
+            AuthSecretId("key"),
+        )
+        machine.state.value = EngineConnectionsState.Active(settingsSnapshot().copy(sources = listOf(source)))
+        val model = model()
+        val screen = subscribe(model.store)
+        machine.result = SendResult.Ignored
+        model.store.intent(EngineConnectionsScreenIntent.StartEdit)
+        model.store.intent(EngineConnectionsScreenIntent.EditKey("new-secret"))
+        model.store.intent(EngineConnectionsScreenIntent.SaveEdit)
+        runCurrent()
+
+        val key = assertNotNull(machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Edit>().single().edit.key)
+        assertFailsWith<IllegalStateException> { key.reveal {} }
+        assertEquals("", assertNotNull(screen.states.value.editDraft).form.key.value)
+        assertNull(screen.states.value.editDraft?.submittedSequence)
+    }
+
+    @Test
+    fun `an external source change never silently replaces the edit baseline`() = runTest {
+        val source = AuthSource.ManagedKey(
+            AuthSourceInfo(AuthSourceId("home-source"), "Work", AuthRevision.Known("r1")),
+            ApiKeyMethod.scopeFor(),
+            AuthSecretId("key"),
+        )
+        val original = settingsSnapshot().copy(sources = listOf(source))
+        machine.state.value = EngineConnectionsState.Active(original)
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.StartEdit)
+        runCurrent()
+        val changed = source.copy(info = source.info.copy(revision = AuthRevision.Known("r2")))
+        machine.state.value = EngineConnectionsState.Active(original.copy(sources = listOf(changed)))
+        runCurrent()
+        model.store.intent(EngineConnectionsScreenIntent.SaveEdit)
+        runCurrent()
+
+        val request = machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Edit>().single().edit
+        assertEquals(source, request.expected)
+        assertNotNull(screen.states.value.editDraft)
+    }
+
     @Test
     fun `opening and closing check details never sends a machine change`() = runTest {
         machine.state.value = EngineConnectionsState.Active(checkedSettingsSnapshot())

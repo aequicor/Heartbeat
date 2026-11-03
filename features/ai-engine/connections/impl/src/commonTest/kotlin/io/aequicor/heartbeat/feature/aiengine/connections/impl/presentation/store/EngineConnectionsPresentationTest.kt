@@ -112,7 +112,16 @@ class EngineConnectionsPresentationTest {
         assertEquals("home", loaded.selectedConnection)
         val home = loaded.connections.first()
         assertEquals(
-            ConnectionRowUi("home", "Home server", "Ollama", MethodKindUi.NoAuth, OllamaMethod.origin.value, true, 1),
+            ConnectionRowUi(
+                "home",
+                "Home server",
+                "Ollama",
+                MethodKindUi.NoAuth,
+                OllamaMethod.origin.value,
+                true,
+                1,
+                true,
+            ),
             home,
         )
         assertEquals("work-source", loaded.connections[1].label)
