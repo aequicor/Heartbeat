@@ -79,6 +79,8 @@ public interface EngineManager {
      * submit no model prompt and cancel/reap every process it starts. A known mismatch is evidence, not a thrown
      * provider error. Null means this legacy manager has no structured probe; an implemented probe with missing
      * facts returns an Unknown observation. Evidence belongs to the engine whose manager is registered.
+     * For [LaunchContext.isInstallCandidate], [installation] identifies the staged candidate and its expected
+     * version; the adapter must independently observe the actual version and provenance rather than echo them.
      * Failures use sanitized typed exceptions, without raw paths or provider payloads.
      * A later actual launch must establish its own facts again; this report never authorizes a changed executable.
      */

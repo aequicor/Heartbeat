@@ -2,17 +2,21 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginCode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
@@ -40,8 +44,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Long management operations of the profile, one job per engine, running in the profile scope so they outlive the
  * screen that started them. Progress and the outcome are published in [jobs] until dismissed. Installing checks the
- * staged copy (it must start and report the release's version) before activating it; nothing half-installed ever
- * becomes active. Signing in shows the CLI's prompts and forwards pasted codes; it ends after [loginTimeoutMillis].
+ * staged copy with a restricted, verified compatibility probe before activating it; unknown or incompatible
+ * candidates never replace an installation. Signing in shows the CLI's prompts and forwards pasted codes; it ends
+ * after [loginTimeoutMillis].
  * Package jobs run the engine configurator's package command for the configured packages.
  */
 @Suppress("LongParameterList") // A job spans the engine subsystems; each one is a separate port.
@@ -149,7 +154,6 @@ class EngineJobs(
     private suspend fun install(engine: EngineId, action: EngineAction) {
         val manager = manager(engine)
         val plan = manager.resolveRelease(feeds)
-        val settings = launch.context(engine).settings
         if (action == EngineAction.Update && installs.state.value[engine]?.version == plan.version) {
             log.i { "managed copy is already the newest engine=${engine.value} version=${plan.version}" }
             return
@@ -158,18 +162,15 @@ class EngineJobs(
         var isActivated = false
         try {
             phase(engine, JobPhase.Checking)
-            // The copy runs once before activation; a custom executable must not shadow the candidate.
-            val candidate = LaunchContext(settings.copy(executable = null), staged.candidate, isInstallCandidate = true)
-            val installation = withTimeoutOrNull(CHECK_TIMEOUT_MILLIS) {
-                withContext(context.io) { manager.inspect(candidate) }
-            }
-            if (installation?.source != InstallSource.Managed || !isSameVersion(installation.version, plan.version)) {
-                log.w { "staged copy does not report the release engine=${engine.value} expected=${plan.version}" }
+            if (!isSameVersion(staged.candidate.version, plan.version)) {
                 throw ManagementException(ManagementFailure.Install(InstallFailureReason.VersionMismatch))
             }
+            verifyCandidate(engine, manager, staged.candidate)
             phase(engine, JobPhase.Activating)
-            // Idle runtimes release the copy they run (Windows locks it); a busy one keeps it until its turn ends.
-            runtimes.retire(engine)
+            // A busy runtime still owns the old copy; leave that installation untouched until it can retire.
+            if (runtimes.retire(engine).busy > 0) {
+                throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
+            }
             // Commit the file switch and the published state together, even if Cancel arrives meanwhile.
             withContext(NonCancellable) {
                 installs.activate(staged)
@@ -178,6 +179,32 @@ class EngineJobs(
         } finally {
             if (!isActivated) withContext(NonCancellable) { installs.discard(staged) }
         }
+    }
+
+    private suspend fun verifyCandidate(engine: EngineId, manager: EngineManager, candidate: ManagedInstall) {
+        val launch = LaunchContext(managed = candidate, isInstallCandidate = true)
+        val installation = Installation(InstallSource.Managed, candidate.version, candidate.executable)
+        val report = withTimeoutOrNull(CHECK_TIMEOUT_MILLIS) {
+            withContext(context.io) { manager.inspectCompatibility(installation, launch) }
+        }
+        val decision = report?.decision
+        val identity = report?.evidence?.identity
+        val failure = when {
+            report?.requirements?.engine != engine || identity?.engine != engine || identity.runtime == null ->
+                EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+
+            !isSameVersion(identity.runtime, candidate.version) ->
+                ManagementException(ManagementFailure.Install(InstallFailureReason.VersionMismatch))
+
+            decision?.status == Compatibility.Incompatible ->
+                EngineException(EngineFailure.Engine(EngineFailureReason.Incompatible))
+
+            decision?.status != Compatibility.Verified ->
+                EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+
+            else -> null
+        }
+        if (failure != null) throw failure
     }
 
     private suspend fun uninstall(engine: EngineId) {
