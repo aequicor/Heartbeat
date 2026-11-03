@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.network.OfflineHttpResponse
 import io.aequicor.heartbeat.core.network.OfflineHttpSession
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -29,6 +30,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -162,11 +164,60 @@ class KoogSdkProbeTest {
     }
 
     @Test
+    fun `candidate tests only the selected provider and refuses an unknown provider before IO`() = runTest {
+        val http = SdkProbeHttpFixture()
+        val factory = JvmKoogCandidates(http, TestKoogPlatform, http.dispatchers)
+        val identity = RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1"))
+        val deadline = TimeSource.Monotonic.markNow() + 10.seconds
+        assertNull(factory.open(EngineRuntimeCandidateRequest(identity, LaunchContext()), deadline))
+        assertNull(
+            factory.open(EngineRuntimeCandidateRequest(identity, LaunchContext(), ProviderId("unknown")), deadline),
+        )
+        assertTrue(http.sessions.isEmpty())
+
+        val openai = factory.open(
+            EngineRuntimeCandidateRequest(identity, LaunchContext(), KoogProvider.OpenAI.id),
+            deadline,
+        )
+        assertNotNull(openai)
+        assertNull(openai.evidence.isBaselineConfirmed)
+        assertEquals(5, http.sessions.size)
+        openai.close()
+
+        val ollama = factory.open(
+            EngineRuntimeCandidateRequest(identity, LaunchContext(), KoogProvider.Ollama.id),
+            deadline,
+        )
+        assertNotNull(ollama)
+        assertEquals(false, ollama.evidence.isBaselineConfirmed)
+        assertEquals(10, http.sessions.size)
+        ollama.close()
+    }
+
+    @Test
+    fun `a failure of another provider cannot reject the selected route`() {
+        val request = EngineRuntimeCandidateRequest(
+            RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1")),
+            LaunchContext(),
+            KoogProvider.OpenAI.id,
+        )
+        val report = KoogSdkReport(
+            sdkBuildInputs(),
+            listOf(
+                KoogSdkReceipt(KoogProvider.OpenAI, KoogSdkCheck.StreamStop, KoogSdkOutcome.Confirmed),
+                KoogSdkReceipt(KoogProvider.Ollama, KoogSdkCheck.StreamStop, KoogSdkOutcome.Rejected),
+            ),
+        )
+        assertNull(SdkOnlyKoogCandidate(request, report).evidence.isBaselineConfirmed)
+    }
+
+    @Test
     fun `even all confirmed SDK rows grant no baseline provenance or promotion`() = runTest {
         for (outcome in KoogSdkOutcome.entries) {
             val request = EngineRuntimeCandidateRequest(
                 RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1")),
                 LaunchContext(),
+                KoogProvider.OpenAI.id,
             )
             val report = KoogSdkReport(
                 sdkBuildInputs(),

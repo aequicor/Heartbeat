@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.api.spi
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityEvidence
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import kotlin.time.TimeMark
@@ -7,9 +8,15 @@ import kotlin.time.TimeMark
 /**
  * Fixed input to one restricted acquisition. [launch] is the selected launch/configuration contract, not
  * permission to read its user or project files. The caller supplies an immutable snapshot; the candidate must
- * not reread global launch preferences or silently choose another installation during promotion.
+ * not reread global launch preferences or silently choose another installation during promotion. [provider] is
+ * the checked route's non-secret provider type, not its endpoint or credentials; null means unknown. It permits
+ * a multi-provider connector to run the corresponding offline baseline without probing unrelated providers.
  */
-public data class EngineRuntimeCandidateRequest(val identity: RuntimeIdentity, val launch: LaunchContext) {
+public data class EngineRuntimeCandidateRequest(
+    val identity: RuntimeIdentity,
+    val launch: LaunchContext,
+    val provider: ProviderId? = null,
+) {
     override fun toString(): String = "EngineRuntimeCandidateRequest"
 }
 

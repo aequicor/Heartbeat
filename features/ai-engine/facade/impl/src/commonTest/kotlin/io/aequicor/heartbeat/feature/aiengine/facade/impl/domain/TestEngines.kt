@@ -72,6 +72,7 @@ internal class FakeEngineFactory : EngineFactory {
     var runtimeEvidence = testRuntimeEvidence()
     var isCandidateAvailable = true
     var candidates = 0
+    var lastCandidateRequest: EngineRuntimeCandidateRequest? = null
     var promotions = 0
     var candidateCloses = 0
     var beforeCandidate: suspend () -> Unit = {}
@@ -82,6 +83,7 @@ internal class FakeEngineFactory : EngineFactory {
         deadline: TimeMark,
     ): EngineRuntimeCandidate? {
         candidates++
+        lastCandidateRequest = request
         beforeCandidate()
         return if (isCandidateAvailable) TestRuntimeCandidate(this, request, runtimeEvidence) else null
     }

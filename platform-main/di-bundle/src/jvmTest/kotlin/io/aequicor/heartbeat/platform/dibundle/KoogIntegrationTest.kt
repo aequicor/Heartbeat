@@ -84,7 +84,7 @@ class KoogIntegrationTest {
             .single { it.descriptor.id == KoogEngineId }
         val factory = registration.factory.value
         val identity = RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic-sdk-check"), AuthRevision.Known("1"))
-        val request = EngineRuntimeCandidateRequest(identity, LaunchContext())
+        val request = EngineRuntimeCandidateRequest(identity, LaunchContext(), KoogProvider.OpenAI.id)
         val deadline = TimeSource.Monotonic.markNow() + 10.seconds
         messages.clear()
         val candidate = assertNotNull(factory.openRuntimeCandidate(request, deadline))
@@ -96,7 +96,7 @@ class KoogIntegrationTest {
             assertNull(candidate.evidence.isProvenanceConfirmed)
             assertTrue(candidate.evidence.isBaselineConfirmed != true)
             assertNull(factory.runtimeRequirements)
-            assertEquals(24, messages.count { "POST *** -> 200" in it }, messages.joinToString("\n"))
+            assertEquals(4, messages.count { "POST *** -> 200" in it }, messages.joinToString("\n"))
             assertTrue(messages.any { "unobserved=0" in it }, messages.joinToString("\n"))
             assertTrue(profile.koogConnections.list().isEmpty())
             // Deliberately fictional: even an explicitly supplied stamp cannot promote this partial candidate.

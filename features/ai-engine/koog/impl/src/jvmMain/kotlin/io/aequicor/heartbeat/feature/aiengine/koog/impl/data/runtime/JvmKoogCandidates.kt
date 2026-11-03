@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandid
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimePromotion
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import java.util.concurrent.atomic.AtomicBoolean
@@ -35,8 +36,11 @@ internal class JvmKoogCandidates(
     override suspend fun open(request: EngineRuntimeCandidateRequest, deadline: TimeMark): EngineRuntimeCandidate? {
         currentCoroutineContext().ensureActive()
         // Do not substitute the embedded SDK for an explicitly different installation/configuration contract.
-        if (request.identity.engine != KoogEngineId || request.launch != LaunchContext()) return null
-        val report = probe.run(deadline)
+        val provider = KoogProvider.entries.firstOrNull { it.id == request.provider }
+        if (provider == null || request.identity.engine != KoogEngineId || request.launch != LaunchContext()) {
+            return null
+        }
+        val report = probe.run(deadline, listOf(provider))
         currentCoroutineContext().ensureActive()
         return SdkOnlyKoogCandidate(request, report)
     }
@@ -45,10 +49,13 @@ internal class JvmKoogCandidates(
 internal class SdkOnlyKoogCandidate(override val request: EngineRuntimeCandidateRequest, report: KoogSdkReport) :
     EngineRuntimeCandidate {
     private val consumed = AtomicBoolean(false)
+    private val hasRejectedProviderChecks = report.receipts.any {
+        it.provider.id == request.provider && it.outcome == KoogSdkOutcome.Rejected
+    }
     override val evidence = EngineCompatibilityEvidence(
         identity = EngineCompatibilityIdentity(engine = KoogEngineId),
         // A conclusive SDK failure is a failed prerequisite. Success does not prove the whole baseline.
-        isBaselineConfirmed = if (report.hasRejectedChecks) false else null,
+        isBaselineConfirmed = if (hasRejectedProviderChecks) false else null,
     )
 
     override suspend fun promote(expected: EngineCompatibilityStamp, deadline: TimeMark): EngineRuntimePromotion {

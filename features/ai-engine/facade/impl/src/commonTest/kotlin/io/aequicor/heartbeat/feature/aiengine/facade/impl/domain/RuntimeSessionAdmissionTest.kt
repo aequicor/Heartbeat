@@ -42,6 +42,7 @@ class RuntimeSessionAdmissionTest {
         assertSame(first, f.acquire())
         assertEquals(started, f.pool.entries.value.single().startedAt)
         assertEquals(2, f.factory.candidates)
+        assertEquals(f.route.source.scope.provider, f.factory.lastCandidateRequest?.provider)
         assertEquals(1, f.factory.promotions)
         assertEquals(2, f.factory.candidateCloses)
         assertEquals(0, f.runtimes.single().closes)

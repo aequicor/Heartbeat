@@ -180,7 +180,7 @@ class RuntimePool(
         val launch = launchOf(identity.engine)
         val result = admission.acquire(
             resolved.registration,
-            EngineRuntimeCandidateRequest(identity, launch),
+            EngineRuntimeCandidateRequest(identity, launch, resolved.source.scope.provider),
             deadline,
             recheck = {
                 mutex.withLock {

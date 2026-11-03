@@ -34,28 +34,30 @@ internal class KoogSdkProbe(
 ) {
     private val log = Log.tag("KoogSdkProbe")
 
-    suspend fun run(deadline: TimeMark): KoogSdkReport = withContext(dispatchers.io) {
-        val receipts = buildList {
-            for (provider in KoogProvider.entries) {
-                for (check in KoogSdkCheck.entries) {
-                    currentCoroutineContext().ensureActive()
-                    val receipt = if (deadline.hasPassedNow()) {
-                        unobserved(provider, check)
-                    } else {
-                        examine(provider, check, deadline)
+    suspend fun run(deadline: TimeMark, providers: List<KoogProvider> = KoogProvider.entries): KoogSdkReport =
+        withContext(dispatchers.io) {
+            val receipts = buildList {
+                for (provider in providers) {
+                    for (check in KoogSdkCheck.entries) {
+                        currentCoroutineContext().ensureActive()
+                        val receipt = if (deadline.hasPassedNow()) {
+                            unobserved(provider, check)
+                        } else {
+                            examine(provider, check, deadline)
+                        }
+                        add(receipt)
                     }
-                    add(receipt)
                 }
             }
+            currentCoroutineContext().ensureActive()
+            val confirmed = receipts.count { it.outcome == KoogSdkOutcome.Confirmed }
+            val rejected = receipts.count { it.outcome == KoogSdkOutcome.Rejected }
+            val unobserved = receipts.count { it.outcome == KoogSdkOutcome.Unobserved }
+            log.i {
+                "Offline SDK checks finished: confirmed=$confirmed, rejected=$rejected, unobserved=$unobserved"
+            }
+            KoogSdkReport(sdkBuildInputs(), receipts)
         }
-        currentCoroutineContext().ensureActive()
-        log.i {
-            "Offline SDK checks finished: confirmed=${receipts.count { it.outcome == KoogSdkOutcome.Confirmed }}, " +
-                "rejected=${receipts.count { it.outcome == KoogSdkOutcome.Rejected }}, " +
-                "unobserved=${receipts.count { it.outcome == KoogSdkOutcome.Unobserved }}"
-        }
-        KoogSdkReport(sdkBuildInputs(), receipts)
-    }
 
     private suspend fun examine(provider: KoogProvider, check: KoogSdkCheck, deadline: TimeMark): KoogSdkReceipt =
         supervisorScope {
