@@ -63,6 +63,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioLastStartedRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
@@ -200,6 +201,7 @@ internal class EngineStudioRepository(
     workspaceProjection: StudioWorkspaceProjection,
     private val configurations: StudioConfigurationController,
     preferences: StudioPreferences,
+    lastStarted: StudioLastStartedRun,
     private val conversations: StudioConversationCreation,
     learning: StudioLearningPrompts,
     private val checklists: StudioChecklists,
@@ -212,7 +214,7 @@ internal class EngineStudioRepository(
     private val switchHelpers: StudioEngineSwitchHelpers,
     tools: Lazy<ProfileAgentTools>,
     private val messageQueue: StudioQueuePort = NoStudioQueue,
-) : NativeStudioRepository(preferences, selections, efforts),
+) : NativeStudioRepository(preferences, selections, efforts, lastStarted),
     StudioQueueAccess,
     StudioTurnHost,
     StudioRunHost,

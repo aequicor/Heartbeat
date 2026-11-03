@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioLastStartedRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
@@ -18,6 +19,7 @@ internal abstract class NativeStudioRepository(
     private val preferences: StudioPreferences,
     private val selections: ModelSelections,
     private val efforts: EffortChoicesView,
+    private val lastStarted: StudioLastStartedRun,
 ) : StudioRepository,
     StudioRuntime {
     private val log = Log.tag("NativeStudioRepository")
@@ -28,7 +30,7 @@ internal abstract class NativeStudioRepository(
 
     override fun observeDefaults(): Flow<RunSettings> {
         log.v { "Observe start-page defaults" }
-        return observeStudioDefaults(preferences, selections, efforts)
+        return observeStudioDefaults(preferences, selections, efforts, lastStarted)
     }
 
     override suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {

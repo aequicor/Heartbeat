@@ -16,12 +16,17 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneHarnessChoices
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneNoticeDismissals
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 
 /** Every machine state maps to a phase: no `else`, so a new machine state breaks the build here. */
-internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudioScreenState = when (machine) {
+internal fun AiStudioScreenState.reflectMachine(
+    machine: AiStudioState,
+    engineEfforts: ImmutableMap<String, String> = persistentMapOf(),
+): AiStudioScreenState = when (machine) {
     AiStudioState.Idle, AiStudioState.Loading -> copy(phase = StudioPhase.Loading, isPlanningEnabled = false)
 
     AiStudioState.Disabled -> copy(phase = StudioPhase.Disabled, isPlanningEnabled = false)
@@ -62,7 +67,9 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         stopFailures = machine.stopFailures.toImmutableSet(),
         uncancellable = machine.uncancellable.toImmutableSet(),
         steerable = machine.steerable.toImmutableSet(),
-        settings = machine.settings.toUi().copy(engineEfforts = settings.engineEfforts),
+        settings = machine.settings.toUi().copy(
+            engineEfforts = machine.settings.nativeEffort.applyTo(engineEfforts),
+        ),
         isEngineSwitchingAvailable = machine.isEngineSwitchingAvailable,
         isMessageQueueEnabled = machine.isMessageQueueEnabled,
         messageQueues = queueUi(machine),

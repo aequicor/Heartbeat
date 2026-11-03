@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEffortOverride
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
@@ -130,6 +131,7 @@ import pro.respawn.flowmvi.api.Provider
 import pro.respawn.flowmvi.dsl.collect
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -896,6 +898,64 @@ class AiStudioModelTest {
             scope.runCurrent()
             return provider.await()
         }
+    }
+}
+
+class AiStudioRestoredDefaultsModelTest {
+    private val ready = AiStudioState.Ready(
+        panes = listOf(StudioPane(0, sessionId = "s-facade")),
+        focusedPaneId = 0,
+        settings = DefaultRunSettings,
+        defaultProjectId = "p-heartbeat",
+    )
+
+    @Test
+    fun `restored explicit native default wins over later profile effort observations and is route bound`() = runTest {
+        val target = EngineTarget(EngineId("engine"), EngineBindingId("route"), ModelId("model"))
+        val id = target.studioModelId()
+        val other = target.copy(model = ModelId("other"))
+        val initial = ready.copy(settings = ready.settings.copy(nativeEffort = StudioEffortOverride(id, null)))
+        val fixture = AiStudioModelTest.Fixture(this, initial)
+        val screen = fixture.subscribe()
+        fixture.efforts.state.value = EffortConfigurationState.Ready(
+            listOf(EffortChoice(target, "old-high"), EffortChoice(other, "other-high")),
+        )
+        runCurrent()
+        assertFalse(id in screen.states.value.settings.engineEfforts)
+        assertEquals("other-high", screen.states.value.settings.engineEfforts[other.studioModelId()])
+        fixture.machine.state.value = initial.copy(
+            settings = initial.settings.copy(nativeEffort = StudioEffortOverride(id, "new-low")),
+        )
+        runCurrent()
+        fixture.efforts.state.value = EffortConfigurationState.Ready(listOf(EffortChoice(target, "late-high")))
+        runCurrent()
+        assertEquals("new-low", screen.states.value.settings.engineEfforts[id])
+        fixture.machine.state.value = initial.copy(settings = initial.settings.copy(nativeEffort = null))
+        runCurrent()
+        assertEquals("late-high", screen.states.value.settings.engineEfforts[id])
+    }
+
+    @Test
+    fun `changing approval preserves restored effort while changing route clears its seed`() = runTest {
+        val target = EngineTarget(EngineId("engine"), EngineBindingId("route"), ModelId("model"))
+        val id = target.studioModelId()
+        val seed = StudioEffortOverride(id, null)
+        val initial = ready.copy(
+            panes = listOf(StudioPane(0)),
+            settings = ready.settings.copy(modelId = id, nativeEffort = seed),
+        )
+        val fixture = AiStudioModelTest.Fixture(this, initial)
+        fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectApproval(ApprovalUi.AutoEdits))
+        runCurrent()
+        val approval = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.UpdateSettings>().last().settings
+        assertEquals(seed, approval.nativeEffort)
+        fixture.machine.state.value = initial.copy(settings = approval)
+        val other = target.copy(model = ModelId("other")).studioModelId()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectModel(other))
+        runCurrent()
+        val changed = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.UpdateSettings>().last().settings
+        assertEquals(null, changed.nativeEffort)
     }
 }
 

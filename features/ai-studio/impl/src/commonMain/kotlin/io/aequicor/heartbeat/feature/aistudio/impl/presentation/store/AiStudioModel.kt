@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEffortOverride
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
@@ -175,7 +176,7 @@ class AiStudioModel(
         initial = AiStudioScreenState(
             now = clock.now(),
             harnessChoices = HarnessChoicesUi(isReady = harnesses === StudioHarnesses.None),
-        ).reflectMachine(machine.state.value),
+        ).reflectMachine(machine.state.value, efforts.state.value.studioEfforts()),
         // Failures are logged by the store factory; the workspace stays usable instead of a dead-end error.
         onError = { this },
     ) {
@@ -195,7 +196,7 @@ class AiStudioModel(
         }
         reflect(machine, onOutput = { output ->
             handleStudioSubmissionOutput(this, machine.state.value, harnesses, output)
-        }) { reflectMachine(it) }
+        }) { reflectMachine(it, efforts.state.value.studioEfforts()) }
         init { launch { attachmentInputs.observe(this@init) } }
         install {
             name = "project-trust"
@@ -303,7 +304,12 @@ class AiStudioModel(
 
     private suspend fun observeEfforts(pipeline: StudioPipeline) {
         with(pipeline) {
-            efforts.state.collect { updateState { copy(settings = settings.copy(engineEfforts = it.studioEfforts())) } }
+            efforts.state.collect { observed ->
+                updateState {
+                    val override = (machine.state.value as? AiStudioState.Ready)?.settings?.nativeEffort
+                    copy(settings = settings.copy(engineEfforts = override.applyTo(observed.studioEfforts())))
+                }
+            }
         }
     }
 
@@ -705,6 +711,7 @@ class AiStudioModel(
             val target = studioModelTarget(intent.modelId) ?: return@with log.w {
                 "effort selection ignored: model is not an engine route"
             }
+            updateSettings(pipeline) { copy(nativeEffort = StudioEffortOverride(intent.modelId, intent.effort)) }
             val select = EffortConfigurationIntent.Public.Select(target, intent.effort)
             val result = machines.send(EffortConfigurationMachineKey, select)
             if (result != SendResult.Accepted) log.w { "effort selection not applied: $result" }
@@ -768,8 +775,15 @@ class AiStudioModel(
                 settings.modelId,
                 settings.effort.toDomain(),
                 settings.approval.toDomain(),
+                (machine.state.value as? AiStudioState.Ready)?.settings?.nativeEffort,
             )
-            sendTo(machine, AiStudioIntent.Public.UpdateSettings(current.change()))
+            val changed = current.change()
+            val next = if (changed.modelId == current.modelId) {
+                changed
+            } else {
+                changed.copy(nativeEffort = changed.nativeEffort?.takeIf { it.modelId == changed.modelId })
+            }
+            sendTo(machine, AiStudioIntent.Public.UpdateSettings(next))
         }
     }
 }

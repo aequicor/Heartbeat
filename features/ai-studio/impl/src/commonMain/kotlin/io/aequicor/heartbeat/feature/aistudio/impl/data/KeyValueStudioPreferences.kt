@@ -26,7 +26,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 
-private val PreferencesSpec = KeyValueSpec("ai_studio_preferences")
+internal val PreferencesSpec = KeyValueSpec("ai_studio_preferences")
 private val DefaultsKey = jsonKey("new_session", SavedStudioDefaults.serializer())
 
 /** Only explicit start-page selections are stored; engine acknowledgements never change these defaults. */
