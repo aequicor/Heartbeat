@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
@@ -175,20 +176,34 @@ class EngineManagementService(
         if (!isEnabled) runtimes.retire(engine)
     }
 
-    private suspend fun inspect(engine: ManagedEngine) {
-        inspectionLocks.getValue(engine.descriptor.id).withLock { inspectCurrent(engine) }
+    override suspend fun inspect(engine: EngineId): EngineInspection {
+        val lock = inspectionLocks[engine] ?: refuse("unknown engine=${engine.value}")
+        return lock.withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            inspectCurrent(current.requireAction(EngineActionKind.Inspect))
+        }
     }
 
-    private suspend fun inspectCurrent(engine: ManagedEngine) {
+    private suspend fun inspect(engine: ManagedEngine): EngineInspection = inspect(engine.descriptor.id)
+
+    private suspend fun inspectCurrent(engine: ManagedEngine): EngineInspection {
         val id = engine.descriptor.id
         runtimes.prune()
         val registration = registry.require(id)
         val manager = registration.manager?.value
         val hasHostApp = registration.management.hostApp != null
-        val inspected = if (manager == null) builtIn() else inspectWith(id, manager, launch.context(id), hasHostApp)
+        val inspectedLaunch = launch.context(id)
+        val inspected = if (manager == null) builtIn() else inspectWith(id, manager, inspectedLaunch, hasHostApp)
+        if (launch.context(id) != inspectedLaunch) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        }
         val isProbeAllowed = inspected.installation.compatibilityObservation?.decision?.isBaselineAllowed != false &&
             !inspected.isCompatibilityProbeFailed
         if (engine.enablement.isEnabled && isProbeAllowed) refreshAvailability(id)
+        if (launch.context(id) != inspectedLaunch) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        }
         inspections.update { all ->
             val previous = all[id]
             val installation = inspected.installation.copy(
@@ -198,12 +213,21 @@ class EngineManagementService(
             all + (id to inspected.copy(installation = installation))
         }
         log.i { "engine inspected engine=${id.value} source=${inspected.installation.current?.source ?: "unknown"}" }
+        return EngineInspection(
+            id,
+            inspected.installation.copy(managed = inspectedLaunch.managed),
+            inspected.login ?: LoginState.Unknown,
+            LaunchState(inspectedLaunch.settings, inspected.warnings),
+            inspected.hostApp,
+        )
     }
 
     /** Inspects again after a job; the finished job may still be shown, so the action check is skipped. */
     private suspend fun reinspect(engine: EngineId) {
-        val current = state.value.engines.firstOrNull { it.descriptor.id == engine } ?: return
-        if (current.enablement.reasons.all { it == DisabledReason.DisabledByUser }) inspect(current)
+        inspectionLocks.getValue(engine).withLock {
+            val current = state.value.engines.firstOrNull { it.descriptor.id == engine } ?: return@withLock
+            if (current.enablement.reasons.all { it == DisabledReason.DisabledByUser }) inspectCurrent(current)
+        }
     }
 
     private suspend fun inspectWith(

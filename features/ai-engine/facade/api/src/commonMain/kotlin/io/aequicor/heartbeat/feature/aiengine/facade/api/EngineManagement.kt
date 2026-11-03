@@ -34,6 +34,14 @@ public interface EngineManagement {
      * command does not apply to the engine (see [ManagedEngine.actions]) or management is off.
      */
     public suspend fun execute(engine: EngineId, command: EngineCommand)
+
+    /**
+     * Performs one explicit inspection and returns its own immutable result, independently of state-flow delivery.
+     * A result is evidence only for the inspected launch settings at that moment, not a promise about later changes.
+     * Implementations that cannot correlate the result refuse rather than return an unrelated state snapshot.
+     */
+    public suspend fun inspect(engine: EngineId): EngineInspection =
+        throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
 }
 
 /** Management of a host without the facade implementation; always [EngineManagementState.Off]. */
@@ -57,6 +65,17 @@ public data class EngineManagementState(
         /** Management switched off or unavailable. */
         public val Off: EngineManagementState = EngineManagementState()
     }
+}
+
+/** Exact result of one inspection; paths and launch settings are not suitable for logs. */
+public data class EngineInspection(
+    val engine: EngineId,
+    val installation: InstallationState,
+    val login: LoginState,
+    val launch: LaunchState,
+    val hostApp: HostAppState? = null,
+) {
+    override fun toString(): String = "EngineInspection(engine=${engine.value})"
 }
 
 /** One registered engine as the management panel sees it. */

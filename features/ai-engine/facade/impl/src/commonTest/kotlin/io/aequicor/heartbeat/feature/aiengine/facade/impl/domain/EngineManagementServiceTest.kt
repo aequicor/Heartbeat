@@ -68,9 +68,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.MemoryEnginePrefe
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -311,9 +313,12 @@ class EngineManagementServiceTest {
     @Test
     fun `CLI preparing its runtime on login can sign in when installation is missing`() = runTest {
         var logins = 0
+        var inspections = 0
         val preparingManager = object : EngineManager by manager {
-            override suspend fun inspect(launch: LaunchContext): Installation =
-                Installation(InstallSource.Missing, isRunnable = false)
+            override suspend fun inspect(launch: LaunchContext): Installation {
+                inspections++
+                return Installation(InstallSource.Missing, isRunnable = false)
+            }
             override suspend fun loginStatus(launch: LaunchContext): LoginState = LoginState.SignedOut
             override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState {
                 logins++
@@ -337,6 +342,7 @@ class EngineManagementServiceTest {
         service.execute(cliId, EngineCommand.Start(EngineAction.Login()))
         runCurrent()
         assertEquals(1, logins)
+        assertEquals(2, inspections)
         assertEquals(
             io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase.Succeeded,
             service.state.value.engine(cliId).job?.phase,
@@ -698,6 +704,110 @@ class EngineManagementServiceTest {
     private fun EngineManagementState.engine(id: EngineId): ManagedEngine = engines.single { it.descriptor.id == id }
 }
 
+class EngineManagementExactInspectionTest {
+    private val cliId = EngineId("cli")
+    private val manager = FakeManager()
+    private val registry = EngineRegistry(
+        listOf(
+            registration(id = cliId, owner = AuthOwnerId("cli")).withManagement(
+                ManagementSpec(InstallSupport.Managed, LoginSupport.Cli),
+                manager,
+            ),
+        ),
+        EnginePlatform.DesktopMacOs,
+    )
+    private val flags = FakeFlags(registry)
+    private val preferences = MemoryEnginePreferences()
+    private val catalog = FakeCatalog()
+    private val bindings = MutableStateFlow<List<EngineBinding>>(emptyList())
+    private val runtimes = FakeRuntimes()
+    private val installs = FakeInstalls()
+    private var launchContext = LaunchContext()
+
+    @Test
+    fun `exact inspection returns its own result even before published state catches up`() = runTest {
+        val service = service()
+        runCurrent()
+        manager.installation = Installation(InstallSource.System, "1.2.0", "/first")
+        val first = service.inspect(cliId)
+        manager.installation = Installation(InstallSource.Missing)
+        val second = service.inspect(cliId)
+
+        assertEquals(InstallSource.System, first.installation.current?.source)
+        assertEquals(InstallSource.Missing, second.installation.current?.source)
+        assertEquals(first.installation.checkedAt, second.installation.checkedAt)
+    }
+
+    @Test
+    fun `an inspection refuses a launch context changed during the adapter check`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        manager.installation = Installation(InstallSource.System, "1.2.0", "/first")
+        manager.inspectionGate = gate
+        val service = service()
+        runCurrent()
+        val pending = async { assertFailsWith<EngineException> { service.inspect(cliId) } }
+        runCurrent()
+        launchContext = LaunchContext(LaunchSettings(executable = "/new"))
+        gate.complete(Unit)
+        val error = pending.await()
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), error.failure)
+        runCurrent()
+        assertNull(service.state.value.engine(cliId).installation.current)
+    }
+
+    @Test
+    fun `an exact inspection rechecks the engine flag after waiting for its lock`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        manager.installation = Installation(InstallSource.System, "1.2.0", "/first")
+        manager.inspectionGate = gate
+        val service = service()
+        runCurrent()
+        val first = async { service.inspect(cliId) }
+        runCurrent()
+        val second = async { assertFailsWith<EngineException> { service.inspect(cliId) } }
+        runCurrent()
+        flags.engines.getValue(cliId).value = false
+        runCurrent()
+        gate.complete(Unit)
+        first.await()
+        assertEquals(EngineFailure.Access(AccessFailureReason.OperationNotAllowed), second.await().failure)
+        assertEquals(1, manager.inspected.size)
+    }
+
+    @Test
+    fun `cancelling an exact inspection waiting for the lock starts no second adapter call`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        manager.installation = Installation(InstallSource.System, "1.2.0", "/first")
+        manager.inspectionGate = gate
+        val service = service()
+        runCurrent()
+        val first = async { service.inspect(cliId) }
+        runCurrent()
+        val second = launch { service.inspect(cliId) }
+        runCurrent()
+        second.cancelAndJoin()
+        gate.complete(Unit)
+        first.await()
+        assertEquals(1, manager.inspected.size)
+    }
+
+    private fun TestScope.service() = EngineManagementService(
+        registry,
+        flags,
+        preferences,
+        catalog,
+        bindings,
+        runtimes,
+        installs,
+        EngineLaunchConfig { launchContext },
+        UnusedFeeds,
+        CliConnections { },
+        facadeContext(),
+    )
+
+    private fun EngineManagementState.engine(id: EngineId): ManagedEngine = engines.single { it.descriptor.id == id }
+}
+
 private fun EngineRegistration.withManagement(spec: ManagementSpec, manager: EngineManager) = EngineRegistration(
     descriptor,
     authOwner,
@@ -781,6 +891,7 @@ private class FakeManager : EngineManager {
     var compatibilityChecks = 0
     var loginChecks = 0
     var compatibilityGate: CompletableDeferred<Unit>? = null
+    var inspectionGate: CompletableDeferred<Unit>? = null
 
     override fun compatibility(version: String): Compatibility = legacyCompatibility
 
@@ -822,6 +933,7 @@ private class FakeManager : EngineManager {
 
     override suspend fun inspect(launch: LaunchContext): Installation {
         inspected += launch
+        inspectionGate?.await()
         failure?.let { throw it }
         if (hangs) awaitCancellation()
         return installation
