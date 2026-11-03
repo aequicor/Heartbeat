@@ -71,7 +71,7 @@ internal class EngineConnectionsEffects(
             onSaved = { machine.send(EngineConnectionsIntent.Internal.Checking(effect.id)) },
             onFinished = { effect.request.key?.close() },
             relatedBindings = related,
-            relatedTargets = { selection -> relatedTargets(selection, related, effect.request.expected.info.id) },
+            relatedTargets = { selection -> relatedTargets(selection, effect.request.expected.info.id) },
         ) {
             try {
                 val current = selections.observe().first()
@@ -108,15 +108,12 @@ internal class EngineConnectionsEffects(
         machine.send(completion)
     }
 
-    private fun relatedTargets(
-        selection: ModelSelection,
-        related: Set<EngineBindingId>,
-        source: AuthSourceId,
-    ): Set<EngineTarget> = services.facade.bindings.state.value
-        .filter { it.id in related && it.authSource == source && it.isEnabled }
-        .flatMap { binding ->
-            selection.enabled(binding.id).map { model -> EngineTarget(binding.engine, binding.id, model) }
-        }.toSet()
+    private fun relatedTargets(selection: ModelSelection, source: AuthSourceId): Set<EngineTarget> =
+        services.facade.bindings.state.value
+            .filter { it.authSource == source && it.isEnabled }
+            .flatMap { binding ->
+                selection.enabled(binding.id).map { model -> EngineTarget(binding.engine, binding.id, model) }
+            }.toSet()
 
     private suspend fun refreshSelection(previous: ModelSelection): ModelSelection = try {
         selections.update { it }

@@ -34,13 +34,38 @@ class ModelCheckOwnerTest {
         assertEquals(setOf(target, other), owner.claim(old, setOf(target, other)))
         val first = assertNotNull(owner.revision(target, context))
         val second = assertNotNull(owner.revision(other, context))
-        assertTrue(owner.isCurrent(old, first, context))
+        assertTrue(owner.isCurrent(old.run, first, context))
         val newer = owner.begin(setOf(other))
         assertEquals(emptySet(), owner.claim(old, setOf(target, other)))
-        assertTrue(owner.isCurrent(old, first, context))
+        assertTrue(owner.isCurrent(old.run, first, context))
         assertTrue(owner.isCurrent(newer, second, context))
         owner.revoke(target.binding)
         assertEquals(emptySet(), owner.claim(old, setOf(target)))
+    }
+
+    @Test
+    fun `a binding discovered after save is claimed only if no newer run or revocation touched it`() {
+        val owner = ModelCheckOwner()
+        val added = target.copy(binding = EngineBindingId("new-binding"))
+        val reservation = owner.reserve(setOf(target.binding))
+        assertEquals(setOf(added), owner.claim(reservation, setOf(added)))
+        val unknownSource = CheckSource.copy(info = CheckSource.info.copy(revision = AuthRevision.Unknown))
+        val addedContext = context(setOf(added)).copy(
+            selection = ModelSelection(
+                bindings = listOf(BindingModels(added.binding, setOf(added.model))),
+                generations = listOf(
+                    SelectedModelGeneration(added.binding, added.model, checkReport().revision.selection.value),
+                ),
+            ),
+            bindings = listOf(EngineBinding(added.binding, added.engine, unknownSource.info.id)),
+            sources = listOf(unknownSource),
+        )
+        val revision = assertNotNull(owner.revision(added, addedContext))
+        assertEquals(reservation.run, revision.localAuth)
+
+        val newerReservation = owner.reserve(setOf(target.binding))
+        owner.revoke(added.binding)
+        assertEquals(emptySet(), owner.claim(newerReservation, setOf(added)))
     }
 
     @Test

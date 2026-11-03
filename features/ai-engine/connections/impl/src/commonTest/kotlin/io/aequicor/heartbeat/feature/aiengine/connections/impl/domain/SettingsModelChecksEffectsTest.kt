@@ -13,8 +13,11 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.RecordingScope
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.ModelCheckReportsKey
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.ModelSelectionGenerationsKey
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.ModelSelectionKey
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
@@ -124,6 +127,40 @@ class SettingsModelChecksEffectsTest {
         )
 
         assertEquals(setOf(f.target.model, added.model), checked.toSet())
+        assertEquals(4, checked.size)
+    }
+
+    @Test
+    fun `editing checks a binding created while the source write is in flight`() = runTest {
+        val checked = mutableListOf<EngineBindingId>()
+        val f = CoordinatorFixture(
+            this,
+            IsolatedPrompts {
+                checked += it.target.binding
+                answer(it.text)
+            },
+        )
+        val added = f.target.copy(binding = EngineBindingId("new-binding"))
+        f.selections.update { it.withDefault(f.target) }
+        f.facade.editSource = { edit, receipt ->
+            val binding = EngineBinding(added.binding, added.engine, CheckSource.info.id)
+            f.facade.bindingsState.value += binding
+            f.facade.catalog.value = listOf(engineInfo(f.facade.bindingsState.value))
+            f.selections.update { it.withModel(added, true) }
+            receipt(edit.expected)
+        }
+        val request = ConnectionEdit(
+            f.target.binding,
+            ConnectionMethodId("local"),
+            CheckSource,
+            "Local",
+            CheckSource.scope.origin,
+        )
+        f.settings().handle(
+            EngineConnectionsEffect.Edit(request, id, setOf(f.target), setOf(f.target.binding)),
+            RecordingScope(),
+        )
+        assertEquals(setOf(f.target.binding, added.binding), checked.toSet())
         assertEquals(4, checked.size)
     }
 

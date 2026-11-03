@@ -68,20 +68,41 @@ internal class ModelCheckOwner {
         log.v { "Model check binding ownership revoked" }
     }
 
-    /** Reserve a binding before saving, so a late save cannot supersede a newer check or revocation. */
-    fun reserve(bindings: Set<EngineBindingId>): ModelCheckGeneration {
+    /** Reserve known bindings and snapshot other ownership before a source write. */
+    fun reserve(bindings: Set<EngineBindingId>): ModelCheckReservation {
         val run = generation()
-        state.update { it.copy(epochs = it.epochs + bindings.associateWith { run }) }
-        log.v { "Model check bindings reserved count=${bindings.size}" }
-        return run
-    }
-
-    /** Claim only bindings whose reservation has not been superseded while the save was in flight. */
-    fun claim(run: ModelCheckGeneration, targets: Set<EngineTarget>): Set<EngineTarget> {
         while (true) {
             val previous = state.value
-            val accepted = targets.filterTo(mutableSetOf()) { previous.epochs[it.binding] == run }
-            val next = previous.copy(runs = previous.runs + accepted.associateWith { run })
+            val next = previous.copy(epochs = previous.epochs + bindings.associateWith { run })
+            if (state.compareAndSet(previous, next)) {
+                log.v { "Model check bindings reserved count=${bindings.size}" }
+                return ModelCheckReservation(run, bindings, previous.epochs)
+            }
+        }
+    }
+
+    /** Claim only bindings whose ownership did not change since this save started. */
+    fun claim(reservation: ModelCheckReservation, targets: Set<EngineTarget>): Set<EngineTarget> {
+        while (true) {
+            val previous = state.value
+            val accepted = targets.filterTo(mutableSetOf()) {
+                val expected = if (it.binding in
+                    reservation.bindings
+                ) {
+                    reservation.run
+                } else {
+                    reservation.epochs[it.binding]
+                }
+                previous.epochs[it.binding] == expected
+            }
+            val discovered = accepted.map { it.binding }.toSet() - reservation.bindings
+            val next = previous.copy(
+                runs = previous.runs + accepted.associateWith { reservation.run },
+                epochs = previous.epochs + accepted.associate { it.binding to reservation.run },
+                // A newly discovered binding did not receive the source-wide revocation before the write.
+                blocked = previous.blocked + discovered,
+                auth = previous.auth + discovered.associateWith { reservation.run },
+            )
             if (state.compareAndSet(previous, next)) {
                 log.v { "Model check targets claimed count=${accepted.size}" }
                 return accepted
@@ -146,6 +167,12 @@ internal class ModelCheckOwner {
             (revision !is AuthRevision.Known || revision.fingerprint.length <= MAX_REVISION_CHARS)
     }
 }
+
+internal data class ModelCheckReservation(
+    val run: ModelCheckGeneration,
+    val bindings: Set<EngineBindingId>,
+    val epochs: Map<EngineBindingId, ModelCheckGeneration>,
+)
 
 /** Canonical cached route data and the actual storage-owned selection; no discovery is performed to obtain it. */
 internal data class ModelCheckContext(
