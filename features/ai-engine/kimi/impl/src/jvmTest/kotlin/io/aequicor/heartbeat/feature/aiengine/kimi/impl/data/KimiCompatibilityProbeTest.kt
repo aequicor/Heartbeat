@@ -60,10 +60,11 @@ class KimiCompatibilityProbeTest {
             assertEquals(Compatibility.Unknown, observation.decision.status)
             assertEquals(KIMI_RUNTIME_VERSION, observation.evidence.identity.runtime)
             assertEquals(fixture.hash, observation.evidence.identity.runtimeFingerprint)
-            assertEquals(true, observation.evidence.isProvenanceConfirmed)
+            assertEquals(null, observation.evidence.isProvenanceConfirmed)
             assertEquals(null, observation.evidence.isBaselineConfirmed)
             assertTrue(CompatibilityProblem.MissingRequirements in observation.decision.problems)
             assertTrue(CompatibilityProblem.MissingBaseline in observation.decision.problems)
+            assertTrue(CompatibilityProblem.MissingProvenance in observation.decision.problems)
             assertFalse(observation.decision.isBaselineAllowed)
             assertTrue(fixture.transportClosed)
             assertTrue(assertNotNull(fixture.ownedWork).isCancelled)
@@ -151,6 +152,19 @@ class KimiCompatibilityProbeTest {
             fixture.executable.appendText("tampered")
             assertFailsWith<EngineException> { fixture.probe.inspect(fixture.installation, fixture.launch) }
             assertEquals(null, fixture.command, "Invalid candidate must not fall back to another source")
+        }
+    }
+
+    @Test
+    fun `a matching adjacent manifest and peer version cannot prove artifact provenance`() = runTest {
+        Fixture().use { fixture ->
+            fixture.executable.appendText(" substituted")
+            fixture.rewriteHash()
+            val observation = fixture.probe.inspect(fixture.installation, fixture.launch)
+            assertNotNull(fixture.command) // The fake transport proves the self-consistent file reached probe setup.
+            assertEquals(null, observation.evidence.isProvenanceConfirmed)
+            assertEquals(Compatibility.Unknown, observation.decision.status)
+            assertTrue(CompatibilityProblem.MissingProvenance in observation.decision.problems)
         }
     }
 
@@ -262,6 +276,13 @@ class KimiCompatibilityProbeTest {
                 "version=$KIMI_RUNTIME_VERSION\nsourceCommit=$KIMI_SOURCE_COMMIT\n" +
                     "permissionGate=$KIMI_PERMISSION_GATE\nsha256=$hash\ntarget=${kimiRuntimeTarget()}\n",
             )
+        }
+
+        fun rewriteHash() {
+            val changed = MessageDigest.getInstance("SHA-256").digest(executable.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            val manifest = root.resolve("runtime.properties")
+            manifest.writeText(manifest.readText().replace("sha256=$hash", "sha256=$changed"))
         }
 
         override fun close() {

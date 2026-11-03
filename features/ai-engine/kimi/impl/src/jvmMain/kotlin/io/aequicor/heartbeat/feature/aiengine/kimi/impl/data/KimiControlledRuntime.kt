@@ -10,8 +10,9 @@ import java.util.Locale
 import java.util.Properties
 
 /**
- * Only a pinned, hash-checked Heartbeat runtime may execute agent tools. PATH, custom launch settings and a stock
- * CLI cannot replace its mandatory gate. Resolves files on the caller's IO dispatcher without downloading.
+ * Resolves a runtime whose adjacent manifest matches its bytes and the expected pin. This local consistency check
+ * does not independently establish provenance if both files changed. PATH, custom launch settings and a stock CLI
+ * cannot replace its mandatory gate. Resolves files on the caller's IO dispatcher without downloading.
  * A supplied managed candidate is checked in place; a bad candidate never falls back to the installer seed.
  */
 internal fun kimiControlledExecutable(
@@ -20,7 +21,7 @@ internal fun kimiControlledExecutable(
     managed: ManagedInstall? = null,
 ): String = kimiControlledRuntime(resourcesDirectory, isWindows, managed).executable
 
-/** Identity checked against the controlled artifact manifest; never log a runtime path. */
+/** Identity checked against the adjacent artifact manifest, not an independent trust anchor; never log a path. */
 internal data class KimiControlledRuntime(val executable: String, val fingerprint: String, val target: String) {
     override fun toString(): String = "KimiControlledRuntime"
 }

@@ -195,7 +195,11 @@ private fun kimiCompatibilityObservation(
             ),
             // Initialize and ABI advertisements alone do not exercise permission decisions or session behavior.
             isBaselineConfirmed = null,
-            isProvenanceConfirmed = initialized.agentInfo?.version?.let { it == KIMI_RUNTIME_VERSION },
+            // The adjacent properties file only checks internal consistency; it is not an independent trust anchor.
+            // A mismatched peer version rejects this pin, but a matching version cannot prove the artifact's origin.
+            isProvenanceConfirmed = initialized.agentInfo?.version
+                ?.takeIf { it != KIMI_RUNTIME_VERSION }
+                ?.let { false },
             capabilities = capabilities,
         ),
     )

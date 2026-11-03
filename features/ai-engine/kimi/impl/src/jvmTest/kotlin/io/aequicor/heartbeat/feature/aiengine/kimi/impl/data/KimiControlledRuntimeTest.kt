@@ -14,7 +14,7 @@ class KimiControlledRuntimeTest {
     }
 
     @Test
-    fun `packaged executable requires pinned provenance and matching bytes`() {
+    fun `packaged executable checks pin metadata and matching bytes`() {
         val directory = Files.createTempDirectory("heartbeat-kimi-runtime").toFile()
         try {
             val runtime = directory.resolve("kimi").apply { mkdirs() }
