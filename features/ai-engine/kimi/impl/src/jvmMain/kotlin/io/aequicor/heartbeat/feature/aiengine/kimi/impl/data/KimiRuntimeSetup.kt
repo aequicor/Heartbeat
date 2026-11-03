@@ -115,11 +115,12 @@ internal class KimiRuntimeSetup internal constructor(
         )
     }
 
-    suspend fun prepare(manager: EngineManager) = mutex.withLock {
+    suspend fun prepare(manager: EngineManager, launch: LaunchContext = LaunchContext()) = mutex.withLock {
         try {
             val current = try {
-                locateRelease()
+                locateRelease(launch)
             } catch (error: EngineException) {
+                if (launch.settings.runtime != RuntimePreference.Auto || launch.isInstallCandidate) throw error
                 log.w(error) { "Pinned Kimi runtime needs preparation" }
                 null
             }
@@ -131,7 +132,7 @@ internal class KimiRuntimeSetup internal constructor(
                     target = kimiRuntimeTarget(),
                 ) { status.value = it }
                 // Preparation is not ready until the selected runtime independently matches the release pin.
-                locateRelease()
+                locateRelease(launch)
             }
             status.value = EnginePreparation.Ready
         } catch (error: CancellationException) {

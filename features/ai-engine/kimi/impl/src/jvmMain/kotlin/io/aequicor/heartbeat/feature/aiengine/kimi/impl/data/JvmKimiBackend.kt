@@ -81,7 +81,7 @@ internal class JvmKimiBackend(
 
     override val preparation = setup.preparation
 
-    override suspend fun prepareRuntime() = setup.prepare(this)
+    override suspend fun prepareRuntime() = setup.prepare(this, launches.context(KimiEngine.Id))
 
     override suspend fun checkRequirements(): EngineAvailability =
         if (kimiRuntimeTarget() != null) EngineAvailability.Available else EngineAvailability.UnsupportedPlatform
@@ -177,7 +177,7 @@ internal class JvmKimiBackend(
 
     override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState {
         if (launch.settings.runtime == io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference.Auto) {
-            prepareRuntime()
+            setup.prepare(this, launch)
         }
         val executable = requireNotNull(setup.locateRelease(launch).path)
         val isSucceeded = try {

@@ -71,6 +71,7 @@ class KimiFirstConnectionTest {
             assertFailsWith<EngineException> {
                 backend.login(launch, io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod.Browser, unused())
             }
+            assertFailsWith<EngineException> { backend.prepareRuntime() }
             assertEquals(null, localApi.usage())
             assertEquals(0, retainedLookups)
             assertFailsWith<EngineException> {
