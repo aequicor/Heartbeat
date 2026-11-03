@@ -8,7 +8,6 @@ import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.time.Clock
 
 class DeepSeekAccountTest {
@@ -29,7 +28,7 @@ class DeepSeekAccountTest {
     }
 
     @Test
-    fun `account token reports authenticated with device revision`() {
+    fun `account token reports authenticated without claiming an account revision`() {
         runBlocking {
             val dir = Files.createTempDirectory("dsh-home").toFile()
             dir.resolve(".credentials.yaml").writeText(
@@ -46,7 +45,30 @@ class DeepSeekAccountTest {
             )
             val login = DeepSeekAccount(Clock.System, dispatchers).inspect(dir.path)
             assertEquals(AuthVerdict.Authenticated, login.check.verdict)
-            assertIs<AuthRevision.Known>(login.check.revision)
+            assertEquals(AuthRevision.Unknown, login.check.revision)
+        }
+    }
+
+    @Test
+    fun `different logins on the same device or without device never receive a known revision`() = runBlocking {
+        val dir = Files.createTempDirectory("dsh-account-change").toFile()
+        try {
+            for (device in listOf("payload: {id: same-device}", "")) {
+                for (token in listOf("first-login", "second-login")) {
+                    dir.resolve(".credentials.yaml").writeText(
+                        """
+                        records:
+                          deepseek-account-platform/device: {$device}
+                          deepseek-account-platform/default: {payload: {token: $token}}
+                        """.trimIndent(),
+                    )
+                    val login = DeepSeekAccount(Clock.System, dispatchers).inspect(dir.path)
+                    assertEquals(AuthVerdict.Authenticated, login.check.verdict)
+                    assertEquals(AuthRevision.Unknown, login.check.revision)
+                }
+            }
+        } finally {
+            dir.deleteRecursively()
         }
     }
 

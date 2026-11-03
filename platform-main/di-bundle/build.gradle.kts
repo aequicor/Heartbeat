@@ -171,6 +171,7 @@ kotlin {
             implementation(projects.features.browser.api)
             implementation(projects.features.aiEngine.acpInterface.api)
             implementation(projects.features.aiEngine.codex.api)
+            implementation(projects.features.aiEngine.deepseekHarness.api)
             implementation(projects.features.togglesPanel.api)
             implementation(projects.features.settings.api)
             implementation(projects.features.appLogs.api)
@@ -232,6 +233,20 @@ tasks.register<Test>("actionSafetyLiveTest") {
     outputs.upToDateWhen { false }
     outputs.doNotCacheIf("Live checks must reach the real CLI") { true }
     systemProperty("heartbeat.actionSafety.liveTest", "true")
+    testLogging { events("passed", "failed", "skipped") }
+}
+
+// Explicit local DSH availability/auth metadata only; never part of jvmTest's enabled live checks.
+tasks.register<Test>("deepSeekLiveMetadataTest") {
+    group = "verification"
+    description = "Checks the installed DSH and local login metadata through the production graph without model calls."
+    testClassesDirs = regularJvmTest.get().testClassesDirs
+    classpath = regularJvmTest.get().classpath
+    filter { includeTestsMatching("*.DeepSeekLiveMetadataTest") }
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf("Explicit live metadata checks must observe the current CLI") { true }
+    systemProperty("heartbeat.dsh.liveMetadata", "true")
+    systemProperty("heartbeat.dsh.metadataReport", layout.buildDirectory.file("dsh-live-metadata.json").get().asFile.path)
     testLogging { events("passed", "failed", "skipped") }
 }
 

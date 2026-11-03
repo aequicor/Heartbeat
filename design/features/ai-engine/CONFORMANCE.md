@@ -27,6 +27,13 @@ runtime `2.4.0-hb7`, `permissionGate=1`, `hostedCallBinding=1` за 2133 мс. �
 подтверждается до удаления временных данных. При неподтверждённой остановке отчёт не возвращается, изолированный
 каталог сохраняется без пользовательских credentials. Windows/Linux lifecycle остаётся непроверенным живьём.
 
+2026-11-03: явная локальная `:platform-main:di-bundle:deepSeekLiveMetadataTest` через production graph
+наблюдает установленный Desktop DSH `0.2.1-rc.5`: Available, Authenticated с основанием Local. Профиль Heartbeat
+временный; CLI-вход остаётся во владении DSH. Отчёт содержит только enum-статусы, без account/path/credential
+материала. Нативные сессии, каталог и model prompts не запускались; это prerequisite, не PASS строки §9.
+Вход подключён к AuthChecks по точному owner/location/provider/origin/basePath. Device id не доказывает
+account identity: revision остаётся Unknown и не разрешает runtime admission. Серверная авторизация не проверена.
+
 ## Версии, платформы, установка и доступ
 
 | Коннектор | Runtime / транспорт | Desktop | Android / iOS | Источники runtime | Доступ и каталог |

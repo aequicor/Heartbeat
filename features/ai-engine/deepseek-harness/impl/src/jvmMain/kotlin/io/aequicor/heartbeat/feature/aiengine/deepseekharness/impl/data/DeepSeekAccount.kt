@@ -17,14 +17,12 @@ import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekLogin
 import kotlinx.coroutines.withContext
 import org.yaml.snakeyaml.Yaml
 import java.io.File
-import java.security.MessageDigest
-import java.util.Locale
 import kotlin.time.Clock
 
 /**
- * Read-only detection of the DeepSeek Harness desktop login. It never reads token values (only their presence),
- * never logs them and never imports credentials. YAML parse errors are logged without the offending content:
- * parser messages can quote the credentials file. The stable revision is the device identity, not the token.
+ * Read-only detection of the DeepSeek Harness desktop login. It observes token presence, never returns or logs
+ * token material and never imports credentials. YAML parse errors are logged without the offending content:
+ * parser messages can quote the credentials file. Revision stays Unknown: a device id does not identify the account.
  */
 @Inject
 internal class DeepSeekAccount(private val clock: Clock, private val dispatchers: DispatcherProvider) {
@@ -34,14 +32,8 @@ internal class DeepSeekAccount(private val clock: Clock, private val dispatchers
         val file = credentialsFile(homeDirectory)
         val records = if (file.exists()) readRecords(file) else null
         val account = records?.record(ACCOUNT_RECORD)
-        val device = records?.record(DEVICE_RECORD)
         val isLoggedIn = account?.payload()?.string("token")?.isNotBlank() == true
-        val revision = if (isLoggedIn) {
-            val identity = device?.payload()?.string("id") ?: "account"
-            AuthRevision.Known(digest(identity))
-        } else {
-            AuthRevision.Unknown
-        }
+        val revision = AuthRevision.Unknown
         log.i { "DeepSeek Harness login checked loggedIn=$isLoggedIn" }
         val source = AuthSource.CliLogin(
             AuthSourceInfo(DeepSeekEngine.AuthSource, "DeepSeek Harness", revision),
@@ -84,15 +76,9 @@ internal class DeepSeekAccount(private val clock: Clock, private val dispatchers
         }.toMap()
     }
 
-    private fun digest(value: String): String {
-        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
-        return bytes.joinToString("") { "%02x".format(Locale.ROOT, it) }
-    }
-
     private companion object {
         const val ORIGIN = "https://api.deepseek.com"
         const val ACCOUNT_RECORD = "deepseek-account-platform/default"
-        const val DEVICE_RECORD = "deepseek-account-platform/device"
         const val MAX_CREDENTIALS_BYTES = 1024 * 1024L
     }
 }

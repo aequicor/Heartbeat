@@ -9,7 +9,9 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.spi.Authenticator
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
+import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data.DeepSeekLoginAuthenticator
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data.DeepSeekNativeCatalog
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekBackend
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekEngineManager
@@ -40,6 +42,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 public object DeepSeekBindings {
+    @Provides
+    @IntoSet
+    internal fun authenticator(backend: Lazy<DeepSeekBackend>): Authenticator =
+        DeepSeekLoginAuthenticator { backend.value.inspect() }
+
     @Provides
     @IntoSet
     internal fun registration(
@@ -79,6 +86,7 @@ public object DeepSeekBindings {
             ),
         ),
         authOwner = DeepSeekEngine.AuthOwner,
+        authenticators = setOf(DeepSeekLoginAuthenticator.Id),
         factory = lazy { backend.value },
         management = DeepSeekManagementSpec,
         manager = lazy { manager.value },

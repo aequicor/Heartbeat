@@ -97,7 +97,13 @@ internal class JvmDeepSeekBackend(
     override fun accepts(source: AuthSource, context: EngineContext): Boolean =
         context.engine == DeepSeekEngine.Id && source is AuthSource.CliLogin &&
             source.owner == DeepSeekEngine.AuthOwner && source.location == DeepSeekEngine.AuthLocation &&
-            source.scope.provider.value == "deepseek" && source.scope.origin.value == ORIGIN
+            source.scope.basePath == null && source.scope.provider.value == "deepseek" &&
+            source.scope.origin.value == ORIGIN
+
+    override suspend fun sourceRevision(source: AuthSource) = run {
+        require(accepts(source, EngineContext(DeepSeekEngine.Id, EngineBindingId("revision-check"))))
+        inspect().source.info.revision
+    }
 
     override fun authContext(context: EngineContext) = DeepSeekEngine.AuthContext
 
