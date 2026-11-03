@@ -37,12 +37,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineManage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -63,12 +61,8 @@ internal class ConnectWizardEffects(
 
     override suspend fun handle(effect: ConnectWizardEffect, machine: EffectScope<ConnectWizardIntent>) {
         when (effect) {
-            ConnectWizardEffect.ObserveEngines -> coroutineScope {
-                // Observation never probes, so the wizard checks every engine once to show real availability.
-                launch { probeEngines() }
-                services.facade.engines.state.collect {
-                    machine.send(ConnectWizardIntent.Internal.EnginesChanged(it))
-                }
+            ConnectWizardEffect.ObserveEngines -> services.facade.engines.state.collect {
+                machine.send(ConnectWizardIntent.Internal.EnginesChanged(it))
             }
 
             is ConnectWizardEffect.Connect -> {
@@ -133,19 +127,6 @@ internal class ConnectWizardEffects(
             }
         }
         machine.send(completion)
-    }
-
-    private suspend fun probeEngines() {
-        services.facade.engines.state.value.forEach { info ->
-            val engine = info.descriptor.id
-            try {
-                services.facade.engines.refresh(engine)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: EngineException) {
-                log.w(e) { "engine probe failed engine=${engine.value}" }
-            }
-        }
     }
 
     /**

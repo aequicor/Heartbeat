@@ -350,11 +350,11 @@ class ConnectionEffectsTest {
     }
 
     @Test
-    fun `choosing an engine probes each one and a failed probe keeps the list`() = runTest {
+    fun `observing the engine list never probes an engine`() = runTest {
         facade.refreshFailure = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
         val observation = launch { wizard.handle(ConnectWizardEffect.ObserveEngines, wizardScope) }
         runCurrent()
-        assertEquals(listOf("refresh"), facade.calls)
+        assertTrue(facade.calls.isEmpty())
         assertIs<ConnectWizardIntent.Internal.EnginesChanged>(wizardScope.intents.single())
         observation.cancel()
     }
