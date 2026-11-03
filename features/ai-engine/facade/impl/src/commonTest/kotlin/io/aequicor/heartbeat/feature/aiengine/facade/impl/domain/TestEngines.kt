@@ -101,6 +101,8 @@ internal class FakeEngineFactory : EngineFactory {
     var runtime: (RuntimeIdentity) -> EngineRuntime = { error("no runtime in this test") }
     val createdRuntimes = mutableListOf<RuntimeIdentity>()
     var revision: ((AuthSource) -> AuthRevision)? = null
+    var revisionGate: CompletableDeferred<Unit>? = null
+    var revisionStarted: CompletableDeferred<Unit>? = null
     var createGate: CompletableDeferred<Unit>? = null
     val routes = mutableMapOf<EngineBindingId, AuthSource>()
 
@@ -109,8 +111,11 @@ internal class FakeEngineFactory : EngineFactory {
         prepare()
     }
 
-    override suspend fun sourceRevision(source: AuthSource): AuthRevision =
-        revision?.invoke(source) ?: source.info.revision
+    override suspend fun sourceRevision(source: AuthSource): AuthRevision {
+        revisionStarted?.complete(Unit)
+        revisionGate?.await()
+        return revision?.invoke(source) ?: source.info.revision
+    }
 
     override suspend fun checkRequirements(): EngineAvailability {
         probes++

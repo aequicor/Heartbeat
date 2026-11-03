@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -64,6 +65,29 @@ class EngineBindingsServiceTest {
 
         assertEquals(AuthRevision.Known("login-2"), sources.get(source.info.id)?.info?.revision)
         assertEquals(AuthRevision.Known("login-2"), factory.routes.getValue(binding.id).info.revision)
+    }
+
+    @Test
+    fun `connecting does not bind a source changed while the adapter revision probe was running`() = runTest {
+        val service = service()
+        val source = sources.add(managedKey())
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        factory.revisionStarted = entered
+        factory.revisionGate = release
+
+        val attempt = async {
+            assertFailsWith<EngineException> { service.connect(TestEngine, source.info.id) }
+        }
+        entered.await()
+        sources.remove(source.info.id)
+        sources.add(managedKey(revision = AuthRevision.Known("r2")))
+        release.complete(Unit)
+
+        val failure = attempt.await()
+        assertEquals(authFailure(AuthFailureReason.SourceChanged, source.info.id), failure.failure)
+        assertTrue(store.bindings.value.isEmpty())
+        assertTrue(factory.routes.isEmpty())
     }
 
     @Test

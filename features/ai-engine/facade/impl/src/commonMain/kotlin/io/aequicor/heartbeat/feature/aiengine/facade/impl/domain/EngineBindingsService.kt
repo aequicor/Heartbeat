@@ -102,6 +102,10 @@ class EngineBindingsService(
             log.i { "source revision refreshed engine=${engine.value} source=${source.value}" }
         }
         return mutex.withLock {
+            // The adapter revision probe runs outside this lock; reject a snapshot already changed during it.
+            if (requireSource(source) != authSource) {
+                fail(authFailure(AuthFailureReason.SourceChanged, source))
+            }
             val saved = store.load()
             requireUniqueLogin(engine, authSource, saved)
             val existing = saved.firstOrNull { it.engine == engine && it.authSource == source }
