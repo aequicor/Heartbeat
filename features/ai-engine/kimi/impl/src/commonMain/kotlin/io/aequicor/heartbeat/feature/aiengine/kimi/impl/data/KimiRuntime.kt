@@ -609,6 +609,7 @@ internal class KimiSession(
     private val submission = MutableStateFlow<CompletableDeferred<Unit>?>(null)
     private var isCancelPending = false
     private var isInterrupting = false
+    private var isModelConfirmed = true
     private val log = Log.tag("KimiSession")
 
     suspend fun lease(areDetachedToolsEnabled: Boolean): ActiveSession = mutex.withLock {
@@ -646,6 +647,9 @@ internal class KimiSession(
 
     private fun checkReadyToSend(lease: KimiLease) {
         checkLease(lease)
+        if (!isModelConfirmed) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        }
         if (isCancelPending || (currentTurn != null && currentTurn?.outcome == null)) busy()
     }
 
@@ -939,6 +943,14 @@ internal class KimiSession(
 
             "heartbeat_hosted_revoked" -> revokeCall(update)
 
+            "config_option_update" -> {
+                if (update.currentOption("model") != nativeKimiModel(target.model)) {
+                    isModelConfirmed = false
+                    revokeHosted()
+                    runtime.scope.launch { runtime.close() }
+                }
+            }
+
             "plan" -> updatePlan(update)
 
             "usage_update" -> runtime.receiveUsage(this, update)
@@ -1169,7 +1181,7 @@ private fun JsonObject.hasConfigOption(id: String): Boolean = this["configOption
     (it as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull == id
 }
 
-private fun JsonObject.currentOption(id: String): String? = this["configOptions"]?.jsonArray.orEmpty()
+private fun JsonObject.currentOption(id: String): String? = (this["configOptions"] as? JsonArray).orEmpty()
     .mapNotNull { it as? JsonObject }
     .singleOrNull { (it["id"] as? JsonPrimitive)?.contentOrNull == id }
     ?.get("currentValue")?.let { it as? JsonPrimitive }?.takeIf { it.isString }?.contentOrNull

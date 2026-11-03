@@ -90,6 +90,37 @@ import kotlin.test.assertTrue
 
 @Suppress("LargeClass") // Shared runtime fixture exercises the complete session lifecycle.
 class KimiRuntimeTest {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `external model change prevents a new turn and retires runtime`() = runTest {
+        val connection = FakeConnection()
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        connection.update(
+            """{"sessionUpdate":"config_option_update","configOptions":[
+                {"id":"model","currentValue":"other"}]}""",
+        )
+
+        assertFailsWith<EngineException> { session.sender().send(prompt("wrong-model")) }
+        assertTrue(connection.content.isEmpty())
+        testScheduler.runCurrent()
+        assertTrue(runtime.isClosed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `missing model in config update retires an active runtime`() = runTest {
+        val connection = FakeConnection()
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        session.sender().send(prompt("active"))
+        connection.update("""{"sessionUpdate":"config_option_update","configOptions":[]}""")
+        testScheduler.runCurrent()
+
+        assertTrue(runtime.isClosed)
+        assertEquals(ActiveSessionState.Closed, session.state.value)
+    }
+
     @Test
     fun `thinking change that substitutes model is rejected before prompt`() = runTest {
         val connection = FakeConnection().apply {
@@ -1116,7 +1147,10 @@ class KimiRuntimeTest {
         val runtime = runtime(connection, this)
         val session = runtime.create(CreateSessionRequest(target))
         connection.beforeConfigResponse = {
-            connection.update("""{"sessionUpdate":"config_option_update","configOptions":[]}""")
+            connection.update(
+                """{"sessionUpdate":"config_option_update","configOptions":[
+                    {"id":"model","currentValue":"kimi-code/kimi-for-coding"}]}""",
+            )
             connection.update("""{"sessionUpdate":"usage_update","used":1200,"size":262144}""")
         }
         withTimeout(1000) { session.sender().send(prompt("effort").copy(reasoningEffort = "max")) }
