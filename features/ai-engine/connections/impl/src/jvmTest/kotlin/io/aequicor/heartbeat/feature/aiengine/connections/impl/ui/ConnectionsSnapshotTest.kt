@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.AccessGroupUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.AvailabilityUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectionEditDraft
@@ -36,6 +37,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.scopeFor
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
@@ -69,6 +71,7 @@ class ConnectionsSnapshotTest {
             MethodRowUi("ollama", "Ollama", MethodKindUi.NoAuth, "http://localhost:11434", true, false),
         ),
         selectedMethod = "openai",
+        selectedGroup = AccessGroupUi.Provider,
         isBusy = false,
     )
 
@@ -115,20 +118,59 @@ class ConnectionsSnapshotTest {
                         { _, _ -> },
                     )
                 }
-                render("wizard", width, isDark) { ConnectWizardContent(wizard, {}) }
-                render("preparing", width, isDark) {
-                    ConnectWizardContent(
-                        wizard.copy(
-                            isBusy = true,
-                            preparation = EnginePreparationUi(PreparationPhaseUi.Downloading, 42),
-                        ),
-                        {},
-                    )
-                }
-                render("preparation-failed", width, isDark) {
-                    ConnectWizardContent(wizard.copy(preparation = EnginePreparationUi(PreparationPhaseUi.Network)), {})
-                }
+                renderWizard(width, isDark)
             }
+        }
+    }
+
+    private fun renderWizard(width: Int, isDark: Boolean) {
+        render("wizard", width, isDark) { ConnectWizardContent(wizard, {}) }
+        render("wizard-access-groups", width, isDark) {
+            val groups = wizard.methods + listOf(
+                MethodRowUi(
+                    "plan",
+                    "Z.ai",
+                    MethodKindUi.ApiKey,
+                    "https://api.z.ai",
+                    false,
+                    false,
+                    accessGroup = AccessGroupUi.Subscription,
+                ),
+                MethodRowUi(
+                    "compatible",
+                    "OpenAI",
+                    MethodKindUi.ApiKey,
+                    "http://localhost:8000",
+                    true,
+                    true,
+                    accessGroup = AccessGroupUi.OpenAiCompatible,
+                ),
+                MethodRowUi(
+                    "anthropic-compatible",
+                    "Anthropic",
+                    MethodKindUi.ApiKey,
+                    "http://localhost:4000",
+                    true,
+                    true,
+                    accessGroup = AccessGroupUi.AnthropicCompatible,
+                ),
+            )
+            ConnectWizardContent(
+                wizard.copy(methods = groups.toImmutableList(), selectedGroup = null, selectedMethod = null),
+                {},
+            )
+        }
+        render("wizard-access-providers", width, isDark) {
+            ConnectWizardContent(wizard.copy(selectedMethod = null), {})
+        }
+        render("preparing", width, isDark) {
+            ConnectWizardContent(
+                wizard.copy(isBusy = true, preparation = EnginePreparationUi(PreparationPhaseUi.Downloading, 42)),
+                {},
+            )
+        }
+        render("preparation-failed", width, isDark) {
+            ConnectWizardContent(wizard.copy(preparation = EnginePreparationUi(PreparationPhaseUi.Network)), {})
         }
     }
 

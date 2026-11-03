@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionAccessGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -89,21 +90,25 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
             ConnectionMethodId("zai"),
             ProviderInfo(ProviderId("zai"), "Z.ai Coding Plan"),
             EndpointOrigin("https://api.z.ai"),
+            accessGroup = ConnectionAccessGroup.Subscription,
         ),
         ConnectionMethod.ApiKey(
             ConnectionMethodId("qwen-token-plan"),
             ProviderInfo(ProviderId("qwen-token-plan"), "Qwen Token Plan"),
             EndpointOrigin("https://token-plan.ap-southeast-1.maas.aliyuncs.com"),
+            accessGroup = ConnectionAccessGroup.Subscription,
         ),
         ConnectionMethod.ApiKey(
             ConnectionMethodId("qwen-token-plan-individual"),
             ProviderInfo(ProviderId("qwen-token-plan-individual"), "Qwen Token Plan Individual"),
             EndpointOrigin("https://token-plan.ap-southeast-1.maas.aliyuncs.com"),
+            accessGroup = ConnectionAccessGroup.Subscription,
         ),
         ConnectionMethod.ApiKey(
             ConnectionMethodId("qwen-token-plan-cn"),
             ProviderInfo(ProviderId("qwen-token-plan-cn"), "Qwen Token Plan China"),
             EndpointOrigin("https://token-plan.cn-beijing.maas.aliyuncs.com"),
+            accessGroup = ConnectionAccessGroup.Subscription,
         ),
         CompatibleProtocol.OpenAI.method,
         CompatibleProtocol.Anthropic.method,

@@ -66,8 +66,8 @@ data class ConnectWizardScreenState(
     val engineTitle: String = "",
     val engines: ImmutableList<EngineRowUi>? = null,
     val methods: ImmutableList<MethodRowUi> = persistentListOf(),
-    val methodQuery: String = "",
     val selectedMethod: String? = null,
+    val selectedGroup: AccessGroupUi? = null,
     val form: CredentialForm = CredentialForm(),
     val formError: FormError? = null,
     val models: ImmutableList<ModelRowUi>? = null,
@@ -85,11 +85,11 @@ sealed interface ConnectWizardScreenIntent : MVIIntent {
     /** Picks an engine on the first step. */
     data class ChooseEngine(val id: String) : ConnectWizardScreenIntent
 
-    /** Filters providers. */
-    data class SearchMethods(val query: String) : ConnectWizardScreenIntent
-
     /** Picks a provider/method; resets the form to its defaults. */
     data class SelectMethod(val id: String) : ConnectWizardScreenIntent
+
+    /** Opens a declared access category. */
+    data class SelectGroup(val group: AccessGroupUi) : ConnectWizardScreenIntent
 
     /** Edits the connection name. */
     data class EditLabel(val value: String) : ConnectWizardScreenIntent
@@ -195,9 +195,9 @@ class ConnectWizardModel(
                 is ConnectWizardScreenIntent.ChooseEngine ->
                     sendTo(machine, ConnectWizardIntent.Public.ChooseEngine(EngineId(intent.id)))
 
-                is ConnectWizardScreenIntent.SearchMethods -> updateState { copy(methodQuery = intent.query) }
-
                 is ConnectWizardScreenIntent.SelectMethod -> updateState { selectMethod(intent.id) }
+
+                is ConnectWizardScreenIntent.SelectGroup -> updateState { selectGroup(intent.group) }
 
                 is ConnectWizardScreenIntent.EditLabel ->
                     updateState { copy(form = form.copy(label = intent.value), formError = null) }
@@ -220,14 +220,37 @@ class ConnectWizardModel(
 
                 ConnectWizardScreenIntent.Retry -> sendTo(machine, ConnectWizardIntent.Public.Retry)
 
-                ConnectWizardScreenIntent.Back -> sendTo(machine, ConnectWizardIntent.Public.Back)
+                ConnectWizardScreenIntent.Back -> back(isSystem = false)
 
                 ConnectWizardScreenIntent.Finish -> sendTo(machine, ConnectWizardIntent.Public.Finish)
 
                 ConnectWizardScreenIntent.Cancel -> sendTo(machine, ConnectWizardIntent.Public.Cancel)
 
-                ConnectWizardScreenIntent.SystemBack -> sendTo(machine, ConnectWizardIntent.Public.Dismiss)
+                ConnectWizardScreenIntent.SystemBack -> back(isSystem = true)
             }
+        }
+    }
+
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PipelineContext<
+        ConnectWizardScreenState,
+        ConnectWizardScreenIntent,
+        ConnectWizardScreenAction,
+    >.back(
+        isSystem: Boolean,
+    ) {
+        var isHandled = false
+        updateState {
+            if (step != WizardStep.Method || selectedGroup == null || isBusy) return@updateState this
+            isHandled = true
+            if (selectedMethod != null && methods.count { it.accessGroup == selectedGroup } > 1) {
+                copy(selectedMethod = null, form = CredentialForm(), formError = null)
+            } else {
+                copy(selectedGroup = null, selectedMethod = null, form = CredentialForm(), formError = null)
+            }
+        }
+        if (!isHandled) {
+            sendTo(machine, if (isSystem) ConnectWizardIntent.Public.Dismiss else ConnectWizardIntent.Public.Back)
         }
     }
 
@@ -321,8 +344,16 @@ internal fun CredentialForm.toRequest(method: ConnectionMethod): FormCheck {
 }
 
 private fun ConnectWizardScreenState.selectMethod(id: String): ConnectWizardScreenState {
-    val row = methods.firstOrNull { it.id == id } ?: return this
+    if (isBusy) return this
+    val row = methods.firstOrNull { it.id == id && it.accessGroup == selectedGroup } ?: return this
     return copy(selectedMethod = id, form = CredentialForm(row.provider, row.origin), formError = null)
+}
+
+private fun ConnectWizardScreenState.selectGroup(group: AccessGroupUi): ConnectWizardScreenState {
+    val rows = methods.filter { it.accessGroup == group }
+    if (rows.isEmpty() || isBusy) return this
+    val base = copy(selectedGroup = group, selectedMethod = null, form = CredentialForm(), formError = null)
+    return if (rows.size == 1) base.selectMethod(rows.single().id) else base
 }
 
 internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): ConnectWizardScreenState = when (state) {
@@ -332,6 +363,7 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
     is ConnectWizardState.ChoosingEngine -> copy(
         step = WizardStep.Engine,
         selectedMethod = null,
+        selectedGroup = null,
         form = CredentialForm(),
         formError = null,
         engines = state.engines?.map { it.toRow() }?.toImmutableList(),
@@ -386,14 +418,28 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
         copy(step = WizardStep.Models, isBusy = true, isCancelAllowed = false, isFinishing = false, failure = null)
 
     is ConnectWizardState.Finished, ConnectWizardState.Cancelled ->
-        copy(step = WizardStep.Done, isBusy = true, isCancelAllowed = false, isFinishing = false)
+        terminal()
 }
+
+private fun ConnectWizardScreenState.terminal(): ConnectWizardScreenState = copy(
+    step = WizardStep.Done,
+    form = CredentialForm(),
+    selectedMethod = null,
+    selectedGroup = null,
+    isBusy = true,
+    isCancelAllowed = false,
+    isFinishing = false,
+)
 
 private fun EngineInfo.methods(): List<MethodRowUi> = descriptor.connectionMethods.map { it.toRow() }
 
 /** Keeps the selected method and its form while the method list stays the same. */
 private fun ConnectWizardScreenState.withMethods(title: String, rows: List<MethodRowUi>): ConnectWizardScreenState {
     val base = copy(engineTitle = title, methods = rows.toImmutableList())
-    val isKept = selectedMethod != null && rows.any { it.id == selectedMethod }
-    return if (isKept || rows.isEmpty()) base else base.selectMethod(rows.first().id)
+    val isKept = selectedGroup == null || rows.any { it.accessGroup == selectedGroup }
+    if (!isKept) return base.copy(selectedGroup = null, selectedMethod = null, form = CredentialForm())
+    if (selectedMethod != null && rows.none { it.id == selectedMethod && it.accessGroup == selectedGroup }) {
+        return base.copy(selectedMethod = null, form = CredentialForm())
+    }
+    return base
 }

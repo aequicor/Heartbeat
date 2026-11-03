@@ -28,6 +28,21 @@ public data class ProviderInfo(val id: ProviderId, val title: String, val creden
     }
 }
 
+/** User-facing access categories declared by a connector, not inferred from provider names or credentials. */
+public enum class ConnectionAccessGroup {
+    /** A subscription or plan, including CLI sign-in and plan-specific keys. */
+    Subscription,
+
+    /** A provider preset or local endpoint. */
+    Provider,
+
+    /** A user-supplied server using the OpenAI protocol. */
+    OpenAiCompatible,
+
+    /** A user-supplied server using the Anthropic protocol. */
+    AnthropicCompatible,
+}
+
 /**
  * A way to create a credential source for an engine, declared statically in [EngineDescriptor.connectionMethods].
  * Reading a method performs no IO. It only describes what the connection UI may offer: the adapter factory's
@@ -46,6 +61,9 @@ public sealed interface ConnectionMethod {
     /** Whether the user may enter another origin (self-hosted server, proxy); fixed origins prevent key forwarding. */
     public val isOriginEditable: Boolean
 
+    /** Category presented by the connection wizard. */
+    public val accessGroup: ConnectionAccessGroup
+
     /** Whether the user may add an API base path on the origin (`https://host/api/v1`); implies [isOriginEditable]. */
     public val isPathEditable: Boolean get() = false
 
@@ -56,6 +74,7 @@ public sealed interface ConnectionMethod {
         override val origin: EndpointOrigin,
         override val isOriginEditable: Boolean = false,
         override val isPathEditable: Boolean = false,
+        override val accessGroup: ConnectionAccessGroup = ConnectionAccessGroup.Provider,
     ) : ConnectionMethod {
         init {
             require(!isPathEditable || isOriginEditable) { "An editable path requires an editable origin" }
@@ -79,6 +98,7 @@ public sealed interface ConnectionMethod {
         val location: AuthLocationId,
         /** Host application whose runtime the connection uses; null keeps the engine's own choice. */
         val hostApp: HostAppSpec? = null,
+        override val accessGroup: ConnectionAccessGroup = ConnectionAccessGroup.Subscription,
     ) : ConnectionMethod {
         override val isOriginEditable: Boolean get() = false
     }
@@ -89,6 +109,7 @@ public sealed interface ConnectionMethod {
         override val provider: ProviderInfo,
         override val origin: EndpointOrigin,
         override val isOriginEditable: Boolean = true,
+        override val accessGroup: ConnectionAccessGroup = ConnectionAccessGroup.Provider,
     ) : ConnectionMethod
 }
 

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +48,7 @@ import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
 import io.aequicor.heartbeat.ds.components.HbSearchField
+import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
@@ -57,6 +57,7 @@ import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.AccessGroupUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardModel
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenAction
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenIntent
@@ -95,11 +96,17 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_field_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_field_label
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_finish_without_models
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_group_anthropic
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_group_api_hint
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_group_openai
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_group_provider
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_group_provider_hint
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_group_subscription
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_group_subscription_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_hide_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_host_app_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_host_fixed
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_key_placeholder
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_method_search
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_methods_empty
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_models_intro
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_no_auth_hint
@@ -276,41 +283,89 @@ private fun MethodStep(
     modifier: Modifier = Modifier,
 ) {
     val method = state.methods.firstOrNull { it.id == state.selectedMethod }
-    HbColumn(modifier.fillMaxSize().hbVerticalScroll(rememberScrollState()), gap = HbTheme.spacing.xl) {
-        MethodList(state, onIntent)
-        if (method != null) MethodForm(state, method, onIntent)
+    val focus = remember { FocusRequester() }
+    val hasTarget = when {
+        state.selectedGroup == null -> state.methods.isNotEmpty()
+        method == null -> state.methods.any { it.accessGroup == state.selectedGroup }
+        else -> true
     }
+    LaunchedEffect(state.selectedGroup, state.selectedMethod, state.isBusy, hasTarget) {
+        if (!state.isBusy && hasTarget) {
+            withFrameNanos { }
+            focus.requestFocus()
+        }
+    }
+    HbColumn(modifier.fillMaxSize().hbVerticalScroll(rememberScrollState()), gap = HbTheme.spacing.xl) {
+        when {
+            state.selectedGroup == null -> AccessGroups(state, onIntent, focus)
+            method == null -> MethodList(state, onIntent, focus)
+            else -> MethodForm(state, method, onIntent, focus)
+        }
+    }
+}
+
+@Composable
+private fun AccessGroups(
+    state: ConnectWizardScreenState,
+    onIntent: (ConnectWizardScreenIntent) -> Unit,
+    focus: FocusRequester,
+) {
+    val groups = AccessGroupUi.entries.filter { group -> state.methods.any { it.accessGroup == group } }
+    HbColumn(Modifier.fillMaxWidth().padding(top = HbTheme.spacing.l), gap = HbTheme.spacing.m) {
+        groups.forEachIndexed { index, group ->
+            HbSettingsRow(
+                stringResource(group.title()),
+                onClick = { onIntent(ConnectWizardScreenIntent.SelectGroup(group)) },
+                modifier = Modifier.testTag("access-group:${group.name}")
+                    .then(if (index == 0) Modifier.focusRequester(focus) else Modifier),
+                description = stringResource(group.hint()),
+                enabled = !state.isBusy,
+                leadingContent = { HbIcon(group.icon(), null, tint = HbTheme.colors.textSecondary) },
+            ) { HbIcon(HbIcons.ChevronRight, null, tint = HbTheme.colors.textSecondary) }
+        }
+    }
+}
+
+private fun AccessGroupUi.icon() = when (this) {
+    AccessGroupUi.Subscription -> HbIcons.User
+    AccessGroupUi.Provider -> HbIcons.Cloud
+    AccessGroupUi.OpenAiCompatible, AccessGroupUi.AnthropicCompatible -> HbIcons.Code
+}
+
+private fun AccessGroupUi.title(): StringResource = when (this) {
+    AccessGroupUi.Subscription -> Res.string.wizard_group_subscription
+    AccessGroupUi.Provider -> Res.string.wizard_group_provider
+    AccessGroupUi.OpenAiCompatible -> Res.string.wizard_group_openai
+    AccessGroupUi.AnthropicCompatible -> Res.string.wizard_group_anthropic
+}
+
+private fun AccessGroupUi.hint(): StringResource = when (this) {
+    AccessGroupUi.Subscription -> Res.string.wizard_group_subscription_hint
+    AccessGroupUi.Provider -> Res.string.wizard_group_provider_hint
+    AccessGroupUi.OpenAiCompatible, AccessGroupUi.AnthropicCompatible -> Res.string.wizard_group_api_hint
 }
 
 @Composable
 private fun MethodList(
     state: ConnectWizardScreenState,
     onIntent: (ConnectWizardScreenIntent) -> Unit,
+    focus: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
-    val visible = remember(state.methods, state.methodQuery) {
-        state.methods.filter { matches(state.methodQuery, it.provider, it.origin) }
-    }
-    HbSettingsSection(stringResource(Res.string.wizard_step_method), modifier) {
-        HbSearchField(
-            state.methodQuery,
-            { onIntent(ConnectWizardScreenIntent.SearchMethods(it)) },
-            placeholder = stringResource(Res.string.wizard_method_search),
-            clearLabel = stringResource(Res.string.conn_models_search_clear),
-            modifier = Modifier.fillMaxWidth().padding(bottom = HbTheme.spacing.s).testTag("wizard-method-search"),
-        )
+    val visible = state.methods.filter { it.accessGroup == state.selectedGroup }
+    val title = state.selectedGroup?.title() ?: Res.string.wizard_step_method
+    HbSettingsSection(stringResource(title), modifier) {
         if (visible.isEmpty()) HbEmptyState(stringResource(Res.string.wizard_methods_empty))
-        HbColumn(Modifier.fillMaxWidth().selectableGroup(), gap = HbTheme.spacing.none) {
+        HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
             visible.forEachIndexed { index, method ->
-                if (index > 0) HbDivider()
-                SelectableRow(
+                HbSettingsRow(
                     method.provider,
-                    isSelected = method.id == state.selectedMethod,
                     onClick = { onIntent(ConnectWizardScreenIntent.SelectMethod(method.id)) },
-                    modifier = Modifier.testTag("method:${method.id}"),
-                    description = methodLabel(method),
+                    modifier = Modifier.testTag("method:${method.id}")
+                        .then(if (index == 0) Modifier.focusRequester(focus) else Modifier),
                     enabled = !state.isBusy,
-                )
+                    leadingContent = { HbIcon(method.accessGroup.icon(), null, tint = HbTheme.colors.textSecondary) },
+                ) { HbIcon(HbIcons.ChevronRight, null, tint = HbTheme.colors.textSecondary) }
             }
         }
     }
@@ -321,13 +376,14 @@ private fun MethodForm(
     state: ConnectWizardScreenState,
     method: MethodRowUi,
     onIntent: (ConnectWizardScreenIntent) -> Unit,
+    focus: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
     val isEnabled = !state.isBusy
     HbSettingsSection(method.provider, modifier, description = methodLabel(method)) {
         HbColumn(Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m), gap = HbTheme.spacing.s) {
             when (method.kind) {
-                MethodKindUi.ApiKey -> KeyField(state, isEnabled, onIntent)
+                MethodKindUi.ApiKey -> KeyField(state, isEnabled, onIntent, focus)
 
                 MethodKindUi.CliLogin -> Hint(
                     method.hostApp?.let { stringResource(Res.string.wizard_host_app_hint, it) }
@@ -341,7 +397,8 @@ private fun MethodForm(
             HbTextField(
                 state.form.label,
                 { onIntent(ConnectWizardScreenIntent.EditLabel(it)) },
-                Modifier.fillMaxWidth().testTag("wizard-label"),
+                Modifier.fillMaxWidth().testTag("wizard-label")
+                    .then(if (method.kind != MethodKindUi.ApiKey) Modifier.focusRequester(focus) else Modifier),
                 enabled = isEnabled,
                 accessibleLabel = stringResource(Res.string.wizard_field_label),
             )
@@ -368,13 +425,14 @@ private fun KeyField(
     state: ConnectWizardScreenState,
     isEnabled: Boolean,
     onIntent: (ConnectWizardScreenIntent) -> Unit,
+    focus: FocusRequester,
 ) {
     var isKeyVisible by remember(state.selectedMethod) { mutableStateOf(false) }
     FieldLabel(stringResource(Res.string.wizard_field_key))
     HbTextField(
         state.form.key.value,
         { onIntent(ConnectWizardScreenIntent.EditKey(it)) },
-        Modifier.fillMaxWidth().testTag("wizard-key"),
+        Modifier.fillMaxWidth().testTag("wizard-key").focusRequester(focus),
         placeholder = stringResource(Res.string.wizard_key_placeholder),
         enabled = isEnabled,
         accessibleLabel = stringResource(Res.string.wizard_field_key),
@@ -564,12 +622,14 @@ private fun WizardFooter(
                 style = HbButtonStyle.Secondary,
                 enabled = !state.isBusy,
             )
-            HbButton(
-                stringResource(state.connectLabel()),
-                { onIntent(ConnectWizardScreenIntent.Connect) },
-                Modifier.testTag("wizard-connect"),
-                enabled = !state.isBusy && state.selectedMethod != null,
-            )
+            if (state.selectedMethod != null) {
+                HbButton(
+                    stringResource(state.connectLabel()),
+                    { onIntent(ConnectWizardScreenIntent.Connect) },
+                    Modifier.testTag("wizard-connect"),
+                    enabled = !state.isBusy,
+                )
+            }
         }
         if (state.step == WizardStep.Models) {
             HbButton(

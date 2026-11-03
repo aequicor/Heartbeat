@@ -4,8 +4,8 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -20,9 +20,9 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.OllamaMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.AccessGroupUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CredentialForm
@@ -45,6 +45,36 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class ConnectWizardUiTest {
     @Test
+    fun `access group offers only declared categories and opens provider choices`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<ConnectWizardScreenIntent>()
+        val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingMethod(engineInfo()))
+        setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
+        onNodeWithTag("access-group:Provider").assertIsFocused().performClick()
+        onNodeWithTag("access-group:Subscription").assertDoesNotExist()
+        runOnIdle {
+            assertEquals(
+                listOf<ConnectWizardScreenIntent>(ConnectWizardScreenIntent.SelectGroup(AccessGroupUi.Provider)),
+                intents,
+            )
+        }
+    }
+
+    @Test
+    fun `provider list opens its selected method`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<ConnectWizardScreenIntent>()
+        val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingMethod(engineInfo()))
+            .copy(selectedGroup = AccessGroupUi.Provider)
+        setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
+        onNodeWithTag("method:${ApiKeyMethod.id.value}").assertIsFocused().performClick()
+        runOnIdle {
+            assertEquals(
+                listOf<ConnectWizardScreenIntent>(ConnectWizardScreenIntent.SelectMethod(ApiKeyMethod.id.value)),
+                intents,
+            )
+        }
+    }
+
+    @Test
     fun `engines that cannot run here are shown but not selectable`() = runSkikoComposeUiTest {
         val intents = mutableListOf<ConnectWizardScreenIntent>()
         val mobileOnly = engineInfo(availability = EngineAvailability.UnsupportedPlatform).let {
@@ -66,19 +96,19 @@ class ConnectWizardUiTest {
     @Test
     fun `method step edits the selected provider and connects`() = runSkikoComposeUiTest {
         val intents = mutableListOf<ConnectWizardScreenIntent>()
-        val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingMethod(engineInfo()))
+        val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingMethod(engineInfo())).copy(
+            selectedGroup = AccessGroupUi.Provider,
+            selectedMethod = ApiKeyMethod.id.value,
+        )
         setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
-        onNodeWithTag("method:${ApiKeyMethod.id.value}").assertIsSelected()
         onNodeWithTag("wizard-host").assertIsNotEnabled()
         onNodeWithTag("wizard-key").performTextInput("sk")
         onNodeWithTag("wizard-connect").performClick()
-        onNodeWithTag("method:${OllamaMethod.id.value}").performClick()
         runOnIdle {
             assertEquals(
                 listOf(
                     ConnectWizardScreenIntent.EditKey("sk"),
                     ConnectWizardScreenIntent.Connect,
-                    ConnectWizardScreenIntent.SelectMethod(OllamaMethod.id.value),
                 ),
                 intents,
             )
@@ -88,6 +118,8 @@ class ConnectWizardUiTest {
     @Test
     fun `key stays secure while visibility actions reveal and mask its value`() = runSkikoComposeUiTest {
         val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingMethod(engineInfo())).copy(
+            selectedGroup = AccessGroupUi.Provider,
+            selectedMethod = ApiKeyMethod.id.value,
             form = CredentialForm(key = SecretText("sk-123")),
         )
         setContent { HbTheme { ConnectWizardContent(state, {}) } }

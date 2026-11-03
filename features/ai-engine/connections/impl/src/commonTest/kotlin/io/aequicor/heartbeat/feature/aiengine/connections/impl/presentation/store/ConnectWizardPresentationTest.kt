@@ -23,14 +23,15 @@ import kotlin.test.assertTrue
 
 class ConnectWizardPresentationTest {
     @Test
-    fun `method step selects the first method with its defaults and keeps an explicit choice`() {
+    fun `method step begins with access groups and keeps an explicit choice`() {
         val choosing = ConnectWizardState.ChoosingMethod(engineInfo())
         val first = ConnectWizardScreenState().reflect(choosing)
         assertEquals(WizardStep.Method, first.step)
-        assertEquals(ApiKeyMethod.id.value, first.selectedMethod)
-        assertEquals(CredentialForm("OpenAI", "https://api.openai.com"), first.form)
+        assertEquals(null, first.selectedGroup)
+        assertEquals(null, first.selectedMethod)
         val edited = first.copy(
             selectedMethod = OllamaMethod.id.value,
+            selectedGroup = AccessGroupUi.Provider,
             form = CredentialForm("Home", "http://nas:11434"),
         )
         val again = edited.reflect(ConnectWizardState.Connecting(engineInfo(), OllamaMethod.id))
@@ -84,6 +85,12 @@ class ConnectWizardPresentationTest {
     fun `typed keys never appear in the screen state text`() {
         val state = ConnectWizardScreenState(form = CredentialForm(key = SecretText("sk-secret")))
         assertFalse(state.toString().contains("sk-secret"))
+    }
+
+    @Test
+    fun `cancelling the wizard clears the current key immediately`() {
+        val state = ConnectWizardScreenState(form = CredentialForm(key = SecretText("secret")))
+        assertEquals(CredentialForm(), state.reflect(ConnectWizardState.Cancelled).form)
     }
 
     @Test

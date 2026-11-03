@@ -31,6 +31,10 @@ public enum class CompatibleProtocol(public val provider: ProviderInfo, public v
             suggestedOrigin,
             isOriginEditable = true,
             isPathEditable = true,
+            accessGroup = when (this) {
+                OpenAI -> ConnectionAccessGroup.OpenAiCompatible
+                Anthropic -> ConnectionAccessGroup.AnthropicCompatible
+            },
         )
 
     /**

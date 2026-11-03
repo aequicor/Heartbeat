@@ -12,6 +12,12 @@ import kotlin.test.assertTrue
 
 class CompatibleProtocolTest {
     @Test
+    fun `compatible methods declare their exact access category`() {
+        assertEquals(ConnectionAccessGroup.OpenAiCompatible, CompatibleProtocol.OpenAI.method.accessGroup)
+        assertEquals(ConnectionAccessGroup.AnthropicCompatible, CompatibleProtocol.Anthropic.method.accessGroup)
+    }
+
+    @Test
     fun `plain HTTP is allowed only on the loopback interface`() {
         listOf(
             "https://api.example.com",
