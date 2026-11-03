@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCandidateInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -36,7 +37,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineCandidateInspector
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -73,7 +76,8 @@ internal class JvmKimiBackend(
     private val launches: EngineLaunchConfig,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: KimiConfiguration = KimiConfiguration(),
-) : KimiBackend {
+) : KimiBackend,
+    EngineCandidateInspector {
     private val log = Log.tag("KimiBackend")
     private val mutex = Mutex()
     private var runtime: KimiRuntime? = null
@@ -98,6 +102,22 @@ internal class JvmKimiBackend(
         io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility.Verified
     } else {
         io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility.Unknown
+    }
+
+    /** Reads only the selected runtime's files; a manifest is not evidence of process admission. */
+    override suspend fun inspectCandidate(launch: LaunchContext): EngineCandidateInspection? {
+        if (!launch.settings.executable.isNullOrBlank() ||
+            launch.settings.runtime !in setOf(RuntimePreference.Managed, RuntimePreference.Bundled)
+        ) {
+            return null
+        }
+        val installation = try {
+            setup.locate(launch)
+        } catch (error: EngineException) {
+            log.w(error) { "Selected Kimi runtime is missing or invalid" }
+            Installation(InstallSource.Missing, isRunnable = false)
+        }
+        return EngineCandidateInspection(KimiEngine.Id, installation, compatibility = null)
     }
 
     /** The panel inspects the same CLI that sessions start, rather than treating the adapter as built in. */

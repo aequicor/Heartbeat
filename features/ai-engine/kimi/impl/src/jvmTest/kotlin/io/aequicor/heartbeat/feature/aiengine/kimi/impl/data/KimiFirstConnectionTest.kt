@@ -120,6 +120,16 @@ class KimiFirstConnectionTest {
 
             assertEquals(InstallSource.Managed, result.source)
             assertFalse(result.isRunnable)
+            val candidate = backend.inspectCandidate(
+                LaunchContext(
+                    settings = io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings(
+                        runtime = io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference.Managed,
+                    ),
+                    managed = managed,
+                ),
+            )
+            assertEquals(executable.absolutePath, candidate?.installation?.path)
+            assertEquals(null, candidate?.compatibility)
             assertEquals(LoginState.Unknown, backend.loginStatus(launch))
             assertFailsWith<EngineException> { setup.locateRelease(launch) }
             assertFalse(marker.exists())
