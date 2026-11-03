@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.connectio
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.koog
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.local
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.model
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -38,6 +39,28 @@ class EngineConnectionsChecksTest {
         emptyMap(),
         ModelSelection().withEnabled(binding.id, setOf(a.model, c.model, concurrent.model)).withDefault(concurrent),
     )
+
+    @Test
+    fun `source edit keeps credentials out of state and checks enabled routes`() {
+        val request = ConnectionEdit(binding.id, local.id, source, "Local", local.origin)
+        val pending = ConnectionOperation.Edit(binding.id)
+        spec.assertTransition(
+            Active(snapshot),
+            Public.Edit(request),
+            Active(snapshot, pending = pending, operationSequence = 1, phase = ModelSavePhase.Saving),
+            effects = listOf(
+                EngineConnectionsEffect.Edit(
+                    request,
+                    ConnectionOperationId(1),
+                    setOf(a, c, concurrent),
+                    setOf(binding.id),
+                ),
+            ),
+        )
+        spec.assertIgnored(Active(snapshot), Public.Apply(pending))
+        val failed = Active(snapshot, failed = FailedOperation(pending, EngineFailure.Unknown()))
+        spec.assertIgnored(failed, Public.RetryFailed)
+    }
 
     @Test
     fun `bulk save checks the user addition and revokes the removal without touching concurrent choices`() {

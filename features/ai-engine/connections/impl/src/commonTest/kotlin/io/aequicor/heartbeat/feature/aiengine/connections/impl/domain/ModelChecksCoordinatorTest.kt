@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.core.datastore.DatabaseSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.StorageOwner
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeAuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeEngineFacade
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
@@ -16,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.StoredModelC
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.StoredModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import kotlinx.coroutines.CompletableDeferred
@@ -35,6 +38,45 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ModelChecksCoordinatorTest {
+    @Test
+    fun `unreadable unrelated source cannot block an explicit model check`() = runTest {
+        val f = fixture(this)
+        val other = AuthSourceId("unrelated")
+        f.facade.bindingsState.value += EngineBinding(EngineBindingId("other"), KoogId, other)
+        f.sources.failingSource = other
+
+        val result = assertIs<ModelCheckBatchResult.Completed<*>>(
+            f.coordinator.saveAndCheck(setOf(f.target)) { f.selections.update { it.withDefault(f.target) } },
+        )
+        assertEquals(1, result.reports.size)
+    }
+
+    @Test
+    fun `explicit checks use saved source when observation still holds the old revision`() = runTest {
+        var calls = 0
+        val f = fixture(
+            this,
+            IsolatedPrompts {
+                calls++
+                IsolatedAnswer.Answered(
+                    if (it.text == ModelCheckEvaluation.RESPONSE_PROBE) "READY" else "19|cedar|ABSENT",
+                )
+            },
+        )
+        val saved = CheckSource.copy(info = CheckSource.info.copy(revision = AuthRevision.Known("new")))
+        f.sources.currentOverride = saved
+
+        val result = assertIs<ModelCheckBatchResult.Completed<*>>(
+            f.coordinator.saveAndCheck(setOf(f.target)) { f.selections.update { it.withDefault(f.target) } },
+        )
+        assertEquals(2, calls)
+        assertEquals(saved.info.revision, result.reports.single().revision.source.info.revision)
+        runCurrent()
+        assertTrue(f.coordinator.observe().first().isEmpty())
+        f.sources.state.value = listOf(saved)
+        assertEquals(1, f.coordinator.observe().first().size)
+    }
+
     @Test
     fun `a real saved selection is checked and persists only a text free successful receipt`() = runTest {
         var calls = 0

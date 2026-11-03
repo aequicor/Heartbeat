@@ -42,7 +42,13 @@ internal class ModelCheckBatch(
         budget: Duration = 5.seconds,
     ): ModelCheckBatchResult<T> {
         require(budget.isFinite() && budget.isPositive()) { "Model check batch needs a finite positive budget" }
-        currentCoroutineContext().ensureActive()
+        var isActive = false
+        try {
+            currentCoroutineContext().ensureActive()
+            isActive = true
+        } finally {
+            if (!isActive) request.onFinished()
+        }
         val deadline = time.markNow() + budget
         val saved = MutableStateFlow<T?>(null)
         val progress = MutableStateFlow<List<ModelCheckReport>>(emptyList())
@@ -67,7 +73,10 @@ internal class ModelCheckBatch(
                 answer.complete(ModelCheckBatchResult.Failed(saved.value, progress.value))
             }
         }
-        worker.invokeOnCompletion { answer.cancel() }
+        worker.invokeOnCompletion {
+            request.onFinished()
+            answer.cancel()
+        }
         worker.start()
         return try {
             val remaining = -deadline.elapsedNow()
@@ -120,6 +129,7 @@ internal data class ModelCheckBatchRequest<T : Any>(
     val revisions: suspend (T) -> List<ModelCheckRevision>,
     val isCurrent: suspend (ModelCheckRevision) -> Boolean,
     val onSaved: suspend () -> Unit = {},
+    val onFinished: () -> Unit = {},
 ) {
     override fun toString(): String = "ModelCheckBatchRequest"
 }

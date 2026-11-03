@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -41,7 +42,60 @@ internal class EngineConnectionsEffects(
             }
 
             is EngineConnectionsEffect.Execute -> execute(effect, machine)
+
+            is EngineConnectionsEffect.Edit -> edit(effect, machine)
         }
+    }
+
+    private suspend fun edit(effect: EngineConnectionsEffect.Edit, machine: EffectScope<EngineConnectionsIntent>) {
+        val related = services.facade.bindings.state.value
+            .filter { it.authSource == effect.request.expected.info.id }
+            .map { it.id }.toSet() + effect.relatedBindings
+        try {
+            related.forEach(checks::revoke)
+        } catch (error: CancellationException) {
+            effect.request.key?.close()
+            throw error
+        } catch (error: Exception) {
+            effect.request.key?.close()
+            throw error
+        }
+        val result = checks.saveAndCheck(
+            effect.checkTargets,
+            onSaved = { machine.send(EngineConnectionsIntent.Internal.Checking(effect.id)) },
+            onFinished = { effect.request.key?.close() },
+        ) {
+            try {
+                val current = selections.observe().first()
+                val isGenerationMissing = effect.checkTargets.any {
+                    current.isEnabled(it) && current.checkGeneration(it) == null
+                }
+                val selection = if (isGenerationMissing) {
+                    selections.update { it }
+                } else {
+                    current
+                }
+                services.facade.bindings.edit(effect.request) {}
+                selection
+            } finally {
+                effect.request.key?.close()
+            }
+        }
+        val completion = when (result) {
+            is ModelCheckBatchResult.Completed -> EngineConnectionsIntent.Internal.Applied(effect.id)
+
+            is ModelCheckBatchResult.TimedOut -> EngineConnectionsIntent.Internal.Applied(
+                effect.id,
+                isSavePending = result.saved == null,
+            )
+
+            is ModelCheckBatchResult.Failed -> if (result.saved == null) {
+                EngineConnectionsIntent.Internal.ApplyFailed(EngineFailure.Unknown(), effect.id)
+            } else {
+                EngineConnectionsIntent.Internal.Applied(effect.id)
+            }
+        }
+        machine.send(completion)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -96,6 +150,7 @@ internal class EngineConnectionsEffects(
             }
 
             is ConnectionOperation.ProbeEngine,
+            is ConnectionOperation.Edit,
             is ConnectionOperation.SetConnectionEnabled,
             is ConnectionOperation.Disconnect,
             -> {
@@ -157,6 +212,7 @@ internal class EngineConnectionsEffects(
             is ConnectionOperation.SetModelsEnabled,
             is ConnectionOperation.SetDefaultModel,
             is ConnectionOperation.CheckModel,
+            is ConnectionOperation.Edit,
             -> error("Model operations require the bounded coordinator")
         }
     }
@@ -186,6 +242,7 @@ internal class EngineConnectionsEffects(
         is ConnectionOperation.CheckModel -> selectionForCheck(operation.target)
 
         is ConnectionOperation.ProbeEngine,
+        is ConnectionOperation.Edit,
         is ConnectionOperation.SetConnectionEnabled,
         is ConnectionOperation.Disconnect,
         is ConnectionOperation.RefreshModels,

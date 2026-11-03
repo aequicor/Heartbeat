@@ -52,6 +52,7 @@ internal class ModelChecksCoordinator(
     override suspend fun saveAndCheck(
         targets: Set<EngineTarget>,
         onSaved: suspend () -> Unit,
+        onFinished: () -> Unit,
         save: suspend () -> ModelSelection,
     ): ModelCheckBatchResult<ModelSelection> {
         val run = owner.begin(targets)
@@ -60,10 +61,10 @@ internal class ModelChecksCoordinator(
                 run = run,
                 save = save,
                 onSaved = onSaved,
+                onFinished = onFinished,
                 revisions = { saved ->
-                    val context = currentContext()
                     targets.mapNotNull { target ->
-                        owner.revision(target, context)?.takeIf {
+                        owner.revision(target, currentContext(target))?.takeIf {
                             saved.checkGeneration(target) == it.selection.value
                         }
                     }
@@ -92,19 +93,24 @@ internal class ModelChecksCoordinator(
         clearObsolete(setOf(binding))
     }
 
-    private suspend fun currentContext(): ModelCheckContext {
+    private suspend fun currentContext(target: EngineTarget): ModelCheckContext {
         val selection = selections.observe().first()
         val facade = services.facade
+        val bindings = facade.bindings.state.value
+        // Source observation may lag a just-confirmed edit. Explicit checks must use authoritative snapshots;
+        // the passive observer remains flow-only and will display receipts once its own snapshot catches up.
+        val sourceId = bindings.singleOrNull { it.id == target.binding }?.authSource
+        val sources = listOfNotNull(sourceId?.let { services.sources.get(it) })
         return ModelCheckContext(
             selection,
             facade.engines.state.value,
-            facade.bindings.state.value,
-            services.sources.state.value,
+            bindings,
+            sources,
         )
     }
 
     private suspend fun isCurrent(run: ModelCheckGeneration, revision: ModelCheckRevision): Boolean =
-        owner.isCurrent(run, revision, currentContext())
+        owner.isCurrent(run, revision, currentContext(revision.target))
 
     private fun publish(completed: List<ModelCheckReport>) {
         scope.launch {
@@ -121,7 +127,9 @@ internal class ModelChecksCoordinator(
     private fun clearObsolete(bindings: Set<EngineBindingId>) {
         scope.launch {
             try {
-                for (binding in bindings) reports.remove(binding) { owner.accepts(it, currentContext()) }
+                for (binding in bindings) {
+                    reports.remove(binding) { owner.accepts(it, currentContext(it.revision.target)) }
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

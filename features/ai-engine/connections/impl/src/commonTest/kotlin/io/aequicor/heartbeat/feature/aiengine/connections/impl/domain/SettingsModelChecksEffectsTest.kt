@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.RecordingScope
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.ModelCheckReportsKey
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.ModelSelectionGenerationsKey
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.ModelSelectionKey
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -33,6 +35,36 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsModelChecksEffectsTest {
     private val id = ConnectionOperationId(42)
+
+    @Test
+    fun `editing initializes legacy diagnostic generations and checks enabled models`() = runTest {
+        var calls = 0
+        val f = CoordinatorFixture(
+            this,
+            IsolatedPrompts {
+                calls++
+                answer(it.text)
+            },
+        )
+        f.selections.update { it.withDefault(f.target) }
+        f.disk.values.value -= ModelSelectionGenerationsKey.name
+        f.facade.editSource = { edit, receipt -> receipt(edit.expected) }
+        val request = ConnectionEdit(
+            f.target.binding,
+            ConnectionMethodId("local"),
+            CheckSource,
+            "Local",
+            CheckSource.scope.origin,
+        )
+
+        f.settings().handle(
+            EngineConnectionsEffect.Edit(request, id, setOf(f.target), setOf(f.target.binding)),
+            RecordingScope(),
+        )
+
+        assertNotNull(f.selections.observe().first().checkGeneration(f.target))
+        assertEquals(2, calls)
+    }
 
     @Test
     fun `settings save preserves unrelated defaults and checks only the added model`() = runTest {

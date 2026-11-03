@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineSpec
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.machineSpec
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -34,6 +35,9 @@ public data class ConnectionsSnapshot(
 
 /** A change requested in the settings space; one runs at a time. */
 public sealed interface ConnectionOperation {
+    /** A source edit in progress; credentials are carried only by the intent and effect, never by state. */
+    public data class Edit(val binding: EngineBindingId) : ConnectionOperation
+
     /** Explicitly probes the engine installation. */
     public data class ProbeEngine(val engine: EngineId) : ConnectionOperation
 
@@ -108,6 +112,9 @@ public sealed interface EngineConnectionsIntent : MachineIntent {
         /** Requests a serialized change. */
         public data class Apply(val operation: ConnectionOperation) : Public
 
+        /** The effect owns the key after acceptance; an ignored request leaves it with the sender. */
+        public data class Edit(val edit: ConnectionEdit) : Public
+
         /** Repeats the failed change at user request only. */
         public data object RetryFailed : Public
 
@@ -146,6 +153,14 @@ public sealed interface EngineConnectionsEffect : MachineEffect {
         val checkTargets: Set<EngineTarget> = emptySet(),
         val removedTargets: Set<EngineTarget> = emptySet(),
     ) : EngineConnectionsEffect
+
+    /** Executes a conditional source edit and checks its enabled routes. */
+    public data class Edit(
+        val request: ConnectionEdit,
+        val id: ConnectionOperationId,
+        val checkTargets: Set<EngineTarget>,
+        val relatedBindings: Set<EngineBindingId>,
+    ) : EngineConnectionsEffect
 }
 
 /** The settings space emits no one-off results. */
@@ -169,6 +184,7 @@ public object EngineConnectionsMachineKey :
  * | Idle | Start | | Active | Observe |
  * | Active | Snapshot | | stay (load failure cleared) | |
  * | Active | Apply | observed, nothing pending | stay (pending) | Execute |
+ * | Active | Edit | observed, nothing pending | stay (pending without credentials) | Edit |
  * | Active | Checking | same pending operation | stay (phase Checking) | |
  * | Active | Applied / ApplyFailed | same pending operation | stay | |
  * | Active | RetryFailed | observed, nothing pending, has failure | stay (pending) | Execute |
@@ -178,7 +194,7 @@ public object EngineConnectionsMachineKey :
  *
  * Changes and observation failures use `stay`, so neither cancels the other while it runs.
  * Failed changes are never replayed automatically: a disconnect or a model refresh may have partially completed,
- * and a sign-in code is passed again only through RetryFailed.
+ * and a source edit requires the user to submit its key again instead of RetryFailed.
  */
 public val EngineConnectionsMachineSpec:
     MachineSpec<EngineConnectionsState, EngineConnectionsIntent, EngineConnectionsEffect, EngineConnectionsOutput> =
@@ -195,7 +211,7 @@ public val EngineConnectionsMachineSpec:
             }
             on<EngineConnectionsIntent.Public.Apply>(
                 guard = {
-                    state.pending == null && state.snapshot != null &&
+                    state.pending == null && state.snapshot != null && intent.operation !is ConnectionOperation.Edit &&
                         state.snapshot.acceptsCheck(intent.operation)
                 },
             ) {
@@ -209,6 +225,18 @@ public val EngineConnectionsMachineSpec:
                     )
                 }
                 effect { state.execute(intent.operation) }
+            }
+            on<EngineConnectionsIntent.Public.Edit>(guard = { state.pending == null && state.snapshot != null }) {
+                stay {
+                    state.copy(
+                        pending = ConnectionOperation.Edit(intent.edit.binding),
+                        failed = null,
+                        operationSequence = state.operationSequence + 1,
+                        phase = ModelSavePhase.Saving,
+                        isSavePending = false,
+                    )
+                }
+                effect { state.edit(intent.edit) }
             }
             on<EngineConnectionsIntent.Internal.Checking>(
                 guard = { state.matches(intent.operation) && state.phase != null },
@@ -230,7 +258,8 @@ public val EngineConnectionsMachineSpec:
             }
             on<EngineConnectionsIntent.Public.RetryFailed>(
                 guard = {
-                    state.pending == null && state.failed != null && state.snapshot != null &&
+                    state.pending == null && state.failed != null &&
+                        state.failed?.operation !is ConnectionOperation.Edit && state.snapshot != null &&
                         state.failed?.operation?.let { state.snapshot.acceptsCheck(it) } == true
                 },
             ) {
@@ -264,6 +293,11 @@ public val EngineConnectionsMachineSpec:
                     error.toEngineFailure(),
                     effect.id,
                 )
+
+                is EngineConnectionsEffect.Edit -> EngineConnectionsIntent.Internal.ApplyFailed(
+                    error.toEngineFailure(),
+                    effect.id,
+                )
             }
         }
     }
@@ -275,6 +309,7 @@ private fun ConnectionOperation.modelPhase(): ModelSavePhase? = when (this) {
     is ConnectionOperation.SetModelEnabled,
     is ConnectionOperation.SetModelsEnabled,
     is ConnectionOperation.SetDefaultModel,
+    is ConnectionOperation.Edit,
     -> ModelSavePhase.Saving
 
     is ConnectionOperation.CheckModel -> ModelSavePhase.Checking

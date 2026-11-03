@@ -19,12 +19,17 @@ internal class FakeModelChecks : ModelChecks {
     override suspend fun saveAndCheck(
         targets: Set<EngineTarget>,
         onSaved: suspend () -> Unit,
+        onFinished: () -> Unit,
         save: suspend () -> ModelSelection,
     ): ModelCheckBatchResult<ModelSelection> {
         started += targets
-        val saved = save()
-        onSaved()
-        return result ?: ModelCheckBatchResult.Completed(saved, emptyList())
+        return try {
+            val saved = save()
+            onSaved()
+            result ?: ModelCheckBatchResult.Completed(saved, emptyList())
+        } finally {
+            onFinished()
+        }
     }
     override fun revoke(targets: Set<EngineTarget>) {
         revoked += targets

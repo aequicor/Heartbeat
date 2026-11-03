@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.BindingCheck
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
@@ -126,6 +127,7 @@ internal class FakeEngineFacade : EngineFacade {
     var discoverGate: CompletableDeferred<Unit>? = null
     var disconnectFailure: Exception? = null
     var disconnectCleanupFailure: Exception? = null
+    var editSource: (suspend (ConnectionEdit, (AuthSource) -> Unit) -> Unit)? = null
     val calls = mutableListOf<String>()
 
     override val engines: EngineCatalog = object : EngineCatalog {
@@ -142,6 +144,11 @@ internal class FakeEngineFacade : EngineFacade {
 
     override val bindings: EngineBindings = object : EngineBindings {
         override val state: StateFlow<List<EngineBinding>> = bindingsState
+
+        override suspend fun edit(edit: ConnectionEdit, onSaved: (AuthSource) -> Unit) {
+            calls += "edit"
+            requireNotNull(editSource)(edit, onSaved)
+        }
 
         override suspend fun connect(engine: EngineId, source: AuthSourceId, priority: Int): EngineBinding {
             calls += "connect"
@@ -190,8 +197,13 @@ internal class FakeEngineFacade : EngineFacade {
 internal class FakeAuthSources : AuthSources {
     override val state = MutableStateFlow(emptyList<AuthSource>())
     val forgotten = mutableListOf<AuthSourceId>()
+    var currentOverride: AuthSource? = null
+    var failingSource: AuthSourceId? = null
 
-    override suspend fun get(id: AuthSourceId): AuthSource? = state.value.firstOrNull { it.info.id == id }
+    override suspend fun get(id: AuthSourceId): AuthSource? {
+        check(id != failingSource) { "source unavailable" }
+        return currentOverride?.takeIf { it.info.id == id } ?: state.value.firstOrNull { it.info.id == id }
+    }
 
     override suspend fun addManagedKey(label: String, scope: AuthScope, key: Secret): AuthSource.ManagedKey {
         key.reveal { check(it.isNotEmpty()) }

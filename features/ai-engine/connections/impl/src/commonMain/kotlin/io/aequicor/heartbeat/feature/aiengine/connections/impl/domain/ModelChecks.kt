@@ -13,6 +13,7 @@ internal interface ModelChecks {
     suspend fun saveAndCheck(
         targets: Set<EngineTarget>,
         onSaved: suspend () -> Unit = {},
+        onFinished: () -> Unit = {},
         save: suspend () -> ModelSelection,
     ): ModelCheckBatchResult<ModelSelection>
     fun revoke(targets: Set<EngineTarget>)

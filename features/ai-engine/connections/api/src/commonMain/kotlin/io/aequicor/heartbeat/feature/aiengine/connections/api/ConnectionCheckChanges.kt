@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.api
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -37,6 +38,7 @@ internal fun EngineConnectionsState.Active.execute(operation: ConnectionOperatio
 
         is ConnectionOperation.CheckModel -> setOf(operation.target)
 
+        is ConnectionOperation.Edit,
         is ConnectionOperation.ProbeEngine,
         is ConnectionOperation.SetConnectionEnabled,
         is ConnectionOperation.Disconnect,
@@ -51,6 +53,7 @@ internal fun EngineConnectionsState.Active.execute(operation: ConnectionOperatio
             (operation.previous ?: snapshot.selection.enabled(operation.binding)) - operation.models,
         )
 
+        is ConnectionOperation.Edit,
         is ConnectionOperation.ProbeEngine,
         is ConnectionOperation.SetConnectionEnabled,
         is ConnectionOperation.Disconnect,
@@ -60,6 +63,15 @@ internal fun EngineConnectionsState.Active.execute(operation: ConnectionOperatio
         -> emptySet()
     }
     return EngineConnectionsEffect.Execute(operation, ConnectionOperationId(operationSequence + 1), targets, removed)
+}
+
+internal fun EngineConnectionsState.Active.edit(request: ConnectionEdit): EngineConnectionsEffect.Edit {
+    val snapshot = requireNotNull(snapshot)
+    val source = request.expected.info.id
+    val related = snapshot.engines.asSequence().flatMap { it.bindings }
+        .filter { it.authSource == source }.map { it.id }.toSet()
+    val targets = related.flatMap { binding -> snapshot.targets(binding, snapshot.selection.enabled(binding)) }.toSet()
+    return EngineConnectionsEffect.Edit(request, ConnectionOperationId(operationSequence + 1), targets, related)
 }
 
 private fun ConnectionsSnapshot.targets(binding: EngineBindingId, models: Set<ModelId>): Set<EngineTarget> {

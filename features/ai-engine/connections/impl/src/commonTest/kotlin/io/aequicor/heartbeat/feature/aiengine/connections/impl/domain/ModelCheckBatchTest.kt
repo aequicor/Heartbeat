@@ -121,6 +121,36 @@ class ModelCheckBatchTest {
     }
 
     @Test
+    fun `worker keeps its resource until an accepted save settles after timeout`() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var closed = false
+        val executor = ModelCheckBatch(
+            backgroundScope,
+            ModelCheckProbes(IsolatedPrompts { error("Late save must not probe") }),
+            testScheduler.timeSource,
+        )
+        val result = async {
+            executor.execute(
+                request(save = {
+                    entered.complete(Unit)
+                    release.await()
+                    assertFalse(closed)
+                    "saved"
+                }).copy(onFinished = { closed = true }),
+            )
+        }
+        entered.await()
+        advanceTimeBy(5000)
+        runCurrent()
+        assertIs<ModelCheckBatchResult.TimedOut<String>>(result.await())
+        assertFalse(closed)
+        release.complete(Unit)
+        runCurrent()
+        assertTrue(closed)
+    }
+
+    @Test
     fun `pending adapter cleanup cannot extend the UI deadline`() = runTest {
         val entered = CompletableDeferred<Unit>()
         val cleanup = CompletableDeferred<Unit>()

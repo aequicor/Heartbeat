@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.claudeManagement
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -47,6 +48,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.scopeFor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
@@ -70,6 +72,38 @@ class ConnectionEffectsTest {
     private val settings = EngineConnectionsEffects(services, selections, FakeModelChecks())
     private val wizardScope = RecordingScope<ConnectWizardIntent>()
     private val settingsScope = RecordingScope<EngineConnectionsIntent>()
+
+    @Test
+    fun `editing revokes existing checks and closes the key after saving`() = runTest {
+        val checks = FakeModelChecks()
+        val effects = EngineConnectionsEffects(services, selections, checks)
+        val initial = Secret("old".toCharArray())
+        val source = sources.addManagedKey("Work", ApiKeyMethod.scopeFor(), initial)
+        initial.close()
+        val binding = facade.bindings.connect(KoogId, source.info.id)
+        val key = Secret("new".toCharArray())
+        val request = ConnectionEdit(binding.id, ApiKeyMethod.id, source, "Work", ApiKeyMethod.origin, key = key)
+        facade.editSource = { edit, receipt ->
+            edit.key?.reveal { assertEquals("new", it.concatToString()) }
+            receipt(edit.expected)
+        }
+
+        effects.handle(
+            EngineConnectionsEffect.Edit(request, ConnectionOperationId(1), emptySet(), setOf(binding.id)),
+            settingsScope,
+        )
+
+        assertEquals(listOf(binding.id), checks.revokedBindings)
+        assertEquals(listOf(emptySet()), checks.started)
+        assertEquals(
+            listOf<EngineConnectionsIntent>(
+                EngineConnectionsIntent.Internal.Checking(ConnectionOperationId(1)),
+                EngineConnectionsIntent.Internal.Applied(ConnectionOperationId(1)),
+            ),
+            settingsScope.intents,
+        )
+        assertFailsWith<IllegalStateException> { key.reveal {} }
+    }
 
     @Test
     fun `closing settings cancels first use preparation during model refresh`() = runTest {
