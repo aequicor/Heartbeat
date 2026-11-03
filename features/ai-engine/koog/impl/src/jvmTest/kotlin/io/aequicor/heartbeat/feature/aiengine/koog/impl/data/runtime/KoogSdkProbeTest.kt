@@ -222,7 +222,12 @@ class KoogSdkProbeTest {
         )
         assertNotNull(ollama)
         assertNull(ollama.evidence.isBaselineConfirmed)
-        assertEquals(10, http.sessions.size)
+        assertEquals(true, assertIs<PartialKoogCandidate>(ollama).isWireConfirmed)
+        val expectedWire = sdkExchange(KoogProvider.Ollama, KoogSdkCheck.StreamStop)
+        assertEquals(expectedWire.body, http.lastBody)
+        assertEquals(expectedWire.method, http.lastMethod)
+        assertEquals(expectedWire.url, http.lastUrl)
+        assertEquals(11, http.sessions.size)
         ollama.close()
     }
 

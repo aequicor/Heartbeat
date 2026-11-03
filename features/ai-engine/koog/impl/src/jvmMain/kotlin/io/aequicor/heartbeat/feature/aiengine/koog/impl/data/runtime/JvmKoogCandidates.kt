@@ -27,8 +27,8 @@ import kotlin.time.TimeMark
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class JvmKoogCandidates(
-    offline: OfflineHttpClients,
-    platform: PlatformInfo,
+    private val offline: OfflineHttpClients,
+    private val platform: PlatformInfo,
     dispatchers: DispatcherProvider,
 ) : KoogCandidates {
     private val probe = KoogSdkProbe(offline, platform, dispatchers)
@@ -45,7 +45,13 @@ internal class JvmKoogCandidates(
         currentCoroutineContext().ensureActive()
         val native = nativeProbe.run(deadline, provider)
         currentCoroutineContext().ensureActive()
-        return PartialKoogCandidate(request, report, native)
+        val isWireConfirmed = if (provider == KoogProvider.Ollama) {
+            nativeProbe.runOllamaWire(deadline, offline, platform)
+        } else {
+            null
+        }
+        currentCoroutineContext().ensureActive()
+        return PartialKoogCandidate(request, report, native, isWireConfirmed)
     }
 }
 
@@ -53,6 +59,7 @@ internal class PartialKoogCandidate(
     override val request: EngineRuntimeCandidateRequest,
     report: KoogSdkReport,
     val native: KoogNativeReceipt? = null,
+    val isWireConfirmed: Boolean? = null,
 ) : EngineRuntimeCandidate {
     private val consumed = AtomicBoolean(false)
     private val hasRejectedProviderChecks = report.receipts.any {
@@ -66,7 +73,11 @@ internal class PartialKoogCandidate(
     override val evidence = EngineCompatibilityEvidence(
         identity = EngineCompatibilityIdentity(engine = KoogEngineId),
         // A conclusive SDK failure is a failed prerequisite. Success does not prove the whole baseline.
-        isBaselineConfirmed = if (hasRejectedProviderChecks || hasRejectedNativeChecks) false else null,
+        isBaselineConfirmed = if (hasRejectedProviderChecks || hasRejectedNativeChecks || isWireConfirmed == false) {
+            false
+        } else {
+            null
+        },
     )
 
     override suspend fun promote(expected: EngineCompatibilityStamp, deadline: TimeMark): EngineRuntimePromotion {

@@ -19,6 +19,7 @@ import io.ktor.client.request.isSseRequest
 import io.ktor.http.Headers
 import io.ktor.http.HttpProtocolVersion
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.OutgoingContent
 import io.ktor.util.date.GMTDate
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.InternalAPI
@@ -43,6 +44,9 @@ internal class SdkProbeHttpFixture : OfflineHttpClients {
     var isLeakingSdkJob = false
     var cleanupFailure: Exception? = null
     var isSdkCloseFailing = false
+    var lastBody: String? = null
+    var lastUrl: String? = null
+    var lastMethod: String? = null
     val entered = CompletableDeferred<Unit>()
     val cleanupAttempts = AtomicInteger()
 
@@ -55,6 +59,11 @@ internal class SdkProbeHttpFixture : OfflineHttpClients {
             dispatcher = this@SdkProbeHttpFixture.dispatcher
             addHandler { request ->
                 received.incrementAndGet()
+                lastUrl = request.url.toString()
+                lastMethod = request.method.value
+                var bodyContent = request.body
+                while (bodyContent is OutgoingContent.ContentWrapper) bodyContent = bodyContent.delegate()
+                lastBody = (bodyContent as? OutgoingContent.ByteArrayContent)?.bytes()?.decodeToString()
                 entered.complete(Unit)
                 if (isLeakingSdkJob) Job(engineJob.await())
                 val reply = exchange.response as? OfflineHttpResponse.Reply ?: awaitCancellation()

@@ -49,6 +49,7 @@ class KoogNativeProbeTest {
             false,
             PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, true, true, false)).evidence.isBaselineConfirmed,
         )
+        assertEquals(false, PartialKoogCandidate(request, sdk, isWireConfirmed = false).evidence.isBaselineConfirmed)
     }
 
     @Test

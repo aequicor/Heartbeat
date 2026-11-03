@@ -8,10 +8,12 @@ import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.message.Message
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.network.OfflineHttpClients
 import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.secrets.SecretKey
 import io.aequicor.heartbeat.core.secrets.SecretRemoval
@@ -93,6 +95,25 @@ internal class KoogNativeProbe(private val dispatchers: DispatcherProvider) {
             withContext(NonCancellable) { environment.close() }
         }
     }
+
+    /** Runs the real native session and SDK over a finite socket-free Ollama exchange. */
+    suspend fun runOllamaWire(deadline: TimeMark, offline: OfflineHttpClients, platform: PlatformInfo): Boolean =
+        withContext(dispatchers.io) {
+            val owner = offline.open(listOf(sdkExchange(KoogProvider.Ollama, KoogSdkCheck.StreamStop)))
+            try {
+                val environment = ProbeEnvironment(dispatchers, KoogProvider.Ollama)
+                try {
+                    withTimeout(-deadline.elapsedNow()) {
+                        val isSessionConfirmed = environment.exerciseWire(SdkKoogTransport(owner.client, platform))
+                        isSessionConfirmed && owner.progress().isComplete
+                    }
+                } finally {
+                    withContext(NonCancellable) { environment.close() }
+                }
+            } finally {
+                withContext(NonCancellable) { owner.closeAndAwait() }
+            }
+        }
 }
 
 private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogProvider) {
@@ -174,6 +195,42 @@ private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogPr
             records.values[ref]?.lastTurn?.outcome == TurnOutcome.Unknown
         recovered.close()
         return KoogNativeReceipt(isSent && isTranscript, isResumed, isCancelled, isRecovered)
+    }
+
+    suspend fun exerciseWire(wire: KoogTransport): Boolean {
+        val wireAccess = KoogAccess(
+            ProbeConnections(KoogConnection(binding, source)),
+            ProbeSecrets,
+            ProbeToggles,
+            profile,
+            wire,
+            KoogReasoningLevels(ProbeReasoning(), ProbeCatalog, ProbeToggles),
+            KoogContextWindows(),
+        )
+        val wireRuntime = KoogRuntime(
+            identity,
+            wireAccess,
+            records,
+            profile.coroutineScope,
+            KoogSessionCache(profile),
+            ProbeSearch,
+            KoogWorkspaces { null },
+        )
+        try {
+            val wireTarget = target.copy(model = ModelId(SDK_PROBE_MODEL))
+            val session = wireRuntime.create(CreateSessionRequest(wireTarget))
+            val request = PromptRequest(RequestId("wire"), listOf(ContentPart.Text(SDK_PROBE_TEXT)))
+            val turn = session.features.require(SendsPrompts).send(request)
+            val state = session.state.first { it is ActiveSessionState.Ready && it.lastTurn?.id == turn }
+            val messages = session.features.require(SessionHistory).page().items.filterIsInstance<SessionItem.Message>()
+            return (state as ActiveSessionState.Ready).lastTurn?.outcome == TurnOutcome.Completed &&
+                messages.map { it.role to it.parts } == listOf(
+                    MessageRole.User to listOf(ContentPart.Text(SDK_PROBE_TEXT)),
+                    MessageRole.Assistant to listOf(ContentPart.Text(SDK_PROBE_TEXT)),
+                )
+        } finally {
+            withContext(NonCancellable) { wireRuntime.close() }
+        }
     }
 
     suspend fun close() {
