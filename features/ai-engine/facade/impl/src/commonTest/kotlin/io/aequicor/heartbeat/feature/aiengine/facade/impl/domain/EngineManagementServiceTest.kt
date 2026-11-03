@@ -201,6 +201,25 @@ class EngineManagementServiceTest {
     }
 
     @Test
+    fun `launch snapshot reads saved settings without inspecting or starting an engine`() = runTest {
+        val saved = LaunchSettings(executable = "/opt/old")
+        preferences.update { it.copy(launch = mapOf(cliId to saved)) }
+        val service = service()
+        runCurrent()
+
+        val snapshot = service.snapshotLaunchSettings(cliId)
+
+        assertEquals(saved, snapshot.settings)
+        assertTrue(manager.inspected.isEmpty())
+        assertEquals(0, manager.compatibilityChecks)
+        assertEquals(0, manager.loginChecks)
+        assertEquals(0, runtimes.prunes)
+        assertTrue(catalog.refreshes.isEmpty())
+        service.configureIfUnchanged(cliId, snapshot, saved.copy(executable = "/opt/new")) { }
+        assertEquals("/opt/new", preferences.load().launch[cliId]?.executable)
+    }
+
+    @Test
     fun `candidate inspection rejects substitution and stale snapshots`() = runTest {
         val service = service()
         runCurrent()

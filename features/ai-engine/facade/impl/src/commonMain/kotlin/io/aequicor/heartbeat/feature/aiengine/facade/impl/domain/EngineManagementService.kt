@@ -196,6 +196,17 @@ class EngineManagementService(
         }
     }
 
+    override suspend fun snapshotLaunchSettings(engine: EngineId): LaunchSettingsSnapshot {
+        val lock = inspectionLocks[engine] ?: refuse("unknown engine=${engine.value}")
+        return lock.withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            current.requireAction(EngineActionKind.Configure)
+            val settings = preferences.load().launchOf(engine).detached()
+            LaunchSettingsSnapshot(settings, launchTokens.getValue(engine).forSettings(settings))
+        }
+    }
+
     override suspend fun inspectCandidate(
         engine: EngineId,
         expected: LaunchSettingsSnapshot,
@@ -358,9 +369,6 @@ class EngineManagementService(
         observed?.value != null -> observed.value.decision.status
         else -> Compatibility.Unknown
     }
-
-    private fun hasRunnableInstallation(installation: Installation?): Boolean =
-        installation != null && installation.source != InstallSource.Missing && installation.isRunnable
 
     private fun permitsFollowingInspection(observed: Bounded<EngineCompatibilityObservation?>?): Boolean =
         observed?.value?.decision?.isBaselineAllowed == true && observed.failure == null
@@ -533,27 +541,6 @@ class EngineManagementService(
         }
     }
 
-    private fun changedLaunch(): Nothing = throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
-
-    private fun LaunchSettings.detached(): LaunchSettings = copy(
-        configOverrides = configOverrides.toList(),
-        environment = environment.toList(),
-    )
-
-    private class LaunchToken(val settings: LaunchSettings) : LaunchSettingsToken
-
-    private class LaunchTokenSlot {
-        var value: LaunchToken? = null
-            private set
-
-        fun invalidate() {
-            value = null
-        }
-
-        fun forSettings(settings: LaunchSettings): LaunchToken = value?.takeIf { it.settings == settings }
-            ?: LaunchToken(settings).also { value = it }
-    }
-
     private suspend fun restart(engine: EngineId) {
         val outcome = runtimes.retire(engine)
         if (outcome.busy > 0) {
@@ -705,11 +692,6 @@ class EngineManagementService(
         )
     }
 
-    private fun defaultLogin(registration: EngineRegistration): LoginState = when (registration.management.login) {
-        LoginSupport.Cli, LoginSupport.CliWithDeviceCode -> LoginState.Unknown
-        LoginSupport.None, LoginSupport.Connections -> LoginState.NotApplicable
-    }
-
     /** Runs one adapter call off the main thread within a time limit; failures become recorded failures. */
     private suspend fun <T> bounded(what: String, block: suspend () -> T): Bounded<T> = try {
         withTimeoutOrNull(ADAPTER_TIMEOUT_MILLIS) { Bounded<T>(withContext(context.io) { block() }) }
@@ -801,6 +783,35 @@ class EngineManagementService(
     private companion object {
         const val ADAPTER_TIMEOUT_MILLIS = 15_000L
     }
+}
+
+private fun hasRunnableInstallation(installation: Installation?): Boolean =
+    installation != null && installation.source != InstallSource.Missing && installation.isRunnable
+
+private fun changedLaunch(): Nothing = throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+
+private fun LaunchSettings.detached(): LaunchSettings = copy(
+    configOverrides = configOverrides.toList(),
+    environment = environment.toList(),
+)
+
+private fun defaultLogin(registration: EngineRegistration): LoginState = when (registration.management.login) {
+    LoginSupport.Cli, LoginSupport.CliWithDeviceCode -> LoginState.Unknown
+    LoginSupport.None, LoginSupport.Connections -> LoginState.NotApplicable
+}
+
+private class LaunchToken(val settings: LaunchSettings) : LaunchSettingsToken
+
+private class LaunchTokenSlot {
+    var value: LaunchToken? = null
+        private set
+
+    fun invalidate() {
+        value = null
+    }
+
+    fun forSettings(settings: LaunchSettings): LaunchToken = value?.takeIf { it.settings == settings }
+        ?: LaunchToken(settings).also { value = it }
 }
 
 /** Connections that use an engine's CLI login; after a sign-in they refresh their source revision. */

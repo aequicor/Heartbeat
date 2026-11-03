@@ -44,6 +44,13 @@ public interface EngineManagement {
         throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
 
     /**
+     * Reads a conditional-write snapshot of saved launch settings without inspecting or starting an installation.
+     * The token has the same owner, engine and invalidation rules as [EngineInspection.savedLaunch].
+     */
+    public suspend fun snapshotLaunchSettings(engine: EngineId): LaunchSettingsSnapshot =
+        throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+
+    /**
      * Restricted inspection of an explicitly selected installation without changing saved launch settings. The
      * [expected] snapshot must still be current. [candidate] may change only executable, runtime and host version;
      * other launch settings are never supplied to the probe. Null means the adapter cannot safely inspect it.
