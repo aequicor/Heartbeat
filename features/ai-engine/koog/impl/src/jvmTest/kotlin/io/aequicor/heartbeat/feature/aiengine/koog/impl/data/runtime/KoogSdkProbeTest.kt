@@ -181,6 +181,7 @@ class KoogSdkProbeTest {
         )
         assertNotNull(openai)
         assertNull(openai.evidence.isBaselineConfirmed)
+        assertEquals(KoogNativeReceipt(true, true, true), assertIs<PartialKoogCandidate>(openai).native)
         assertEquals(5, http.sessions.size)
         openai.close()
 
@@ -208,7 +209,7 @@ class KoogSdkProbeTest {
                 KoogSdkReceipt(KoogProvider.Ollama, KoogSdkCheck.StreamStop, KoogSdkOutcome.Rejected),
             ),
         )
-        assertNull(SdkOnlyKoogCandidate(request, report).evidence.isBaselineConfirmed)
+        assertNull(PartialKoogCandidate(request, report).evidence.isBaselineConfirmed)
     }
 
     @Test
@@ -225,7 +226,7 @@ class KoogSdkProbeTest {
                     KoogSdkCheck.entries.map { KoogSdkReceipt(provider, it, outcome) }
                 },
             )
-            val candidate = SdkOnlyKoogCandidate(request, report)
+            val candidate = PartialKoogCandidate(request, report)
             assertSame(request, candidate.request)
             assertEquals(
                 if (outcome == KoogSdkOutcome.Rejected) false else null,

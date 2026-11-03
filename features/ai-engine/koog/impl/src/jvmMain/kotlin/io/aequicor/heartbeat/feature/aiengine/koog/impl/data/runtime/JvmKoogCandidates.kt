@@ -23,7 +23,7 @@ import kotlinx.coroutines.ensureActive
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.TimeMark
 
-/** Restricted, non-promoting candidate until native-session and loaded-classpath proofs have been implemented. */
+/** Restricted, non-promoting candidate until the full behavioral baseline and loaded-classpath proofs exist. */
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class JvmKoogCandidates(
@@ -32,6 +32,7 @@ internal class JvmKoogCandidates(
     dispatchers: DispatcherProvider,
 ) : KoogCandidates {
     private val probe = KoogSdkProbe(offline, platform, dispatchers)
+    private val nativeProbe = KoogNativeProbe(dispatchers)
 
     override suspend fun open(request: EngineRuntimeCandidateRequest, deadline: TimeMark): EngineRuntimeCandidate? {
         currentCoroutineContext().ensureActive()
@@ -42,20 +43,27 @@ internal class JvmKoogCandidates(
         }
         val report = probe.run(deadline, listOf(provider))
         currentCoroutineContext().ensureActive()
-        return SdkOnlyKoogCandidate(request, report)
+        val native = nativeProbe.run(deadline, provider)
+        currentCoroutineContext().ensureActive()
+        return PartialKoogCandidate(request, report, native)
     }
 }
 
-internal class SdkOnlyKoogCandidate(override val request: EngineRuntimeCandidateRequest, report: KoogSdkReport) :
-    EngineRuntimeCandidate {
+internal class PartialKoogCandidate(
+    override val request: EngineRuntimeCandidateRequest,
+    report: KoogSdkReport,
+    val native: KoogNativeReceipt? = null,
+) : EngineRuntimeCandidate {
     private val consumed = AtomicBoolean(false)
     private val hasRejectedProviderChecks = report.receipts.any {
         it.provider.id == request.provider && it.outcome == KoogSdkOutcome.Rejected
     }
+    private val hasRejectedNativeChecks = native != null &&
+        (!native.isCreateAndSendConfirmed || !native.isHistoryAndResumeConfirmed || !native.isCancellationConfirmed)
     override val evidence = EngineCompatibilityEvidence(
         identity = EngineCompatibilityIdentity(engine = KoogEngineId),
         // A conclusive SDK failure is a failed prerequisite. Success does not prove the whole baseline.
-        isBaselineConfirmed = if (hasRejectedProviderChecks) false else null,
+        isBaselineConfirmed = if (hasRejectedProviderChecks || hasRejectedNativeChecks) false else null,
     )
 
     override suspend fun promote(expected: EngineCompatibilityStamp, deadline: TimeMark): EngineRuntimePromotion {
