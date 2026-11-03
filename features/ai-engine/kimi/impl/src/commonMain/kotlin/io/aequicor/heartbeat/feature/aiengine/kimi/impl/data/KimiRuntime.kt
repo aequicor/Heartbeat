@@ -43,6 +43,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
@@ -81,6 +82,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeModelDiscovery
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -96,6 +98,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -126,12 +129,14 @@ internal class KimiRuntime(
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
+    RuntimeModelDiscovery,
     AcpClientHandler {
     private val providerUsage = KimiProviderUsage(fetchProviderUsage) { toggles.get(EngineUsageEnabled) }
     override val features = KimiFeatures(
         CreatesSessions to this,
         AttachesSessions to this,
         ReportsProviderUsage to providerUsage,
+        RuntimeModelDiscovery to this,
     )
     private val sessions = MutableStateFlow<Map<String, KimiSession>>(emptyMap())
     private val mutex = Mutex()
@@ -179,10 +184,32 @@ internal class KimiRuntime(
         }
     }
 
-    suspend fun discoverCatalog(binding: EngineBindingId): KimiModelCatalog {
+    override suspend fun discover(binding: EngineBindingId): List<ModelInfo> =
+        discoverCatalog(binding).modelInfo(identity.engine, binding)
+
+    private suspend fun discoverCatalog(binding: EngineBindingId): KimiModelCatalog {
+        checkActive()
+        val sessionCapabilities = initialization.agentCapabilities["sessionCapabilities"] as? JsonObject
+        if (sessionCapabilities?.get("close") !is JsonObject) {
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
         val target = EngineTarget(identity.engine, binding, ModelId("catalog"))
-        val native = connection.newSession(directory(CreateSessionRequest(target)))
-        return kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
+        val cwd = directory(CreateSessionRequest(target))
+        return withContext(NonCancellable) {
+            var isClosed = false
+            try {
+                withTimeout(CATALOG_TIMEOUT_MS) {
+                    val native = connection.newSession(cwd)
+                    val catalog = kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
+                    connection.closeSession(native.sessionId)
+                    isClosed = true
+                    catalog
+                }
+            } finally {
+                // An unconfirmed session must not survive on a pooled connection.
+                if (!isClosed) withContext(NonCancellable) { close() }
+            }
+        }
     }
 
     private suspend fun configure(sessionId: String, metadata: JsonObject, target: EngineTarget) {
@@ -471,6 +498,8 @@ internal class KimiRuntime(
         }
     }
 }
+
+private const val CATALOG_TIMEOUT_MS = 10_000L
 
 /** Metadata reads never require or start a live runtime. The facade supplies route-checked resumption. */
 internal class KimiStoredSession(ref: SessionRef) : EngineSession {
