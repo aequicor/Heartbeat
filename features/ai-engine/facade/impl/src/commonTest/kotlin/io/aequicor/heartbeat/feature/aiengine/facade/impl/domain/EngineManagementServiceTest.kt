@@ -95,6 +95,7 @@ class EngineManagementServiceTest {
     private val builtInId = EngineId("builtin")
     private val mobileId = EngineId("mobile")
     private val manager = FakeManager()
+    private val cliFactory = FakeEngineFactory().apply { runtimeRequirements = observation().requirements }
     private val cliSpec = ManagementSpec(
         InstallSupport.Managed,
         LoginSupport.Cli,
@@ -103,7 +104,8 @@ class EngineManagementServiceTest {
     )
     private val registry = EngineRegistry(
         listOf(
-            registration(id = cliId, owner = AuthOwnerId("cli")).withManagement(cliSpec, manager),
+            registration(factory = cliFactory, id = cliId, owner = AuthOwnerId("cli"))
+                .withManagement(cliSpec, manager),
             registration(id = builtInId, owner = AuthOwnerId("builtin")),
             registration(id = mobileId, owner = AuthOwnerId("mobile"), platforms = setOf(EnginePlatform.Android)),
         ),
@@ -177,6 +179,39 @@ class EngineManagementServiceTest {
     }
 
     @Test
+    fun `report cannot authorize login or availability without the registered policy`() = runTest {
+        cliFactory.runtimeRequirements = null
+        manager.installation = Installation(InstallSource.System, version = "1.2.0")
+        manager.observation = observation()
+        val service = service()
+        runCurrent()
+
+        val result = service.inspect(cliId)
+
+        assertEquals(Compatibility.Unknown, result.installation.compatibility)
+        assertNull(result.installation.compatibilityObservation)
+        assertEquals(LoginState.Unknown, result.login)
+        assertEquals(0, manager.loginChecks)
+        assertTrue(catalog.refreshes.isEmpty())
+    }
+
+    @Test
+    fun `report cannot relax the registered policy to authorize login`() = runTest {
+        cliFactory.runtimeRequirements = observation().requirements.copy(minimumRuntime = "2.0.0")
+        manager.installation = Installation(InstallSource.System, version = "1.2.0")
+        manager.observation = observation()
+        val service = service()
+        runCurrent()
+
+        val result = service.inspect(cliId)
+
+        assertEquals(Compatibility.Incompatible, result.installation.compatibility)
+        assertEquals(LoginState.Unknown, result.login)
+        assertEquals(0, manager.loginChecks)
+        assertTrue(catalog.refreshes.isEmpty())
+    }
+
+    @Test
     fun `candidate inspection uses isolated settings and never changes the saved choice`() = runTest {
         val original = LaunchSettings(environment = listOf(EnvironmentEntry("PRIVATE_VALUE", "secret")))
         preferences.update { it.copy(launch = mapOf(cliId to original)) }
@@ -197,6 +232,26 @@ class EngineManagementServiceTest {
             manager.candidates,
         )
         assertEquals(original, preferences.load().launch[cliId])
+        assertEquals(0, manager.loginChecks)
+    }
+
+    @Test
+    fun `candidate compatibility uses the registered policy rather than the report policy`() = runTest {
+        cliFactory.runtimeRequirements = observation().requirements.copy(minimumRuntime = "2.0.0")
+        val service = service()
+        runCurrent()
+        val snapshot = service.snapshotLaunchSettings(cliId)
+        val candidate = snapshot.settings.copy(executable = "/opt/candidate")
+        manager.candidate = EngineCandidateInspection(
+            cliId,
+            Installation(InstallSource.Custom, "1.2.0", "/opt/candidate"),
+            observation(),
+        )
+
+        val result = assertNotNull(service.inspectCandidate(cliId, snapshot, candidate))
+
+        assertEquals(Compatibility.Incompatible, result.compatibility?.decision?.status)
+        assertTrue(catalog.refreshes.isEmpty())
         assertEquals(0, manager.loginChecks)
     }
 

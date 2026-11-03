@@ -253,7 +253,10 @@ class EngineManagementService(
                 ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
             latest.requireAction(EngineActionKind.Configure)
             latest.requireAction(EngineActionKind.Inspect)
-            observation.value?.also { validateCandidate(engine, candidate, isolated.managed, it) }
+            observation.value?.let {
+                validateCandidate(engine, candidate, isolated.managed, it)
+                it.copy(compatibility = registeredCompatibility(registry, engine, it.installation, it.compatibility))
+            }
         }
     }
 
@@ -379,14 +382,7 @@ class EngineManagementService(
         installation: Installation,
         launch: LaunchContext,
     ): Bounded<EngineCompatibilityObservation?> = bounded("compatibility probe") {
-        manager.inspectCompatibility(installation, launch)?.also { report ->
-            val observedVersion = report.evidence.identity.runtime
-            val isVersionChanged = installation.version != null && observedVersion != null &&
-                installation.version != observedVersion
-            if (report.requirements.engine != engine || isVersionChanged) {
-                throw EngineException(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-            }
-        }
+        registeredCompatibility(registry, engine, installation, manager.inspectCompatibility(installation, launch))
     }
 
     private fun builtIn() = Inspection(

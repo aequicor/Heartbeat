@@ -1,14 +1,35 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCandidateInspection
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityObservation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+
+/** Evaluate reported facts against the independent policy of the registered runtime factory. */
+internal fun registeredCompatibility(
+    registry: EngineRegistry,
+    engine: EngineId,
+    installation: Installation,
+    report: EngineCompatibilityObservation?,
+): EngineCompatibilityObservation? {
+    if (report == null) return null
+    val observed = report.evidence.identity
+    val isWrongEngine = observed.engine != null && observed.engine != engine
+    val isWrongVersion = installation.version != null && observed.runtime != null &&
+        installation.version != observed.runtime
+    if (report.requirements.engine != engine || isWrongEngine || isWrongVersion) {
+        throw EngineException(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+    }
+    val policy = registry.require(engine).factory.value.runtimeRequirements ?: return null
+    return if (policy.engine == engine) EngineCompatibilityObservation(policy, report.evidence) else null
+}
 
 /** Refuses evidence for a different installation or engine; missing facts remain unknown. */
 internal fun validateCandidate(
