@@ -25,6 +25,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 import java.io.IOException
 import java.nio.channels.FileLock
 import java.nio.file.FileSystemException
@@ -324,7 +325,7 @@ internal class FileManagedInstallStore(
         val file = directory.resolve(name)
         if (!Files.exists(file)) return null
         return try {
-            RecordJson.decodeFromString(ActiveRecord.serializer(), Files.readString(file)).also { record ->
+            RecordJson.decodeFromString(serializer<ActiveRecord>(), Files.readString(file)).also { record ->
                 validateRecord(directory, record)
             }
         } catch (e: SerializationException) {
@@ -355,7 +356,7 @@ internal class FileManagedInstallStore(
         val temporary = destination.resolveSibling("${destination.fileName}.${Uuid.random().toHexString()}.tmp")
         storage {
             Files.createDirectories(destination.parent)
-            Files.writeString(temporary, RecordJson.encodeToString(ActiveRecord.serializer(), record))
+            Files.writeString(temporary, RecordJson.encodeToString(serializer<ActiveRecord>(), record))
             Files.move(
                 temporary,
                 destination,
