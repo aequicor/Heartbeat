@@ -46,8 +46,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -135,6 +137,37 @@ class ConnectionEffectsTest {
         assertEquals(listOf<EngineCommand>(EngineCommand.Inspect), management.commands)
         assertEquals(listOf("connect"), facade.calls)
         assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
+    }
+
+    @Test
+    fun `a stale host inspection cannot authorize a new connection after a timeout`() = runTest {
+        val stale = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val old = claudeManagement()
+        management.state.value = old.copy(engines = old.engines.map { it.copy(hostApp = stale) })
+        management.suppressInspections = true
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        val failure = assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        assertEquals(EngineFailure.Transport(TransportFailureReason.Timeout), failure.failure)
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertTrue(facade.calls.isEmpty())
+    }
+
+    @Test
+    fun `cancelling while inspection is unpublished creates no connection`() = runTest {
+        management.state.value = claudeManagement()
+        management.suppressInspections = true
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+        val job = launch {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        runCurrent()
+        job.cancelAndJoin()
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertTrue(facade.calls.isEmpty())
+        assertTrue(wizardScope.intents.isEmpty())
     }
 
     @Test

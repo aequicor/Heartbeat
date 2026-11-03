@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import kotlinx.coroutines.CancellationException
@@ -203,7 +204,7 @@ internal class ConnectWizardEffects(
         }
     }
 
-    /** Inspects the engine and waits (bounded) for management to publish that inspection; the last state otherwise. */
+    /** Waits boundedly for a changed inspection timestamp; concurrent inspections are not yet correlated. */
     private suspend fun inspect(engine: EngineId): ManagedEngine? {
         val management = services.management
         val before = management.state.value.engine(engine)?.installation?.checkedAt
@@ -215,7 +216,7 @@ internal class ConnectWizardEffects(
                 managed != null && managed.installation.checkedAt != before &&
                     (managed.spec.hostApp == null || managed.hostApp != null)
             }
-        } ?: management.state.value
+        } ?: throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
         return inspected.engine(engine)
     }
 

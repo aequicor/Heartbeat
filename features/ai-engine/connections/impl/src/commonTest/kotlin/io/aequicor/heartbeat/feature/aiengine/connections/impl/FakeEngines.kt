@@ -262,12 +262,14 @@ internal class FakeEngineManagement : EngineManagement {
 
     /** Publishes inspections later in this scope, like the real service's state flow; null publishes at once. */
     var publisher: CoroutineScope? = null
+    var suppressInspections: Boolean = false
     private var inspections = 0L
 
     override suspend fun execute(engine: EngineId, command: EngineCommand) {
         commands += command
         when (command) {
             EngineCommand.Inspect -> {
+                if (suppressInspections) return
                 val checkedAt = Instant.fromEpochSeconds(++inspections)
                 val publish = {
                     change(engine) {
