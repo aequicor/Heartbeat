@@ -37,6 +37,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -79,6 +80,7 @@ internal data class KoogNativeReceipt(
     val isCreateAndSendConfirmed: Boolean,
     val isHistoryAndResumeConfirmed: Boolean,
     val isCancellationConfirmed: Boolean,
+    val isRecoveryConfirmed: Boolean,
 )
 
 /** Exercises production session code against synthetic in-memory ports without a user profile or network. */
@@ -159,7 +161,19 @@ private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogPr
         val isCancelled = (state as ActiveSessionState.Ready).lastTurn?.outcome == TurnOutcome.Unknown &&
             transport.openExecutors.get() == 0
         resumed.close()
-        return KoogNativeReceipt(isSent && isTranscript, isResumed, isCancelled)
+        runtime.close()
+        val interrupted = requireNotNull(records.values[ref])
+        records.values[ref] = interrupted.copy(lastTurn = requireNotNull(interrupted.lastTurn).copy(outcome = null))
+        runtime = newRuntime()
+        val recovered = runtime.attach(ref, ResumeSessionRequest(target))
+        val recoveredPage = recovered.features.require(SessionHistory).page()
+        val recoveredTurn = (recovered.state.value as? ActiveSessionState.Ready)?.lastTurn
+        val isRecovered = recoveredTurn?.outcome == TurnOutcome.Unknown &&
+            recoveredPage.coverage == HistoryCoverage.Partial &&
+            recoveredPage.items == interrupted.items &&
+            records.values[ref]?.lastTurn?.outcome == TurnOutcome.Unknown
+        recovered.close()
+        return KoogNativeReceipt(isSent && isTranscript, isResumed, isCancelled, isRecovered)
     }
 
     suspend fun close() {

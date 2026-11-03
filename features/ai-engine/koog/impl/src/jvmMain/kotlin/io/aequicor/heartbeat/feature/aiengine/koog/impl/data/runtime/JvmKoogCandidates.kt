@@ -59,7 +59,10 @@ internal class PartialKoogCandidate(
         it.provider.id == request.provider && it.outcome == KoogSdkOutcome.Rejected
     }
     private val hasRejectedNativeChecks = native != null &&
-        (!native.isCreateAndSendConfirmed || !native.isHistoryAndResumeConfirmed || !native.isCancellationConfirmed)
+        (
+            !native.isCreateAndSendConfirmed || !native.isHistoryAndResumeConfirmed ||
+                !native.isCancellationConfirmed || !native.isRecoveryConfirmed
+        )
     override val evidence = EngineCompatibilityEvidence(
         identity = EngineCompatibilityIdentity(engine = KoogEngineId),
         // A conclusive SDK failure is a failed prerequisite. Success does not prove the whole baseline.

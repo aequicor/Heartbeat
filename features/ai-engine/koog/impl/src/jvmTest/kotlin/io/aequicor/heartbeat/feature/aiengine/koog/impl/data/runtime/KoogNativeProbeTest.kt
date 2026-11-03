@@ -25,7 +25,7 @@ class KoogNativeProbeTest {
                 TimeSource.Monotonic.markNow() + 10.seconds,
                 provider,
             )
-            assertEquals(KoogNativeReceipt(true, true, true), receipt, provider.name)
+            assertEquals(KoogNativeReceipt(true, true, true, true), receipt, provider.name)
         }
         assertEquals(emptyList(), fixture.sessions)
     }
@@ -38,10 +38,16 @@ class KoogNativeProbeTest {
             KoogProvider.OpenAI.id,
         )
         val sdk = KoogSdkReport(sdkBuildInputs(), emptyList())
-        assertNull(PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, true, true)).evidence.isBaselineConfirmed)
+        assertNull(
+            PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, true, true, true)).evidence.isBaselineConfirmed,
+        )
         assertEquals(
             false,
-            PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, false, true)).evidence.isBaselineConfirmed,
+            PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, false, true, true)).evidence.isBaselineConfirmed,
+        )
+        assertEquals(
+            false,
+            PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, true, true, false)).evidence.isBaselineConfirmed,
         )
     }
 
