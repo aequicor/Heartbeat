@@ -42,6 +42,28 @@ public interface EngineManagement {
      */
     public suspend fun inspect(engine: EngineId): EngineInspection =
         throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+
+    /**
+     * Saves [settings] only while [expected] still identifies the saved settings of this owner and engine.
+     * A concurrent configure, including an identical write, rejects the operation with Session.Changed. The
+     * [onSaved] callback receives the receipt synchronously after confirmed persistence, even if the caller is
+     * cancelled or later runtime retirement fails. A storage failure without a receipt has an unknown outcome and
+     * must not be compensated blindly. The callback must not throw or perform blocking work.
+     */
+    public suspend fun configureIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        settings: LaunchSettings,
+        onSaved: (LaunchSettingsSnapshot) -> Unit,
+    ): Unit = throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+}
+
+/** Opaque, profile-owner-scoped identity; it is not persisted or transferable to another owner. */
+public interface LaunchSettingsToken
+
+/** Saved settings and their opaque ownership token. Values may contain paths and must not be logged. */
+public data class LaunchSettingsSnapshot(public val settings: LaunchSettings, public val token: LaunchSettingsToken) {
+    override fun toString(): String = "LaunchSettingsSnapshot(***)"
 }
 
 /** Management of a host without the facade implementation; always [EngineManagementState.Off]. */
@@ -74,6 +96,8 @@ public data class EngineInspection(
     val login: LoginState,
     val launch: LaunchState,
     val hostApp: HostAppState? = null,
+    /** A conditional-write snapshot, when the implementation supports it. */
+    val savedLaunch: LaunchSettingsSnapshot? = null,
 ) {
     override fun toString(): String = "EngineInspection(engine=${engine.value})"
 }

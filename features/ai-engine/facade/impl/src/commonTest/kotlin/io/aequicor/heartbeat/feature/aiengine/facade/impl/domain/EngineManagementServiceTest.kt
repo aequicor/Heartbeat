@@ -41,6 +41,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
@@ -704,6 +705,283 @@ class EngineManagementServiceTest {
     private fun EngineManagementState.engine(id: EngineId): ManagedEngine = engines.single { it.descriptor.id == id }
 }
 
+class EngineManagementConditionalLaunchTest {
+    private val cliId = EngineId("cli")
+    private val builtInId = EngineId("builtin")
+    private val manager = FakeManager()
+    private val cliSpec = ManagementSpec(
+        InstallSupport.Managed,
+        LoginSupport.Cli,
+        LaunchSpec(setOf(LaunchOption.Executable, LaunchOption.Environment), reservedEnvironment = setOf("CLI_HOME")),
+        hasPackages = true,
+    )
+    private val registry = EngineRegistry(
+        listOf(
+            registration(id = cliId, owner = AuthOwnerId("cli")).withManagement(cliSpec, manager),
+            registration(id = builtInId, owner = AuthOwnerId("builtin")),
+        ),
+        EnginePlatform.DesktopMacOs,
+    )
+    private val flags = FakeFlags(registry)
+    private val preferences = MemoryEnginePreferences()
+    private val catalog = FakeCatalog()
+    private val bindings = MutableStateFlow(listOf(EngineBinding(EngineBindingId("b1"), cliId, AuthSourceId("s1"))))
+    private val runtimes = FakeRuntimes()
+    private val installs = FakeInstalls()
+
+    private fun TestScope.service(registry: EngineRegistry = this@EngineManagementConditionalLaunchTest.registry) =
+        EngineManagementService(
+            registry,
+            if (registry === this@EngineManagementConditionalLaunchTest.registry) flags else FakeFlags(registry),
+            preferences,
+            catalog,
+            bindings,
+            runtimes,
+            installs,
+            EngineLaunchConfig { LaunchContext() },
+            UnusedFeeds,
+            CliConnections { },
+            facadeContext(),
+        )
+
+    @Test
+    fun `conditional launch change and rollback preserve hidden MCP opt in`() = runTest {
+        val mcpSpec = cliSpec.copy(launch = cliSpec.launch.copy(options = cliSpec.launch.options + LaunchOption.Mcp))
+        val mcpRegistry = EngineRegistry(
+            listOf(registration(id = cliId, owner = AuthOwnerId("cli")).withManagement(mcpSpec, manager)),
+            EnginePlatform.DesktopMacOs,
+        )
+        val original = LaunchSettings(executable = "/old/cli", isMcpEnabled = true)
+        preferences.update { it.copy(launch = mapOf(cliId to original)) }
+        val service = service(mcpRegistry)
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        var receipt: LaunchSettingsSnapshot? = null
+        service.configureIfUnchanged(cliId, snapshot, original.copy(executable = "/new/cli")) { receipt = it }
+        assertEquals(original.copy(executable = "/new/cli"), preferences.load().launchOf(cliId))
+        service.configureIfUnchanged(cliId, assertNotNull(receipt), original) { }
+        assertEquals(original, preferences.load().launchOf(cliId))
+    }
+
+    @Test
+    fun `conditional writes reject stale snapshots even after an identical configure and ABA`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        service.execute(cliId, EngineCommand.Configure(snapshot.settings))
+        val error = assertFailsWith<EngineException> {
+            service.configureIfUnchanged(cliId, snapshot, LaunchSettings(executable = "/new")) { }
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), error.failure)
+
+        val second = assertNotNull(service.inspect(cliId).savedLaunch)
+        service.execute(cliId, EngineCommand.Configure(LaunchSettings(executable = "/other")))
+        service.execute(cliId, EngineCommand.Configure(second.settings))
+        assertFailsWith<EngineException> {
+            service.configureIfUnchanged(cliId, second, LaunchSettings(executable = "/new")) { }
+        }
+        assertEquals(second.settings, preferences.load().launchOf(cliId))
+    }
+
+    @Test
+    fun `an unchanged conditional write confirms the choice without retiring a runtime`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        manager.checked.clear()
+        var receipt: LaunchSettingsSnapshot? = null
+        service.configureIfUnchanged(cliId, snapshot, snapshot.settings) { receipt = it }
+        assertNotNull(receipt)
+        assertTrue(runtimes.retired.isEmpty())
+        assertTrue(manager.checked.isEmpty())
+        assertFailsWith<EngineException> {
+            service.configureIfUnchanged(cliId, snapshot, snapshot.settings) { }
+        }
+    }
+
+    @Test
+    fun `only one of two concurrent snapshots can commit`() = runTest {
+        val service = service()
+        runCurrent()
+        val first = assertNotNull(service.inspect(cliId).savedLaunch)
+        val second = assertNotNull(service.inspect(cliId).savedLaunch)
+        val gate = CompletableDeferred<Unit>()
+        preferences.beforeSave = { gate.await() }
+        val winner = async {
+            service.configureIfUnchanged(cliId, first, LaunchSettings(executable = "/winner")) { }
+        }
+        runCurrent()
+        val loser = async {
+            assertFailsWith<EngineException> {
+                service.configureIfUnchanged(cliId, second, LaunchSettings(executable = "/loser")) { }
+            }
+        }
+        runCurrent()
+        gate.complete(Unit)
+        winner.await()
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), loser.await().failure)
+        assertEquals("/winner", preferences.load().launchOf(cliId).executable)
+    }
+
+    @Test
+    fun `receipt permits rollback only until another configure and preserves neighboring preferences`() = runTest {
+        val service = service()
+        runCurrent()
+        val original = assertNotNull(service.inspect(cliId).savedLaunch)
+        preferences.update { it.copy(disabled = setOf(builtInId)) }
+        var receipt: LaunchSettingsSnapshot? = null
+        service.configureIfUnchanged(cliId, original, LaunchSettings(executable = "/new")) { receipt = it }
+        val committed = assertNotNull(receipt)
+        assertEquals(setOf(builtInId), preferences.load().disabled)
+        service.configureIfUnchanged(cliId, committed, original.settings) { receipt = it }
+        assertEquals(original.settings, preferences.load().launchOf(cliId))
+        service.execute(cliId, EngineCommand.Configure(LaunchSettings(executable = "/other")))
+        assertFailsWith<EngineException> {
+            service.configureIfUnchanged(cliId, assertNotNull(receipt), original.settings) { }
+        }
+        assertEquals("/other", preferences.load().launchOf(cliId).executable)
+    }
+
+    @Test
+    fun `conditional write checks stored settings inside the preferences transaction`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        val other = LaunchSettings(executable = "/external")
+        preferences.update { it.copy(launch = it.launch + (cliId to other)) }
+        var wasSaved = false
+        assertFailsWith<EngineException> {
+            service.configureIfUnchanged(cliId, snapshot, LaunchSettings(executable = "/new")) { wasSaved = true }
+        }
+        assertFalse(wasSaved)
+        assertEquals(other, preferences.load().launchOf(cliId))
+    }
+
+    @Test
+    fun `a token cannot be paired with another saved value or another owner`() = runTest {
+        val first = service()
+        val second = service()
+        runCurrent()
+        val snapshot = assertNotNull(first.inspect(cliId).savedLaunch)
+        val forged = LaunchSettingsSnapshot(LaunchSettings(executable = "/forged"), snapshot.token)
+        assertFailsWith<EngineException> {
+            first.configureIfUnchanged(cliId, forged, LaunchSettings(executable = "/new")) { }
+        }
+        assertFailsWith<EngineException> {
+            second.configureIfUnchanged(cliId, snapshot, LaunchSettings(executable = "/new")) { }
+        }
+        assertEquals(snapshot.settings, preferences.load().launchOf(cliId))
+    }
+
+    @Test
+    fun `modifying a returned snapshot cannot change the token or stored preferences`() = runTest {
+        val original = LaunchSettings(environment = listOf(EnvironmentEntry("ONE", "1"), EnvironmentEntry("TWO", "2")))
+        preferences.update { it.copy(launch = mapOf(cliId to original)) }
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        (snapshot.settings.environment as MutableList<EnvironmentEntry>).clear()
+        assertFailsWith<EngineException> {
+            service.configureIfUnchanged(cliId, snapshot, snapshot.settings) { }
+        }
+        assertEquals(original, preferences.load().launchOf(cliId))
+    }
+
+    @Test
+    fun `successful persistence reports receipt before retirement failure`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        runtimes.failure = IllegalStateException("retire failed")
+        var receipt: LaunchSettingsSnapshot? = null
+        assertFailsWith<IllegalStateException> {
+            service.configureIfUnchanged(cliId, snapshot, LaunchSettings(executable = "/new")) { receipt = it }
+        }
+        assertEquals("/new", assertNotNull(receipt).settings.executable)
+        assertEquals("/new", preferences.load().launchOf(cliId).executable)
+    }
+
+    @Test
+    fun `cancellation during persistence still delivers the confirmed receipt`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        val gate = CompletableDeferred<Unit>()
+        preferences.beforeSave = { gate.await() }
+        var receipt: LaunchSettingsSnapshot? = null
+        val job = launch {
+            service.configureIfUnchanged(cliId, snapshot, LaunchSettings(executable = "/new")) { receipt = it }
+        }
+        runCurrent()
+        job.cancel()
+        gate.complete(Unit)
+        job.join()
+        assertEquals("/new", assertNotNull(receipt).settings.executable)
+        assertEquals("/new", preferences.load().launchOf(cliId).executable)
+    }
+
+    @Test
+    fun `cancellation while waiting for the engine lock does not save`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        val gate = CompletableDeferred<Unit>()
+        manager.inspectionGate = gate
+        val inspection = launch { service.inspect(cliId) }
+        runCurrent()
+        var wasSaved = false
+        val job = launch {
+            service.configureIfUnchanged(cliId, snapshot, LaunchSettings(executable = "/new")) { wasSaved = true }
+        }
+        runCurrent()
+        job.cancelAndJoin()
+        gate.complete(Unit)
+        inspection.join()
+        assertFalse(wasSaved)
+        assertEquals(snapshot.settings, preferences.load().launchOf(cliId))
+    }
+
+    @Test
+    fun `cancellation after persistence does not lose the receipt`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        val gate = CompletableDeferred<Unit>()
+        manager.checkGate = gate
+        var receipt: LaunchSettingsSnapshot? = null
+        val job = launch {
+            service.configureIfUnchanged(cliId, snapshot, LaunchSettings(executable = "/new")) { receipt = it }
+        }
+        runCurrent()
+        assertEquals("/new", assertNotNull(receipt).settings.executable)
+        job.cancelAndJoin()
+        assertEquals("/new", preferences.load().launchOf(cliId).executable)
+        manager.checkGate = null
+        service.configureIfUnchanged(cliId, assertNotNull(receipt), snapshot.settings) { }
+        assertEquals(snapshot.settings, preferences.load().launchOf(cliId))
+    }
+
+    @Test
+    fun `ambiguous storage failure invalidates the snapshot without inventing a receipt`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        preferences.afterSave = { throw IllegalStateException("ambiguous storage outcome") }
+        var receipt: LaunchSettingsSnapshot? = null
+        assertFailsWith<IllegalStateException> {
+            service.configureIfUnchanged(cliId, snapshot, LaunchSettings(executable = "/new")) { receipt = it }
+        }
+        assertNull(receipt)
+        assertEquals("/new", preferences.load().launchOf(cliId).executable)
+        preferences.afterSave = {}
+        val conflict = assertFailsWith<EngineException> {
+            service.configureIfUnchanged(cliId, snapshot, snapshot.settings) { }
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), conflict.failure)
+        assertEquals("/new", preferences.load().launchOf(cliId).executable)
+    }
+}
+
 class EngineManagementExactInspectionTest {
     private val cliId = EngineId("cli")
     private val manager = FakeManager()
@@ -892,6 +1170,7 @@ private class FakeManager : EngineManager {
     var loginChecks = 0
     var compatibilityGate: CompletableDeferred<Unit>? = null
     var inspectionGate: CompletableDeferred<Unit>? = null
+    var checkGate: CompletableDeferred<Unit>? = null
 
     override fun compatibility(version: String): Compatibility = legacyCompatibility
 
@@ -944,7 +1223,11 @@ private class FakeManager : EngineManager {
         return login
     }
 
-    override suspend fun check(settings: LaunchSettings): List<LaunchProblem> = warnings.also { checked += settings }
+    override suspend fun check(settings: LaunchSettings): List<LaunchProblem> {
+        checked += settings
+        checkGate?.await()
+        return warnings
+    }
 
     override suspend fun resolveRelease(feeds: ReleaseFeeds): InstallPlan {
         releaseFailure?.let { throw it }

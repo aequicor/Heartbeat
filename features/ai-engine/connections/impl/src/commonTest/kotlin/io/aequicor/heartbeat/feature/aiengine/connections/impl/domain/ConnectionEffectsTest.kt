@@ -133,8 +133,11 @@ class ConnectionEffectsTest {
 
         wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
 
-        // Already on the host runtime: nothing to save, and the engine's availability is not probed first.
-        assertEquals(listOf<EngineCommand>(EngineCommand.Inspect), management.commands)
+        // Even an unchanged choice is checked atomically before accepting the connection.
+        assertEquals(
+            listOf(EngineCommand.Inspect, EngineCommand.Configure(LaunchSettings(runtime = RuntimePreference.HostApp))),
+            management.commands,
+        )
         assertEquals(listOf("connect"), facade.calls)
         assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
     }
@@ -231,7 +234,12 @@ class ConnectionEffectsTest {
         val saved = LaunchSettings(runtime = RuntimePreference.HostApp)
         val commands = management.commands.filterNot { it == EngineCommand.Inspect }
         assertEquals(
-            listOf(EngineCommand.Configure(saved), EngineCommand.Start(EngineAction.Login()), EngineCommand.Dismiss),
+            listOf(
+                EngineCommand.Configure(saved),
+                EngineCommand.Start(EngineAction.Login()),
+                EngineCommand.Dismiss,
+                EngineCommand.Configure(saved),
+            ),
             commands,
         )
         assertEquals(1, facade.bindingsState.value.size)

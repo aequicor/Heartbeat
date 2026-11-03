@@ -48,6 +48,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsToken
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
@@ -62,15 +64,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.time.Instant
 
 internal val OpenAi = ProviderInfo(ProviderId("openai"), "OpenAI", "https://platform.openai.com/api-keys")
@@ -239,8 +244,10 @@ internal class FakeModelSelections : ModelSelections {
 internal class RecordingScope<I : MachineIntent> : EffectScope<I> {
     val intents = mutableListOf<I>()
     var result: SendResult = SendResult.Accepted
+    var beforeSend: suspend () -> Unit = {}
 
     override suspend fun send(intent: I): SendResult {
+        beforeSend()
         intents += intent
         return result
     }
@@ -256,6 +263,9 @@ internal class FakeEngineManagement : EngineManagement {
     var inspectedHostApp: HostAppState? = null
     var inspectedLaunch: LaunchState? = null
     var configureFailure: EngineException? = null
+    var afterConfigure: suspend () -> Unit = {}
+    private class Token : LaunchSettingsToken
+    private var token = Token()
 
     /** The phase a started sign-in reaches; AwaitingCode stays until cancelled. */
     var loginPhase: JobPhase = JobPhase.Succeeded
@@ -278,6 +288,7 @@ internal class FakeEngineManagement : EngineManagement {
             current.login,
             inspectedLaunch ?: current.launch,
             inspectedHostApp,
+            LaunchSettingsSnapshot((inspectedLaunch ?: current.launch).settings, token),
         )
         val publish = {
             change(engine) { it.copy(hostApp = result.hostApp, installation = result.installation) }
@@ -289,6 +300,20 @@ internal class FakeEngineManagement : EngineManagement {
         return result
     }
 
+    override suspend fun configureIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        settings: LaunchSettings,
+        onSaved: (LaunchSettingsSnapshot) -> Unit,
+    ) {
+        if (expected.token !== token) throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        execute(engine, EngineCommand.Configure(settings))
+        withContext(NonCancellable) {
+            onSaved(LaunchSettingsSnapshot(settings, token))
+            afterConfigure()
+        }
+    }
+
     override suspend fun execute(engine: EngineId, command: EngineCommand) {
         if (command == EngineCommand.Inspect) {
             inspect(engine)
@@ -297,6 +322,7 @@ internal class FakeEngineManagement : EngineManagement {
         commands += command
         when (command) {
             is EngineCommand.Configure -> {
+                token = Token()
                 configureFailure?.let { throw it }
                 change(engine) { it.copy(launch = LaunchState(command.settings)) }
             }

@@ -30,6 +30,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsToken
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
@@ -51,6 +53,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import io.aequicor.heartbeat.feature.aiengine.facade.api.validateLaunchSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -109,6 +114,9 @@ class EngineManagementService(
 
     // Inspect and a launch change must never publish snapshots across each other; coordination is scoped per engine.
     private val inspectionLocks = registry.all.associate { it.descriptor.id to Mutex() }
+
+    // Accessed only under the corresponding inspection lock. Identity prevents ABA and cross-owner reuse.
+    private val launchTokens = registry.all.associate { it.descriptor.id to LaunchTokenSlot() }
 
     private val jobs = EngineJobs(
         registry,
@@ -189,19 +197,20 @@ class EngineManagementService(
 
     private suspend fun inspectCurrent(engine: ManagedEngine): EngineInspection {
         val id = engine.descriptor.id
+        val savedLaunch = preferences.load().launchOf(id)
         runtimes.prune()
         val registration = registry.require(id)
         val manager = registration.manager?.value
         val hasHostApp = registration.management.hostApp != null
         val inspectedLaunch = launch.context(id)
         val inspected = if (manager == null) builtIn() else inspectWith(id, manager, inspectedLaunch, hasHostApp)
-        if (launch.context(id) != inspectedLaunch) {
+        if (launch.context(id) != inspectedLaunch || preferences.load().launchOf(id) != savedLaunch) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
         }
         val isProbeAllowed = inspected.installation.compatibilityObservation?.decision?.isBaselineAllowed != false &&
             !inspected.isCompatibilityProbeFailed
         if (engine.enablement.isEnabled && isProbeAllowed) refreshAvailability(id)
-        if (launch.context(id) != inspectedLaunch) {
+        if (launch.context(id) != inspectedLaunch || preferences.load().launchOf(id) != savedLaunch) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
         }
         inspections.update { all ->
@@ -213,12 +222,15 @@ class EngineManagementService(
             all + (id to inspected.copy(installation = installation))
         }
         log.i { "engine inspected engine=${id.value} source=${inspected.installation.current?.source ?: "unknown"}" }
+        val tokenSlot = launchTokens.getValue(id)
+        val token = tokenSlot.forSettings(savedLaunch.detached())
         return EngineInspection(
             id,
             inspected.installation.copy(managed = inspectedLaunch.managed),
             inspected.login ?: LoginState.Unknown,
             LaunchState(inspectedLaunch.settings, inspected.warnings),
             inspected.hostApp,
+            LaunchSettingsSnapshot(savedLaunch.detached(), token),
         )
     }
 
@@ -328,28 +340,111 @@ class EngineManagementService(
     }
 
     private suspend fun configure(engine: ManagedEngine, settings: LaunchSettings) {
-        inspectionLocks.getValue(engine.descriptor.id).withLock { configureCurrent(engine, settings) }
+        val id = engine.descriptor.id
+        inspectionLocks.getValue(id).withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == id }
+                ?: refuse("engine management is off or the engine is unknown engine=${id.value}")
+            configureCurrent(current.requireAction(EngineActionKind.Configure), settings)
+        }
     }
 
-    private suspend fun configureCurrent(engine: ManagedEngine, settings: LaunchSettings) {
+    override suspend fun configureIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        settings: LaunchSettings,
+        onSaved: (LaunchSettingsSnapshot) -> Unit,
+    ) {
+        val lock = inspectionLocks[engine] ?: refuse("unknown engine=${engine.value}")
+        lock.withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            configureCurrent(current.requireAction(EngineActionKind.Configure), settings, expected, onSaved)
+        }
+    }
+
+    private suspend fun configureCurrent(
+        engine: ManagedEngine,
+        settings: LaunchSettings,
+        expected: LaunchSettingsSnapshot? = null,
+        onSaved: (LaunchSettingsSnapshot) -> Unit = {},
+    ) {
         val id = engine.descriptor.id
-        val problems = validateLaunchSettings(settings, engine.spec.launch, registry.platform)
+        val desired = settings.detached()
+        val expectedSettings = expected?.settings?.detached()
+        val slot = launchTokens.getValue(id)
+        if (expected != null && (expected.token !== slot.value || slot.value?.settings != expectedSettings)) {
+            changedLaunch()
+        }
+        // Invalidate even an identical write or a storage failure with an indeterminate outcome.
+        slot.invalidate()
+        val (checkedSettings, isMcpPreserved) = validateLaunchChange(engine, desired, expectedSettings)
+        currentCoroutineContext().ensureActive()
+        val isChanged = persistLaunch(id, desired, expectedSettings, isMcpPreserved, onSaved)
+        if (!isChanged) return
+        val manager = registry.require(id).manager?.value
+        val warnings = if (manager == null) {
+            emptyList()
+        } else {
+            bounded("launch check") { manager.check(checkedSettings) }.value
+        }
+        log.i { "launch check finished engine=${id.value} warnings=${warnings?.size ?: 0}" }
+        inspections.update { all -> all + (id to (all[id] ?: Inspection()).copy(warnings = warnings.orEmpty())) }
+        runtimes.retire(id)
+    }
+
+    private fun validateLaunchChange(
+        engine: ManagedEngine,
+        desired: LaunchSettings,
+        expected: LaunchSettings?,
+    ): Pair<LaunchSettings, Boolean> {
+        val id = engine.descriptor.id
+        val isMcpPreserved = LaunchOption.Mcp !in engine.spec.launch.options &&
+            LaunchOption.Mcp in registry.require(id).management.launch.options
+        val checkedSettings = if (isMcpPreserved) desired.copy(isMcpEnabled = false) else desired
+        val validationSettings = if (isMcpPreserved && expected?.isMcpEnabled == true) {
+            checkedSettings
+        } else {
+            desired
+        }
+        val problems = validateLaunchSettings(validationSettings, engine.spec.launch, registry.platform)
         if (problems.isNotEmpty()) {
             log.w { "launch settings rejected engine=${id.value} problems=${problems.size}" }
             throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid))
         }
-        // A hidden rollout control must not erase the saved opt-in while another launch field is edited.
-        val isMcpPreserved = LaunchOption.Mcp !in engine.spec.launch.options &&
-            LaunchOption.Mcp in registry.require(id).management.launch.options
-        val saved = preferences.update { chosen ->
-            val updated = if (isMcpPreserved) {
-                settings.copy(isMcpEnabled = chosen.launchOf(id).isMcpEnabled)
-            } else {
-                settings
-            }
-            chosen.copy(launch = chosen.launch + (id to updated))
-        }.launchOf(id)
+        return checkedSettings to isMcpPreserved
+    }
+
+    private suspend fun persistLaunch(
+        id: EngineId,
+        desired: LaunchSettings,
+        expected: LaunchSettings?,
+        isMcpPreserved: Boolean,
+        onSaved: (LaunchSettingsSnapshot) -> Unit,
+    ): Boolean {
+        val slot = launchTokens.getValue(id)
+        var isChanged = false
+        val saved = withContext(NonCancellable) {
+            val persisted = preferences.update { chosen ->
+                if (expected != null && chosen.launchOf(id) != expected) changedLaunch()
+                val updated = if (isMcpPreserved) {
+                    desired.copy(isMcpEnabled = chosen.launchOf(id).isMcpEnabled)
+                } else {
+                    desired
+                }
+                isChanged = updated != chosen.launchOf(id)
+                chosen.copy(launch = chosen.launch + (id to updated))
+            }.launchOf(id)
+            if (isChanged) invalidateInspection(id)
+            val nextToken = slot.forSettings(persisted.detached())
+            onSaved(LaunchSettingsSnapshot(persisted.detached(), nextToken))
+            persisted
+        }
         log.i { "launch settings saved engine=${id.value} isDefault=${saved.isDefault}" }
+        return isChanged
+    }
+
+    private fun invalidateInspection(id: EngineId) {
+        log.i { "launch inspection invalidated engine=${id.value}" }
         inspections.update { all ->
             val previous = all[id]
             if (previous == null) {
@@ -371,10 +466,27 @@ class EngineManagementService(
                 )
             }
         }
-        val manager = registry.require(id).manager?.value
-        val warnings = if (manager == null) emptyList() else bounded("launch check") { manager.check(settings) }.value
-        inspections.update { all -> all + (id to (all[id] ?: Inspection()).copy(warnings = warnings.orEmpty())) }
-        runtimes.retire(id)
+    }
+
+    private fun changedLaunch(): Nothing = throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+
+    private fun LaunchSettings.detached(): LaunchSettings = copy(
+        configOverrides = configOverrides.toList(),
+        environment = environment.toList(),
+    )
+
+    private class LaunchToken(val settings: LaunchSettings) : LaunchSettingsToken
+
+    private class LaunchTokenSlot {
+        var value: LaunchToken? = null
+            private set
+
+        fun invalidate() {
+            value = null
+        }
+
+        fun forSettings(settings: LaunchSettings): LaunchToken = value?.takeIf { it.settings == settings }
+            ?: LaunchToken(settings).also { value = it }
     }
 
     private suspend fun restart(engine: EngineId) {
