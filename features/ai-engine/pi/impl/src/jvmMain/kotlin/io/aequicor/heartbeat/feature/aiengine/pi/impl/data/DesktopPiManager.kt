@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
@@ -14,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineCandidateInspector
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
@@ -26,14 +28,19 @@ import java.nio.file.Path
  */
 @Inject
 @SingleIn(ProfileScope::class)
-@ContributesBinding(ProfileScope::class)
+@ContributesBinding(ProfileScope::class, binding = binding<PiEngineManager>())
 internal class DesktopPiManager(private val processes: PiProcessLauncher, private val dispatchers: DispatcherProvider) :
-    PiEngineManager {
+    PiEngineManager,
+    EngineCandidateInspector {
     private val log = Log.tag("PiManager")
 
     /** The bundled version last read; [compatibility] compares against it. */
     @Volatile
     private var bundled: String? = null
+
+    /** File metadata only: no process or user configuration is opened and compatibility remains unknown. */
+    override suspend fun inspectCandidate(launch: LaunchContext) =
+        withContext(dispatchers.io) { inspectPiCandidateMetadata(launch) }
 
     override suspend fun inspect(launch: LaunchContext): Installation = withContext(dispatchers.io) {
         val startup = processes.startup(launch)
