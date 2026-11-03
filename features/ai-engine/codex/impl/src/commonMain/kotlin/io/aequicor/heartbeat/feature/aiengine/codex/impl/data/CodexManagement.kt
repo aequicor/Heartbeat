@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubDownloadHosts
@@ -42,7 +43,8 @@ internal val CodexManagementSpec = ManagementSpec(
     install = InstallSupport.Managed,
     login = LoginSupport.CliWithDeviceCode,
     launch = LaunchSpec(
-        options = LaunchOption.entries.toSet() - LaunchOption.Runtime,
+        options = LaunchOption.entries.toSet(),
+        runtimes = setOf(RuntimePreference.Managed, RuntimePreference.System),
         homeVariable = "CODEX_HOME",
         reservedEnvironment = setOf("CODEX_HOME"),
         reservedConfigKeys = setOf(
