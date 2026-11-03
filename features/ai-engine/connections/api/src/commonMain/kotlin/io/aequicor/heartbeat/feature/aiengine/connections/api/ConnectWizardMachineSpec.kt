@@ -27,6 +27,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
  * conditionally restores the wizard's runtime choice without overwriting later settings.
  * An existing CLI binding is reused with its saved model choice. A disabled route is enabled for the wizard;
  * checks, cancellation and rejected delivery restore its original enabled state. Finishing keeps it enabled.
+ * Previously saved models absent from discovery are preserved unless the user explicitly deselects them when shown.
+ * Bulk selection applies only to discovered models; it cannot silently erase an unavailable saved choice.
  *
  * | From | Intent | Guard | To | Effect / Output |
  * |---|---|---|---|---|
@@ -140,7 +142,8 @@ public val ConnectWizardMachineSpec:
             on<Internal.ModelsLoaded> {
                 stay {
                     val ids = intent.models.map { it.target.model }.toSet()
-                    state.copy(models = intent.models, selected = state.selected intersect ids, failure = null)
+                    val keep = ids + state.connection.initialModels
+                    state.copy(models = intent.models, selected = state.selected intersect keep, failure = null)
                 }
             }
             on<Internal.ModelsFailed> { stay { state.copy(failure = intent.failure) } }
@@ -163,7 +166,7 @@ public val ConnectWizardMachineSpec:
             on<Public.SelectAllModels>(guard = { state.models != null }) {
                 stay {
                     val all = state.models.orEmpty().map { it.target.model }.toSet()
-                    state.copy(selected = if (intent.isSelected) all else emptySet())
+                    state.copy(selected = if (intent.isSelected) state.selected + all else state.selected - all)
                 }
             }
             on<Public.Finish>(guard = { state.models != null || state.failure != null }) {

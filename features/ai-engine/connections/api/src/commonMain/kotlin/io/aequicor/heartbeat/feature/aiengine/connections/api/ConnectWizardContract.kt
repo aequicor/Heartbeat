@@ -175,7 +175,7 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** Enables or disables one discovered model. */
         public data class ToggleModel(val model: ModelId) : Public
 
-        /** Selects every discovered model, or none. */
+        /** Selects or deselects every discovered model, leaving unavailable saved choices unchanged. */
         public data class SelectAllModels(val isSelected: Boolean) : Public
 
         /** Repeats the failed step: catalog observation, model discovery or saving the model choice. */

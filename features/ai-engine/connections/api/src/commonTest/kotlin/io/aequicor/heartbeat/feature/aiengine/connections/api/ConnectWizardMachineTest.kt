@@ -209,6 +209,45 @@ class ConnectWizardMachineTest {
     }
 
     @Test
+    fun `unavailable saved models survive discovery and bulk selection without becoming changes`() {
+        val saved = ModelId("saved-but-unavailable")
+        val shown = ModelId("gpt-a")
+        val reused = connection.copy(isCreated = false, initialModels = setOf(saved))
+        val discovering = ChoosingModels(koog.descriptor.id, reused, selected = setOf(saved))
+        val models = listOf(model("gpt-a"))
+        val loaded = discovering.copy(models = models)
+        spec.assertTransition(discovering, Internal.ModelsLoaded(models), loaded)
+        spec.assertTransition(
+            loaded,
+            Public.SelectAllModels(true),
+            loaded.copy(selected = setOf(saved, shown)),
+        )
+        spec.assertTransition(
+            loaded.copy(selected = setOf(saved, shown)),
+            Public.SelectAllModels(false),
+            loaded,
+        )
+        spec.assertTransition(
+            loaded,
+            Public.Finish,
+            Saving(koog.descriptor.id, reused, models, setOf(saved)),
+            effects = listOf(
+                ConnectWizardEffect.SaveModels(connection.binding, setOf(saved), previous = setOf(saved)),
+            ),
+        )
+    }
+
+    @Test
+    fun `a saved model explicitly deselected while visible stays deselected after it disappears`() {
+        val saved = ModelId("gpt-a")
+        val reused = connection.copy(isCreated = false, initialModels = setOf(saved))
+        val loaded = ChoosingModels(koog.descriptor.id, reused, listOf(model("gpt-a")), setOf(saved))
+        val deselected = loaded.copy(selected = emptySet())
+        spec.assertTransition(loaded, Public.ToggleModel(saved), deselected)
+        spec.assertTransition(deselected, Internal.ModelsLoaded(emptyList()), deselected.copy(models = emptyList()))
+    }
+
+    @Test
     fun `failed discovery can be retried or skipped`() {
         val failed = ChoosingModels(koog.descriptor.id, connection, failure = failure)
         spec.assertTransition(ChoosingModels(koog.descriptor.id, connection), Internal.ModelsFailed(failure), failed)
