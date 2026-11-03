@@ -185,7 +185,7 @@ internal class KimiRuntime(
             nativeId = native.sessionId
             pending = beginConfiguration(native.sessionId, request.target)
             configureCatching(native.sessionId, native.metadata, request.target)
-            val session = session(
+            val lease = session(
                 native.sessionId,
                 request.target,
                 request.workspace,
@@ -193,10 +193,10 @@ internal class KimiRuntime(
                 cwd,
                 hosted,
                 pending,
+                request.areDetachedToolsEnabled,
             )
-            hosted.session.value = session
             isTransferred = true
-            return session.lease(request.areDetachedToolsEnabled)
+            return lease
         } finally {
             if (!isTransferred) {
                 hosted.close()
@@ -359,10 +359,18 @@ internal class KimiRuntime(
             val native = connection.loadSession(nativeId, cwd, hosted.servers)
             pending = beginConfiguration(nativeId, request.target)
             configureCatching(nativeId, native.metadata, request.target)
-            val session = session(nativeId, request.target, request.workspace, native.metadata, cwd, hosted, pending)
-            hosted.session.value = session
+            val lease = session(
+                nativeId,
+                request.target,
+                request.workspace,
+                native.metadata,
+                cwd,
+                hosted,
+                pending,
+                request.areDetachedToolsEnabled,
+            )
             isTransferred = true
-            session.lease(request.areDetachedToolsEnabled)
+            lease
         } finally {
             if (!isTransferred) {
                 hosted.close()
@@ -398,13 +406,14 @@ internal class KimiRuntime(
         workingDirectory: String,
         hosted: KimiHosted,
         pending: PendingKimiModel,
-    ): KimiSession = mutex.withLock {
+        areDetachedToolsEnabled: Boolean,
+    ): ActiveSession = mutex.withLock {
         checkActive()
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         check(nativeId !in sessions.value) { "Kimi session identity already registered" }
         if (configuring[nativeId] !== pending || pending.isInvalid) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
         }
-        configuring.remove(nativeId)
         run {
             val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, nativeId)
             val route = ExecutionRoute(
@@ -424,8 +433,21 @@ internal class KimiRuntime(
                 workingDirectory,
                 hosted,
             )
+            // Do not publish a session until its first lease has been acquired: another attach must
+            // never observe an unowned session if creation is cancelled during handoff.
+            var isAcquired = false
+            val lease = try {
+                val result = created.lease(areDetachedToolsEnabled)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                isAcquired = true
+                result
+            } finally {
+                if (!isAcquired) created.revokeHosted()
+            }
+            configuring.remove(nativeId)
+            hosted.session.value = created
             sessions.value = sessions.value + (nativeId to created)
-            created
+            lease
         }
     }
 

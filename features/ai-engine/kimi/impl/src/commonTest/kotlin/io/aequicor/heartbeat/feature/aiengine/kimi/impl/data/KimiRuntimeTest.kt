@@ -68,6 +68,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -91,6 +92,43 @@ import kotlin.test.assertTrue
 
 @Suppress("LargeClass") // Shared runtime fixture exercises the complete session lifecycle.
 class KimiRuntimeTest {
+    @Test
+    fun `cancellation before new session handoff deletes only the new session`() = runTest {
+        val connection = FakeConnection().apply {
+            beforeConfigResponse = { kotlinx.coroutines.currentCoroutineContext().cancel() }
+        }
+        val capability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to capability)))
+
+        val task = async { runtime.create(CreateSessionRequest(target)) }
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @Test
+    fun `cancellation before resumed session handoff preserves user history`() = runTest {
+        val connection = FakeConnection().apply {
+            beforeConfigResponse = { kotlinx.coroutines.currentCoroutineContext().cancel() }
+        }
+        val capabilities = buildJsonObject {
+            put("loadSession", true)
+            put("sessionCapabilities", JsonObject(mapOf("close" to JsonObject(emptyMap()))))
+        }
+        val runtime = runtime(connection, this, capabilities)
+        val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, "native")
+
+        val task = async { runtime.attach(ref, ResumeSessionRequest(target)) }
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertEquals("native", connection.closedSession)
+        assertNull(connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
     @Test
     fun `model update during configuration prevents session handoff`() = runTest {
         val connection = FakeConnection().apply {
