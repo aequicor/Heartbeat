@@ -126,6 +126,10 @@ public interface AcpConnection {
     public suspend fun setConfigOption(sessionId: String, optionId: String, value: String): Unit =
         throw UnsupportedOperationException("ACP session configuration is unavailable")
 
+    /** Changes an option and returns the agent's complete response for callers that must verify effective values. */
+    public suspend fun setConfigOptionObserved(sessionId: String, optionId: String, value: String): JsonObject =
+        throw UnsupportedOperationException("ACP session configuration observation is unavailable")
+
     /** Sends a notification and cancels pending permission decisions; completion still comes from prompt. */
     public suspend fun cancel(sessionId: String)
 

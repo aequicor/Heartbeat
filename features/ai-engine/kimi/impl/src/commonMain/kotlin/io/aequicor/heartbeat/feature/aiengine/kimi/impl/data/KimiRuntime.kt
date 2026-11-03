@@ -281,9 +281,9 @@ internal class KimiRuntime(
         if (!metadata.hasConfigOption("model") || models.none { it.id == selected }) {
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
-        connection.setConfigOption(sessionId, "model", selected)
+        connection.setConfigOptionObserved(sessionId, "model", selected).requireModel(selected)
         if (metadata.hasConfigOption("mode")) {
-            connection.setConfigOption(sessionId, "mode", "default")
+            connection.setConfigOptionObserved(sessionId, "mode", "default").requireModel(selected)
         }
     }
 
@@ -1160,6 +1160,17 @@ private fun kotlinx.serialization.json.JsonElement?.supportsLoad(): Boolean =
 
 private fun JsonObject.hasConfigOption(id: String): Boolean = this["configOptions"]?.jsonArray.orEmpty().any {
     (it as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull == id
+}
+
+private fun JsonObject.currentModel(): String? = this["configOptions"]?.jsonArray.orEmpty()
+    .mapNotNull { it as? JsonObject }
+    .singleOrNull { (it["id"] as? JsonPrimitive)?.contentOrNull == "model" }
+    ?.get("currentValue")?.let { it as? JsonPrimitive }?.takeIf { it.isString }?.contentOrNull
+
+private fun JsonObject.requireModel(expected: String) {
+    if (currentModel() != expected) {
+        throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+    }
 }
 
 private fun Throwable.engineFailure(): EngineFailure = when (this) {

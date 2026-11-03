@@ -90,6 +90,32 @@ import kotlin.test.assertTrue
 @Suppress("LargeClass") // Shared runtime fixture exercises the complete session lifecycle.
 class KimiRuntimeTest {
     @Test
+    fun `new session rejects a model substituted by the runtime`() = runTest {
+        val connection = FakeConnection().apply { reportedModel = "other" }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+        val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+        assertEquals("native", connection.deletedSession)
+    }
+
+    @Test
+    fun `new session rejects a model changed while setting the mode`() = runTest {
+        val connection = FakeConnection().apply {
+            reportedModelAfterMode = "other"
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]},{"id":"mode"}]}""",
+            ).jsonObject
+        }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+        val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+        assertEquals("native", connection.deletedSession)
+    }
+
+    @Test
     fun `new session refuses an unadvertised model and deletes the created session`() = runTest {
         val inputs = listOf(
             """{}""",
@@ -1121,6 +1147,8 @@ private class FakeConnection : AcpConnection {
     ).jsonObject
     var content = listOf<JsonObject>()
     var configFailure: Exception? = null
+    var reportedModel: String? = null
+    var reportedModelAfterMode: String? = null
     var beforeConfigResponse: (suspend () -> Unit)? = null
     val configuration = mutableMapOf<String, String>()
     lateinit var runtime: KimiRuntime
@@ -1160,6 +1188,24 @@ private class FakeConnection : AcpConnection {
         configFailure?.let { throw it }
         configuration[optionId] = value
         beforeConfigResponse?.invoke()
+    }
+
+    override suspend fun setConfigOptionObserved(sessionId: String, optionId: String, value: String): JsonObject {
+        setConfigOption(sessionId, optionId, value)
+        return buildJsonObject {
+            put(
+                "configOptions",
+                kotlinx.serialization.json.buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("id", "model")
+                            val actual = if (optionId == "mode") reportedModelAfterMode else reportedModel
+                            put("currentValue", actual ?: configuration["model"] ?: value)
+                        },
+                    )
+                },
+            )
+        }
     }
     override suspend fun cancel(sessionId: String) {
         cancellationBarrier?.await()

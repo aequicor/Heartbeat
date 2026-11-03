@@ -267,6 +267,10 @@ internal class DefaultAcpConnection(
     }
 
     override suspend fun setConfigOption(sessionId: String, optionId: String, value: String) {
+        setConfigOptionObserved(sessionId, optionId, value)
+    }
+
+    override suspend fun setConfigOptionObserved(sessionId: String, optionId: String, value: String): JsonObject =
         owned {
             val response = admissions.withLock {
                 requireSession(sessionId)
@@ -283,7 +287,6 @@ internal class DefaultAcpConnection(
             }
             response.await()
         }
-    }
 
     private fun promptParams(sessionId: String, content: List<JsonObject>, metadata: JsonObject): JsonObject {
         require(content.isNotEmpty()) { "ACP prompt requires at least one content block" }
