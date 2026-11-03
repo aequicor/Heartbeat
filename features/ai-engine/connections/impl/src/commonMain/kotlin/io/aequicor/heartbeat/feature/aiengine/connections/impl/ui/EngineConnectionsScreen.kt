@@ -130,7 +130,6 @@ internal fun EngineConnectionsContent(
     modifier: Modifier = Modifier,
     onManageEngine: (engine: String) -> Unit = {},
 ) {
-    val selected = state.engines.firstOrNull { it.id == state.selectedEngine }
     // Input follows the actual write immediately; only its visual feedback waits to avoid a brief flash.
     val isSavingVisible = rememberHbBusyReveal(state.isSaving)
     HbColumn(
@@ -145,11 +144,9 @@ internal fun EngineConnectionsContent(
                     .padding(HbTheme.spacing.xl),
                 gap = HbTheme.spacing.xxl,
             ) {
-                ConnectionsToolbar(onAddEngine = { onAddConnection(null) })
+                if (state.fixedEngine == null) ConnectionsToolbar(onAddEngine = { onAddConnection(null) })
                 SettingsStatus(state, onIntent, isSavingVisible = isSavingVisible)
-                EnginesSection(state, onIntent, isSavingVisible = isSavingVisible)
-                if (selected != null && state.isManaged) EngineControlLink(selected, { onManageEngine(selected.id) })
-                selected?.preparation?.let { EnginePreparationStatus(it) }
+                ConnectionsEngineHeader(state, onIntent, onManageEngine, isSavingVisible)
                 ConnectionsSection(state, onIntent, onAddConnection)
                 ModelsSection(state, onIntent, onOpenDescription, isSavingVisible = isSavingVisible)
             }
@@ -165,6 +162,23 @@ internal fun EngineConnectionsContent(
     }
     val confirming = state.connections.firstOrNull { it.id == state.confirmDisconnect }
     if (confirming != null) DisconnectDialog(confirming.label, isEnabled = !state.isSaving, onIntent)
+}
+
+@Composable
+private fun ConnectionsEngineHeader(
+    state: EngineConnectionsScreenState,
+    onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    onManageEngine: (String) -> Unit,
+    isSavingVisible: Boolean,
+) {
+    val selected = state.engines.firstOrNull { it.id == state.selectedEngine }
+    if (state.fixedEngine == null) {
+        EnginesSection(state, onIntent, isSavingVisible = isSavingVisible)
+        if (selected != null && state.isManaged) EngineControlLink(selected, { onManageEngine(selected.id) })
+        selected?.preparation?.let { EnginePreparationStatus(it) }
+    } else if (selected == null) {
+        HbEmptyState(stringResource(Res.string.wizard_engines_empty))
+    }
 }
 
 @Composable

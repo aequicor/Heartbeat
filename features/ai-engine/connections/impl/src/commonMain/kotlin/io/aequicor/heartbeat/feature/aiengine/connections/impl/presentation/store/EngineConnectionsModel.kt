@@ -104,6 +104,7 @@ class EngineConnectionsModel(
     private val machine: Machine<EngineConnectionsState, EngineConnectionsIntent, EngineConnectionsOutput>,
     @ForScope(EngineConnectionsScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
+    target: EngineConnectionsTarget = EngineConnectionsTarget(),
     library: ModelDescriptions,
 ) {
     private val log = Log.tag("EngineConnectionsModel")
@@ -114,7 +115,10 @@ class EngineConnectionsModel(
         EngineConnectionsScreenAction,
     >(
         "EngineConnections",
-        EngineConnectionsScreenState().reflect(machine.state.value),
+        EngineConnectionsScreenState(
+            fixedEngine = target.engine?.value,
+            selectedEngine = target.engine?.value,
+        ).reflect(machine.state.value),
         onError = {
             copy(
                 isLoading = false,
@@ -207,10 +211,13 @@ internal fun EngineConnectionsScreenState.operationFor(
         }
 
         is EngineConnectionsScreenIntent.SetConnectionEnabled ->
-            ConnectionOperation.SetConnectionEnabled(EngineBindingId(intent.id), intent.isEnabled)
+            connections.singleOrNull { it.id == intent.id }?.let {
+                ConnectionOperation.SetConnectionEnabled(EngineBindingId(it.id), intent.isEnabled)
+            }
 
         EngineConnectionsScreenIntent.ConfirmDisconnect ->
-            confirmDisconnect?.let { ConnectionOperation.Disconnect(EngineBindingId(it)) }
+            confirmDisconnect?.takeIf { id -> connections.any { it.id == id } }
+                ?.let { ConnectionOperation.Disconnect(EngineBindingId(it)) }
 
         EngineConnectionsScreenIntent.RefreshModels -> {
             val engine = selectedEngine?.let(::EngineId)
@@ -244,16 +251,19 @@ private fun EngineConnectionsScreenState.localChange(
     intent: EngineConnectionsScreenIntent.Local,
     current: EngineConnectionsState,
 ): EngineConnectionsScreenState = when (intent) {
-    is EngineConnectionsScreenIntent.SelectEngine ->
-        copy(selectedEngine = intent.id, selectedConnection = null, confirmDisconnect = null)
-            .clearModelDraft().reflect(current)
+    is EngineConnectionsScreenIntent.SelectEngine -> selectEngine(intent.id, current)
 
     is EngineConnectionsScreenIntent.SelectConnection -> {
-        val selected = copy(selectedConnection = intent.id, confirmDisconnect = null)
-        (if (selectedConnection == intent.id) selected else selected.clearModelDraft()).reflect(current)
+        if (connections.none { it.id == intent.id }) {
+            this
+        } else {
+            val selected = copy(selectedConnection = intent.id, confirmDisconnect = null)
+            (if (selectedConnection == intent.id) selected else selected.clearModelDraft()).reflect(current)
+        }
     }
 
-    is EngineConnectionsScreenIntent.RequestDisconnect -> copy(confirmDisconnect = intent.id)
+    is EngineConnectionsScreenIntent.RequestDisconnect ->
+        if (connections.any { it.id == intent.id }) copy(confirmDisconnect = intent.id) else this
 
     EngineConnectionsScreenIntent.DismissDisconnect -> copy(confirmDisconnect = null)
 
@@ -266,4 +276,16 @@ private fun EngineConnectionsScreenState.localChange(
     is EngineConnectionsScreenIntent.ShowCheckDetails -> reflect(current).openCheckDetails(intent.target)
 
     EngineConnectionsScreenIntent.DismissCheckDetails -> copy(checkDetails = null)
+}
+
+/** Immutable routing input supplied by the connections entry; not a new profile authority. */
+data class EngineConnectionsTarget(val engine: EngineId? = null)
+
+private fun EngineConnectionsScreenState.selectEngine(
+    id: String,
+    current: EngineConnectionsState,
+): EngineConnectionsScreenState = if (fixedEngine != null && id != fixedEngine) {
+    this
+} else {
+    copy(selectedEngine = id, selectedConnection = null, confirmDisconnect = null).clearModelDraft().reflect(current)
 }

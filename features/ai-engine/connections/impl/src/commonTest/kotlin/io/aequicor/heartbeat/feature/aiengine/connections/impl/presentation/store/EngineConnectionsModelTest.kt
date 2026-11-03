@@ -62,6 +62,33 @@ class EngineConnectionsModelTest {
         )
         assertEquals<Set<String>?>(setOf("llama", "qwen"), screen.states.value.modelDraft)
     }
+
+    @Test
+    fun `scoped connections cannot switch engines or apply foreign binding changes`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(settingsSnapshot())
+        val model = EngineConnectionsModel(
+            machine,
+            testScopeHandle(),
+            testStoreFactory(),
+            EngineConnectionsTarget(KoogId),
+        ) { flowOf(null) }
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true))
+        runCurrent()
+        model.store.intent(EngineConnectionsScreenIntent.SelectEngine("codex"))
+        model.store.intent(EngineConnectionsScreenIntent.SelectConnection("foreign"))
+        model.store.intent(EngineConnectionsScreenIntent.SetConnectionEnabled("foreign", false))
+        model.store.intent(EngineConnectionsScreenIntent.RequestDisconnect("foreign"))
+        model.store.intent(EngineConnectionsScreenIntent.ConfirmDisconnect)
+        runCurrent()
+        assertEquals("koog", screen.states.value.fixedEngine)
+        assertEquals("koog", screen.states.value.selectedEngine)
+        assertEquals("home", screen.states.value.selectedConnection)
+        assertEquals<Set<String>?>(setOf("llama", "qwen"), screen.states.value.modelDraft)
+        assertNull(screen.states.value.confirmDisconnect)
+        assertTrue(machine.sent.none { it is EngineConnectionsIntent.Public.Apply })
+    }
+
     private val binding = EngineBinding(EngineBindingId("binding-1"), KoogId, AuthSourceId("source-1"))
     private val snapshot = ConnectionsSnapshot(
         listOf(engineInfo(listOf(binding))),

@@ -75,6 +75,35 @@ internal fun managedSettingsSnapshot(): ConnectionsSnapshot {
 }
 
 class EngineConnectionsPresentationTest {
+    @Test
+    fun `a missing fixed engine never exposes a neighbouring engine`() {
+        val snapshot = settingsSnapshot()
+        val state = EngineConnectionsScreenState(fixedEngine = "absent").reflect(
+            EngineConnectionsState.Active(snapshot),
+        )
+        assertEquals("absent", state.selectedEngine)
+        assertTrue(state.engines.isEmpty())
+        assertTrue(state.connections.isEmpty())
+        assertNull(state.models)
+    }
+
+    @Test
+    fun `removing a fixed engine keeps its identity without showing another connection`() {
+        val snapshot = settingsSnapshot()
+        val state = EngineConnectionsScreenState(fixedEngine = "koog").reflect(
+            EngineConnectionsState.Active(snapshot),
+        ).editModel("qwen", true)
+        val other = snapshot.engines.single().let {
+            it.copy(descriptor = it.descriptor.copy(id = EngineId("other")), bindings = emptyList())
+        }
+        val removed = state.reflect(EngineConnectionsState.Active(snapshot.copy(engines = listOf(other))))
+        assertEquals("koog", removed.selectedEngine)
+        assertTrue(removed.engines.isEmpty())
+        assertTrue(removed.connections.isEmpty())
+        assertNull(removed.models)
+        assertNull(removed.modelDraft)
+    }
+
     private val loaded = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(settingsSnapshot()))
 
     @Test

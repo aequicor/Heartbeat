@@ -34,6 +34,23 @@ class EngineConnectionsUiTest {
     private val loaded = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(settingsSnapshot()))
 
     @Test
+    fun `an engine panel omits the global engine picker and recursive management link`() = runSkikoComposeUiTest {
+        val scoped = EngineConnectionsScreenState(fixedEngine = "koog").reflect(
+            EngineConnectionsState.Active(managedSettingsSnapshot()),
+        )
+        val wizard = mutableListOf<String?>()
+        setContent {
+            HbTheme { EngineConnectionsContent(scoped, {}, wizard::add, null, { _, _ -> }) }
+        }
+        onNodeWithTag("settings-add-engine").assertDoesNotExist()
+        onNodeWithTag("settings-engine:koog").assertDoesNotExist()
+        onNodeWithTag("settings-engine:codex").assertDoesNotExist()
+        onNodeWithTag("settings-connection-dropdown").assertExists()
+        onNodeWithTag("settings-add-connection").performClick()
+        runOnIdle { assertEquals(listOf<String?>("koog"), wizard) }
+    }
+
+    @Test
     fun `engine, connection and model levels are shown together`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineConnectionsScreenIntent>()
         val wizard = mutableListOf<String?>()

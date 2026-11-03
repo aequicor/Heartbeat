@@ -39,6 +39,8 @@ data class ModelsPaneUi(val models: ImmutableList<ModelRowUi>, val isStale: Bool
 data class EngineConnectionsScreenState(
     val engines: ImmutableList<EngineRowUi> = persistentListOf(),
     val selectedEngine: String? = null,
+    /** Immutable route constraint; unavailable fixed engines never fall back to another engine. */
+    val fixedEngine: String? = null,
     val connections: ImmutableList<ConnectionRowUi> = persistentListOf(),
     val selectedConnection: String? = null,
     val models: ModelsPaneUi? = null,
@@ -107,7 +109,7 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
  */
 private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnapshot): EngineConnectionsScreenState {
     val management = snapshot.management.takeIf { it.isEnabled }
-    val engineRows = management?.engines?.map { managed ->
+    val availableRows = management?.engines?.map { managed ->
         val info = snapshot.engines.firstOrNull { it.descriptor.id == managed.descriptor.id }
         info?.toRow()?.copy(isEnabled = managed.enablement.isEnabled) ?: EngineRowUi(
             id = managed.descriptor.id.value,
@@ -118,7 +120,9 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
             isEnabled = false,
         )
     } ?: snapshot.engines.map { it.toRow() }
-    val engineId = selectedEngine?.takeIf { id -> engineRows.any { it.id == id } } ?: engineRows.firstOrNull()?.id
+    val engineRows = availableRows.filter { fixedEngine == null || it.id == fixedEngine }
+    val engineId = fixedEngine ?: selectedEngine?.takeIf { id -> engineRows.any { it.id == id } }
+        ?: engineRows.firstOrNull()?.id
     val engine = snapshot.engines.firstOrNull { it.descriptor.id.value == engineId }
     val providers = engine?.descriptor?.connectionMethods.orEmpty().associate { it.provider.id to it.provider.title }
     val connectionRows = engine?.bindings.orEmpty().map { binding ->
