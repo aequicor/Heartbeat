@@ -1,7 +1,9 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.withoutLabel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -179,7 +181,13 @@ class RuntimePool(
                 val key = identity.engine to identity.source
                 val existing = runtimes[key]
                 val startedAt = existing?.takeIf { it.runtime === accepted.runtime }?.startedAt ?: context.clock.now()
-                runtimes[key] = Pooled(accepted.runtime, startedAt, launch, accepted.decision)
+                runtimes[key] = Pooled(
+                    accepted.runtime,
+                    startedAt,
+                    launch,
+                    resolved.source.withoutLabel(),
+                    accepted.decision,
+                )
                 publish()
             }
         }
@@ -199,7 +207,7 @@ class RuntimePool(
         val key = resolved.identity.engine to resolved.identity.source
         val current = mutex.withLock { runtimes[key] } ?: return null
         val runtime = current.runtime
-        if (current.isReusable(resolved.identity, launch, decision)) return runtime
+        if (current.isReusable(resolved, launch, decision)) return runtime
         if (runtime.isClosed) dispose(current, key) else retire(current, key)
         cleanup.retryFor(key.first, key.second)
         return null
@@ -303,7 +311,9 @@ class RuntimePool(
         cleanup.retryFor(identity.engine, identity.source)
         if (current != null && current.runtime.isClosed) {
             dispose(current, key)
-        } else if (current != null && current.runtime.identity == identity) {
+        } else if (current != null && current.runtime.identity == identity &&
+            current.source == resolved.source.withoutLabel()
+        ) {
             return current.runtime
         } else if (current != null) {
             retire(current, key)
@@ -324,7 +334,7 @@ class RuntimePool(
         val isStored = withContext(NonCancellable) {
             mutex.withLock {
                 // Shutdown waits for this source lock and owns retries if stopping this late runtime fails.
-                runtimes[key] = Pooled(created, context.clock.now(), launch)
+                runtimes[key] = Pooled(created, context.clock.now(), launch, resolved.source.withoutLabel())
                 publish()
                 !isClosed
             }
@@ -507,10 +517,12 @@ private data class Pooled(
     val runtime: EngineRuntime,
     val startedAt: Instant,
     val launch: LaunchContext,
+    val source: AuthSource,
     val admission: EngineCompatibilityDecision? = null,
 ) {
-    fun isReusable(identity: RuntimeIdentity, launch: LaunchContext, decision: EngineCompatibilityDecision): Boolean {
-        if (runtime.isClosed || runtime.identity != identity || this.launch != launch) return false
+    fun isReusable(resolved: ResolvedRoute, launch: LaunchContext, decision: EngineCompatibilityDecision): Boolean {
+        if (runtime.isClosed || runtime.identity != resolved.identity || this.launch != launch) return false
+        if (source != resolved.source.withoutLabel()) return false
         return admission?.stamp == decision.stamp && runtime.compatibilityStamp == decision.stamp
     }
 }

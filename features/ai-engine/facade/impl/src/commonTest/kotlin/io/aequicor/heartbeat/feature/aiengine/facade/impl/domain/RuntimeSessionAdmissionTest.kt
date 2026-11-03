@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -71,6 +73,33 @@ class RuntimeSessionAdmissionTest {
         assertNotSame(first, f.acquire())
         assertEquals(2, f.factory.promotions)
         assertEquals(1, f.runtimes.first().closes)
+    }
+
+    @Test
+    fun `changed source scope with unknown revision never reuses a busy admitted runtime`() = runTest {
+        val f = Fixture(this)
+        f.changeSourceRevisionToUnknown()
+        val first = f.acquire()
+        f.isBusy = true
+        f.changeSourceOrigin()
+        assertEquals(
+            EngineFailure.Session(SessionFailureReason.Busy),
+            assertFailsWith<EngineException> { f.acquire() }.failure,
+        )
+        assertEquals(1, f.factory.promotions)
+        assertFalse(first.isClosed)
+        f.isBusy = false
+        assertNotSame(first, f.acquire())
+        assertTrue(first.isClosed)
+    }
+
+    @Test
+    fun `source label change does not retire the admitted runtime`() = runTest {
+        val f = Fixture(this)
+        val first = f.acquire()
+        f.changeSourceLabel()
+        assertSame(first, f.acquire())
+        assertEquals(1, f.factory.promotions)
     }
 
     @Test
@@ -183,9 +212,11 @@ class RuntimeSessionAdmissionTest {
         var isAllowed = true
         var launch = LaunchContext()
         var prepared = 0
-        private val source = managedKey()
+        private var source = managedKey()
         private val binding = EngineBinding(EngineBindingId("binding"), TestEngine, source.info.id)
-        val route = ResolvedRoute(registration(factory), binding, source, EngineContext(TestEngine, binding.id))
+        private val registration = registration(factory)
+        val route: ResolvedRoute
+            get() = ResolvedRoute(registration, binding, source, EngineContext(TestEngine, binding.id))
         val pool = RuntimePool(scope.facadeContext(clock), { _, _ -> isBusy }, { _, _ -> }, { launch })
 
         init {
@@ -203,6 +234,18 @@ class RuntimeSessionAdmissionTest {
         fun changeFingerprint() {
             val evidence = factory.runtimeEvidence
             factory.runtimeEvidence = evidence.copy(identity = evidence.identity.copy(runtimeFingerprint = "changed"))
+        }
+
+        fun changeSourceRevisionToUnknown() {
+            source = source.copy(info = source.info.copy(revision = AuthRevision.Unknown))
+        }
+
+        fun changeSourceOrigin() {
+            source = source.copy(scope = source.scope.copy(origin = EndpointOrigin("https://other.example.com")))
+        }
+
+        fun changeSourceLabel() {
+            source = source.copy(info = source.info.copy(label = "renamed"))
         }
     }
 }

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -37,6 +38,26 @@ class RuntimePoolTest {
     private val retiredHandles = mutableListOf<Pair<EngineId, AuthSourceId>>()
 
     private var launch = LaunchContext()
+
+    @Test
+    fun `metadata runtime is replaced when source scope changes at the same revision`() = runTest {
+        val pool = pool()
+        val source = managedKey()
+        val first = pool.runtime(route(source))
+        val renamed = source.copy(info = source.info.copy(label = "new label"))
+        assertSame(first, pool.runtime(route(renamed)))
+
+        val changed = source.copy(scope = source.scope.copy(origin = EndpointOrigin("https://other.example.com")))
+        busy += source.info.id
+        assertEquals(
+            EngineFailure.Session(SessionFailureReason.Busy),
+            assertFailsWith<EngineException> { pool.runtime(route(changed)) }.failure,
+        )
+        assertFalse(first.isClosed)
+        busy.clear()
+        assertNotSame(first, pool.runtime(route(changed)))
+        assertTrue(first.isClosed)
+    }
 
     private fun TestScope.pool(clock: FixedClock = FixedClock()): RuntimePool {
         factory.runtime = { identity -> FakeRuntime(identity).also { runtimes += it } }
