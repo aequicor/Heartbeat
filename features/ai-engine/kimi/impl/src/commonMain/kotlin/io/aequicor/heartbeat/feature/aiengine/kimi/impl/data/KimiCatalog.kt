@@ -25,9 +25,9 @@ internal data class KimiNativeModel(val id: String, val title: String)
 internal fun kimiNativeCatalog(metadata: JsonObject, initialization: JsonObject): KimiModelCatalog {
     val options = metadata["configOptions"]?.jsonArray.orEmpty().mapNotNull { it as? JsonObject }
     val models = options.firstOrNull { it.string("category") == "model" }.options().mapNotNull { option ->
-        val id = option.string("value") ?: return@mapNotNull null
+        val id = option.string("value")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
         KimiNativeModel(id, option.string("name") ?: id)
-    }.ifEmpty { listOf(KimiNativeModel("kimi-for-coding", "Kimi for Coding")) }
+    }
     val thinking = options.firstOrNull { it.string("category") == "thought_level" }
     val promptCapabilities = initialization["promptCapabilities"] as? JsonObject
     val hasImageSupport = (promptCapabilities?.get("image") as? JsonPrimitive)?.booleanOrNull == true

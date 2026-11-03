@@ -94,6 +94,9 @@ class KimiRuntimeTest {
     fun `concurrent catalog requests share a session without sharing caller cancellation`() = runTest {
         val barrier = CompletableDeferred<Unit>()
         val connection = FakeConnection().apply { newSessionBarrier = barrier }
+        connection.metadata = Json.parseToJsonElement(
+            """{"configOptions":[{"category":"model","options":[{"value":"model"}]}]}""",
+        ).jsonObject
         val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
         val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
         val first = async { runtime.discover(EngineBindingId("binding")) }
@@ -126,6 +129,16 @@ class KimiRuntimeTest {
 
         assertEquals(listOf("kimi-code/k3"), models.map { it.target.model.value })
         assertTrue(models.all { it.target.binding == binding && it.target.engine == KimiEngine.Id })
+        assertEquals("native", connection.deletedSession)
+    }
+
+    @Test
+    fun `model discovery does not invent a model when the native catalog is empty`() = runTest {
+        val connection = FakeConnection()
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+
+        assertTrue(runtime.discover(EngineBindingId("binding")).isEmpty())
         assertEquals("native", connection.deletedSession)
     }
 
