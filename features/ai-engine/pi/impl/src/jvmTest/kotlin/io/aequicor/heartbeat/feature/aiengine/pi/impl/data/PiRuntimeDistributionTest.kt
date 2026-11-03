@@ -64,19 +64,44 @@ class PiRuntimeDistributionTest {
             val cache = PiArtifactFixture(piArchive(root))
             val storage = root.resolve("cache")
             val first = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
-            cache.before = { error("offline cache reuse must not download") }
             val progress = mutableListOf<EnginePreparation>()
             val offline = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare { progress += it }
             assertEquals(first, offline)
-            assertEquals(1, cache.calls)
-            assertEquals(emptyList(), progress)
+            assertEquals(2, cache.calls)
 
             Files.writeString(first, "changed")
             cache.before = {}
             val repaired = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
             assertEquals("executable", Files.readString(repaired))
             assertTrue(first != repaired)
-            assertEquals(2, cache.calls)
+            assertEquals(3, cache.calls)
+        }
+    }
+
+    @Test
+    fun `modified runtime files and matching local inventory are repaired from the pinned archive`() = runTest {
+        piTemporary { root ->
+            val cache = PiArtifactFixture(
+                piArchive(
+                    root,
+                    listOf(PiArchiveEntry("pi/pi", "executable"), PiArchiveEntry("pi/theme/dark.json", "{}")),
+                ),
+            )
+            val storage = root.resolve("cache")
+            val first = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
+            val marker = first.resolveSibling(".heartbeat-runtime.json")
+            for (file in listOf(first, first.resolveSibling("theme/dark.json"))) {
+                val originalDigest = piRuntimeDigest(file)
+                Files.writeString(file, "modified")
+                val replacementDigest = piRuntimeDigest(file)
+                Files.writeString(marker, Files.readString(marker).replace(originalDigest, replacementDigest))
+            }
+
+            val repaired = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
+
+            assertTrue(first != repaired)
+            assertEquals("executable", Files.readString(repaired))
+            assertEquals("{}", Files.readString(repaired.resolveSibling("theme/dark.json")))
         }
     }
 

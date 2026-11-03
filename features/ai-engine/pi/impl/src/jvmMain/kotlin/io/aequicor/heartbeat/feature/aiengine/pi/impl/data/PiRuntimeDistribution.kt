@@ -56,6 +56,7 @@ internal class PiRuntimeDistribution(
 
     @Volatile
     private var validated: Path? = null
+    private var trustedInventory: Map<String, String>? = null
 
     /** Cheap presence check for management and requirements; actual execution calls [prepare] to verify inventory. */
     fun executable(): Path? = try {
@@ -80,18 +81,28 @@ internal class PiRuntimeDistribution(
      */
     suspend fun prepare(progress: suspend (EnginePreparation) -> Unit): Path = mutex.withLock {
         val pin = checkNotNull(release) { "Pi runtime pin is unavailable" }
-        val cached = withContext(dispatchers.io) { existing(pin) }
+        var archive: Path? = null
+        val expected = trustedInventory ?: run {
+            val verified = artifacts.prepare(pin.artifact) { bytes, total ->
+                progress(EnginePreparation.Downloading(bytes, total))
+            }
+            archive = verified
+            val inventory = withContext(dispatchers.io) { PiRuntimeArchive().inventory(verified, root, pin.isZip) }
+            trustedInventory = inventory
+            inventory
+        }
+        val cached = withContext(dispatchers.io) { existing(pin, expected) }
         if (cached != null) {
             validated = cached
             return@withLock cached.resolve(pin.executable)
         }
         progress(EnginePreparation.Installing)
         log.i { "Preparing pinned Pi runtime version=${pin.version}" }
-        val archive = artifacts.prepare(
-            pin.artifact,
-        ) { bytes, total -> progress(EnginePreparation.Downloading(bytes, total)) }
+        val source = archive ?: artifacts.prepare(pin.artifact) { bytes, total ->
+            progress(EnginePreparation.Downloading(bytes, total))
+        }
         progress(EnginePreparation.Installing)
-        val installed = withContext(dispatchers.io) { install(pin, archive) }
+        val installed = withContext(dispatchers.io) { install(pin, source, expected) }
         validated = installed
         log.i { "Pinned Pi runtime ready version=${pin.version}" }
         installed.resolve(pin.executable)
@@ -109,8 +120,8 @@ internal class PiRuntimeDistribution(
         return parent.resolve(name).takeIf(::isRuntimeDirectory)
     }
 
-    private suspend fun existing(pin: PiRuntimeRelease): Path? = try {
-        activeDirectory(pin)?.takeIf { verify(it, pin) }
+    private suspend fun existing(pin: PiRuntimeRelease, expected: Map<String, String>): Path? = try {
+        activeDirectory(pin)?.takeIf { verify(it, pin, expected) }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -118,7 +129,7 @@ internal class PiRuntimeDistribution(
         null
     }
 
-    private suspend fun verify(directory: Path, pin: PiRuntimeRelease): Boolean {
+    private suspend fun verify(directory: Path, pin: PiRuntimeRelease, expected: Map<String, String>): Boolean {
         val marker = directory.resolve(MARKER)
         if (!Files.isRegularFile(marker, NOFOLLOW_LINKS) || Files.size(marker) > MAX_MARKER_BYTES) return false
         val metadata = Json.parseToJsonElement(Files.readString(marker)).jsonObject
@@ -127,6 +138,7 @@ internal class PiRuntimeDistribution(
         ) { "Pi cache version differs" }
         val files = metadata.getValue("files").jsonObject
         require(files.isNotEmpty() && files.size <= MAX_FILES) { "Invalid Pi cache inventory" }
+        require(files.mapValues { it.value.jsonPrimitive.content } == expected) { "Pi cache inventory is untrusted" }
         val actual = Files.walk(directory).use { paths ->
             paths.filter { it != directory }.map { path ->
                 require(!isRuntimeLink(path)) { "Pi cache contains a link" }
@@ -148,7 +160,7 @@ internal class PiRuntimeDistribution(
         return Files.isExecutable(directory.resolve(pin.executable))
     }
 
-    private suspend fun install(pin: PiRuntimeRelease, archive: Path): Path {
+    private suspend fun install(pin: PiRuntimeRelease, archive: Path, expected: Map<String, String>): Path {
         Files.createDirectories(root)
         require(isRuntimeDirectory(root)) { "Pi cache root is not a directory" }
         val parent = Files.createDirectories(versionRoot(pin))
@@ -157,6 +169,7 @@ internal class PiRuntimeDistribution(
         try {
             val files = PiRuntimeArchive().extract(archive, staging, pin.isZip)
             require(MARKER !in files && pin.executable in files) { "Pi archive misses its executable" }
+            require(files == expected) { "Pi archive changed during preparation" }
             if (!pin.isZip) {
                 check(staging.resolve(pin.executable).toFile().setExecutable(true, false)) { "Pi cannot execute" }
             }
