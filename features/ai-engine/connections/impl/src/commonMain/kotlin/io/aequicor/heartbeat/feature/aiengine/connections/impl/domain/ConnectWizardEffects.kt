@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
@@ -31,7 +32,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineManagement
@@ -164,8 +164,13 @@ internal class ConnectWizardEffects(
         log.i { "connect engine=${engine.value} method=${method.id.value}" }
         val hostApp = method.hostApp
         // The engine's current runtime may be missing (no CLI yet); the app's runtime replaces it once connected.
-        if (hostApp != null) requireHostRuntime(engine) else requireAvailable(engine)
-        val switch = RuntimeSwitch()
+        val initial = if (hostApp != null) {
+            requireHostRuntime(engine)
+        } else {
+            requireAvailable(engine)
+            null
+        }
+        val switch = RuntimeSwitch().apply { current = initial?.launch?.settings }
         var isWritten = false
         val connection = try {
             signInIfNeeded(engine, method, mayChangeRuntime = true, switch)
@@ -178,7 +183,7 @@ internal class ConnectWizardEffects(
         if (hostApp != null) {
             var isApplied = false
             try {
-                preferHostRuntime(engine)
+                preferHostRuntime(engine, switch.current)
                 isApplied = true
             } finally {
                 if (!isApplied) withContext(NonCancellable) { rollback(connection) }
@@ -192,32 +197,27 @@ internal class ConnectWizardEffects(
      * the application to run. The installation is inspected first; management publishes the inspection
      * asynchronously, so the wizard waits until the state shows it (bounded) before judging the app.
      */
-    private suspend fun requireHostRuntime(engine: EngineId) {
+    private suspend fun requireHostRuntime(engine: EngineId): EngineInspection {
         val management = services.management
         if (!management.state.value.isEnabled) {
             log.w { "host application connection needs engine management engine=${engine.value}" }
             throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
         }
-        if (inspect(engine)?.hostApp?.hasRuntime != true) {
+        val inspection = inspect(engine)
+        if (inspection.hostApp?.hasRuntime != true) {
             log.w { "host application runtime not found engine=${engine.value}" }
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
+        return inspection
     }
 
-    /** Waits boundedly for a changed inspection timestamp; concurrent inspections are not yet correlated. */
-    private suspend fun inspect(engine: EngineId): ManagedEngine? {
-        val management = services.management
-        val before = management.state.value.engine(engine)?.installation?.checkedAt
+    /** Waits boundedly for the result of this specific inspection, never an unrelated state emission. */
+    private suspend fun inspect(engine: EngineId): EngineInspection {
         log.i { "inspect engine=${engine.value}" }
-        management.execute(engine, EngineCommand.Inspect)
-        val inspected = withTimeoutOrNull(INSPECTION_WAIT_MILLIS) {
-            management.state.first { state ->
-                val managed = state.engine(engine)
-                managed != null && managed.installation.checkedAt != before &&
-                    (managed.spec.hostApp == null || managed.hostApp != null)
-            }
-        } ?: throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
-        return inspected.engine(engine)
+        val inspection = withTimeoutOrNull(INSPECTION_WAIT_MILLIS) { services.management.inspect(engine) }
+            ?: throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
+        if (inspection.engine != engine) throw EngineException(EngineFailure.Unknown())
+        return inspection
     }
 
     /**
@@ -239,17 +239,21 @@ internal class ConnectWizardEffects(
         if (services.management.state.value.engine(engine)?.spec?.login.isCliLogin() != true) return
         try {
             var managed = inspect(engine)
+            switch.current = managed.launch.settings
             if (method.hostApp != null && !managed.isOnHostRuntime()) {
                 if (!mayChangeRuntime) {
                     log.i { "sign-in skipped, a check keeps the runtime engine=${engine.value}" }
                     return
                 }
-                val previous = managed?.launch?.settings ?: LaunchSettings()
+                val previous = managed.launch.settings
                 switch.previous = previous
-                preferHostRuntime(engine)
+                switch.current = preferHostRuntime(engine, previous)
                 managed = inspect(engine)
+                switch.current = managed.launch.settings
             }
-            if (managed?.login == LoginState.SignedOut) signIn(engine, managed.job)
+            if (managed.login == LoginState.SignedOut) {
+                signIn(engine, services.management.state.value.engine(engine)?.job)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: EngineException) {
@@ -263,8 +267,8 @@ internal class ConnectWizardEffects(
         }
     }
 
-    private fun ManagedEngine?.isOnHostRuntime(): Boolean {
-        val settings = this?.launch?.settings ?: return false
+    private fun EngineInspection.isOnHostRuntime(): Boolean {
+        val settings = launch.settings
         return settings.runtime == RuntimePreference.HostApp && settings.executable.isNullOrBlank()
     }
 
@@ -307,17 +311,16 @@ internal class ConnectWizardEffects(
      * and the other settings stay. The runtime is a setting of the whole engine, so every connection of the engine
      * runs on it from now on (the wizard says so); removing the connection does not restore the previous choice.
      */
-    private suspend fun preferHostRuntime(engine: EngineId) {
-        val settings = services.management.state.value.engine(engine)?.launch?.settings ?: LaunchSettings()
-        if (settings.runtime == RuntimePreference.HostApp && settings.executable.isNullOrBlank()) return
-        services.management.execute(
-            engine,
-            EngineCommand.Configure(settings.copy(executable = null, runtime = RuntimePreference.HostApp)),
-        )
+    private suspend fun preferHostRuntime(engine: EngineId, inspected: LaunchSettings? = null): LaunchSettings {
+        val settings = inspected ?: services.management.state.value.engine(engine)?.launch?.settings ?: LaunchSettings()
+        if (settings.runtime == RuntimePreference.HostApp && settings.executable.isNullOrBlank()) return settings
+        val updated = settings.copy(executable = null, runtime = RuntimePreference.HostApp)
+        services.management.execute(engine, EngineCommand.Configure(updated))
         log.i {
             "host application runtime preferred engine=${engine.value} previous=${settings.runtime} " +
                 "replacedExecutable=${!settings.executable.isNullOrBlank()}"
         }
+        return updated
     }
 
     private suspend fun requireAvailable(engine: EngineId) {
@@ -453,6 +456,7 @@ internal fun EngineAvailability.failure(): EngineFailure? = when (this) {
 /** The launch settings a sign-in replaced, kept outside the sign-in so a cancelled wizard can still restore them. */
 private class RuntimeSwitch {
     var previous: LaunchSettings? = null
+    var current: LaunchSettings? = null
 }
 
 private fun LoginSupport?.isCliLogin() = this == LoginSupport.Cli || this == LoginSupport.CliWithDeviceCode
@@ -461,7 +465,7 @@ private val ConnectionMethod.hostApp get() = (this as? ConnectionMethod.CliLogin
 
 private fun EngineManagementState.engine(id: EngineId) = engines.firstOrNull { it.descriptor.id == id }
 
-/** How long the wizard waits for engine management to publish the inspection it asked for. */
+/** How long the wizard waits for its own management inspection to finish. */
 private const val INSPECTION_WAIT_MILLIS = 15_000L
 
 /** How long the wizard waits for the user to finish the sign-in page. */

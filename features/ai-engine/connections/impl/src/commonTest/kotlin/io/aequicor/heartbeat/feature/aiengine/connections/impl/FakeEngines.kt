@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
@@ -253,6 +254,7 @@ internal class FakeEngineManagement : EngineManagement {
     override val state = MutableStateFlow(EngineManagementState.Off)
     val commands = mutableListOf<EngineCommand>()
     var inspectedHostApp: HostAppState? = null
+    var inspectedLaunch: LaunchState? = null
     var configureFailure: EngineException? = null
 
     /** The phase a started sign-in reaches; AwaitingCode stays until cancelled. */
@@ -265,26 +267,35 @@ internal class FakeEngineManagement : EngineManagement {
     var suppressInspections: Boolean = false
     private var inspections = 0L
 
+    override suspend fun inspect(engine: EngineId): EngineInspection {
+        commands += EngineCommand.Inspect
+        if (suppressInspections) kotlinx.coroutines.awaitCancellation()
+        val checkedAt = Instant.fromEpochSeconds(++inspections)
+        val current = state.value.engines.single { it.descriptor.id == engine }
+        val result = EngineInspection(
+            engine,
+            current.installation.copy(checkedAt = checkedAt),
+            current.login,
+            inspectedLaunch ?: current.launch,
+            inspectedHostApp,
+        )
+        val publish = {
+            change(engine) { it.copy(hostApp = result.hostApp, installation = result.installation) }
+        }
+        publisher?.launch {
+            delay(PUBLISH_DELAY_MILLIS)
+            publish()
+        } ?: publish()
+        return result
+    }
+
     override suspend fun execute(engine: EngineId, command: EngineCommand) {
+        if (command == EngineCommand.Inspect) {
+            inspect(engine)
+            return
+        }
         commands += command
         when (command) {
-            EngineCommand.Inspect -> {
-                if (suppressInspections) return
-                val checkedAt = Instant.fromEpochSeconds(++inspections)
-                val publish = {
-                    change(engine) {
-                        it.copy(
-                            hostApp = inspectedHostApp,
-                            installation = it.installation.copy(checkedAt = checkedAt),
-                        )
-                    }
-                }
-                publisher?.launch {
-                    delay(PUBLISH_DELAY_MILLIS)
-                    publish()
-                } ?: publish()
-            }
-
             is EngineCommand.Configure -> {
                 configureFailure?.let { throw it }
                 change(engine) { it.copy(launch = LaunchState(command.settings)) }

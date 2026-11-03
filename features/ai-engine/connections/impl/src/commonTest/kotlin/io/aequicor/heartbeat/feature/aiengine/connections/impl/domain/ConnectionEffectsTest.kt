@@ -125,7 +125,7 @@ class ConnectionEffectsTest {
     }
 
     @Test
-    fun `a host application connection waits for the inspection management publishes later`() = runTest {
+    fun `a host application connection uses its result before management publishes it`() = runTest {
         management.state.value = claudeManagement(LaunchSettings(runtime = RuntimePreference.HostApp))
         management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
         management.publisher = backgroundScope
@@ -137,6 +137,39 @@ class ConnectionEffectsTest {
         assertEquals(listOf<EngineCommand>(EngineCommand.Inspect), management.commands)
         assertEquals(listOf("connect"), facade.calls)
         assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
+    }
+
+    @Test
+    fun `host runtime selection preserves launch settings from the exact inspection`() = runTest {
+        val stale = LaunchSettings(executable = "/old")
+        val inspected = LaunchSettings(executable = "/new", homeDirectory = "/profile", hostRuntimeVersion = "2.1.299")
+        management.state.value = claudeManagement(stale)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        management.inspectedLaunch = io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState(inspected)
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+
+        val saved = inspected.copy(executable = null, runtime = RuntimePreference.HostApp)
+        assertEquals(EngineCommand.Configure(saved), management.commands.last())
+        assertEquals(saved, management.state.value.engines.single().launch.settings)
+    }
+
+    @Test
+    fun `a delayed stale host state cannot replace the current inspection result`() = runTest {
+        val stale = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val old = claudeManagement()
+        management.state.value = old.copy(engines = old.engines.map { it.copy(hostApp = stale) })
+        management.inspectedHostApp = HostAppState(isInstalled = false)
+        management.publisher = backgroundScope
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        val failure = assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertTrue(facade.calls.isEmpty())
     }
 
     @Test
