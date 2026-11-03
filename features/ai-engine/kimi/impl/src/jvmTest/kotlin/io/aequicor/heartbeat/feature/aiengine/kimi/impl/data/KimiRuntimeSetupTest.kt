@@ -21,6 +21,50 @@ import kotlin.time.Instant
 
 class KimiRuntimeSetupTest {
     @Test
+    fun `preparation never reports ready for a self consistent unpinned runtime`() = runTest {
+        val root = Files.createTempDirectory("kimi-untrusted-prepare").toFile()
+        try {
+            val executable = root.resolve(
+                if (System.getProperty("os.name").startsWith("Windows")) "kimi.exe" else "kimi",
+            )
+            executable.writeText("untrusted")
+            executable.setExecutable(true)
+            val hash = MessageDigest.getInstance("SHA-256").digest(executable.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            root.resolve("runtime.properties").writeText(
+                "version=$KIMI_RUNTIME_VERSION\nsourceCommit=$KIMI_SOURCE_COMMIT\n" +
+                    "permissionGate=$KIMI_PERMISSION_GATE\nsha256=$hash\ntarget=${kimiRuntimeTarget()}\n",
+            )
+            val installed = ManagedInstall(KIMI_RUNTIME_VERSION, executable.absolutePath, Instant.fromEpochSeconds(0))
+            var downloads = 0
+            val installer = object : EngineRuntimeInstaller {
+                override suspend fun find(engine: EngineId, version: String, target: String?): ManagedInstall =
+                    installed
+                override suspend fun prepare(
+                    engine: EngineId,
+                    version: String,
+                    manager: EngineManager,
+                    target: String?,
+                    progress: suspend (EnginePreparation) -> Unit,
+                ): ManagedInstall {
+                    downloads++
+                    return installed
+                }
+            }
+            val setup = KimiRuntimeSetup(installer, TestKimiDispatchers, resourcesDirectory = null)
+            val manager = object : EngineManager {
+                override suspend fun inspect(launch: LaunchContext): Installation = setup.locate(launch)
+            }
+
+            assertFailsWith<EngineException> { setup.prepare(manager) }
+            assertEquals(1, downloads)
+            kotlin.test.assertIs<EnginePreparation.Failed>(setup.preparation.value)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `old installer without seed prepares a managed runtime on first operation`() = runTest {
         val root = Files.createTempDirectory("kimi-first-use").toFile()
         try {
@@ -53,7 +97,7 @@ class KimiRuntimeSetupTest {
                     return installed
                 }
             }
-            val setup = KimiRuntimeSetup(installer, TestKimiDispatchers, resourcesDirectory = null)
+            val setup = KimiRuntimeSetup(installer, TestKimiDispatchers, null) { true }
             val manager = object : EngineManager {
                 override suspend fun inspect(launch: LaunchContext): Installation = setup.locate(launch)
             }
@@ -69,7 +113,7 @@ class KimiRuntimeSetupTest {
             assertFailsWith<EngineException> {
                 setup.locate(LaunchContext(managed = stale, isInstallCandidate = true))
             }
-            val restarted = KimiRuntimeSetup(installer, TestKimiDispatchers, resourcesDirectory = null)
+            val restarted = KimiRuntimeSetup(installer, TestKimiDispatchers, null) { true }
             restarted.prepare(manager)
             assertEquals(1, downloads, "restart and adapter rollback must work offline")
             executable.appendText("tampered")

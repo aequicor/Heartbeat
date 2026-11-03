@@ -26,13 +26,27 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /** First-use preparation shared by CLI login, discovery and sessions, including installations without a Kimi seed. */
-@Inject
 @SingleIn(ProfileScope::class)
-internal class KimiRuntimeSetup(
+internal class KimiRuntimeSetup internal constructor(
     private val installer: EngineRuntimeInstaller,
     private val dispatchers: DispatcherProvider,
-    private val resourcesDirectory: String? = System.getProperty("compose.application.resources.dir"),
+    private val resourcesDirectory: String?,
+    private val isTrusted: (KimiControlledRuntime) -> Boolean,
 ) {
+    @Inject
+    constructor(installer: EngineRuntimeInstaller, dispatchers: DispatcherProvider) : this(
+        installer,
+        dispatchers,
+        System.getProperty("compose.application.resources.dir"),
+        ::isKnownKimiRelease,
+    )
+
+    internal constructor(
+        installer: EngineRuntimeInstaller,
+        dispatchers: DispatcherProvider,
+        resourcesDirectory: String?,
+    ) : this(installer, dispatchers, resourcesDirectory, ::isKnownKimiRelease)
+
     private val log = Log.tag("KimiRuntimeSetup")
     private val mutex = Mutex()
     private val status = MutableStateFlow<EnginePreparation>(EnginePreparation.Idle)
@@ -47,7 +61,7 @@ internal class KimiRuntimeSetup(
     /** Release-pin preflight for process entry points; it does not establish the identity of executed bytes. */
     suspend fun locateRelease(launch: LaunchContext = LaunchContext()): Installation {
         val (runtime, source) = locateControlled(launch)
-        if (!isKnownKimiRelease(runtime)) {
+        if (!isTrusted(runtime)) {
             throw EngineException(
                 io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure.Engine(
                     io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason.RequirementsNotMet,
@@ -86,7 +100,7 @@ internal class KimiRuntimeSetup(
     suspend fun prepare(manager: EngineManager) = mutex.withLock {
         try {
             val current = try {
-                locate()
+                locateRelease()
             } catch (error: EngineException) {
                 log.w(error) { "Pinned Kimi runtime needs preparation" }
                 null
@@ -98,6 +112,8 @@ internal class KimiRuntimeSetup(
                     manager,
                     target = kimiRuntimeTarget(),
                 ) { status.value = it }
+                // Preparation is not ready until the selected runtime independently matches the release pin.
+                locateRelease()
             }
             status.value = EnginePreparation.Ready
         } catch (error: CancellationException) {
