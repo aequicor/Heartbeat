@@ -32,6 +32,7 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import kotlin.time.TimeSource
 
 /** Shared usage gate, read by the catalog without depending on toggle storage. */
 interface EngineUsageGate {
@@ -116,7 +117,7 @@ class ProviderUsageCatalogService(
         if (enabled.registry.find(engine)?.descriptor?.declaredFeatures?.contains(ReportsProviderUsage.id) != true) {
             return ProviderUsageSnapshot()
         }
-        val resolved = routes.resolve(engine, binding)
+        val resolved = routes.resolveSession(engine, binding)
         val identity = resolved.usageIdentity()
         val request = mutex.withLock {
             val entry = entries.getOrPut(identity) { UsageEntry() }
@@ -146,7 +147,15 @@ class ProviderUsageCatalogService(
     private suspend fun refresh(resolved: ResolvedRoute, entry: UsageEntry): ProviderUsageSnapshot = try {
         val identity = resolved.usageIdentity()
         requireCurrent(resolved)
-        val runtime = pool.runtime(resolved)
+        val runtime = pool.sessionRuntime(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = {
+                requireCurrent(resolved)
+                routes.recheckSession(resolved)
+            },
+            prepare = { routes.bindAdmitted(resolved) },
+        )
         val feature = runtime.features.resolve(ReportsProviderUsage).orFail()
         observeRuntime(identity, runtime, feature, entry)
         log.i { "Refresh provider limits engine=${resolved.identity.engine.value}" }

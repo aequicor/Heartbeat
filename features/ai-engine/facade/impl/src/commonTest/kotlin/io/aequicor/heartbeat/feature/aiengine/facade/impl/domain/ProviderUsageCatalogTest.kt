@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
@@ -36,6 +37,17 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProviderUsageCatalogTest {
+    @Test
+    fun `unknown compatibility cannot start or bind runtime for provider usage`() = runTest {
+        val fixture = UsageFixture(this)
+        fixture.route.factory.runtimeRequirements = null
+        val error = assertFailsWith<EngineException> { fixture.refresh() }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), error.failure)
+        assertTrue(fixture.route.factory.createdRuntimes.isEmpty())
+        assertTrue(fixture.route.factory.routes.isEmpty())
+        assertEquals(ProviderUsageSnapshot(), fixture.catalog.observe(TestEngine, fixture.route.binding.id).first())
+    }
+
     @Test
     fun `observing and disabled usage do not start an engine`() = runTest {
         val fixture = UsageFixture(this)
