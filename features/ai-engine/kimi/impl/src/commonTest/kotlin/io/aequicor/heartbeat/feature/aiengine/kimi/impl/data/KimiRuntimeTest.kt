@@ -55,6 +55,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -90,6 +91,80 @@ import kotlin.test.assertTrue
 
 @Suppress("LargeClass") // Shared runtime fixture exercises the complete session lifecycle.
 class KimiRuntimeTest {
+    @Test
+    fun `model update during configuration prevents session handoff`() = runTest {
+        val connection = FakeConnection().apply {
+            beforeConfigResponse = {
+                update(
+                    """{"sessionUpdate":"config_option_update","configOptions":[
+                        {"id":"model","currentValue":"other"}]}""",
+                )
+            }
+        }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+
+        val error = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), error.failure)
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @Test
+    fun `matching model update during configuration permits session handoff`() = runTest {
+        val connection = FakeConnection().apply {
+            beforeConfigResponse = {
+                update(
+                    """{"sessionUpdate":"config_option_update","configOptions":[
+                        {"id":"model","currentValue":"kimi-code/kimi-for-coding"}]}""",
+                )
+            }
+        }
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+    }
+
+    @Test
+    fun `failed resumed session configuration closes but never deletes user history`() = runTest {
+        val connection = FakeConnection().apply {
+            beforeConfigResponse = {
+                update(
+                    """{"sessionUpdate":"config_option_update","configOptions":[
+                        {"id":"model","currentValue":"other"}]}""",
+                )
+            }
+        }
+        val sessionCapabilities = JsonObject(mapOf("close" to JsonObject(emptyMap())))
+        val capabilities = buildJsonObject {
+            put("loadSession", true)
+            put("sessionCapabilities", sessionCapabilities)
+        }
+        val runtime = runtime(connection, this, capabilities)
+        val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, "native")
+
+        val error = assertFailsWith<EngineException> { runtime.attach(ref, ResumeSessionRequest(target)) }
+
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), error.failure)
+        assertEquals("native", connection.closedSession)
+        assertNull(connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @Test
+    fun `duplicate native identity never deletes an existing session`() = runTest {
+        val connection = FakeConnection()
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+        runtime.create(CreateSessionRequest(target))
+
+        assertFailsWith<IllegalStateException> { runtime.create(CreateSessionRequest(target)) }
+
+        assertNull(connection.deletedSession)
+        assertTrue(runtime.isClosed)
+    }
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
     fun `external model change prevents a new turn and retires runtime`() = runTest {
@@ -1236,6 +1311,7 @@ private class FakeConnection : AcpConnection {
     var newSessionBarrier: CompletableDeferred<Unit>? = null
     var newSessions = 0
     var deletedSession: String? = null
+    var closedSession: String? = null
     var deleteSessionFailure: Exception? = null
     var deleteSessionBarrier: CompletableDeferred<Unit>? = null
     var prompt = CompletableDeferred<AcpPromptResult>()
@@ -1269,6 +1345,9 @@ private class FakeConnection : AcpConnection {
         deleteSessionBarrier?.await()
         deleteSessionFailure?.let { throw it }
         deletedSession = sessionId
+    }
+    override suspend fun closeSession(sessionId: String) {
+        closedSession = sessionId
     }
     override suspend fun newSession(cwd: String, servers: List<JsonObject>): AcpSession {
         this.servers = servers

@@ -143,6 +143,7 @@ internal class KimiRuntime(
     )
     private val sessions = MutableStateFlow<Map<String, KimiSession>>(emptyMap())
     private val mutex = Mutex()
+    private val configuring = mutableMapOf<String, PendingKimiModel>()
     private val loading = Mutex()
     private val catalogLock = Mutex()
     private val pendingCatalogs = mutableMapOf<Pair<EngineBindingId, String>, Deferred<Result<KimiModelCatalog>>>()
@@ -178,39 +179,62 @@ internal class KimiRuntime(
         )
         var isTransferred = false
         var nativeId: String? = null
+        var pending: PendingKimiModel? = null
         try {
             val native = connection.newSession(cwd, hosted.servers)
             nativeId = native.sessionId
+            pending = beginConfiguration(native.sessionId, request.target)
             configureCatching(native.sessionId, native.metadata, request.target)
-            val session = session(native.sessionId, request.target, request.workspace, native.metadata, cwd, hosted)
+            val session = session(
+                native.sessionId,
+                request.target,
+                request.workspace,
+                native.metadata,
+                cwd,
+                hosted,
+                pending,
+            )
             hosted.session.value = session
             isTransferred = true
             return session.lease(request.areDetachedToolsEnabled)
         } finally {
             if (!isTransferred) {
                 hosted.close()
-                withContext(NonCancellable) { nativeId?.let { discardCreatedSession(it) } }
+                withContext(NonCancellable) {
+                    val id = nativeId
+                    val owner = pending
+                    if (id != null && owner != null) {
+                        endConfiguration(id, owner)
+                        discardSession(id, delete = true)
+                    } else if (id != null) {
+                        close()
+                    }
+                }
             }
         }
     }
 
-    private suspend fun discardCreatedSession(sessionId: String) = withContext(NonCancellable) {
+    private suspend fun discardSession(sessionId: String, delete: Boolean) = withContext(NonCancellable) {
         val capabilities = initialization.agentCapabilities["sessionCapabilities"] as? JsonObject
-        var isDeleted = false
+        var isReleased = false
         try {
-            if (capabilities?.get("delete") is JsonObject) {
-                isDeleted = withTimeoutOrNull(CATALOG_TIMEOUT_MS) {
-                    connection.deleteSession(sessionId)
+            if (capabilities?.get(if (delete) "delete" else "close") is JsonObject) {
+                isReleased = withTimeoutOrNull(CATALOG_TIMEOUT_MS) {
+                    releaseSession(sessionId, delete)
                     true
                 } == true
             }
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(error.engineFailure().let { EngineException(it) }) { "Kimi failed to remove a new session" }
+            log.w(error.engineFailure().let { EngineException(it) }) { "Kimi failed to release a session" }
         } finally {
-            if (!isDeleted) withContext(NonCancellable) { close() }
+            if (!isReleased) withContext(NonCancellable) { close() }
         }
+    }
+
+    private suspend fun releaseSession(sessionId: String, delete: Boolean) {
+        if (delete) connection.deleteSession(sessionId) else connection.closeSession(sessionId)
     }
 
     override suspend fun discover(binding: EngineBindingId): List<ModelInfo> =
@@ -330,16 +354,39 @@ internal class KimiRuntime(
         val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, nativeId)
         val hosted = hosted(request.target, request.workspace, ref, request.areDetachedToolsEnabled, emptyMap())
         var isTransferred = false
+        var pending: PendingKimiModel? = null
         try {
             val native = connection.loadSession(nativeId, cwd, hosted.servers)
+            pending = beginConfiguration(nativeId, request.target)
             configureCatching(nativeId, native.metadata, request.target)
-            val session = session(nativeId, request.target, request.workspace, native.metadata, cwd, hosted)
+            val session = session(nativeId, request.target, request.workspace, native.metadata, cwd, hosted, pending)
             hosted.session.value = session
             isTransferred = true
             session.lease(request.areDetachedToolsEnabled)
         } finally {
-            if (!isTransferred) hosted.close()
+            if (!isTransferred) {
+                hosted.close()
+                withContext(NonCancellable) { cleanupFailedResume(nativeId, pending) }
+            }
         }
+    }
+
+    private suspend fun cleanupFailedResume(nativeId: String, owner: PendingKimiModel?) {
+        if (owner == null) {
+            close()
+        } else {
+            endConfiguration(nativeId, owner)
+            discardSession(nativeId, delete = false)
+        }
+    }
+
+    private suspend fun beginConfiguration(nativeId: String, target: EngineTarget): PendingKimiModel = mutex.withLock {
+        check(nativeId !in sessions.value && nativeId !in configuring) { "Kimi session identity already owned" }
+        PendingKimiModel(nativeKimiModel(target.model)).also { configuring[nativeId] = it }
+    }
+
+    private suspend fun endConfiguration(nativeId: String, owner: PendingKimiModel) = mutex.withLock {
+        if (configuring[nativeId] === owner) configuring.remove(nativeId)
     }
 
     @Suppress("LongParameterList") // A session is bound to its native identity, route and capability.
@@ -350,9 +397,14 @@ internal class KimiRuntime(
         metadata: JsonObject,
         workingDirectory: String,
         hosted: KimiHosted,
+        pending: PendingKimiModel,
     ): KimiSession = mutex.withLock {
         checkActive()
         check(nativeId !in sessions.value) { "Kimi session identity already registered" }
+        if (configuring[nativeId] !== pending || pending.isInvalid) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        }
+        configuring.remove(nativeId)
         run {
             val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, nativeId)
             val route = ExecutionRoute(
@@ -411,7 +463,17 @@ internal class KimiRuntime(
 
     @HighFrequency
     override suspend fun onSessionUpdate(update: AcpSessionUpdate) {
-        mutex.withLock { sessions.value[update.sessionId] }?.update(update.update)
+        val session = mutex.withLock {
+            val pending = configuring[update.sessionId]
+            if (pending != null &&
+                update.update["sessionUpdate"]?.jsonPrimitive?.contentOrNull == "config_option_update" &&
+                update.update.currentOption("model") != pending.expected
+            ) {
+                pending.invalidate()
+            }
+            sessions.value[update.sessionId]
+        }
+        session?.update(update.update)
     }
 
     internal suspend fun receiveUsage(session: KimiSession, update: JsonObject) {
@@ -568,6 +630,15 @@ internal class KimiRuntime(
 
 private const val CATALOG_TIMEOUT_MS = 10_000L
 private const val CATALOG_OWNER_TIMEOUT_MS = 60_000L
+
+private class PendingKimiModel(val expected: String) {
+    var isInvalid: Boolean = false
+        private set
+
+    fun invalidate() {
+        isInvalid = true
+    }
+}
 
 /** Metadata reads never require or start a live runtime. The facade supplies route-checked resumption. */
 internal class KimiStoredSession(ref: SessionRef) : EngineSession {
