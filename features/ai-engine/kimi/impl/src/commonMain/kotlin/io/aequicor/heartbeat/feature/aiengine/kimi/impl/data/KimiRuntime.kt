@@ -218,7 +218,7 @@ internal class KimiRuntime(
                     kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
                 } finally {
                     withContext(NonCancellable) {
-                        withTimeout(CATALOG_TIMEOUT_MS) {
+                        withTimeout(CATALOG_OWNER_TIMEOUT_MS) {
                             connection.deleteSession(native.sessionId)
                             isClosed = true
                         }

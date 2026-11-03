@@ -196,6 +196,41 @@ class KimiRuntimeTest {
         assertFalse(runtime.isClosed)
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `model discovery owner waits for deletion after caller timeout`() = runTest {
+        val barrier = CompletableDeferred<Unit>()
+        val connection = FakeConnection().apply { deleteSessionBarrier = barrier }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+        assertFailsWith<kotlinx.coroutines.TimeoutCancellationException> {
+            runtime.discover(EngineBindingId("binding"))
+        }
+        assertNull(connection.deletedSession)
+        barrier.complete(Unit)
+        runCurrent()
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `model discovery owner retires runtime when deletion never completes`() = runTest {
+        val connection = FakeConnection().apply { deleteSessionBarrier = CompletableDeferred() }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+        assertFailsWith<kotlinx.coroutines.TimeoutCancellationException> {
+            runtime.discover(EngineBindingId("binding"))
+        }
+        assertFalse(runtime.isClosed)
+        testScheduler.advanceTimeBy(50_001L)
+        runCurrent()
+        assertTrue(runtime.isClosed)
+        assertNull(connection.deletedSession)
+    }
+
     @Test
     fun `hosted admissions are bound to one call and expire with the turn`() = runTest {
         val connection = FakeConnection()
@@ -1003,6 +1038,7 @@ private class FakeConnection : AcpConnection {
     var newSessions = 0
     var deletedSession: String? = null
     var deleteSessionFailure: Exception? = null
+    var deleteSessionBarrier: CompletableDeferred<Unit>? = null
     var prompt = CompletableDeferred<AcpPromptResult>()
     var servers: List<JsonObject> = emptyList()
     var turnToken = ""
@@ -1024,6 +1060,7 @@ private class FakeConnection : AcpConnection {
         return AcpSession("native", metadata)
     }
     override suspend fun deleteSession(sessionId: String) {
+        deleteSessionBarrier?.await()
         deleteSessionFailure?.let { throw it }
         deletedSession = sessionId
     }
