@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.secretReference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
@@ -39,6 +40,19 @@ import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class PiProcessPreparationTest {
+    @Test
+    fun `missing explicit runtime never downloads or substitutes the bundled runtime`() = runTest {
+        for (preference in listOf(RuntimePreference.Managed, RuntimePreference.System)) {
+            val context: (Path) -> LaunchContext = { LaunchContext(settings = LaunchSettings(runtime = preference)) }
+            withLauncher(context) { launcher, distribution, cache, _ ->
+                assertFailsWith<EngineException> { launcher.prepare() }
+                assertEquals(0, cache.calls)
+                assertNull(distribution.executable())
+                assertTrue(launcher.preparation.value is EnginePreparation.Failed)
+            }
+        }
+    }
+
     @Test
     fun `first use installs a known baseline instead of an older or equal managed Pi`() = runTest {
         for (version in listOf("0.86.0", "0.87.1")) {

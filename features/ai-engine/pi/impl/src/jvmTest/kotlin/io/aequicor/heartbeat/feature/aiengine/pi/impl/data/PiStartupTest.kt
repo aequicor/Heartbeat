@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubAsset
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubRelease
@@ -78,6 +79,24 @@ class PiStartupTest {
         assertEquals(null to InstallSource.Missing, resolvePiStartup(LaunchContext(), null).pair())
         val unnamed = LaunchContext(LaunchSettings(executable = "C:\\pi\u0000.exe"))
         assertEquals(null to InstallSource.Custom, resolvePiStartup(unnamed, bundled).pair())
+    }
+
+    @Test
+    fun `explicit managed source never falls back to a newer bundled runtime`() {
+        val explicit = LaunchContext(LaunchSettings(runtime = RuntimePreference.Managed), managed)
+        val chosen = resolvePiStartup(explicit, bundled, "9.0.0")
+        assertEquals(Path.of(managed.executable) to InstallSource.Managed, chosen.pair())
+        assertEquals(managed.version, chosen.runtimeVersion)
+        val missing = resolvePiStartup(explicit.copy(managed = null), bundled, "9.0.0")
+        assertEquals(null to InstallSource.Managed, missing.pair())
+        assertEquals(false, missing.isBundledPreparationAllowed)
+        val unsupported = resolvePiStartup(
+            LaunchContext(LaunchSettings(runtime = RuntimePreference.System)),
+            bundled,
+            "9.0.0",
+        )
+        assertEquals(null to InstallSource.Missing, unsupported.pair())
+        assertEquals(false, unsupported.isBundledPreparationAllowed)
     }
 
     @Test

@@ -22,8 +22,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * [PiEngineManager] of the desktop: the bundled Pi is the verified one, a newer official release is installed as
- * Heartbeat's own copy and reported as unverified until a Heartbeat build ships that version.
+ * Desktop [PiEngineManager]. Its legacy version comparison is display metadata, not runtime admission evidence.
  */
 @Inject
 @SingleIn(ProfileScope::class)

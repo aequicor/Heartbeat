@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineConfigurator
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 
@@ -16,17 +17,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 internal interface PiEngineManager : EngineManager
 
 /**
- * What engine management may change for Pi: Heartbeat ships a verified Pi, a newer official release may replace
- * it (unverified until a Heartbeat build ships it) and be removed again, keys are added as connections, and launch
- * settings may name another executable and extra environment. `PI_*` and Heartbeat's bridge variables are set by
- * Heartbeat itself. A job installs the packages the configuration lists into the profile's Pi home.
+ * Pi has a bundled baseline and can keep a managed copy alongside it. A user can explicitly select the managed
+ * copy or another executable; selecting Managed never falls back to the bundled runtime. Version metadata alone
+ * does not prove admission. `PI_*` and Heartbeat's bridge variables are set by Heartbeat itself. A job installs
+ * the packages the configuration lists into the profile's Pi home.
  */
 internal val PiManagementSpec = ManagementSpec(
     install = InstallSupport.Bundled,
     login = LoginSupport.Connections,
     launch = LaunchSpec(
-        options = setOf(LaunchOption.Executable, LaunchOption.Environment, LaunchOption.Mcp),
+        options = setOf(LaunchOption.Executable, LaunchOption.Environment, LaunchOption.Mcp, LaunchOption.Runtime),
         reservedEnvironmentPrefixes = setOf("PI_", "HEARTBEAT_"),
+        runtimes = setOf(RuntimePreference.Managed),
     ),
     hasPackages = true,
 )

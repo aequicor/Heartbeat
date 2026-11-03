@@ -92,6 +92,12 @@ internal class PiProcessLauncher(
     suspend fun prepare(): PiStartup = preparationLock.withLock {
         try {
             val selected = withContext(dispatchers.io) { startup() }
+            val isManagedMissing = selected.source == InstallSource.Managed &&
+                selected.executable?.let(Files::isRegularFile) != true
+            val isFallbackForbidden = selected.source == InstallSource.Missing && !selected.isBundledPreparationAllowed
+            if (isManagedMissing || isFallbackForbidden) {
+                piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+            }
             if (selected.source == InstallSource.Missing ||
                 (selected.source == InstallSource.Bundled && selected.executable?.let(Files::isRegularFile) != true)
             ) {

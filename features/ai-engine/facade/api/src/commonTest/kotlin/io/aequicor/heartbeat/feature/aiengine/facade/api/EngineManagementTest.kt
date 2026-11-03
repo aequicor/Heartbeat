@@ -65,6 +65,18 @@ class EngineManagementTest {
     }
 
     @Test
+    fun `bundled engine can install a managed copy only when it declares that source`() {
+        val spec = ManagementSpec(
+            InstallSupport.Bundled,
+            LoginSupport.Connections,
+            LaunchSpec(options = setOf(LaunchOption.Runtime), runtimes = setOf(RuntimePreference.Managed)),
+        )
+        assertTrue(Install in engine(spec).actions())
+        val installed = ManagedInstall("1.0.0", "/data/pi", Instant.fromEpochSeconds(1))
+        assertFalse(Install in engine(spec, InstallationState(managed = installed)).actions())
+    }
+
+    @Test
     fun `an external CLI is only inspected and never installed or updated`() {
         val spec = ManagementSpec(InstallSupport.External, LoginSupport.Connections)
         val engine = engine(spec, InstallationState(current = Installation(InstallSource.System, "0.2.1-rc.5")))
