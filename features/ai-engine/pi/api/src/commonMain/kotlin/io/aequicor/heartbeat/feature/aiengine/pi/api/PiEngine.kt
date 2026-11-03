@@ -35,8 +35,8 @@ public val PiEngineId: EngineId = EngineId("pi")
 /** Exclusive namespace; a foreign CLI login is never accepted. */
 public val PiAuthOwner: AuthOwnerId = AuthOwnerId("pi")
 
-/** Enabled by default because the desktop distribution contains the engine. */
-public val PiEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.pi", "Встроенный движок Pi", default = true)
+/** Enabled by default because the desktop distribution supplies the external engine. */
+public val PiEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.pi", "Движок Pi", default = true)
 
 /**
  * Static metadata; installation and credentials are checked separately.
@@ -51,7 +51,7 @@ public val PiEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.pi", "Встр
 public val PiDescriptor: EngineDescriptor = EngineDescriptor(
     id = PiEngineId,
     title = "Pi",
-    family = EngineFamily.BuiltIn,
+    family = EngineFamily.MultiProvider,
     platforms = setOf(EnginePlatform.DesktopWindows, EnginePlatform.DesktopMacOs, EnginePlatform.DesktopLinux),
     toggle = PiEnabled,
     declaredFeatures = setOf(

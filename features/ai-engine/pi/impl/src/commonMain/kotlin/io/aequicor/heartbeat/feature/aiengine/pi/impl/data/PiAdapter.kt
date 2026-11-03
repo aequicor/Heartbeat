@@ -9,4 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngine
  */
 internal interface PiAdapter :
     PiEngine,
-    EngineFactory
+    EngineFactory {
+    /** Pi model discovery starts a native process and must use the admitted runtime. */
+    override val isAdmittedRuntimeRequiredForModels: Boolean get() = true
+}
