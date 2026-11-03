@@ -31,6 +31,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -149,6 +150,37 @@ class ConnectWizardLaunchRaceTest {
         val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
 
         wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertEquals(other, management.state.value.engines.single().launch.settings)
+    }
+
+    @Test
+    fun `abandoning the models step restores the wizard owned runtime choice`() = runTest {
+        val original = LaunchSettings(executable = "/old")
+        management.state.value = claudeManagement(original)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+        wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        val connected = assertIs<ConnectWizardIntent.Internal.Connected>(wizardScope.intents.last()).connection
+
+        wizard.handle(ConnectWizardEffect.Rollback(connected), wizardScope)
+
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertEquals(original, management.state.value.engines.single().launch.settings)
+    }
+
+    @Test
+    fun `abandoning the models step preserves a newer runtime choice`() = runTest {
+        management.state.value = claudeManagement(LaunchSettings(executable = "/old"))
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+        wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        val connected = assertIs<ConnectWizardIntent.Internal.Connected>(wizardScope.intents.last()).connection
+        val other = LaunchSettings(executable = "/other")
+        management.execute(ClaudeId, EngineCommand.Configure(other))
+
+        wizard.handle(ConnectWizardEffect.Rollback(connected), wizardScope)
 
         assertTrue(facade.bindingsState.value.isEmpty())
         assertEquals(other, management.state.value.engines.single().launch.settings)

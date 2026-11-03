@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardLaunchRollback
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
@@ -97,7 +98,7 @@ internal class ConnectWizardEffects(
 
             is ConnectWizardEffect.Rollback -> {
                 // A compensation must finish even if the wizard closes meanwhile.
-                withContext(NonCancellable) { rollback(effect.connection) }
+                withContext(NonCancellable) { rollbackWizard(effect.connection) }
                 machine.send(ConnectWizardIntent.Internal.RolledBack)
             }
         }
@@ -182,7 +183,14 @@ internal class ConnectWizardEffects(
             if (hostApp != null) preferHostRuntime(engine, switch)
             currentCoroutineContext().ensureActive()
             isApplied = true
-            return PreparedConnection(connection, switch)
+            val previous = switch.previous
+            val receipt = switch.receipt
+            val launchRollback = if (previous != null && receipt != null) {
+                WizardLaunchRollback(engine, previous, receipt)
+            } else {
+                null
+            }
+            return PreparedConnection(connection.copy(launchRollback = launchRollback), switch)
         } finally {
             if (!isApplied) {
                 withContext(NonCancellable) {
@@ -421,6 +429,16 @@ internal class ConnectWizardEffects(
                 }
             }
         }
+
+    private suspend fun rollbackWizard(connection: NewConnection) {
+        try {
+            rollback(connection)
+        } finally {
+            withContext(NonCancellable) {
+                connection.launchRollback?.let { restoreSettings(it.engine, it.receipt, it.previous) }
+            }
+        }
+    }
 
     /** Binds [source]; a binding that fails or is cancelled must not leave the new source behind. */
     private suspend fun bindOrForget(engine: EngineId, source: AuthSourceId): EngineBinding {

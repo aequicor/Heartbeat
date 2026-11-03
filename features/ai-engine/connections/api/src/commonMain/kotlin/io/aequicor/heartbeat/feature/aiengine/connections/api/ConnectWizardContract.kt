@@ -15,6 +15,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 
@@ -55,6 +57,7 @@ public fun ConnectionMethod.accepts(credential: CredentialInput): Boolean = cred
  * together with its source and model selection. [initialModels] initializes the model step from the saved choice.
  * [isInitiallyEnabled] records the original state of a reused route temporarily enabled by the wizard; rollback
  * restores it.
+ * [launchRollback] is a temporary owner-scoped receipt, retained only until the wizard finishes or rolls back.
  * Newly created connections belong to the wizard until completion.
  */
 public data class NewConnection(
@@ -63,6 +66,14 @@ public data class NewConnection(
     val isCreated: Boolean = true,
     val initialModels: Set<ModelId> = emptySet(),
     val isInitiallyEnabled: Boolean = true,
+    val launchRollback: WizardLaunchRollback? = null,
+)
+
+/** An uncommitted wizard choice that can be restored only while [receipt] remains current. */
+public data class WizardLaunchRollback(
+    val engine: EngineId,
+    val previous: LaunchSettings,
+    val receipt: LaunchSettingsSnapshot,
 )
 
 /** Result of an explicit connection check on the method step. */
@@ -128,7 +139,7 @@ public sealed interface ConnectWizardState : MachineState {
         val phase: ModelSavePhase = ModelSavePhase.Saving,
     ) : ConnectWizardState
 
-    /** Removing the connection created by an abandoned wizard. */
+    /** Removing the abandoned connection and conditionally restoring the wizard's runtime choice. */
     public data class RollingBack(val connection: NewConnection) : ConnectWizardState
 
     /** The accepted operation ended its UI wait; [isSavePending] explicitly preserves a still unknown write outcome. */
@@ -255,7 +266,7 @@ public sealed interface ConnectWizardEffect : MachineEffect {
         val removedTargets: Set<EngineTarget> = emptySet(),
     ) : ConnectWizardEffect
 
-    /** Disconnects a newly created binding and forgets its source; preserves an existing CLI connection. */
+    /** Disconnects a newly created binding, preserves an existing CLI connection and restores an owned runtime choice. */
     public data class Rollback(val connection: NewConnection) : ConnectWizardEffect
 }
 
