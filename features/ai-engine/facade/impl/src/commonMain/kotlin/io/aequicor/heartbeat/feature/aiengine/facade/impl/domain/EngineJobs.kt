@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.assessEngineCompatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -187,10 +188,16 @@ class EngineJobs(
         val report = withTimeoutOrNull(CHECK_TIMEOUT_MILLIS) {
             withContext(context.io) { manager.inspectCompatibility(installation, launch) }
         }
-        val decision = report?.decision
+        // The report is input, not the authority defining which runtime contracts are accepted.
+        val policy = registry.require(engine).factory.value.runtimeRequirements
+        val decision = if (policy != null && report != null) {
+            assessEngineCompatibility(policy, report.evidence)
+        } else {
+            null
+        }
         val identity = report?.evidence?.identity
         val failure = when {
-            report?.requirements?.engine != engine || identity?.engine != engine || identity.runtime == null ->
+            policy?.engine != engine || identity?.engine != engine || identity.runtime == null ->
                 EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
 
             !isSameVersion(identity.runtime, candidate.version) ->

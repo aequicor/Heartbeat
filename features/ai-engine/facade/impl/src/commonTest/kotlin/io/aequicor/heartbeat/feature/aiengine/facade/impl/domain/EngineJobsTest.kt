@@ -64,9 +64,10 @@ import kotlin.time.Instant
 class EngineJobsTest {
     private val engine = EngineId("cli")
     private val manager = JobManager()
+    private val factory = FakeEngineFactory().apply { runtimeRequirements = jobPolicy() }
     private val registry = EngineRegistry(
         listOf(
-            registration(id = engine, owner = AuthOwnerId("cli")).let {
+            registration(factory = factory, id = engine, owner = AuthOwnerId("cli")).let {
                 EngineRegistration(
                     it.descriptor,
                     it.authOwner,
@@ -233,6 +234,36 @@ class EngineJobsTest {
         )
         assertTrue(installs.activated.isEmpty())
         assertEquals(1, installs.discarded)
+    }
+
+    @Test
+    fun `candidate report cannot grant itself a more permissive policy`() = runTest {
+        factory.runtimeRequirements = jobPolicy().copy(verified = emptySet())
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        assertEquals(
+            JobPhase.Failed(ManagementFailure.Engine(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))),
+            jobs.jobs.value.getValue(engine).phase,
+        )
+        assertTrue(installs.activated.isEmpty())
+        assertEquals(1, installs.discarded)
+        assertTrue(runtimes.retired.isEmpty())
+    }
+
+    @Test
+    fun `candidate report cannot substitute for missing connector policy`() = runTest {
+        factory.runtimeRequirements = null
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        assertEquals(
+            JobPhase.Failed(ManagementFailure.Engine(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))),
+            jobs.jobs.value.getValue(engine).phase,
+        )
+        assertTrue(installs.activated.isEmpty())
+        assertEquals(1, installs.discarded)
+        assertTrue(runtimes.retired.isEmpty())
     }
 
     @Test
@@ -414,6 +445,26 @@ class EngineJobsTest {
     )
 }
 
+private fun jobPolicy(): EngineCompatibilityRequirements {
+    val engine = EngineId("cli")
+    val protocol = EngineProtocolIdentity.Negotiated("test", 1)
+    val stamp = EngineCompatibilityStamp(
+        engine, "host", "connector", "2.0.0", protocol, 1, 1, "darwin-arm64", "digest",
+    )
+    return EngineCompatibilityRequirements(
+        engine = engine,
+        heartbeatVersions = setOf("host"),
+        connectorVersions = setOf("connector"),
+        minimumRuntime = "1.0.0",
+        protocols = setOf(protocol),
+        configurationSchemas = setOf(1),
+        historySchemas = setOf(1),
+        nativeTargets = setOf("darwin-arm64"),
+        baselineCapabilities = emptySet(),
+        verified = setOf(stamp),
+    )
+}
+
 private class JobManager : EngineManager {
     var logoutResult: LoginState = LoginState.SignedOut
     override suspend fun logout(launch: LaunchContext): LoginState = logoutResult
@@ -442,7 +493,8 @@ private class JobManager : EngineManager {
         if (compatibility == Compatibility.Unknown) return null
         val protocol = EngineProtocolIdentity.Negotiated("test", 1)
         val stamp = EngineCompatibilityStamp(
-            reportEngine, "host", "connector", reportedVersion, protocol, 1, 1, "darwin-arm64", "digest",
+            reportEngine, "host", "connector", reportedVersion, protocol, 1, 1, "darwin-arm64",
+            if (compatibility == Compatibility.Unverified) "unverified-digest" else "digest",
         )
         val requirements = EngineCompatibilityRequirements(
             engine = reportEngine,
