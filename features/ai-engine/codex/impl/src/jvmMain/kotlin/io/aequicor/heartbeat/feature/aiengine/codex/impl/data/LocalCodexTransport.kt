@@ -216,11 +216,12 @@ internal class LocalCodexTransport(
 
     override suspend fun locate(launch: LaunchContext): Installation = withContext(dispatchers.io) {
         val resolved = resolveCodexLaunch(launch, config)
-        val version = if (resolved.isRunnable && resolved.source != InstallSource.Missing) version(resolved) else null
-        log.i { "Codex located source=${resolved.source} version=${version ?: "unknown"}" }
+        // Locating an executable is not permission to run it, even with --version.
+        // Version and compatibility remain unknown until a restricted probe can establish them.
+        log.i { "Codex located source=${resolved.source} version=unknown" }
         Installation(
             source = resolved.source,
-            version = version,
+            version = null,
             path = resolved.executable.takeIf { resolved.source != InstallSource.Missing },
             isRunnable = resolved.isRunnable,
         )

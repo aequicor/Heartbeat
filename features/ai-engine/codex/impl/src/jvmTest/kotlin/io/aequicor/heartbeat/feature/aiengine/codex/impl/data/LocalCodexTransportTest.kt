@@ -41,6 +41,33 @@ class LocalCodexTransportTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
+    @Test
+    fun `locating a user executable does not execute it`() = runTest {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+        val marker = File(temporaryFolder.root, "executed")
+        val executable = File(temporaryFolder.root, "codex")
+        executable.writeText("#!/bin/sh\ntouch '${marker.absolutePath}'\necho codex-cli 0.160.0\n")
+        assertTrue(executable.setExecutable(true))
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val dispatchers = object : DispatcherProvider {
+            override val main = dispatcher
+            override val default = dispatcher
+            override val io = dispatcher
+        }
+        val transport = LocalCodexTransport(
+            CodexLocalConfiguration(),
+            EngineLaunchConfig.Default,
+            dispatchers,
+            FakeScope(backgroundScope),
+        )
+
+        val installation = transport.locate(LaunchContext(LaunchSettings(executable = executable.absolutePath)))
+
+        assertEquals(executable.absolutePath, installation.path)
+        assertNull(installation.version)
+        assertFalse(marker.exists())
+    }
+
     /** A broken local pipe is the app-server crashing, not a provider server error shown to the user. */
     @Test
     fun `broken app-server pipe is reported as an engine crash`() {
