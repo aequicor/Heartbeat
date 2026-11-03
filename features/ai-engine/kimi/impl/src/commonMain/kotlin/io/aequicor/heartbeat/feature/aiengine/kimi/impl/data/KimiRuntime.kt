@@ -200,10 +200,16 @@ internal class KimiRuntime(
             try {
                 withTimeout(CATALOG_TIMEOUT_MS) {
                     val native = connection.newSession(cwd)
-                    val catalog = kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
-                    connection.deleteSession(native.sessionId)
-                    isClosed = true
-                    catalog
+                    try {
+                        kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
+                    } finally {
+                        withContext(NonCancellable) {
+                            withTimeout(CATALOG_TIMEOUT_MS) {
+                                connection.deleteSession(native.sessionId)
+                                isClosed = true
+                            }
+                        }
+                    }
                 }
             } finally {
                 // An unconfirmed session must not survive on a pooled connection.

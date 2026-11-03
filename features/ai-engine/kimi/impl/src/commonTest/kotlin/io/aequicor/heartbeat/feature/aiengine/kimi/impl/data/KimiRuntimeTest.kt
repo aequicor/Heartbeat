@@ -147,6 +147,20 @@ class KimiRuntimeTest {
     }
 
     @Test
+    fun `model discovery deletes its session when catalog metadata is malformed`() = runTest {
+        val connection = FakeConnection()
+        connection.metadata = Json.parseToJsonElement("""{"configOptions":"invalid"}""").jsonObject
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+
+        assertFailsWith<IllegalArgumentException> { runtime.discover(EngineBindingId("binding")) }
+
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @Test
     fun `model discovery retires runtime when session creation times out`() = runTest {
         val connection = FakeConnection().apply { newSessionBarrier = CompletableDeferred() }
         val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
