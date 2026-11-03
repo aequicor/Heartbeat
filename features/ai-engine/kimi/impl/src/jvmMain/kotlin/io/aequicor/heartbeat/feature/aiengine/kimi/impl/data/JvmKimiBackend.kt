@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
@@ -69,12 +70,14 @@ internal class JvmKimiBackend(
     private val localApi: JvmKimiLocalApi,
     private val setup: KimiRuntimeSetup,
     private val compatibilityProbe: KimiCompatibilityProbe,
+    private val launches: EngineLaunchConfig,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: KimiConfiguration = KimiConfiguration(),
 ) : KimiBackend {
     private val log = Log.tag("KimiBackend")
     private val mutex = Mutex()
     private var runtime: KimiRuntime? = null
+    private var runtimeLaunch: LaunchContext? = null
 
     override val preparation = setup.preparation
 
@@ -150,6 +153,7 @@ internal class JvmKimiBackend(
     override suspend fun logout(launch: LaunchContext): LoginState = mutex.withLock {
         runtime?.close()
         runtime = null
+        runtimeLaunch = null
         withKimiAuth(launch) { connection ->
             connection.logout()
             kimiLoginStatus(connection)
@@ -172,8 +176,10 @@ internal class JvmKimiBackend(
     }
 
     override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState {
-        prepareRuntime()
-        val executable = requireNotNull(setup.locateRelease().path)
+        if (launch.settings.runtime == io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference.Auto) {
+            prepareRuntime()
+        }
+        val executable = requireNotNull(setup.locateRelease(launch).path)
         val isSucceeded = try {
             runKimiLogin(dispatchers, session, LOGIN_TIMEOUT_MS, kimiTerminalLoginCommand(executable)) {
                 ProcessBuilder(executable, "login")
@@ -186,7 +192,7 @@ internal class JvmKimiBackend(
             throw ManagementException(ManagementFailure.Login(LoginFailureReason.Rejected))
         }
         if (!isSucceeded) rejectLogin()
-        val state = loginStatus(LaunchContext())
+        val state = loginStatus(launch)
         if (state !is LoginState.SignedIn) rejectLogin()
         return state
     }
@@ -217,13 +223,20 @@ internal class JvmKimiBackend(
     }
 
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
-        runtime?.takeUnless { it.isClosed || it.identity != identity }?.let { return@withLock it }
+        val launch = launches.context(KimiEngine.Id)
+        runtime?.takeUnless { it.isClosed || it.identity != identity || runtimeLaunch != launch }
+            ?.let { return@withLock it }
         runtime?.close()
-        openRuntime(identity).also { runtime = it }
+        runtime = null
+        runtimeLaunch = null
+        openRuntime(identity, launch).also {
+            runtime = it
+            runtimeLaunch = launch
+        }
     }
 
-    private suspend fun openRuntime(identity: RuntimeIdentity): KimiRuntime {
-        val executable = requireNotNull(setup.locateRelease().path)
+    private suspend fun openRuntime(identity: RuntimeIdentity, launch: LaunchContext): KimiRuntime {
+        val executable = requireNotNull(setup.locateRelease(launch).path)
         val transport = transports.open(
             AcpCommand(
                 executable,

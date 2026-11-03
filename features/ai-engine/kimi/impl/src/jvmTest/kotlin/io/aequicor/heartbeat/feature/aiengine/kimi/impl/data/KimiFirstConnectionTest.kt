@@ -32,6 +32,55 @@ import kotlin.time.Instant
 
 class KimiFirstConnectionTest {
     @Test
+    fun `explicit missing managed runtime is not replaced for login or session`() = runTest {
+        val client = HttpClient(MockEngine { error("No network request expected") })
+        try {
+            val installer = object : io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeInstaller {
+                override suspend fun find(
+                    engine: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId,
+                    version: String,
+                    target: String?,
+                ): ManagedInstall? = error("Explicit choice must not consult retained runtime")
+
+                override suspend fun prepare(
+                    engine: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId,
+                    version: String,
+                    manager: io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager,
+                    target: String?,
+                    progress: suspend (io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation) -> Unit,
+                ): ManagedInstall = error("Explicit choice must not install another runtime")
+            }
+            val setup = KimiRuntimeSetup(installer, TestKimiDispatchers, resourcesDirectory = null)
+            val launch = LaunchContext(
+                settings = io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings(
+                    runtime = io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference.Managed,
+                ),
+            )
+            val backend = JvmKimiBackend(
+                transports = unused(), clients = unused(), workspaces = unused(), dispatchers = TestKimiDispatchers,
+                toggles = unused(), tools = unused(), bridge = unused(), resources = unused(),
+                localApi = JvmKimiLocalApi(client, TestKimiDispatchers, setup), setup = setup, profile = unused(),
+                compatibilityProbe = KimiCompatibilityProbe(setup, unused(), unused(), TestKimiDispatchers),
+                launches = { launch },
+            )
+            assertFailsWith<EngineException> {
+                backend.login(launch, io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod.Browser, unused())
+            }
+            assertFailsWith<EngineException> {
+                backend.createRuntime(
+                    io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity(
+                        KimiEngine.Id,
+                        KimiEngine.AuthSource,
+                        AuthRevision.Known("r1"),
+                    ),
+                )
+            }
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
     fun `inspection does not execute an unpinned self consistent runtime`() = runTest {
         val root = Files.createTempDirectory("kimi-untrusted-inspection").toFile()
         val client = HttpClient(MockEngine { error("Inspection must stay offline") })
@@ -53,6 +102,7 @@ class KimiFirstConnectionTest {
                 toggles = unused(), tools = unused(), bridge = unused(), resources = unused(),
                 localApi = JvmKimiLocalApi(client, TestKimiDispatchers, setup), setup = setup, profile = unused(),
                 compatibilityProbe = KimiCompatibilityProbe(setup, unused(), unused(), TestKimiDispatchers),
+                launches = io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig.Default,
             )
             val managed = ManagedInstall(KIMI_RUNTIME_VERSION, executable.absolutePath, Instant.fromEpochSeconds(0))
             val launch = LaunchContext(managed = managed, isInstallCandidate = true)
@@ -80,6 +130,7 @@ class KimiFirstConnectionTest {
                 toggles = unused(), tools = unused(), bridge = unused(), resources = unused(),
                 localApi = JvmKimiLocalApi(client, TestKimiDispatchers, setup), setup = setup, profile = unused(),
                 compatibilityProbe = KimiCompatibilityProbe(setup, unused(), unused(), TestKimiDispatchers),
+                launches = io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig.Default,
             )
             val registration = io.aequicor.heartbeat.feature.aiengine.kimi.impl.di.KimiBindings.registration(
                 lazyOf(backend),
