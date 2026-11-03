@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class AcpSessionListTest {
     @Test
@@ -46,6 +47,28 @@ class AcpSessionListTest {
         val request = h.outgoing("session/list")
         h.reply(request, """{}""")
         listing.await()
+    }
+
+    @Test
+    fun `a null next cursor marks the final session page`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize()
+        val listing = backgroundScope.async { h.client.listSessions() }
+        h.reply(h.outgoing("session/list"), """{"sessions":[],"nextCursor":null}""")
+        assertNull(listing.await().nextCursor)
+        h.client.close()
+    }
+
+    @Test
+    fun `a non-string next cursor is a protocol violation`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize()
+        val listing = backgroundScope.async {
+            assertFailsWith<AcpException.Protocol> { h.client.listSessions() }
+        }
+        h.reply(h.outgoing("session/list"), """{"sessions":[],"nextCursor":42}""")
+        listing.await()
+        h.client.close()
     }
 
     @Test

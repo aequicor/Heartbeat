@@ -20,6 +20,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -185,8 +186,9 @@ internal class DefaultAcpConnection(
                     ?: throw AcpException.Protocol()
                 AcpSession(id, obj)
             }
-            val next = result["nextCursor"]?.let { cursorElement ->
-                (cursorElement as? JsonPrimitive)?.contentOrNull ?: throw AcpException.Protocol()
+            val next = result["nextCursor"]?.takeUnless { it is JsonNull }?.let { cursorElement ->
+                (cursorElement as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                    ?: throw AcpException.Protocol()
             }
             AcpSessionList(listed, next)
         }
