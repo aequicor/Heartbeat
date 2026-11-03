@@ -44,6 +44,19 @@ internal class KimiRuntimeSetup(
         return Installation(source, KIMI_RUNTIME_VERSION, runtime.executable)
     }
 
+    /** Release-pin preflight for process entry points; it does not establish the identity of executed bytes. */
+    suspend fun locateRelease(launch: LaunchContext = LaunchContext()): Installation {
+        val (runtime, source) = locateControlled(launch)
+        if (!isKnownKimiRelease(runtime)) {
+            throw EngineException(
+                io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure.Engine(
+                    io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason.RequirementsNotMet,
+                ),
+            )
+        }
+        return Installation(source, KIMI_RUNTIME_VERSION, runtime.executable)
+    }
+
     /** Revalidates the actual selected artifact and returns its digest without trusting a prior inspection. */
     suspend fun locateControlled(launch: LaunchContext): Pair<KimiControlledRuntime, InstallSource> {
         val managed = if (launch.isInstallCandidate) {

@@ -63,7 +63,7 @@ internal class JvmKimiLocalApi(
     private suspend fun read(path: String): JsonObject? = mutex.withLock {
         log.d { "Reading Kimi local telemetry" }
         try {
-            val executable = requireNotNull(setup.locate().path)
+            val executable = requireNotNull(setup.locateRelease().path)
             val result = withContext(dispatchers.io) {
                 withTimeoutOrNull(REQUEST_TIMEOUT_MS) {
                     withKimiWebProcess(dispatchers, { port -> start(executable, port) }) { process, port ->

@@ -55,11 +55,14 @@ class KimiFirstConnectionTest {
                 compatibilityProbe = KimiCompatibilityProbe(setup, unused(), unused(), TestKimiDispatchers),
             )
             val managed = ManagedInstall(KIMI_RUNTIME_VERSION, executable.absolutePath, Instant.fromEpochSeconds(0))
+            val launch = LaunchContext(managed = managed, isInstallCandidate = true)
 
-            val result = backend.inspect(LaunchContext(managed = managed, isInstallCandidate = true))
+            val result = backend.inspect(launch)
 
             assertEquals(InstallSource.Managed, result.source)
             assertFalse(result.isRunnable)
+            assertEquals(LoginState.Unknown, backend.loginStatus(launch))
+            assertFailsWith<EngineException> { setup.locateRelease(launch) }
             assertFalse(marker.exists())
         } finally {
             client.close()

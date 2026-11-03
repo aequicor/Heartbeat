@@ -160,19 +160,20 @@ internal class JvmKimiBackend(
         launch: LaunchContext,
         action: suspend (io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpConnection) -> LoginState,
     ): LoginState? = withTimeoutOrNull(PROBE_TIMEOUT_MS) {
-        val executable = try {
-            requireNotNull(setup.locate(launch).path)
+        val runtime = try {
+            setup.locateControlled(launch).first
         } catch (error: EngineException) {
             log.w(error) { "Kimi sign-in needs runtime preparation" }
             return@withTimeoutOrNull LoginState.SignedOut
         }
-        val transport = transports.open(AcpCommand(executable, listOf("acp"), configuration.workingDirectory))
+        if (!isKnownKimiRelease(runtime)) return@withTimeoutOrNull LoginState.Unknown
+        val transport = transports.open(AcpCommand(runtime.executable, listOf("acp"), configuration.workingDirectory))
         withKimiAuthConnection(transport, clients, profile.coroutineScope, action)
     }
 
     override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState {
         prepareRuntime()
-        val executable = requireNotNull(setup.locate().path)
+        val executable = requireNotNull(setup.locateRelease().path)
         val isSucceeded = try {
             runKimiLogin(dispatchers, session, LOGIN_TIMEOUT_MS, kimiTerminalLoginCommand(executable)) {
                 ProcessBuilder(executable, "login")
@@ -222,7 +223,7 @@ internal class JvmKimiBackend(
     }
 
     private suspend fun openRuntime(identity: RuntimeIdentity): KimiRuntime {
-        val executable = requireNotNull(setup.locate().path)
+        val executable = requireNotNull(setup.locateRelease().path)
         val transport = transports.open(
             AcpCommand(
                 executable,
