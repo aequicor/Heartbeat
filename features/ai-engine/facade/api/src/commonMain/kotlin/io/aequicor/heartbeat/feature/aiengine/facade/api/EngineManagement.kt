@@ -487,8 +487,13 @@ public enum class EngineActionKind {
     OpenHostApp,
 }
 
-/** A running or finished job. */
-public data class EngineJob(val action: EngineAction, val phase: JobPhase, val startedAt: Instant)
+/** A running or finished job; [handle] remains bound to this exact operation across progress updates. */
+public data class EngineJob(
+    val action: EngineAction,
+    val phase: JobPhase,
+    val startedAt: Instant,
+    val handle: EngineOwnedJob? = null,
+)
 
 /** Progress of a job. */
 public sealed interface JobPhase {

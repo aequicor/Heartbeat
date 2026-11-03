@@ -418,6 +418,7 @@ class EngineJobsTest {
             assertTrue(manager.candidates.isEmpty())
             first = it
         }
+        assertTrue(jobs.jobs.value.getValue(engine).handle === first)
         runCurrent()
         val cancelling = async { first.cancel() }
         runCurrent()
@@ -430,6 +431,7 @@ class EngineJobsTest {
         lateinit var second: EngineOwnedJob
         jobs.start(engine, EngineAction.Login()) { second = it }
         runCurrent()
+        assertTrue(jobs.jobs.value.getValue(engine).handle === second)
         assertEquals(JobPhase.Cancelled, first.cancel())
         assertFalse(jobs.jobs.value.getValue(engine).phase.isFinished)
         assertEquals(JobPhase.Cancelled, second.cancel())

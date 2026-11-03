@@ -82,15 +82,16 @@ class EngineJobs(
                 throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
             }
             log.i { "job started engine=${engine.value} action=${action::class.simpleName.orEmpty()}" }
-            published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now())) }
             if (action is EngineAction.Login) codes[engine] = Channel(Channel.CONFLATED)
             val start = CompletableDeferred<Unit>()
             val outcome = CompletableDeferred<JobPhase>()
             val job = context.scope.launch(start = CoroutineStart.UNDISPATCHED) { run(engine, action, start, outcome) }
             running[engine] = job
+            val handle = OwnedJob(job, outcome)
+            published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now(), handle)) }
             var isDelivered = false
             try {
-                onStarted(OwnedJob(job, outcome))
+                onStarted(handle)
                 isDelivered = true
             } finally {
                 if (!isDelivered) job.cancel()
