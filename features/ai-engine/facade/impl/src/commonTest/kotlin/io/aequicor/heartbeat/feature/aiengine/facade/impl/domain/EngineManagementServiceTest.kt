@@ -133,6 +133,46 @@ class EngineManagementServiceTest {
         assertIs<JobPhase.Failed>(job.await())
     }
 
+    @Test
+    fun `conditional login captures its selected launch and rejects a stale token`() = runTest {
+        val selected = LaunchSettings(executable = "/selected/cli")
+        preferences.update { it.copy(launch = mapOf(cliId to selected)) }
+        launchContext = LaunchContext(settings = selected)
+        var observed: LaunchContext? = null
+        val loginManager = object : EngineManager by manager {
+            override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState {
+                observed = launch
+                return LoginState.SignedIn("account")
+            }
+        }
+        val loginRegistry = EngineRegistry(
+            listOf(
+                registration(id = cliId, owner = AuthOwnerId("cli")).withManagement(
+                    cliSpec.copy(isRuntimePreparedOnLogin = true),
+                    loginManager,
+                ),
+            ),
+            EnginePlatform.DesktopMacOs,
+        )
+        val service = service(loginRegistry)
+        runCurrent()
+        val stale = service.snapshotLaunchSettings(cliId)
+        service.configureIfUnchanged(cliId, stale, selected) { }
+        val error = assertFailsWith<EngineException> {
+            service.startLoginIfUnchanged(cliId, stale, LoginMethod.Browser) { error("stale job started") }
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), error.failure)
+        val current = service.snapshotLaunchSettings(cliId)
+        lateinit var job: EngineOwnedJob
+        service.startLoginIfUnchanged(cliId, current, LoginMethod.Browser) {
+            job = it
+            launchContext = LaunchContext(settings = selected.copy(executable = "/changed/cli"))
+        }
+        runCurrent()
+        assertEquals(LaunchContext(settings = selected), observed)
+        assertEquals(JobPhase.Succeeded, job.await())
+    }
+
     private fun observation(
         owner: EngineId = cliId,
         runtime: String = "1.2.0",

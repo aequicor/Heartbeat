@@ -99,7 +99,7 @@ data class DeveloperFlags(val isCatalogOn: Boolean, val isEngineOn: Boolean, val
  * sessions run with the current settings; a turn in flight is never interrupted.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-@Suppress("LongParameterList") // Coordinates every engine subsystem the panel manages; each one is a separate port.
+@Suppress("LongParameterList", "LargeClass") // Coordinates the engine subsystems and their conditional operations.
 class EngineManagementService(
     private val registry: EngineRegistry,
     private val flags: EngineFlags,
@@ -169,7 +169,33 @@ class EngineManagementService(
     override suspend fun startOwned(engine: EngineId, action: EngineAction, onStarted: (EngineOwnedJob) -> Unit) {
         val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
             ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
-        jobs.start(engine, current.requireStart(action), onStarted)
+        jobs.start(engine, current.requireStart(action), onStarted = onStarted)
+    }
+
+    override suspend fun startLoginIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        method: LoginMethod,
+        onStarted: (EngineOwnedJob) -> Unit,
+    ) {
+        val lock = inspectionLocks[engine] ?: refuse("unknown engine=${engine.value}")
+        lock.withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            val saved = expected.settings.detached()
+            checkCandidateSnapshot(engine, expected, saved)
+            val captured = launch.context(engine)
+            if (captured.settings != saved) changedLaunch()
+            val frozen = captured.copy(
+                settings = saved,
+                config = captured.config.copy(
+                    documents = captured.config.documents.toMap(),
+                    secrets = captured.config.secrets.toMap(),
+                ),
+                trust = captured.trust.toMap(),
+            )
+            jobs.start(engine, current.requireStart(EngineAction.Login(method)), frozen, onStarted)
+        }
     }
 
     /**

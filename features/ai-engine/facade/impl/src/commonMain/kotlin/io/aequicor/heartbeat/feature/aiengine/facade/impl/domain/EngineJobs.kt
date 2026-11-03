@@ -75,30 +75,37 @@ class EngineJobs(
     val jobs: StateFlow<Map<EngineId, EngineJob>> = published.asStateFlow()
 
     /** Starts [action] for [engine]; Busy while another job of the engine runs. */
-    suspend fun start(engine: EngineId, action: EngineAction, onStarted: (EngineOwnedJob) -> Unit = {}) =
-        guard.withLock {
-            if (running.containsKey(engine)) {
-                log.w { "job refused, another one runs engine=${engine.value}" }
-                throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
-            }
-            log.i { "job started engine=${engine.value} action=${action::class.simpleName.orEmpty()}" }
-            if (action is EngineAction.Login) codes[engine] = Channel(Channel.CONFLATED)
-            val start = CompletableDeferred<Unit>()
-            val outcome = CompletableDeferred<JobPhase>()
-            val job = context.scope.launch(start = CoroutineStart.UNDISPATCHED) { run(engine, action, start, outcome) }
-            running[engine] = job
-            val handle = OwnedJob(job, outcome)
-            published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now(), handle)) }
-            var isDelivered = false
-            try {
-                onStarted(handle)
-                isDelivered = true
-            } finally {
-                if (!isDelivered) job.cancel()
-                start.complete(Unit)
-            }
-            Unit
+    suspend fun start(
+        engine: EngineId,
+        action: EngineAction,
+        loginLaunch: LaunchContext? = null,
+        onStarted: (EngineOwnedJob) -> Unit = {},
+    ) = guard.withLock {
+        require(loginLaunch == null || action is EngineAction.Login)
+        if (running.containsKey(engine)) {
+            log.w { "job refused, another one runs engine=${engine.value}" }
+            throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
         }
+        log.i { "job started engine=${engine.value} action=${action::class.simpleName.orEmpty()}" }
+        if (action is EngineAction.Login) codes[engine] = Channel(Channel.CONFLATED)
+        val start = CompletableDeferred<Unit>()
+        val outcome = CompletableDeferred<JobPhase>()
+        val job = context.scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            run(engine, action, start, outcome, loginLaunch)
+        }
+        running[engine] = job
+        val handle = OwnedJob(job, outcome)
+        published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now(), handle)) }
+        var isDelivered = false
+        try {
+            onStarted(handle)
+            isDelivered = true
+        } finally {
+            if (!isDelivered) job.cancel()
+            start.complete(Unit)
+        }
+        Unit
+    }
 
     /** Cancels the running job of [engine]; its cleanup still runs. */
     suspend fun cancel(engine: EngineId) {
@@ -128,12 +135,13 @@ class EngineJobs(
         action: EngineAction,
         start: CompletableDeferred<Unit>,
         completion: CompletableDeferred<JobPhase>,
+        loginLaunch: LaunchContext?,
     ) {
         // Stays Cancelled unless the job completes; the outcome is published even when the job is cancelled.
         var outcome: JobPhase = JobPhase.Cancelled
         try {
             start.await()
-            outcome = perform(engine, action)
+            outcome = perform(engine, action, loginLaunch)
         } finally {
             withContext(NonCancellable) {
                 try {
@@ -156,11 +164,11 @@ class EngineJobs(
         }
     }
 
-    private suspend fun perform(engine: EngineId, action: EngineAction): JobPhase = try {
+    private suspend fun perform(engine: EngineId, action: EngineAction, loginLaunch: LaunchContext?): JobPhase = try {
         when (action) {
             EngineAction.Install, EngineAction.Update -> install(engine, action)
             EngineAction.Uninstall -> uninstall(engine)
-            is EngineAction.Login -> login(engine, action)
+            is EngineAction.Login -> login(engine, action, loginLaunch)
             EngineAction.Logout -> logout(engine)
             EngineAction.SyncPackages -> packages(engine, PackageOperation.Sync)
             EngineAction.UpdatePackages -> packages(engine, PackageOperation.Update)
@@ -251,7 +259,7 @@ class EngineJobs(
         withContext(NonCancellable) { installs.uninstall(engine) }
     }
 
-    private suspend fun login(engine: EngineId, action: EngineAction.Login) {
+    private suspend fun login(engine: EngineId, action: EngineAction.Login, loginLaunch: LaunchContext?) {
         val manager = manager(engine)
         val session = object : LoginSession {
             override fun prompt(prompt: LoginPrompt) {
@@ -264,7 +272,7 @@ class EngineJobs(
             }
         }
         val signedIn = withTimeoutOrNull(loginTimeoutMillis) {
-            manager.login(launch.context(engine), action.method, session)
+            manager.login(loginLaunch ?: launch.context(engine), action.method, session)
         }
         guard.withLock { codes.remove(engine) }
         if (signedIn == null) {

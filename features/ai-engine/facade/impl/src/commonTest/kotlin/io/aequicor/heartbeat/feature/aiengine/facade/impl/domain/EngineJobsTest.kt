@@ -87,6 +87,18 @@ class EngineJobsTest {
     private val hooks = RecordingHooks()
     private val settings = LaunchSettings(executable = "/custom/cli", homeDirectory = "/home/cli")
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `login job uses its captured launch context`() = runTest {
+        val jobs = jobs()
+        val selected = LaunchContext(LaunchSettings(executable = "/selected/cli"))
+        jobs.start(engine, EngineAction.Login(), loginLaunch = selected)
+        runCurrent()
+        assertEquals(selected, manager.loginLaunch)
+        jobs.cancel(engine)
+        runCurrent()
+    }
+
     @Test
     fun `a sign-out that leaves the account signed in fails without retiring runtimes`() = runTest {
         manager.logoutResult = LoginState.SignedIn("account")
@@ -548,6 +560,7 @@ private fun jobPolicy(): EngineCompatibilityRequirements {
 }
 
 private class JobManager : EngineManager {
+    var loginLaunch: LaunchContext? = null
     var logoutResult: LoginState = LoginState.SignedOut
     override suspend fun logout(launch: LaunchContext): LoginState = logoutResult
     var reportedVersion = "2.0.0"
@@ -610,6 +623,7 @@ private class JobManager : EngineManager {
     )
 
     override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState {
+        loginLaunch = launch
         this.method = method
         try {
             if (isLoginHanging) awaitCancellation()

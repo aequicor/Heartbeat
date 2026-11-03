@@ -44,6 +44,18 @@ public interface EngineManagement {
         throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
 
     /**
+     * Starts CLI login using the launch context captured while [expected] is current. A stale or foreign token
+     * fails with Session.Changed before starting the job. This preserves the selected settings, but does not
+     * establish artifact identity or admit an executable; the adapter must still bind each actual launch.
+     */
+    public suspend fun startLoginIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        method: LoginMethod,
+        onStarted: (EngineOwnedJob) -> Unit,
+    ): Unit = throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+
+    /**
      * Performs one explicit inspection and returns its own immutable result, independently of state-flow delivery.
      * A result is evidence only for the inspected launch settings at that moment, not a promise about later changes.
      * Implementations that cannot correlate the result refuse rather than return an unrelated state snapshot.
