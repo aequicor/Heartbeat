@@ -23,13 +23,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -500,7 +503,18 @@ internal fun ModelRow(
         model.id.takeIf { it != model.title },
         model.contextLimit?.let { stringResource(Res.string.conn_context_limit, it.toString()) },
     ).joinToString(" · ")
-    HbRow(modifier.fillMaxWidth().testTag("model:${model.id}"), gap = HbTheme.spacing.none) {
+    val warning = HbTheme.colors.warning
+    val warningContainer = HbTheme.colors.warningContainer
+    val stripeWidth = with(LocalDensity.current) { HbTheme.spacing.xxs.toPx() }
+    val warningModifier = if (model.check == null) {
+        Modifier
+    } else {
+        Modifier.drawBehind {
+            drawRect(warningContainer)
+            drawRect(warning, size = Size(stripeWidth, size.height))
+        }
+    }
+    HbRow(modifier.fillMaxWidth().then(warningModifier).testTag("model:${model.id}"), gap = HbTheme.spacing.none) {
         HbColumn(Modifier.weight(1f), gap = HbTheme.spacing.none) {
             HbChoiceRow(
                 label = model.title,

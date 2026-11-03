@@ -9,6 +9,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.AvailabilityUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectionRowUi
@@ -21,6 +22,9 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelsPaneUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.PreparationPhaseUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.WizardStep
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.checkedSettingsSnapshot
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.openCheckDetails
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
 import kotlinx.collections.immutable.persistentListOf
 import java.io.File
 import javax.imageio.ImageIO
@@ -62,6 +66,16 @@ class ConnectionsSnapshotTest {
     fun `renders snapshots`() {
         for (width in listOf(1280, 900, 420)) {
             for (isDark in listOf(false, true)) {
+                val checked = EngineConnectionsScreenState().reflect(
+                    EngineConnectionsState.Active(checkedSettingsSnapshot()),
+                )
+                val target = requireNotNull(checked.models?.models?.first()?.check).target
+                render("check-warning", width, isDark) {
+                    EngineConnectionsContent(checked, {}, {}, null, { _, _ -> })
+                }
+                render("check-details", width, isDark) {
+                    EngineConnectionsContent(checked.openCheckDetails(target), {}, {}, null, { _, _ -> })
+                }
                 render("connections", width, isDark) { EngineConnectionsContent(connections, {}, {}, {}, { _, _ -> }) }
                 render("wizard", width, isDark) { ConnectWizardContent(wizard, {}) }
                 render("preparing", width, isDark) {

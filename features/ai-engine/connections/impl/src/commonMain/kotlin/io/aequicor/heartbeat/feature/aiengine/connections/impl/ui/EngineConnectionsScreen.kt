@@ -155,6 +155,14 @@ internal fun EngineConnectionsContent(
             }
         }
     }
+    state.checkDetails?.let { details ->
+        ModelCheckDetailsDialog(
+            details,
+            isBusy = state.isSaving,
+            onRetry = { onIntent(EngineConnectionsScreenIntent.RetryModelCheck) },
+            onDismiss = { onIntent(EngineConnectionsScreenIntent.DismissCheckDetails) },
+        )
+    }
     val confirming = state.connections.firstOrNull { it.id == state.confirmDisconnect }
     if (confirming != null) DisconnectDialog(confirming.label, isEnabled = !state.isSaving, onIntent)
 }
@@ -488,6 +496,11 @@ private fun ModelsList(
                     enabled = enabled,
                     onEnabledChange = { onIntent(EngineConnectionsScreenIntent.SetModelEnabled(model.id, it)) },
                 ) {
+                    ModelCheckInfo(
+                        model,
+                        isOpen = model.check != null && state.checkDetails?.check?.target == model.check.target,
+                        onOpen = { check -> onIntent(EngineConnectionsScreenIntent.ShowCheckDetails(check.target)) },
+                    )
                     ModelActions(model, { onOpenDescription(model.id) })
                 }
             }
