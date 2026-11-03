@@ -100,6 +100,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -175,15 +176,39 @@ internal class KimiRuntime(
             request.preselected,
         )
         var isTransferred = false
+        var nativeId: String? = null
         try {
             val native = connection.newSession(cwd, hosted.servers)
+            nativeId = native.sessionId
             configureCatching(native.sessionId, native.metadata, request.target)
             val session = session(native.sessionId, request.target, request.workspace, native.metadata, cwd, hosted)
             hosted.session.value = session
             isTransferred = true
             return session.lease(request.areDetachedToolsEnabled)
         } finally {
-            if (!isTransferred) hosted.close()
+            if (!isTransferred) {
+                hosted.close()
+                withContext(NonCancellable) { nativeId?.let { discardCreatedSession(it) } }
+            }
+        }
+    }
+
+    private suspend fun discardCreatedSession(sessionId: String) = withContext(NonCancellable) {
+        val capabilities = initialization.agentCapabilities["sessionCapabilities"] as? JsonObject
+        var isDeleted = false
+        try {
+            if (capabilities?.get("delete") is JsonObject) {
+                isDeleted = withTimeoutOrNull(CATALOG_TIMEOUT_MS) {
+                    connection.deleteSession(sessionId)
+                    true
+                } == true
+            }
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.engineFailure().let { EngineException(it) }) { "Kimi failed to remove a new session" }
+        } finally {
+            if (!isDeleted) withContext(NonCancellable) { close() }
         }
     }
 
@@ -251,9 +276,12 @@ internal class KimiRuntime(
     }
 
     private suspend fun configure(sessionId: String, metadata: JsonObject, target: EngineTarget) {
-        if (metadata.hasConfigOption("model")) {
-            connection.setConfigOption(sessionId, "model", nativeKimiModel(target.model))
+        val selected = nativeKimiModel(target.model)
+        val models = kimiNativeCatalog(metadata, initialization.agentCapabilities).models
+        if (!metadata.hasConfigOption("model") || models.none { it.id == selected }) {
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
+        connection.setConfigOption(sessionId, "model", selected)
         if (metadata.hasConfigOption("mode")) {
             connection.setConfigOption(sessionId, "mode", "default")
         }

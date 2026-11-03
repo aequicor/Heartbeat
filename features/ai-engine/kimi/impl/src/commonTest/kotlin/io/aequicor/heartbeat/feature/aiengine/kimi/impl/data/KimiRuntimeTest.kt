@@ -89,6 +89,37 @@ import kotlin.test.assertTrue
 
 @Suppress("LargeClass") // Shared runtime fixture exercises the complete session lifecycle.
 class KimiRuntimeTest {
+    @Test
+    fun `new session refuses an unadvertised model and deletes the created session`() = runTest {
+        val inputs = listOf(
+            """{}""",
+            """{"configOptions":[{"id":"model","category":"model","options":[{"value":"other"}]}]}""",
+        )
+        for (input in inputs) {
+            val connection = FakeConnection().apply { metadata = Json.parseToJsonElement(input).jsonObject }
+            val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+            val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+            val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+            assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+            assertEquals("native", connection.deletedSession)
+            assertFalse(runtime.isClosed)
+            assertTrue(connection.configuration.isEmpty())
+        }
+    }
+
+    @Test
+    fun `failed cleanup of a rejected new session retires its runtime`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = JsonObject(emptyMap())
+            deleteSessionFailure = IllegalStateException("delete failed")
+        }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+        val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+        assertTrue(runtime.isClosed)
+    }
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
     fun `concurrent catalog requests share a session without sharing caller cancellation`() = runTest {
@@ -135,6 +166,7 @@ class KimiRuntimeTest {
     @Test
     fun `model discovery does not invent a model when the native catalog is empty`() = runTest {
         val connection = FakeConnection()
+        connection.metadata = JsonObject(emptyMap())
         val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
         val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
 
@@ -530,7 +562,8 @@ class KimiRuntimeTest {
     fun `failed session configuration revokes bridge capability`() = runTest {
         val connection = FakeConnection().apply {
             metadata = Json.parseToJsonElement(
-                """{"configOptions":[{"id":"model"}]}""",
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]}]}""",
             ).jsonObject
             configFailure = IllegalStateException("configuration failed")
         }
@@ -979,7 +1012,7 @@ class KimiRuntimeTest {
         val connection = FakeConnection().apply {
             metadata = Json.parseToJsonElement(
                 """{"configOptions":[
-                    {"id":"model","options":[]},
+                    {"id":"model","category":"model","options":[{"value":"kimi-code/kimi-for-coding"}]},
                     {"id":"thinking","category":"thought_level","options":[{"value":"low"},{"value":"max"}]},
                     {"id":"mode","options":[]}
                 ]}""",
@@ -1002,10 +1035,14 @@ class KimiRuntimeTest {
     @Test
     fun `session configuration failure maps to an engine failure`() = runTest {
         val connection = FakeConnection().apply {
-            metadata = Json.parseToJsonElement("""{"configOptions":[{"id":"model","options":[]}]}""").jsonObject
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]}]}""",
+            ).jsonObject
             configFailure = AcpException.Remote(-32602, "Invalid params")
         }
-        val runtime = runtime(connection, this)
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
         val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
         assertIs<EngineFailure.Transport>(failure.failure)
         connection.configFailure = null
@@ -1078,7 +1115,10 @@ private class FakeConnection : AcpConnection {
     var cancelled: String? = null
     var submissionBarrier: CompletableDeferred<Unit>? = null
     var cancellationBarrier: CompletableDeferred<Unit>? = null
-    var metadata = JsonObject(emptyMap())
+    var metadata = Json.parseToJsonElement(
+        """{"configOptions":[{"id":"model","category":"model",
+            "options":[{"value":"kimi-code/kimi-for-coding"}]}]}""",
+    ).jsonObject
     var content = listOf<JsonObject>()
     var configFailure: Exception? = null
     var beforeConfigResponse: (suspend () -> Unit)? = null
