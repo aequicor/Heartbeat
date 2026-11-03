@@ -94,6 +94,53 @@ import kotlin.test.assertTrue
 class KimiRuntimeTest {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
+    fun `cancelled resume closes late loaded session without deleting history`() = runTest {
+        val response = CompletableDeferred<Unit>()
+        val connection = FakeConnection().apply { loadSessionBarrier = response }
+        val capabilities = buildJsonObject {
+            put("loadSession", true)
+            put("sessionCapabilities", JsonObject(mapOf("close" to JsonObject(emptyMap()))))
+        }
+        val runtime = runtime(connection, this, capabilities)
+        val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, "native")
+
+        val task = async { runtime.attach(ref, ResumeSessionRequest(target)) }
+        runCurrent()
+        assertEquals(1, connection.loadedSessions)
+        task.cancel()
+        runCurrent()
+        assertFalse(task.isCompleted)
+        response.complete(Unit)
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertEquals("native", connection.closedSession)
+        assertNull(connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `unknown resumed session outcome retires runtime after bounded wait`() = runTest {
+        val connection = FakeConnection().apply { loadSessionBarrier = CompletableDeferred() }
+        val runtime = runtime(connection, this, buildJsonObject { put("loadSession", true) })
+        val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, "native")
+
+        val task = async { runtime.attach(ref, ResumeSessionRequest(target)) }
+        runCurrent()
+        task.cancel()
+        testScheduler.advanceTimeBy(60_001)
+        runCurrent()
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertTrue(runtime.isClosed)
+        assertTrue(connection.closed)
+        assertNull(connection.deletedSession)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
     fun `unknown new session outcome retires runtime after bounded wait`() = runTest {
         val connection = FakeConnection().apply { newSessionBarrier = CompletableDeferred() }
         val runtime = runtime(connection, this)
@@ -1388,7 +1435,9 @@ private class TestBridge : AgentToolBridge {
 
 private class FakeConnection : AcpConnection {
     var newSessionBarrier: CompletableDeferred<Unit>? = null
+    var loadSessionBarrier: CompletableDeferred<Unit>? = null
     var newSessions = 0
+    var loadedSessions = 0
     var deletedSession: String? = null
     var closedSession: String? = null
     var deleteSessionFailure: Exception? = null
@@ -1436,7 +1485,11 @@ private class FakeConnection : AcpConnection {
         this.servers = servers
         return loadSession(sessionId, cwd)
     }
-    override suspend fun loadSession(sessionId: String, cwd: String) = AcpSession(sessionId, metadata)
+    override suspend fun loadSession(sessionId: String, cwd: String): AcpSession {
+        loadedSessions++
+        loadSessionBarrier?.await()
+        return AcpSession(sessionId, metadata)
+    }
     override suspend fun prompt(sessionId: String, content: List<JsonObject>, metadata: JsonObject): AcpPromptResult {
         turnToken = metadata["heartbeatTurn"]?.toString()?.trim('"').orEmpty()
         return prompt(sessionId, content)

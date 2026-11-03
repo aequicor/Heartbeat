@@ -368,8 +368,16 @@ internal class KimiRuntime(
         var isTransferred = false
         var pending: PendingKimiModel? = null
         try {
-            val native = connection.loadSession(nativeId, cwd, hosted.servers)
-            pending = beginConfiguration(nativeId, request.target)
+            // A cancelled caller must not abandon a successful load on the pooled connection.
+            // The known native identity lets cleanup close it without deleting the user's history.
+            val native = withContext(NonCancellable) {
+                withTimeout(CATALOG_OWNER_TIMEOUT_MS) {
+                    connection.loadSession(nativeId, cwd, hosted.servers).also {
+                        pending = beginConfiguration(nativeId, request.target)
+                    }
+                }
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             configureCatching(nativeId, native.metadata, request.target)
             val lease = session(
                 nativeId,
@@ -378,7 +386,7 @@ internal class KimiRuntime(
                 native.metadata,
                 cwd,
                 hosted,
-                pending,
+                checkNotNull(pending),
                 request.areDetachedToolsEnabled,
             )
             isTransferred = true
