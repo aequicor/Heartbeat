@@ -157,6 +157,7 @@ internal fun registration(
     owner: AuthOwnerId = TestOwner,
     modelCatalogRevision: Int = 0,
     composerAssists: io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists? = null,
+    fileSessionTrees: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees? = null,
 ) = EngineRegistration(
     EngineDescriptor(
         id,
@@ -172,6 +173,7 @@ internal fun registration(
     setOf(AuthenticatorId("${id.value}.cli")),
     modelCatalogRevision,
     composerAssists = composerAssists?.let { lazyOf(it) },
+    fileSessionTrees = fileSessionTrees?.let { lazyOf(it) },
 )
 
 internal class FakeEngineToggles : EngineToggles {

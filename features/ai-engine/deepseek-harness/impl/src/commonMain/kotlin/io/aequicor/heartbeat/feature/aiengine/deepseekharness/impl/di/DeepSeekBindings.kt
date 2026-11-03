@@ -92,6 +92,7 @@ public object DeepSeekBindings {
         manager = lazy { manager.value },
         modelCatalogRevision = 3,
         sessionSources = listOf(DeepSeekSessionSource(backend)),
+        fileSessionTrees = lazy { backend.value.nativeTrees },
     )
 }
 

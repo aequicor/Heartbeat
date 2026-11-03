@@ -14,6 +14,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -21,12 +25,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SourceDiscovery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
@@ -34,6 +43,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -86,12 +98,19 @@ class SessionLauncherTest {
             setOf(CreatesSessions.id, AttachesSessions.id),
         supports: Boolean = true,
         composerAssists: ListsComposerAssists? = null,
+        fileSessionTrees: SessionTrees? = null,
     ): Triple<RouteFixture, SessionLauncher, FacadeCapabilities> {
         factory.runtime = { FakeRuntime(it, supports).also { runtime -> runtimes += runtime } }
         val fixture = RouteFixture(
             this,
             factory,
-            registration(factory, sources = listOf(source), features = features, composerAssists = composerAssists),
+            registration(
+                factory,
+                sources = listOf(source),
+                features = features,
+                composerAssists = composerAssists,
+                fileSessionTrees = fileSessionTrees,
+            ),
             release = { pool.disconnect(it) },
         )
         val enabled = EnabledEngines(fixture.registry, fixture.toggles, backgroundScope)
@@ -119,6 +138,114 @@ class SessionLauncherTest {
         capabilities = FacadeCapabilities(sessions, lazyOf(launcher), registry)
         runCurrent()
         return Triple(fixture, launcher, capabilities)
+    }
+
+    @Test
+    fun `file trees and history remain readable without runtime admission and stop after source rotation`() = runTest {
+        val native = object : SessionTrees {
+            override fun observe(root: SessionRef, access: SessionTreeAccess) = flowOf(SessionTreeSnapshot(root))
+            override suspend fun history(root: SessionRef, ref: SessionRef, access: SessionTreeAccess) =
+                object : SessionHistory {
+                    override suspend fun page(request: HistoryPageRequest) = HistoryPage(
+                        emptyList(),
+                        null,
+                        null,
+                        HistoryCheckpoint("0"),
+                        HistoryCoverage.Complete,
+                    )
+
+                    override fun watch(after: HistoryCheckpoint) = emptyFlow<SessionEvent>()
+                }
+        }
+        val (fixture, launcher) = launcher(fileSessionTrees = native)
+        factory.runtimeRequirements = null
+        val ref = sessionRef("stored")
+        val access = SessionTreeAccess(fixture.target)
+        val trees = launcher.trees(ref, access)
+        assertEquals(ref, trees.observe(ref, access).first().root)
+        val history = trees.history(ref, ref, access)
+        assertEquals(HistoryCoverage.Complete, history.page().coverage)
+        assertTrue(factory.routes.isEmpty())
+        assertTrue(factory.createdRuntimes.isEmpty())
+
+        fixture.sources.remove(fixture.source.info.id)
+        fixture.sources.add(managedKey(revision = AuthRevision.Known("r2")))
+        assertFailsWith<EngineException> { trees.observe(ref, access).first() }
+        assertFailsWith<EngineException> { history.page() }
+    }
+
+    @Test
+    fun `runtime backed session trees require admission before binding`() = runTest {
+        val (fixture, launcher) = launcher()
+        factory.runtimeRequirements = null
+        val error = assertFailsWith<EngineException> {
+            launcher.trees(sessionRef("stored"), SessionTreeAccess(fixture.target))
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), error.failure)
+        assertTrue(factory.routes.isEmpty())
+        assertTrue(factory.createdRuntimes.isEmpty())
+    }
+
+    @Test
+    fun `late history page is not delivered after source rotation`() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val native = object : SessionTrees {
+            override fun observe(root: SessionRef, access: SessionTreeAccess) = flowOf(SessionTreeSnapshot(root))
+            override suspend fun history(root: SessionRef, ref: SessionRef, access: SessionTreeAccess) =
+                object : SessionHistory {
+                    override suspend fun page(request: HistoryPageRequest): HistoryPage {
+                        started.complete(Unit)
+                        release.await()
+                        return HistoryPage(emptyList(), null, null, HistoryCheckpoint("0"), HistoryCoverage.Complete)
+                    }
+
+                    override fun watch(after: HistoryCheckpoint) = emptyFlow<SessionEvent>()
+                }
+        }
+        val (fixture, launcher) = launcher(fileSessionTrees = native)
+        val ref = sessionRef("stored")
+        val history = launcher.trees(ref, SessionTreeAccess(fixture.target)).history(
+            ref,
+            ref,
+            SessionTreeAccess(fixture.target),
+        )
+        val page = async { assertFailsWith<EngineException> { history.page() } }
+        started.await()
+        fixture.sources.remove(fixture.source.info.id)
+        fixture.sources.add(managedKey(revision = AuthRevision.Known("r2")))
+        release.complete(Unit)
+        page.await()
+    }
+
+    @Test
+    fun `runtime backed trees use an admitted runtime`() = runTest {
+        val (fixture, launcher) = launcher()
+        factory.runtime = { identity ->
+            object : EngineRuntime by FakeRuntime(identity, supports = false) {
+                override val features = FeatureTable(
+                    mapOf(
+                        SessionTrees.id to available(
+                            object : SessionTrees {
+                                override fun observe(root: SessionRef, access: SessionTreeAccess) =
+                                    flowOf(SessionTreeSnapshot(root))
+
+                                override suspend fun history(
+                                    root: SessionRef,
+                                    ref: SessionRef,
+                                    access: SessionTreeAccess,
+                                ) = error("unused")
+                            },
+                        ),
+                    ),
+                )
+            }
+        }
+        val ref = sessionRef("stored")
+        val access = SessionTreeAccess(fixture.target)
+        assertEquals(ref, launcher.trees(ref, access).observe(ref, access).first().root)
+        assertEquals(1, factory.promotions)
+        assertEquals(1, factory.routes.size)
     }
 
     @Test

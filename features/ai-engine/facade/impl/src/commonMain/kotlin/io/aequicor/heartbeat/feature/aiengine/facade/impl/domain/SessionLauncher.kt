@@ -112,8 +112,15 @@ class SessionLauncher(
     suspend fun trees(root: SessionRef, access: SessionTreeAccess): SessionTrees {
         val target = access.target
         if (root.engine != target.engine) fail(InvalidRequest)
-        val resolved = routes.resolve(target.engine, target.binding, access.workspace, target.model)
-        return pool.runtime(resolved).features.resolve(SessionTrees).orFail()
+        val resolved = routes.resolveSession(target.engine, target.binding, access.workspace, target.model)
+        val trees = resolved.registration.fileSessionTrees?.value ?: pool.sessionRuntime(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = { routes.recheckSession(resolved) },
+            prepare = { routes.bindAdmitted(resolved) },
+        ).features.resolve(SessionTrees).orFail()
+        routes.recheckSession(resolved)
+        return CheckedSessionTrees(trees, root, access) { routes.recheckSession(resolved) }
     }
 
     /** Cancels stored work through its explicit route without opening a session or recording provenance. */

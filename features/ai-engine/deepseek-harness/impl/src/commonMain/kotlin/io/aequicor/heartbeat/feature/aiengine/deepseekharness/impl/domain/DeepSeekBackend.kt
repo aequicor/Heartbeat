@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekAuthen
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 
 /** Platform bridge for DeepSeek Harness sessions; authentication is read-only from the user's DSH login. */
@@ -15,4 +16,7 @@ public interface DeepSeekBackend :
 
     /** Native session discovery from the DSH on-disk store; null reports Unsupported coverage. */
     public val nativeDiscovery: ListsSessions? get() = null
+
+    /** Read-only session family backed by the on-disk store; never starts the CLI. */
+    public val nativeTrees: SessionTrees? get() = null
 }

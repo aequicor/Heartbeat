@@ -69,6 +69,8 @@ internal class JvmDeepSeekBackend(
     override val nativeDiscovery: ListsSessions
         get() = nativeHistory
 
+    override val nativeTrees = DeepSeekSessionTrees(nativeHistory)
+
     override suspend fun inspect(): DeepSeekLogin = account.inspect(configuration.homeDirectory)
 
     override suspend fun checkRequirements(): EngineAvailability = try {

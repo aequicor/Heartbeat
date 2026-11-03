@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -68,6 +69,8 @@ public class EngineRegistration(
     public val configurator: Lazy<EngineConfigurator>? = null,
     /** File-only composer discovery, available without constructing an engine runtime or starting a process. */
     public val composerAssists: Lazy<ListsComposerAssists>? = null,
+    /** Read-only session trees that never bind an account, start a process, or construct an engine runtime. */
+    public val fileSessionTrees: Lazy<SessionTrees?>? = null,
 ) {
     init {
         require((configuration == null) == (configurator == null)) { "A configuration schema needs a configurator" }
