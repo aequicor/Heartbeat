@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogReasoningCatalogEnabl
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.serializer
 
 /** Resolved effort levels per model and the models whose provider rejected reasoning parameters. */
 internal interface KoogReasoningStore {
@@ -142,6 +143,6 @@ internal class KeyValueKoogReasoningStore(
 
     private companion object {
         val Spec = KeyValueSpec("koog_reasoning_levels")
-        val Key = jsonKey("state", KoogReasoningState.serializer())
+        val Key = jsonKey("state", serializer<KoogReasoningState>())
     }
 }

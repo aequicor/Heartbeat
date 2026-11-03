@@ -26,6 +26,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.serializer
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -108,7 +109,7 @@ internal class ModelsDevReasoningCatalog(
 
     private companion object {
         val Spec = KeyValueSpec("koog_reasoning_catalog")
-        val Key = jsonKey("snapshot", CatalogSnapshot.serializer())
+        val Key = jsonKey("snapshot", serializer<CatalogSnapshot>())
         val RefreshInterval = 24.hours
         val RetryInterval = 10.minutes
         const val CATALOG_URL = "https://models.dev/api.json"
