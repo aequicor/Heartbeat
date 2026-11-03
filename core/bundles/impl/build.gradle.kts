@@ -16,6 +16,7 @@ kotlin {
             implementation(projects.core.bundles.spikeFixture)
         }
         jvmMain.dependencies {
+            implementation(projects.core.desktopDialogs)
             implementation(projects.core.profileFacade.api)
             implementation(projects.core.featureToggles.api)
             implementation(projects.core.network.api)

@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.core.common.WindowFocus
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.RecordRetentions
 import io.aequicor.heartbeat.core.datastore.StorageRoot
+import io.aequicor.heartbeat.core.desktopdialogs.DesktopFileDialogs
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
@@ -215,6 +216,7 @@ internal class DefaultFoundationBindings(
     private val registry: Provider<MachineRegistry>,
     private val client: Provider<HttpClient>,
     private val offlineClients: Provider<OfflineHttpClients>,
+    private val dialogs: Provider<DesktopFileDialogs>,
     private val secrets: Provider<SecretStorageInfo>,
     private val retentions: Provider<RecordRetentions>,
     private val focus: Provider<WindowFocus>,
@@ -237,4 +239,5 @@ internal class DefaultFoundationBindings(
     override val machineRegistry: MachineRegistry get() = registry()
     override val httpClient: HttpClient get() = client()
     override val offlineHttpClients: OfflineHttpClients get() = offlineClients()
+    override val desktopFileDialogs: DesktopFileDialogs get() = dialogs()
 }

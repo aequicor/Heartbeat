@@ -7,6 +7,7 @@ import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Includes
 import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
+import io.aequicor.heartbeat.core.desktopdialogs.NativeDesktopFileDialogs
 import io.aequicor.heartbeat.core.di.AppStartup
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
@@ -51,7 +52,7 @@ internal object ShellExportBindings {
  * App-level graph of the `shell` bundle: the contributions of its member features, compiled statically. It has no
  * profile graph: all its features live above profiles.
  */
-@DependencyGraph(AppScope::class, excludes = [ProfileGraph.Factory::class])
+@DependencyGraph(AppScope::class, excludes = [ProfileGraph.Factory::class, NativeDesktopFileDialogs::class])
 internal interface ShellAppGraph : ShellAppExports {
     @DependencyGraph.Factory
     fun interface Factory {
