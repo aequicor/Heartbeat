@@ -220,14 +220,7 @@ internal class PiProcessLauncher(
         failed: suspend (EngineFailure) -> Unit,
         plan: PiLaunchPlan?,
     ): PiConnection {
-        val selected = prepare()
-        val startup = if (selected.runtimeVersion != null) {
-            selected
-        } else {
-            withContext(dispatchers.io) {
-                selected.copy(runtimeVersion = readPiRuntimeVersion(selected))
-            }
-        }
+        val startup = prepare()
         // Fetched before the non-cancellable launch so a slow compatible server stays cancellable.
         val modelsJson = modelsJson(source, plan?.selectedModel)
         return launch(source, workspace, modelsJson, event, failed, plan ?: discoveryPlan(), startup)

@@ -41,6 +41,25 @@ import kotlin.time.Instant
 
 class PiProcessPreparationTest {
     @Test
+    fun `inspecting a custom runtime does not execute it to read its version`() = runTest {
+        if (System.getProperty("os.name").startsWith("Windows")) return@runTest
+        withLauncher({ root ->
+            val executable = root.resolve("custom-pi")
+            val marker = root.resolve("executed")
+            Files.writeString(executable, "#!/bin/sh\ntouch '$marker'\necho 0.87.1\n")
+            check(executable.toFile().setExecutable(true, false))
+            LaunchContext(settings = LaunchSettings(executable = executable.toString()))
+        }) { launcher, _, cache, launch ->
+            val installation = DesktopPiManager(launcher, piDispatchers()).inspect(launch)
+
+            assertEquals(InstallSource.Custom, installation.source)
+            assertNull(installation.version)
+            assertFalse(Files.exists(Path.of(checkNotNull(launch.settings.executable)).parent.resolve("executed")))
+            assertEquals(0, cache.calls)
+        }
+    }
+
+    @Test
     fun `missing explicit runtime never downloads or substitutes the bundled runtime`() = runTest {
         for (preference in listOf(RuntimePreference.Managed, RuntimePreference.System)) {
             val context: (Path) -> LaunchContext = { LaunchContext(settings = LaunchSettings(runtime = preference)) }

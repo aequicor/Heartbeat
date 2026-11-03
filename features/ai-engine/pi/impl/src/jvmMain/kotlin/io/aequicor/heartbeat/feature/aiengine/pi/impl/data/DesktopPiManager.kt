@@ -42,6 +42,7 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
     override suspend fun inspectCandidate(launch: LaunchContext) =
         withContext(dispatchers.io) { inspectPiCandidateMetadata(launch) }
 
+    /** Inspection never executes the selected runtime; a stored version is display metadata, not an observation. */
     override suspend fun inspect(launch: LaunchContext): Installation = withContext(dispatchers.io) {
         val startup = processes.startup(launch)
         val executable = startup.executable
@@ -49,8 +50,8 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
         val isRunnable = isPresent || isPiPendingDownload(startup.source, executable, processes.canPrepare())
         val version = when {
             executable == null || !isPresent -> null
-            startup.source == InstallSource.Bundled -> processes.bundledVersion() ?: readPiRuntimeVersion(startup)
-            else -> startup.runtimeVersion ?: readPiRuntimeVersion(startup)
+            startup.source == InstallSource.Bundled -> processes.bundledVersion()
+            else -> startup.runtimeVersion
         }
         log.i { "Pi located source=${startup.source} version=${version ?: "unknown"}" }
         Installation(startup.source, version, executable?.toString(), isRunnable)
