@@ -9,7 +9,9 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.network.NetworkException
 import io.aequicor.heartbeat.core.network.networkResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiConfiguration
+import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
@@ -43,6 +45,7 @@ internal class JvmKimiLocalApi(
     private val client: HttpClient,
     private val dispatchers: DispatcherProvider,
     private val setup: KimiRuntimeSetup,
+    private val launches: EngineLaunchConfig,
     private val configuration: KimiConfiguration = KimiConfiguration(),
 ) {
     private val mutex = Mutex()
@@ -63,7 +66,7 @@ internal class JvmKimiLocalApi(
     private suspend fun read(path: String): JsonObject? = mutex.withLock {
         log.d { "Reading Kimi local telemetry" }
         try {
-            val executable = requireNotNull(setup.locateRelease().path)
+            val executable = requireNotNull(setup.locateRelease(launches.context(KimiEngine.Id)).path)
             val result = withContext(dispatchers.io) {
                 withTimeoutOrNull(REQUEST_TIMEOUT_MS) {
                     withKimiWebProcess(dispatchers, { port -> start(executable, port) }) { process, port ->
