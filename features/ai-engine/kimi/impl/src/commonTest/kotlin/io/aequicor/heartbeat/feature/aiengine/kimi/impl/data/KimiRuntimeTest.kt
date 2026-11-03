@@ -92,6 +92,47 @@ import kotlin.test.assertTrue
 
 @Suppress("LargeClass") // Shared runtime fixture exercises the complete session lifecycle.
 class KimiRuntimeTest {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `unknown new session outcome retires runtime after bounded wait`() = runTest {
+        val connection = FakeConnection().apply { newSessionBarrier = CompletableDeferred() }
+        val runtime = runtime(connection, this)
+
+        val task = async { runtime.create(CreateSessionRequest(target)) }
+        runCurrent()
+        task.cancel()
+        testScheduler.advanceTimeBy(60_001)
+        runCurrent()
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertTrue(runtime.isClosed)
+        assertTrue(connection.closed)
+        assertNull(connection.deletedSession)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `cancelled creation waits for late native identity and deletes that session`() = runTest {
+        val response = CompletableDeferred<Unit>()
+        val connection = FakeConnection().apply { newSessionBarrier = response }
+        val capability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to capability)))
+
+        val task = async { runtime.create(CreateSessionRequest(target)) }
+        runCurrent()
+        assertEquals(1, connection.newSessions)
+        task.cancel()
+        runCurrent()
+        assertFalse(task.isCompleted)
+        response.complete(Unit)
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
     @Test
     fun `cancellation before new session handoff deletes only the new session`() = runTest {
         val connection = FakeConnection().apply {

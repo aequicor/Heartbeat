@@ -178,12 +178,22 @@ internal class KimiRuntime(
             request.preselected,
         )
         var isTransferred = false
+        var isNewSessionStarted = false
         var nativeId: String? = null
         var pending: PendingKimiModel? = null
         try {
-            val native = connection.newSession(cwd, hosted.servers)
-            nativeId = native.sessionId
-            pending = beginConfiguration(native.sessionId, request.target)
+            // The server can persist a session before replying. Retain ownership after caller cancellation
+            // long enough to receive its ID and clean it up; a lost response still has an unknown outcome.
+            val native = withContext(NonCancellable) {
+                isNewSessionStarted = true
+                withTimeout(CATALOG_OWNER_TIMEOUT_MS) {
+                    connection.newSession(cwd, hosted.servers).also {
+                        nativeId = it.sessionId
+                        pending = beginConfiguration(it.sessionId, request.target)
+                    }
+                }
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             configureCatching(native.sessionId, native.metadata, request.target)
             val lease = session(
                 native.sessionId,
@@ -192,7 +202,7 @@ internal class KimiRuntime(
                 native.metadata,
                 cwd,
                 hosted,
-                pending,
+                checkNotNull(pending),
                 request.areDetachedToolsEnabled,
             )
             isTransferred = true
@@ -207,6 +217,8 @@ internal class KimiRuntime(
                         endConfiguration(id, owner)
                         discardSession(id, delete = true)
                     } else if (id != null) {
+                        close()
+                    } else if (isNewSessionStarted) {
                         close()
                     }
                 }
