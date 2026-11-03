@@ -87,6 +87,7 @@ import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -141,6 +142,8 @@ internal class KimiRuntime(
     private val sessions = MutableStateFlow<Map<String, KimiSession>>(emptyMap())
     private val mutex = Mutex()
     private val loading = Mutex()
+    private val catalogLock = Mutex()
+    private val pendingCatalogs = mutableMapOf<Pair<EngineBindingId, String>, Deferred<Result<KimiModelCatalog>>>()
     private val log = Log.tag("KimiRuntime")
 
     @Volatile
@@ -197,17 +200,33 @@ internal class KimiRuntime(
         val cwd = directory(CreateSessionRequest(target))
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
         // The runtime owns the operation, so a timed-out caller does not abandon a late session ID.
-        val owned = scope.async {
-            try {
-                Result.success(discoverOwnedCatalog(cwd))
-            } catch (error: kotlinx.coroutines.CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                Result.failure(error)
-            }
-        }
+        val owned = ownedCatalog(binding, cwd)
         return withTimeout(CATALOG_TIMEOUT_MS) { owned.await().getOrThrow() }
     }
+
+    private suspend fun ownedCatalog(binding: EngineBindingId, cwd: String): Deferred<Result<KimiModelCatalog>> =
+        catalogLock.withLock {
+            val key = binding to cwd
+            pendingCatalogs[key]?.takeUnless { it.isCompleted } ?: scope.async(start = CoroutineStart.LAZY) {
+                try {
+                    Result.success(discoverOwnedCatalog(cwd))
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Result.failure(error)
+                }
+            }.also { operation ->
+                pendingCatalogs[key] = operation
+                operation.invokeOnCompletion {
+                    scope.launch {
+                        catalogLock.withLock {
+                            if (pendingCatalogs[key] === operation) pendingCatalogs.remove(key)
+                        }
+                    }
+                }
+                operation.start()
+            }
+        }
 
     private suspend fun discoverOwnedCatalog(cwd: String): KimiModelCatalog = withContext(NonCancellable) {
         var isClosed = false

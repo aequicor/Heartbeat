@@ -89,6 +89,26 @@ import kotlin.test.assertTrue
 
 @Suppress("LargeClass") // Shared runtime fixture exercises the complete session lifecycle.
 class KimiRuntimeTest {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `concurrent catalog requests share a session without sharing caller cancellation`() = runTest {
+        val barrier = CompletableDeferred<Unit>()
+        val connection = FakeConnection().apply { newSessionBarrier = barrier }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+        val first = async { runtime.discover(EngineBindingId("binding")) }
+        val second = async { runtime.discover(EngineBindingId("binding")) }
+        runCurrent()
+        assertEquals(1, connection.newSessions)
+        first.cancelAndJoin()
+        barrier.complete(Unit)
+        assertTrue(second.await().isNotEmpty())
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+        runtime.discover(EngineBindingId("binding"))
+        assertEquals(2, connection.newSessions)
+    }
+
     @Test
     fun `model discovery returns the native catalog for the requested binding and deletes its session`() = runTest {
         val connection = FakeConnection()
