@@ -32,13 +32,25 @@ internal class ModelCheckOwner {
 
     fun begin(targets: Set<EngineTarget>): ModelCheckGeneration {
         val run = generation()
-        state.update { it.copy(runs = it.runs + targets.associateWith { run }) }
+        val bindings = targets.map { it.binding }.toSet()
+        state.update {
+            it.copy(
+                runs = it.runs + targets.associateWith { run },
+                epochs = it.epochs + bindings.associateWith { run },
+            )
+        }
         log.v { "Model check ownership replaced targets=${targets.size}" }
         return run
     }
 
     fun revoke(targets: Set<EngineTarget>) {
-        state.update { it.copy(runs = it.runs + targets.associateWith { null }) }
+        val epoch = generation()
+        state.update {
+            it.copy(
+                runs = it.runs + targets.associateWith { null },
+                epochs = it.epochs + targets.associate { target -> target.binding to epoch },
+            )
+        }
         log.v { "Model check ownership revoked targets=${targets.size}" }
     }
 
@@ -50,9 +62,31 @@ internal class ModelCheckOwner {
                 runs = it.runs.filterKeys { target -> target.binding != binding },
                 blocked = it.blocked + binding,
                 auth = it.auth + (binding to auth),
+                epochs = it.epochs + (binding to auth),
             )
         }
         log.v { "Model check binding ownership revoked" }
+    }
+
+    /** Reserve a binding before saving, so a late save cannot supersede a newer check or revocation. */
+    fun reserve(bindings: Set<EngineBindingId>): ModelCheckGeneration {
+        val run = generation()
+        state.update { it.copy(epochs = it.epochs + bindings.associateWith { run }) }
+        log.v { "Model check bindings reserved count=${bindings.size}" }
+        return run
+    }
+
+    /** Claim only bindings whose reservation has not been superseded while the save was in flight. */
+    fun claim(run: ModelCheckGeneration, targets: Set<EngineTarget>): Set<EngineTarget> {
+        while (true) {
+            val previous = state.value
+            val accepted = targets.filterTo(mutableSetOf()) { previous.epochs[it.binding] == run }
+            val next = previous.copy(runs = previous.runs + accepted.associateWith { run })
+            if (state.compareAndSet(previous, next)) {
+                log.v { "Model check targets claimed count=${accepted.size}" }
+                return accepted
+            }
+        }
     }
 
     fun revision(target: EngineTarget, context: ModelCheckContext): ModelCheckRevision? =
@@ -127,6 +161,7 @@ private data class Ownership(
     val runs: Map<EngineTarget, ModelCheckGeneration?> = emptyMap(),
     val blocked: Set<EngineBindingId> = emptySet(),
     val auth: Map<EngineBindingId, ModelCheckGeneration> = emptyMap(),
+    val epochs: Map<EngineBindingId, ModelCheckGeneration> = emptyMap(),
 ) {
     override fun toString(): String = "ModelCheckOwnership"
 }

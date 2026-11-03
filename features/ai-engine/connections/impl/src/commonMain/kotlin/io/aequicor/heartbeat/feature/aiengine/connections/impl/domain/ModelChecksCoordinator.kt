@@ -53,9 +53,12 @@ internal class ModelChecksCoordinator(
         targets: Set<EngineTarget>,
         onSaved: suspend () -> Unit,
         onFinished: () -> Unit,
+        relatedBindings: Set<EngineBindingId>,
+        relatedTargets: (ModelSelection) -> Set<EngineTarget>,
         save: suspend () -> ModelSelection,
     ): ModelCheckBatchResult<ModelSelection> {
-        val run = owner.begin(targets)
+        val run = if (relatedBindings.isEmpty()) owner.begin(targets) else owner.reserve(relatedBindings)
+        if (relatedBindings.isNotEmpty()) owner.claim(run, targets)
         val result = batch.execute(
             ModelCheckBatchRequest(
                 run = run,
@@ -63,7 +66,15 @@ internal class ModelChecksCoordinator(
                 onSaved = onSaved,
                 onFinished = onFinished,
                 revisions = { saved ->
-                    targets.mapNotNull { target ->
+                    val eligible = if (relatedBindings.isEmpty()) {
+                        targets
+                    } else {
+                        owner.claim(
+                            run,
+                            relatedTargets(saved),
+                        )
+                    }
+                    eligible.mapNotNull { target ->
                         owner.revision(target, currentContext(target))?.takeIf {
                             saved.checkGeneration(target) == it.selection.value
                         }

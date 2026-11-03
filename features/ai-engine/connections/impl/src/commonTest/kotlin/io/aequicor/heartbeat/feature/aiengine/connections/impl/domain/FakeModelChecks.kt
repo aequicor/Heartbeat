@@ -20,6 +20,8 @@ internal class FakeModelChecks : ModelChecks {
         targets: Set<EngineTarget>,
         onSaved: suspend () -> Unit,
         onFinished: () -> Unit,
+        relatedBindings: Set<EngineBindingId>,
+        relatedTargets: (ModelSelection) -> Set<EngineTarget>,
         save: suspend () -> ModelSelection,
     ): ModelCheckBatchResult<ModelSelection> {
         started += targets

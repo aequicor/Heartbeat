@@ -95,6 +95,39 @@ class SettingsModelChecksEffectsTest {
     }
 
     @Test
+    fun `editing checks models enabled while the source write is in flight`() = runTest {
+        val checked = mutableListOf<ModelId>()
+        val f = CoordinatorFixture(
+            this,
+            IsolatedPrompts {
+                checked += it.target.model
+                answer(it.text)
+            },
+        )
+        val added = f.target.copy(model = ModelId("added-during-edit"))
+        f.selections.update { it.withDefault(f.target) }
+        f.facade.editSource = { edit, receipt ->
+            f.selections.update { it.withModel(added, true) }
+            receipt(edit.expected)
+        }
+        val request = ConnectionEdit(
+            f.target.binding,
+            ConnectionMethodId("local"),
+            CheckSource,
+            "Local",
+            CheckSource.scope.origin,
+        )
+
+        f.settings().handle(
+            EngineConnectionsEffect.Edit(request, id, setOf(f.target), setOf(f.target.binding)),
+            RecordingScope(),
+        )
+
+        assertEquals(setOf(f.target.model, added.model), checked.toSet())
+        assertEquals(4, checked.size)
+    }
+
+    @Test
     fun `settings save preserves unrelated defaults and checks only the added model`() = runTest {
         var calls = 0
         val f = CoordinatorFixture(

@@ -14,6 +14,8 @@ internal interface ModelChecks {
         targets: Set<EngineTarget>,
         onSaved: suspend () -> Unit = {},
         onFinished: () -> Unit = {},
+        relatedBindings: Set<EngineBindingId> = emptySet(),
+        relatedTargets: (ModelSelection) -> Set<EngineTarget> = { emptySet() },
         save: suspend () -> ModelSelection,
     ): ModelCheckBatchResult<ModelSelection>
     fun revoke(targets: Set<EngineTarget>)

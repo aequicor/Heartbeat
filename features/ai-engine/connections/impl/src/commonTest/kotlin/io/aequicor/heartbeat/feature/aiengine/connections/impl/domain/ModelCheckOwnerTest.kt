@@ -26,6 +26,24 @@ class ModelCheckOwnerTest {
     private val target = checkReport().revision.target
 
     @Test
+    fun `a late save can claim newly selected models only while its binding reservation remains current`() {
+        val owner = ModelCheckOwner()
+        val other = target.copy(model = ModelId("other"))
+        val context = context(setOf(target, other))
+        val old = owner.reserve(setOf(target.binding))
+        assertEquals(setOf(target, other), owner.claim(old, setOf(target, other)))
+        val first = assertNotNull(owner.revision(target, context))
+        val second = assertNotNull(owner.revision(other, context))
+        assertTrue(owner.isCurrent(old, first, context))
+        val newer = owner.begin(setOf(other))
+        assertEquals(emptySet(), owner.claim(old, setOf(target, other)))
+        assertTrue(owner.isCurrent(old, first, context))
+        assertTrue(owner.isCurrent(newer, second, context))
+        owner.revoke(target.binding)
+        assertEquals(emptySet(), owner.claim(old, setOf(target)))
+    }
+
+    @Test
     fun `a new run and revocation synchronously hide previously stored receipts`() {
         val owner = ModelCheckOwner()
         val context = context()

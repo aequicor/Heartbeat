@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthException
@@ -69,6 +70,8 @@ internal class EngineConnectionsEffects(
             effect.checkTargets,
             onSaved = { machine.send(EngineConnectionsIntent.Internal.Checking(effect.id)) },
             onFinished = { effect.request.key?.close() },
+            relatedBindings = related,
+            relatedTargets = { selection -> relatedTargets(selection, related, effect.request.expected.info.id) },
         ) {
             try {
                 val current = selections.observe().first()
@@ -81,7 +84,9 @@ internal class EngineConnectionsEffects(
                     current
                 }
                 editBinding(effect.request, failure)
-                selection
+                // The source is already committed. Re-read choices atomically and initialize missing generations;
+                // failure here must never turn the confirmed source write into a retryable edit failure.
+                refreshSelection(selection)
             } finally {
                 effect.request.key?.close()
             }
@@ -101,6 +106,25 @@ internal class EngineConnectionsEffects(
             }
         }
         machine.send(completion)
+    }
+
+    private fun relatedTargets(
+        selection: ModelSelection,
+        related: Set<EngineBindingId>,
+        source: AuthSourceId,
+    ): Set<EngineTarget> = services.facade.bindings.state.value
+        .filter { it.id in related && it.authSource == source && it.isEnabled }
+        .flatMap { binding ->
+            selection.enabled(binding.id).map { model -> EngineTarget(binding.engine, binding.id, model) }
+        }.toSet()
+
+    private suspend fun refreshSelection(previous: ModelSelection): ModelSelection = try {
+        selections.update { it }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(error.redactedFailure()) { "Could not refresh model choices after the connection was saved" }
+        previous
     }
 
     private suspend fun editBinding(request: ConnectionEdit, failure: MutableStateFlow<EngineFailure?>) {
