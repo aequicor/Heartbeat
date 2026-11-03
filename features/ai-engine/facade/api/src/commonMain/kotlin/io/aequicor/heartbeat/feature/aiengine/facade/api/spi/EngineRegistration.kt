@@ -88,6 +88,9 @@ public class EngineRegistration(
 
 /** Adapter factory. Facade applies ownership/toggle gates before delegating. No method silently changes sources. */
 public interface EngineFactory {
+    /** Discovery creates a native session and must run on the exact runtime admitted for the route. */
+    public val isAdmittedRuntimeRequiredForModels: Boolean get() = false
+
     /**
      * Researched launch policy of this connector build. Static and IO-free; null means unestablished policy,
      * never legacy version approval. The facade assesses candidate evidence against this policy itself.

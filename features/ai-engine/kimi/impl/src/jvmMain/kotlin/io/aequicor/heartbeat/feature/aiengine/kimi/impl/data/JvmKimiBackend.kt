@@ -206,15 +206,8 @@ internal class JvmKimiBackend(
         if (!accepts(source, context)) {
             throw EngineException(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
         }
-        prepareRuntime()
-        val discovery = openRuntime(RuntimeIdentity(context.engine, source.info.id, source.info.revision))
-        try {
-            val models = discovery.discoverCatalog(context.binding).modelInfo(context.engine, context.binding)
-            val limits = localApi.modelLimits()
-            return models.map { model -> model.copy(contextLimitTokens = limits[model.target.model.value]) }
-        } finally {
-            withContext(NonCancellable) { discovery.close() }
-        }
+        // Native discovery creates an ACP session. Only the facade's admitted-runtime path may perform it.
+        throw EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
     }
 
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {

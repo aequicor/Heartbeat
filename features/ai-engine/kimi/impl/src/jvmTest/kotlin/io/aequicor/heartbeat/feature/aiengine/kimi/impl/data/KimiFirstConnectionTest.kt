@@ -1,15 +1,29 @@
 package io.aequicor.heartbeat.feature.aiengine.kimi.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import kotlinx.coroutines.test.runTest
 import java.lang.reflect.Proxy
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class KimiFirstConnectionTest {
     @Test
@@ -31,6 +45,19 @@ class KimiFirstConnectionTest {
             assertEquals(EngineAvailability.Available, backend.checkRequirements())
             assertEquals(InstallSource.Missing, backend.inspect(LaunchContext()).source)
             assertEquals(LoginState.SignedOut, backend.loginStatus(LaunchContext()))
+            val source = AuthSource.CliLogin(
+                AuthSourceInfo(KimiEngine.AuthSource, "Kimi", AuthRevision.Known("r1")),
+                AuthScope(ProviderId("kimi"), EndpointOrigin("https://api.kimi.com")),
+                KimiEngine.AuthOwner,
+                KimiEngine.AuthLocation,
+            )
+            assertTrue(backend.isAdmittedRuntimeRequiredForModels)
+            assertEquals(
+                EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown),
+                assertFailsWith<EngineException> {
+                    backend.discoverModels(source, EngineContext(KimiEngine.Id, EngineBindingId("binding")))
+                }.failure,
+            )
         } finally {
             client.close()
         }

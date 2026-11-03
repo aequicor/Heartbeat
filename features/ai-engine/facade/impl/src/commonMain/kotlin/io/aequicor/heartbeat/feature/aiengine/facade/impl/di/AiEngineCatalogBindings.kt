@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeCapabilit
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeContext
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ModelCatalogService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RouteResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RuntimePool
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionCatalogService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionCursors
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionIndex
@@ -62,7 +63,13 @@ object AiEngineCatalogBindings {
         @ForScope(ProfileScope::class) stores: DataStores,
         routes: RouteResolver,
         context: FacadeContext,
-    ): ModelCatalog = ModelCatalogService(ModelCacheStorage(stores.keyValue(ModelCacheSpec)), routes, context)
+        pool: RuntimePool,
+    ): ModelCatalog = ModelCatalogService(
+        ModelCacheStorage(stores.keyValue(ModelCacheSpec)),
+        routes,
+        context,
+        runtimePool = pool,
+    )
 
     /** Session index in the profile database. */
     @Provides

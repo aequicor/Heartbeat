@@ -67,6 +67,7 @@ internal class FixedClock(var now: Instant = Instant.fromEpochSeconds(1_000)) : 
 
 /** Adapter factory whose answers are set by the test. */
 internal class FakeEngineFactory : EngineFactory {
+    override var isAdmittedRuntimeRequiredForModels: Boolean = false
     override var runtimeRequirements: EngineCompatibilityRequirements? = testRuntimePolicy()
     var runtimeEvidence = testRuntimeEvidence()
     var isCandidateAvailable = true

@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 public interface KimiBackend :
     EngineFactory,
     EngineManager {
+    override val isAdmittedRuntimeRequiredForModels: Boolean get() = true
+
     /** Looks up a session observed by this profile without discovering external history. */
     public suspend fun session(ref: SessionRef): EngineSession
 }
