@@ -34,8 +34,51 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 class OwnedTurnStopFacadeTest {
+    @Test
+    fun `unknown compatibility cannot start a runtime or bind an account to stop a turn`() = runTest {
+        val fixture = StopFixture(this)
+        fixture.factory.runtimeRequirements = null
+        val error = assertFailsWith<EngineException> {
+            fixture.capability().stop(Ref, Request, OwnedTurnAccess(fixture.routes.target))
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), error.failure)
+        assertTrue(fixture.factory.routes.isEmpty())
+        assertTrue(fixture.factory.createdRuntimes.isEmpty())
+        assertTrue(fixture.calls.isEmpty())
+    }
+
+    @Test
+    fun `already admitted runtime can stop accepted work when a fresh probe is unavailable`() = runTest {
+        val fixture = StopFixture(this)
+        fixture.primeAdmittedRuntime()
+        fixture.factory.runtimeRequirements = null
+        assertEquals(
+            OwnedTurnStop.Unconfirmed,
+            fixture.capability().stop(Ref, Request, OwnedTurnAccess(fixture.routes.target)),
+        )
+        assertEquals(1, fixture.factory.createdRuntimes.size)
+        assertEquals(1, fixture.calls.size)
+    }
+
+    @Test
+    fun `a matching metadata runtime cannot be used for stop without admission`() = runTest {
+        val fixture = StopFixture(this)
+        val resolved = fixture.routes.routes.resolveSession(TestEngine, fixture.routes.binding.id)
+        fixture.pool.runtime(resolved)
+        fixture.factory.runtimeRequirements = null
+        val error = assertFailsWith<EngineException> {
+            fixture.capability().stop(Ref, Request, OwnedTurnAccess(fixture.routes.target))
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), error.failure)
+        assertTrue(fixture.calls.isEmpty())
+        assertEquals(1, fixture.factory.createdRuntimes.size)
+        assertTrue(fixture.factory.routes.isEmpty())
+    }
+
     @Test
     fun `stop carries exact reference request workspace and turn without opening or indexing a session`() = runTest {
         val fixture = StopFixture(this)
@@ -159,11 +202,12 @@ class OwnedTurnStopFacadeTest {
         val calls = mutableListOf<Triple<SessionRef, RequestId, OwnedTurnAccess>>()
         var result: OwnedTurnStop = OwnedTurnStop.Unconfirmed
         val capabilities: FacadeCapabilities
+        val pool: RuntimePool
         init {
             val enabled = EnabledEngines(routes.registry, routes.toggles, scope.backgroundScope)
             val sessions = SessionCatalogService(enabled, index, UnusedCursors, routes.context) { _, stored -> stored }
             val handles = ActiveSessionRegistry()
-            val pool = RuntimePool(routes.context, handles::hasActiveTurn, handles::closeHandles)
+            pool = RuntimePool(routes.context, handles::hasActiveTurn, handles::closeHandles)
             val launcher = SessionLauncher(
                 routes.routes,
                 pool,
@@ -203,6 +247,16 @@ class OwnedTurnStopFacadeTest {
         fun capability(): StopsOwnedTurns = assertIs<FeatureAccess.Available<StopsOwnedTurns>>(
             capabilities.engine(routes.registry.require(TestEngine)).resolve(StopsOwnedTurns),
         ).feature
+
+        suspend fun primeAdmittedRuntime() {
+            val resolved = routes.routes.resolveSession(TestEngine, routes.binding.id)
+            pool.sessionRuntime(
+                resolved,
+                TimeSource.Monotonic.markNow() + 30.seconds,
+                recheck = { routes.routes.recheckSession(resolved) },
+                prepare = { routes.routes.bindAdmitted(resolved) },
+            )
+        }
     }
 
     private object UnusedCursors : SessionCursors {

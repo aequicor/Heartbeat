@@ -122,10 +122,15 @@ class SessionLauncher(
         if (ref.engine != target.engine) fail(InvalidRequest)
         // Helpers poll stops until confirmed: only a confirmed stop is a significant transition.
         log.v { "stop owned turn engine=${ref.engine.value} binding=${target.binding.value}" }
-        val resolved = routes.resolve(target.engine, target.binding, access.workspace)
-        val stopper = pool.runtime(resolved).features.resolve(StopsOwnedTurns).orFail()
-        // Starting a metadata runtime may suspend while a binding is disabled or its source changes.
-        routes.recheck(resolved.route, null)
+        val resolved = routes.resolveSession(target.engine, target.binding, access.workspace)
+        val stopper = pool.runtimeForStop(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = { routes.recheckSession(resolved) },
+            prepare = { routes.bindAdmitted(resolved) },
+        ).features.resolve(StopsOwnedTurns).orFail()
+        // Runtime acquisition may suspend while a binding is disabled or its source changes.
+        routes.recheckSession(resolved)
         val result = adapterCall(log, "stop owned turn") { stopper.stop(ref, request, access) }
         if (result is OwnedTurnStop.Confirmed) {
             val isExpectedTurn = access.expectedTurn == null || result.turn.id == access.expectedTurn

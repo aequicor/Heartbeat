@@ -136,6 +136,40 @@ class RuntimePool(
         }
     }
 
+    /**
+     * Stops may reuse the already admitted runtime even when a fresh probe is unavailable: cancelling accepted
+     * work must not replace its owner. An unadmitted or differently routed runtime is never reused for this purpose.
+     */
+    suspend fun runtimeForStop(
+        resolved: ResolvedRoute,
+        deadline: TimeMark,
+        recheck: suspend () -> Unit,
+        prepare: suspend () -> Unit,
+    ): EngineRuntime {
+        if (deadline.hasPassedNow()) fail(EngineFailure.Transport(TransportFailureReason.Timeout))
+        val retained = withContext(context.io) {
+            withTimeout(-deadline.elapsedNow()) {
+                val key = resolved.identity.engine to resolved.identity.source
+                locked(key) {
+                    mutex.withLock {
+                        ensureOpen(key.first)
+                        requireConnected(resolved)
+                    }
+                    recheck()
+                    val current = mutex.withLock { runtimes[key] }
+                    if (current == null || !current.canStop(resolved)) {
+                        null
+                    } else {
+                        prepare()
+                        recheck()
+                        current.runtime
+                    }
+                }
+            }
+        }
+        return retained ?: sessionRuntime(resolved, deadline, recheck, prepare)
+    }
+
     private suspend fun acquireSession(
         resolved: ResolvedRoute,
         deadline: TimeMark,
@@ -520,6 +554,13 @@ private data class Pooled(
     val source: AuthSource,
     val admission: EngineCompatibilityDecision? = null,
 ) {
+    fun canStop(resolved: ResolvedRoute): Boolean {
+        val stamp = admission?.takeIf { it.isBaselineAllowed }?.stamp ?: return false
+        if (runtime.isClosed || runtime.identity != resolved.identity) return false
+        if (runtime.compatibilityStamp != stamp) return false
+        return source == resolved.source.withoutLabel()
+    }
+
     fun isReusable(resolved: ResolvedRoute, launch: LaunchContext, decision: EngineCompatibilityDecision): Boolean {
         if (runtime.isClosed || runtime.identity != resolved.identity || this.launch != launch) return false
         if (source != resolved.source.withoutLabel()) return false
