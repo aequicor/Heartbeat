@@ -44,6 +44,18 @@ public interface EngineManagement {
         throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
 
     /**
+     * Restricted inspection of an explicitly selected installation without changing saved launch settings. The
+     * [expected] snapshot must still be current. [candidate] may change only executable, runtime and host version;
+     * other launch settings are never supplied to the probe. Null means the adapter cannot safely inspect it.
+     * This report is observational: a later launch must independently bind admission to its actual artifact.
+     */
+    public suspend fun inspectCandidate(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        candidate: LaunchSettings,
+    ): EngineCandidateInspection? = throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+
+    /**
      * Saves [settings] only while [expected] still identifies the saved settings of this owner and engine.
      * A concurrent configure, including an identical write, rejects the operation with Session.Changed. The
      * [onSaved] callback receives the receipt synchronously after confirmed persistence, even if the caller is
@@ -100,6 +112,15 @@ public data class EngineInspection(
     val savedLaunch: LaunchSettingsSnapshot? = null,
 ) {
     override fun toString(): String = "EngineInspection(engine=${engine.value})"
+}
+
+/** Observation of a candidate selected by the user; no saved state, credentials or running process is transferred. */
+public data class EngineCandidateInspection(
+    val engine: EngineId,
+    val installation: Installation,
+    val compatibility: EngineCompatibilityObservation?,
+) {
+    override fun toString(): String = "EngineCandidateInspection(engine=${engine.value})"
 }
 
 /** One registered engine as the management panel sees it. */

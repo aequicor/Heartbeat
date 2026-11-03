@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineActionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCandidateInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityObservation
@@ -41,10 +42,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimeSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.actions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineCandidateInspector
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -190,6 +193,68 @@ class EngineManagementService(
             val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
                 ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
             inspectCurrent(current.requireAction(EngineActionKind.Inspect))
+        }
+    }
+
+    override suspend fun inspectCandidate(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        candidate: LaunchSettings,
+    ): EngineCandidateInspection? {
+        val lock = inspectionLocks[engine] ?: refuse("unknown engine=${engine.value}")
+        return lock.withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            current.requireAction(EngineActionKind.Configure)
+            current.requireAction(EngineActionKind.Inspect)
+            val saved = expected.settings.detached()
+            checkCandidateSnapshot(engine, expected, saved)
+            if (candidate.copy(
+                    executable = saved.executable,
+                    runtime = saved.runtime,
+                    hostRuntimeVersion = saved.hostRuntimeVersion,
+                ) != saved || (candidate.executable.isNullOrBlank() && candidate.runtime == RuntimePreference.Auto)
+            ) {
+                throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid))
+            }
+            validateLaunchChange(current, candidate.detached(), saved)
+            val currentLaunch = launch.context(engine)
+            val isolated = LaunchContext(
+                settings = LaunchSettings(
+                    executable = candidate.executable,
+                    runtime = candidate.runtime,
+                    hostRuntimeVersion = candidate.hostRuntimeVersion,
+                ),
+                managed = currentLaunch.managed.takeIf {
+                    candidate.executable.isNullOrBlank() && candidate.runtime == RuntimePreference.Managed
+                },
+            )
+            val inspector = registry.require(engine).manager?.value as? EngineCandidateInspector
+            val observation = if (inspector == null) {
+                Bounded<EngineCandidateInspection?>()
+            } else {
+                bounded("candidate inspection") { inspector.inspectCandidate(isolated) }
+            }
+            observation.failure?.let { throw ManagementException(it) }
+            checkCandidateSnapshot(engine, expected, saved)
+            if (launch.context(engine) != currentLaunch) changedLaunch()
+            val latest = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            latest.requireAction(EngineActionKind.Configure)
+            latest.requireAction(EngineActionKind.Inspect)
+            observation.value?.also { validateCandidate(engine, candidate, isolated.managed, it) }
+        }
+    }
+
+    private suspend fun checkCandidateSnapshot(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        saved: LaunchSettings,
+    ) {
+        val slot = launchTokens.getValue(engine)
+        val actual = preferences.load().launchOf(engine)
+        if (slot.value !== expected.token || slot.value?.settings != saved || actual != saved) {
+            changedLaunch()
         }
     }
 

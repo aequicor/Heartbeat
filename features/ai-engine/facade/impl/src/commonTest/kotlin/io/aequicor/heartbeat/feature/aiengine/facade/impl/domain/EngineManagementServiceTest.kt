@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineActionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCandidateInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityEvidence
@@ -56,6 +57,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.actions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineCandidateInspector
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -87,6 +89,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
+@Suppress("LargeClass") // Covers the shared management fixture and its concurrency contracts.
 class EngineManagementServiceTest {
     private val cliId = EngineId("cli")
     private val builtInId = EngineId("builtin")
@@ -171,6 +174,89 @@ class EngineManagementServiceTest {
         assertNull(result.installation.compatibilityObservation)
         assertEquals(Compatibility.Unknown, result.installation.compatibility)
         assertEquals(LoginState.Unknown, result.login)
+    }
+
+    @Test
+    fun `candidate inspection uses isolated settings and never changes the saved choice`() = runTest {
+        val original = LaunchSettings(environment = listOf(EnvironmentEntry("PRIVATE_VALUE", "secret")))
+        preferences.update { it.copy(launch = mapOf(cliId to original)) }
+        launchContext = LaunchContext(settings = original)
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        val candidate = original.copy(executable = "/opt/candidate")
+        manager.candidate = EngineCandidateInspection(
+            cliId,
+            Installation(InstallSource.Custom, "1.2.0", "/opt/candidate"),
+            observation(),
+        )
+
+        assertEquals(manager.candidate, service.inspectCandidate(cliId, snapshot, candidate))
+        assertEquals(
+            listOf(LaunchContext(settings = LaunchSettings(executable = "/opt/candidate"))),
+            manager.candidates,
+        )
+        assertEquals(original, preferences.load().launch[cliId])
+        assertEquals(0, manager.loginChecks)
+    }
+
+    @Test
+    fun `candidate inspection rejects substitution and stale snapshots`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        val candidate = snapshot.settings.copy(executable = "/opt/candidate")
+        manager.candidate = EngineCandidateInspection(cliId, Installation(InstallSource.System, "1.2.0"), observation())
+        val mismatch = assertFailsWith<EngineException> { service.inspectCandidate(cliId, snapshot, candidate) }
+        assertEquals(EngineFailure.Transport(TransportFailureReason.ProtocolViolation), mismatch.failure)
+        service.configureIfUnchanged(cliId, snapshot, snapshot.settings) { }
+        val stale = assertFailsWith<EngineException> { service.inspectCandidate(cliId, snapshot, candidate) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), stale.failure)
+        assertEquals(1, manager.candidates.size)
+    }
+
+    @Test
+    fun `candidate inspection drops its result if saved launch changes while probing`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        manager.candidate = EngineCandidateInspection(
+            cliId,
+            Installation(InstallSource.Custom, path = "/opt/candidate"),
+            null,
+        )
+        val gate = CompletableDeferred<Unit>()
+        manager.candidateGate = gate
+        val pending = async {
+            assertFailsWith<EngineException> {
+                service.inspectCandidate(
+                    cliId,
+                    snapshot,
+                    snapshot.settings.copy(executable = "/opt/candidate"),
+                )
+            }.failure
+        }
+        runCurrent()
+        preferences.update { it.copy(launch = mapOf(cliId to LaunchSettings(executable = "/changed"))) }
+        gate.complete(Unit)
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), pending.await())
+    }
+
+    @Test
+    fun `cancelled candidate inspection does not save launch settings`() = runTest {
+        val service = service()
+        runCurrent()
+        val snapshot = assertNotNull(service.inspect(cliId).savedLaunch)
+        val gate = CompletableDeferred<Unit>()
+        manager.candidateGate = gate
+        val pending = launch {
+            service.inspectCandidate(cliId, snapshot, snapshot.settings.copy(executable = "/opt/candidate"))
+        }
+        runCurrent()
+        assertEquals(1, manager.candidates.size)
+        pending.cancelAndJoin()
+        assertEquals(snapshot.settings, preferences.load().launch[cliId] ?: LaunchSettings())
+        assertFalse(gate.isCompleted)
     }
 
     @Test
@@ -1179,8 +1265,13 @@ private class FakeInstalls : ManagedInstallStore {
     override suspend fun uninstall(engine: EngineId) = error("unused")
 }
 
-private class FakeManager : EngineManager {
+private class FakeManager :
+    EngineManager,
+    EngineCandidateInspector {
     var observation: EngineCompatibilityObservation? = null
+    var candidate: EngineCandidateInspection? = null
+    val candidates = mutableListOf<LaunchContext>()
+    var candidateGate: CompletableDeferred<Unit>? = null
     var compatibilityFailure: EngineException? = null
     var legacyCompatibility = Compatibility.Unknown
     var compatibilityChecks = 0
@@ -1190,6 +1281,12 @@ private class FakeManager : EngineManager {
     var checkGate: CompletableDeferred<Unit>? = null
 
     override fun compatibility(version: String): Compatibility = legacyCompatibility
+
+    override suspend fun inspectCandidate(launch: LaunchContext): EngineCandidateInspection? {
+        candidates += launch
+        candidateGate?.await()
+        return candidate
+    }
 
     override suspend fun inspectCompatibility(
         installation: Installation,
