@@ -6,6 +6,9 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthCheck
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthCheckBasis
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthChecks
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthContextKey
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthException
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthLocationId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
@@ -20,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthenticatorId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -165,6 +169,7 @@ internal fun registration(
     modelCatalogRevision: Int = 0,
     composerAssists: io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists? = null,
     fileSessionTrees: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees? = null,
+    connectionMethods: List<ConnectionMethod> = emptyList(),
 ) = EngineRegistration(
     EngineDescriptor(
         id,
@@ -173,6 +178,7 @@ internal fun registration(
         platforms,
         FeatureToggle.Flag("engine.${id.value}", "Engine ${id.value}"),
         declaredFeatures = features,
+        connectionMethods = connectionMethods,
     ),
     owner,
     lazyOf(factory),
@@ -237,6 +243,26 @@ internal class FakeAuthSources : AuthSources {
     }
 
     override suspend fun forget(id: AuthSourceId) = remove(id)
+
+    override suspend fun editIfUnchanged(
+        expected: AuthSource,
+        label: String,
+        scope: AuthScope,
+        key: Secret?,
+        onSaved: (AuthSource) -> Unit,
+    ) {
+        if (get(expected.info.id) != expected) {
+            throw AuthException(AuthFailure(AuthFailureReason.SourceChanged, expected.info.id))
+        }
+        val info = expected.info.copy(label = label, revision = AuthRevision.Known("edited"))
+        val changed = when (expected) {
+            is AuthSource.ManagedKey -> expected.copy(info = info, scope = scope)
+            is AuthSource.NoAuth -> expected.copy(info = info, scope = scope)
+            is AuthSource.CliLogin, is AuthSource.ExternalKey, is AuthSource.CredentialHelper -> error("not editable")
+        }
+        sources.value = sources.value.map { if (it.info.id == info.id) changed else it }
+        onSaved(changed)
+    }
 }
 
 internal class FakeAuthChecks(private val clock: Clock) : AuthChecks {

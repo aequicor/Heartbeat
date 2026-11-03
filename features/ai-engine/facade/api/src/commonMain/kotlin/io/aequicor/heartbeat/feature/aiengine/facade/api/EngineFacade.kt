@@ -1,6 +1,9 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.api
 
+import io.aequicor.heartbeat.core.secrets.Secret
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -46,6 +49,16 @@ public interface EngineBindings {
     /** Creates or updates the same engine/source binding after ownership and compatibility checks. */
     public suspend fun connect(engine: EngineId, source: AuthSourceId, priority: Int = 0): EngineBinding
 
+    /**
+     * Edits a source only if its snapshot and binding remain current. Before saving, each binding using the source
+     * is checked against a proposed source with the new scope. Runtime routing still revalidates the saved source.
+     * The method must be declared by this binding's engine. The caller retains ownership of the key.
+     * [onSaved] is a synchronous, non-throwing receipt and is delivered after confirmed persistence even on
+     * cancellation; an error without a receipt may have an unknown outcome and must be reconciled by reading.
+     */
+    public suspend fun edit(edit: ConnectionEdit, onSaved: (AuthSource) -> Unit): Unit =
+        throw UnsupportedOperationException("Connection editing is unavailable")
+
     /** Disabling prevents new executions; a previously accepted turn may finish. */
     public suspend fun setEnabled(binding: EngineBindingId, enabled: Boolean)
 
@@ -58,6 +71,19 @@ public interface EngineBindings {
 
     /** Checks authentication in an engine-derived context; source revision belongs to the returned observation. */
     public suspend fun check(target: EngineTarget, workspace: WorkspaceRef? = null): BindingCheck
+}
+
+/** Input of a conditional connection edit. [key] stays owned by the caller and is never rendered in logs. */
+public data class ConnectionEdit(
+    val binding: EngineBindingId,
+    val method: ConnectionMethodId,
+    val expected: AuthSource,
+    val label: String,
+    val origin: EndpointOrigin,
+    val basePath: String? = null,
+    val key: Secret? = null,
+) {
+    override fun toString(): String = "ConnectionEdit(binding=$binding, method=$method)"
 }
 
 /** Cached model discovery never implies universal model availability across credential routes. */
