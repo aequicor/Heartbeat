@@ -59,7 +59,11 @@ internal class StudioConfiguredSubmission(
             request.compaction == null && !request.isRollover && !request.isHandoff
         val effort = turnEffort(stored, record.helper, supported) {
             val override = request.settings.nativeEffort?.takeIf { isOrdinary && it.modelId == target.studioModelId() }
-            if (override != null) override.effort else efforts.state.value.effectiveEffort(target, supported)
+            if (override != null) {
+                override.effort?.takeIf { it in supported }
+            } else {
+                efforts.state.value.effectiveEffort(target, supported)
+            }
         }
         log.i { "Submitting prompt length=${request.prompt.length}" }
         // The plan and its read-only rule follow the chat into the session before anything of the turn changes.

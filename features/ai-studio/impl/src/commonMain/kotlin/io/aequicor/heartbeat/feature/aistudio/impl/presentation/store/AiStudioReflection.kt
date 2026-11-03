@@ -53,7 +53,7 @@ internal fun AiStudioScreenState.reflectMachine(
                 request.description,
             )
         }.toImmutableList(),
-        panes = machine.panes.map { it.toUi() }.toImmutableList(),
+        panes = machine.panes.map { it.toUi(engineEfforts) }.toImmutableList(),
         cardFocusRequests = cardFocusRequests.filter { (pane, request) ->
             machine.panes.any { it.id == pane && it.sessionId == request.chatId }
         }.toImmutableMap(),

@@ -283,7 +283,7 @@ private fun AiStudioScreenState.projectPaneContent(
     diagram = diagramActions(pane),
     isSubmitFailed = pane.id in failedPanes,
     renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
-    settings = paneSettings(session, configuration).forOrganism(organism),
+    settings = paneSettings(pane, session, configuration).forOrganism(organism),
     securityLevel = if (session?.isHelper == true) SecurityLevelUi.Automatic else securityLevel,
     configuration = configuration,
     engineSwitch = engineSwitches[pane.sessionId],
@@ -299,7 +299,7 @@ private fun AiStudioScreenState.projectPaneContent(
     permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
     calendar = studioCalendar(now),
     contextUsage = contextOf(pane.sessionId, session),
-    providerUsage = providerUsage[paneSettings(session, configuration).forOrganism(organism).modelId],
+    providerUsage = providerUsage[paneSettings(pane, session, configuration).forOrganism(organism).modelId],
     isWorktreeAvailable = isWorktreeOffered(pane),
     isSandboxAvailable = isSandboxAvailable && isWorktreeOffered(pane),
     worktree = worktreeFor(pane.sessionId),
@@ -349,7 +349,7 @@ private fun AiStudioScreenState.elapsed(session: SessionUi?): Duration? = if (se
 /** Research can start in a new detached chat when the selected model supports it. */
 private fun AiStudioScreenState.isResearchOffered(pane: PaneUi): Boolean =
     isResearchEnabled && pane.sessionId == null && pane.projectId == null &&
-        models.any { it.id == settings.modelId && it.isResearchSupported }
+        models.any { it.id == (pane.settings ?: settings).modelId && it.isResearchSupported }
 
 /** The worktree mode is offered for a Git repository project once the journal is restored. */
 private fun AiStudioScreenState.isWorktreeOffered(pane: PaneUi): Boolean =
@@ -386,16 +386,20 @@ private fun AiStudioScreenState.transcriptOf(sessionId: String?, session: Sessio
         else -> withSentPrompts(sessionId, transcripts[sessionId])
     }
 
-private fun AiStudioScreenState.paneSettings(session: SessionUi?, configuration: SessionConfigurationUi?): SettingsUi =
-    if (configuration != null) {
-        settings.copy(
-            modelId = configuration.modelId,
-            approval = configuration.approval,
-            nativeEffort = configuration.reasoningEffort,
-        )
-    } else {
-        settings.copy(modelId = session?.modelId?.takeIf(String::isNotBlank) ?: settings.modelId)
-    }
+private fun AiStudioScreenState.paneSettings(
+    pane: PaneUi,
+    session: SessionUi?,
+    configuration: SessionConfigurationUi?,
+): SettingsUi = if (configuration != null) {
+    settings.copy(
+        modelId = configuration.modelId,
+        approval = configuration.approval,
+        nativeEffort = configuration.reasoningEffort,
+    )
+} else {
+    val draft = pane.settings ?: settings
+    draft.copy(modelId = session?.modelId?.takeIf(String::isNotBlank) ?: draft.modelId)
+}
 
 /**
  * Existing project chats keep their engine and connection, but may switch between that connection's models:

@@ -443,21 +443,27 @@ class AiStudioModelTest {
 
     @Test
     fun `native effort selection goes to the effort machine and its choices are mirrored`() = runTest {
-        val fixture = Fixture(this, ready)
-        val screen = fixture.subscribe()
         val target = EngineTarget(EngineId("engine"), EngineBindingId("route"), ModelId("model"))
         val id = target.studioModelId()
-        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort(id, "future"))
+        val settings = ready.settings.copy(modelId = id, nativeEffort = StudioEffortOverride(id, null))
+        val fixture = Fixture(this, ready.copy(panes = listOf(StudioPane(0, settings = settings)), settings = settings))
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort(id, "future", pageId = 0))
         fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort("scripted-model", "low"))
         runCurrent()
         assertEquals<Any>(
             listOf<Any>(EffortConfigurationIntent.Public.Select(target, "future")),
             fixture.efforts.sent,
         )
+        val selected = settings.copy(nativeEffort = StudioEffortOverride(id, "future"))
+        fixture.machine.state.value = ready.copy(
+            panes = listOf(StudioPane(0, settings = selected)),
+            settings = selected,
+        )
         fixture.efforts.state.value = EffortConfigurationState.Ready(listOf(EffortChoice(target, "future")))
         runCurrent()
         assertEquals(mapOf(id to "future"), screen.states.value.settings.engineEfforts)
-        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort(id, null))
+        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort(id, null, pageId = 0))
         runCurrent()
         assertEquals(EffortConfigurationIntent.Public.Select(target, null), fixture.efforts.sent.last())
     }
@@ -849,7 +855,10 @@ class AiStudioModelTest {
         val efforts = FakeEfforts(attachments)
         val researchEnabled = MutableStateFlow(false)
         val catalog = FakeCatalog()
+        var accepted: StudioSessionSettings? = null
         private val backend = object : StudioBackend {
+            override suspend fun latestAccepted(): StudioSessionSettings? = accepted
+
             override suspend fun repository(): StudioRepository = repository
 
             override suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent> = EffectHandler.None
@@ -910,6 +919,22 @@ class AiStudioRestoredDefaultsModelTest {
     )
 
     @Test
+    fun `new page actions carry the latest accepted receipt even before observation catches up`() = runTest {
+        val fixture = AiStudioModelTest.Fixture(this, ready)
+        fixture.subscribe()
+        val receipt = StudioSessionSettings("new-route", null, ApprovalMode.AutoEdits)
+        fixture.accepted = receipt
+        fixture.model.store.intent(AiStudioScreenIntent.NewSession("project"))
+        fixture.model.store.intent(AiStudioScreenIntent.OpenBeside(null))
+        fixture.model.store.intent(AiStudioScreenIntent.SetArchived("chat", true))
+        runCurrent()
+        val commands = fixture.machine.sent
+        assertTrue(AiStudioIntent.Public.NewSession("project", accepted = receipt) in commands)
+        assertTrue(AiStudioIntent.Public.OpenBeside(null, receipt) in commands)
+        assertTrue(AiStudioIntent.Public.Edit("chat", SessionEdit.SetArchived(true), receipt) in commands)
+    }
+
+    @Test
     fun `restored explicit native default wins over later profile effort observations and is route bound`() = runTest {
         val target = EngineTarget(EngineId("engine"), EngineBindingId("route"), ModelId("model"))
         val id = target.studioModelId()
@@ -936,7 +961,7 @@ class AiStudioRestoredDefaultsModelTest {
     }
 
     @Test
-    fun `changing approval preserves restored effort while changing route clears its seed`() = runTest {
+    fun `changing approval preserves restored effort while changing route captures its native default`() = runTest {
         val target = EngineTarget(EngineId("engine"), EngineBindingId("route"), ModelId("model"))
         val id = target.studioModelId()
         val seed = StudioEffortOverride(id, null)
@@ -955,7 +980,22 @@ class AiStudioRestoredDefaultsModelTest {
         fixture.model.store.intent(AiStudioScreenIntent.SelectModel(other))
         runCurrent()
         val changed = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.UpdateSettings>().last().settings
-        assertEquals(null, changed.nativeEffort)
+        assertEquals(StudioEffortOverride(other, null), changed.nativeEffort)
+    }
+
+    @Test
+    fun `two page snapshots retain independent native effort when profile choice changes`() = runTest {
+        val target = EngineTarget(EngineId("engine"), EngineBindingId("route"), ModelId("model"))
+        val id = target.studioModelId()
+        val first = ready.settings.copy(modelId = id, nativeEffort = StudioEffortOverride(id, null))
+        val second = first.copy(nativeEffort = StudioEffortOverride(id, "low"))
+        val initial = ready.copy(panes = listOf(StudioPane(0, settings = first), StudioPane(1, settings = second)))
+        val fixture = AiStudioModelTest.Fixture(this, initial)
+        val screen = fixture.subscribe()
+        fixture.efforts.state.value = EffortConfigurationState.Ready(listOf(EffortChoice(target, "high")))
+        runCurrent()
+        assertFalse(id in requireNotNull(screen.states.value.panes[0].settings).engineEfforts)
+        assertEquals("low", requireNotNull(screen.states.value.panes[1].settings).engineEfforts[id])
     }
 }
 

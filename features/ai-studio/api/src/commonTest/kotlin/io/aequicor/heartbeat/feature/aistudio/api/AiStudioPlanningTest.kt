@@ -119,7 +119,14 @@ class AiStudioPlanningTest {
     @Test
     fun `a new session page forgets planning mode`() {
         val selected = ready.copy(panes = listOf(ready.panes[0].copy(isPlanning = true), ready.panes[1]))
-        AiStudioMachineSpec.assertTransition(selected, AiStudioIntent.Public.NewSession(null, 0), ready)
+        AiStudioMachineSpec.assertTransition(
+            selected,
+            AiStudioIntent.Public.NewSession(null, 0),
+            ready.copy(
+                panes = listOf(ready.panes[0].copy(settings = settings, pageId = 1), ready.panes[1]),
+                nextPageId = 2,
+            ),
+        )
     }
 
     @Test

@@ -131,7 +131,7 @@ fun AiStudioScreenState.noticeDismissal(pane: PaneUi, notice: StudioNoticeUi): S
         subSession = subSessions[pane.sessionId] ?: PRIMARY_SUB_SESSION,
         modelId = if (isModelHint) {
             organisms[pane.sessionId]?.modelId ?: configurations[pane.sessionId]?.modelId
-                ?: session?.modelId?.takeIf(String::isNotBlank) ?: settings.modelId
+                ?: session?.modelId?.takeIf(String::isNotBlank) ?: pane.settings?.modelId ?: settings.modelId
         } else {
             null
         },

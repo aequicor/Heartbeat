@@ -66,6 +66,10 @@ public data class StudioPane(
     val isOrganism: Boolean = false,
     /** The new conversation starts in planning mode: the agent develops a plan with the user and only reads. */
     val isPlanning: Boolean = false,
+    /** Local draft parameters of a new page; existing conversations use their confirmed configuration. */
+    val settings: RunSettings? = null,
+    /** Identity of this new-page instance, including across reusable pane ids. */
+    val pageId: Long = 0,
 )
 
 /** Metadata change of a session, persisted by the studio effects. */

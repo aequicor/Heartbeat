@@ -110,6 +110,10 @@ public sealed interface AiStudioState : MachineState {
         /** Next creation token; never reused while Ready survives, even when pane ids are reused. */
         val nextCreateRequestId: Long = 0,
         val settingsVersion: StudioSettingsVersion = StudioSettingsVersion(),
+        /** Live seed for pages opened later; observations never replace an already open page's draft. */
+        val nextSessionSettings: RunSettings? = null,
+        /** Next identity for a newly opened page; pane ids can be reused. */
+        val nextPageId: Long = 1,
     ) : AiStudioState {
         init {
             require(panes.isNotEmpty()) { "The workspace always shows at least one pane" }
@@ -128,8 +132,15 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Prepares the workspace again after a failure. */
         public data object Retry : Public
 
-        /** Shows the new-session page for [projectId] in [paneId] (the focused pane when `null`). */
-        public data class NewSession(val projectId: String?, val paneId: Int? = null) : Public
+        /**
+         * Shows a new page in [paneId] (focused when null). [accepted] is a synchronous profile receipt;
+         * when absent the last defaults observed by this workspace seed the page.
+         */
+        public data class NewSession(
+            val projectId: String?,
+            val paneId: Int? = null,
+            val accepted: StudioSessionSettings? = null,
+        ) : Public
 
         /** Changes the project a new session of [paneId] will belong to. */
         public data class SelectProject(val paneId: Int, val projectId: String?) : Public
@@ -156,8 +167,8 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Shows [sessionId] in [paneId] (the focused pane when `null`), or focuses the pane already showing it. */
         public data class OpenSession(val sessionId: String, val paneId: Int? = null) : Public
 
-        /** Shows [sessionId] (or a new-session page when `null`) next to the focused pane. */
-        public data class OpenBeside(val sessionId: String?) : Public
+        /** Shows [sessionId], or a new page seeded by [accepted] or observed defaults when null. */
+        public data class OpenBeside(val sessionId: String?, val accepted: StudioSessionSettings? = null) : Public
 
         /** Closes one of several panes. */
         public data class ClosePane(val paneId: Int) : Public
@@ -165,8 +176,16 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Moves the keyboard and composer focus to another pane. */
         public data class FocusPane(val paneId: Int) : Public
 
-        /** Replaces and persists new-conversation preferences selected on a start page. */
-        public data class UpdateSettings(val settings: RunSettings) : Public
+        /**
+         * Replaces and persists new-page preferences. When [expectedPageId] is supplied, the update is accepted
+         * only for that idle page with [expectedModelId], protecting against delayed composer actions.
+         */
+        public data class UpdateSettings(
+            val settings: RunSettings,
+            val paneId: Int? = null,
+            val expectedPageId: Long? = null,
+            val expectedModelId: String? = null,
+        ) : Public
 
         /** Observes quotas for the model routes currently visible in composer panes. */
         public data class ObserveUsageTargets(val modelIds: Set<String>) : Public
@@ -226,8 +245,12 @@ public sealed interface AiStudioIntent : MachineIntent {
             val environment: StudioChatEnvironment? = null,
         ) : Public
 
-        /** Changes the metadata of [sessionId]. */
-        public data class Edit(val sessionId: String, val edit: SessionEdit) : Public
+        /** Changes metadata; archiving seeds the replacement page from [accepted] or observed defaults. */
+        public data class Edit(
+            val sessionId: String,
+            val edit: SessionEdit,
+            val accepted: StudioSessionSettings? = null,
+        ) : Public
     }
 
     /** Results produced by the studio effects. */
@@ -243,6 +266,9 @@ public sealed interface AiStudioIntent : MachineIntent {
 
         /** The workspace toggle and defaults are resolved. */
         public data class Loaded(val isEnabled: Boolean, val defaults: StudioDefaults) : Internal
+
+        /** Latest accepted defaults for future pages only; no draft or running conversation is changed. */
+        public data class DefaultsObserved(val settings: RunSettings) : Internal
 
         /** Snapshot of executions which survive closing the studio. */
         public data class RuntimeChanged(val snapshot: StudioRuntimeState) : Internal
@@ -298,8 +324,14 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** The runtime observation failed; nothing is known to run any more. */
         public data object RuntimeLost : Internal
 
-        /** Route ids of the models currently offered, in display order. */
-        public data class ModelsChanged(val modelIds: List<String>) : Internal
+        /**
+         * Route ids in display order. A present [nativeEfforts] key freezes that route's choice, including null
+         * for the native default, if it becomes the initial selection of an empty page.
+         */
+        public data class ModelsChanged(
+            val modelIds: List<String>,
+            val nativeEfforts: Map<String, String?> = emptyMap(),
+        ) : Internal
 
         /** Local project feature and platform availability, or the set of Git repository projects, changed. */
         public data class ProjectAvailabilityChanged(
@@ -355,6 +387,9 @@ public sealed interface AiStudioEffect : MachineEffect {
 
     /** Reports the offered models for as long as the workspace is ready. */
     public data object ObserveModels : AiStudioEffect
+
+    /** Observes defaults for future pages for the Ready lifetime; observing starts no native work. */
+    public data object ObserveDefaults : AiStudioEffect
 
     /** Observations of the options a new chat may choose, for as long as the workspace is ready. */
     public sealed interface ChatOptions : AiStudioEffect

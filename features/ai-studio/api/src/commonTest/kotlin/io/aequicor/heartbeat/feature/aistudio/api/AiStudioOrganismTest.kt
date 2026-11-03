@@ -79,6 +79,13 @@ class AiStudioOrganismTest {
     @Test
     fun `a new session page forgets the organism mode`() {
         val selected = ready.copy(panes = listOf(ready.panes[0].copy(isOrganism = true), ready.panes[1]))
-        AiStudioMachineSpec.assertTransition(selected, AiStudioIntent.Public.NewSession(null, 0), ready)
+        AiStudioMachineSpec.assertTransition(
+            selected,
+            AiStudioIntent.Public.NewSession(null, 0),
+            ready.copy(
+                panes = listOf(ready.panes[0].copy(settings = settings, pageId = 1), ready.panes[1]),
+                nextPageId = 2,
+            ),
+        )
     }
 }

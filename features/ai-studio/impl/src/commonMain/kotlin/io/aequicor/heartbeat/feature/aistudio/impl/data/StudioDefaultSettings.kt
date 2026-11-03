@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioLastStartedRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -28,16 +29,27 @@ internal fun observeStudioDefaults(
     efforts.state.first { it is EffortConfigurationState.Ready }
     emitAll(
         selections.observe().flatMapLatest { selection ->
-            preferences.observe(
-                DefaultRunSettings.copy(modelId = selection.defaultTarget?.studioModelId().orEmpty()),
-            ).combine(lastStarted.observe()) { choices, started ->
+            combine(
+                preferences.observe(
+                    DefaultRunSettings.copy(modelId = selection.defaultTarget?.studioModelId().orEmpty()),
+                ),
+                lastStarted.observe(),
+                efforts.state,
+            ) { choices, started, effortState ->
                 started?.let {
                     choices.copy(
                         modelId = it.modelId,
                         approval = it.approval,
                         nativeEffort = StudioEffortOverride(it.modelId, it.reasoningEffort),
                     )
-                } ?: choices
+                } ?: choices.copy(
+                    nativeEffort = studioModelTarget(choices.modelId)?.let { target ->
+                        StudioEffortOverride(
+                            choices.modelId,
+                            (effortState as? EffortConfigurationState.Ready)?.effortFor(target),
+                        )
+                    },
+                )
             }
         },
     )

@@ -19,7 +19,8 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | LoadError | Retry | | Loading | Load |
  * | Ready | AvailabilityChanged | disabled | Disabled | ObserveAvailability |
  * | Disabled | AvailabilityChanged | enabled | Loading | Load |
- * | Ready | NewSession | pane open | Ready (pane → new-session page, focused) | |
+ * | Ready | DefaultsObserved | nonblank route | Ready (future-page seed only) | |
+ * | Ready | NewSession | pane open | Ready (pane → new page with latest seed, focused) | |
  * | Ready | SelectProject | new-session page, not creating | Ready (target project; worktree only for Git) | |
  * | Ready | SelectWorktree | new pane of a Git project, available | Ready (isolation choice; leaves organism mode) | |
  * | Ready | SelectOrganism | new-session page, not creating | Ready (organism; leaves worktree and planning) | |
@@ -92,6 +93,7 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 effect { AiStudioEffect.ObserveAvailability }
                 effect { AiStudioEffect.ObserveRuntime }
                 effect { AiStudioEffect.ObserveModels }
+                effect { AiStudioEffect.ObserveDefaults }
                 effect { AiStudioEffect.ObserveProjects }
                 effect { AiStudioEffect.ObservePlanning }
             }
@@ -132,10 +134,27 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 effect { AiStudioEffect.ObserveAvailability }
             }
             on<AiStudioIntent.Internal.AvailabilityChanged>(guard = { intent.isEnabled })
-            on<AiStudioIntent.Public.UpdateSettings> {
+            on<AiStudioIntent.Internal.DefaultsObserved>(guard = { intent.settings.modelId.isNotBlank() }) {
+                stay { state.copy(nextSessionSettings = intent.settings) }
+            }
+            on<AiStudioIntent.Internal.DefaultsObserved>(guard = { intent.settings.modelId.isBlank() })
+            on<AiStudioIntent.Public.UpdateSettings>(guard = {
+                val pane = state.panes.firstOrNull { it.id == (intent.paneId ?: state.focusedPaneId) }
+                intent.expectedPageId == null || (
+                    pane?.isNewSessionPage() == true && pane.pageId == intent.expectedPageId &&
+                        state.settingsForPane(pane.id).modelId == intent.expectedModelId
+                )
+            }) {
                 stay {
                     state.copy(
                         settings = intent.settings,
+                        panes = state.panes.map { pane ->
+                            if (pane.id == (intent.paneId ?: state.focusedPaneId) && pane.isNewSessionPage()) {
+                                pane.copy(settings = intent.settings)
+                            } else {
+                                pane
+                            }
+                        },
                         settingsVersion = state.settingsVersion.copy(revision = state.settingsVersion.revision + 1),
                     )
                 }
@@ -152,7 +171,13 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                     state.configurations[intent.sessionId]?.pendingOperation == null
             }) {
                 stay { state.copy(running = state.running + intent.sessionId) }
-                effect { AiStudioEffect.ImplementPlan(intent.sessionId, intent.implementation, state.settings) }
+                effect {
+                    AiStudioEffect.ImplementPlan(
+                        intent.sessionId,
+                        intent.implementation,
+                        state.settingsForSession(intent.sessionId),
+                    )
+                }
             }
             on<AiStudioIntent.Public.SwitchSessionEngine>(guard = {
                 state.isEngineSwitchingAvailable && state.panes.any { it.sessionId == intent.sessionId } &&
@@ -169,7 +194,7 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 effect { AiStudioEffect.ChangeSessionSetting(intent.sessionId, intent.change) }
             }
             on<AiStudioIntent.Public.Edit>(guard = { intent.edit.isValid() }) {
-                stay { if (intent.edit.isArchiving()) state.leave(intent.sessionId) else state }
+                stay { if (intent.edit.isArchiving()) state.leave(intent.sessionId, intent.accepted) else state }
                 effect { AiStudioEffect.Apply(intent.sessionId, intent.edit.normalized()) }
             }
         }
@@ -217,7 +242,8 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 is AiStudioEffect.RespondPermission ->
                     AiStudioIntent.Internal.PermissionAnswerFailed(effect.sessionId, effect.requestId)
 
-                AiStudioEffect.ObserveModels, AiStudioEffect.ObserveAvailability, is AiStudioEffect.Apply,
+                AiStudioEffect.ObserveModels, AiStudioEffect.ObserveDefaults, AiStudioEffect.ObserveAvailability,
+                is AiStudioEffect.Apply,
                 is AiStudioEffect.Usage,
                 is AiStudioEffect.SwitchSessionEngine,
                 is AiStudioEffect.ChangeSessionSetting,
@@ -238,7 +264,14 @@ private fun ReadyTransitions.navigation() {
     on<AiStudioIntent.Public.NewSession>(guard = { state.hasPane(intent.paneId) }) {
         stay {
             val target = intent.paneId ?: state.focusedPaneId
-            state.replacePane(target) { StudioPane(it.id, projectId = intent.projectId) }
+            state.replacePane(target) {
+                StudioPane(
+                    it.id,
+                    projectId = intent.projectId,
+                    settings = state.newPageSettings(intent.accepted),
+                    pageId = state.nextPageId,
+                )
+            }.copy(nextPageId = state.nextPageId + 1)
         }
     }
     on<AiStudioIntent.Public.SelectProject>(guard = { state.pane(intent.paneId)?.isNewSessionPage() == true }) {
@@ -259,7 +292,7 @@ private fun ReadyTransitions.navigation() {
         effect { AiStudioEffect.Apply(intent.sessionId, SessionEdit.SetUnread(false)) }
     }
     on<AiStudioIntent.Public.OpenBeside> {
-        stay { state.openBeside(intent.sessionId) }
+        stay { state.openBeside(intent.sessionId, intent.accepted) }
         effect { intent.sessionId?.let { AiStudioEffect.Apply(it, SessionEdit.SetUnread(false)) } }
     }
     on<AiStudioIntent.Public.ClosePane>(guard = { state.panes.size > 1 && state.pane(intent.paneId) != null }) {
@@ -295,7 +328,7 @@ private fun ReadyTransitions.conversations() {
                 intent.paneId,
                 state.pane(intent.paneId)?.projectId,
                 intent.prompt.trim(),
-                state.settings,
+                state.settingsForPane(intent.paneId),
                 requestId = state.nextCreateRequestId,
                 attachments = intent.attachments,
                 submissionId = intent.submissionId,
@@ -323,7 +356,7 @@ private fun ReadyTransitions.conversations() {
             AiStudioEffect.Run(
                 state.sessionOf(intent.paneId),
                 intent.prompt.trim(),
-                state.settings,
+                state.settingsForPane(intent.paneId),
                 intent.attachments,
                 intent.paneId.takeIf { intent.submissionId.isNotEmpty() },
                 intent.submissionId,
@@ -343,7 +376,7 @@ private fun ReadyTransitions.followUps() {
             AiStudioEffect.Run(
                 intent.sessionId,
                 intent.prompt.trim(),
-                state.settings,
+                state.settingsForSession(intent.sessionId),
                 submissionId = intent.submissionId,
                 environment = intent.environment,
             )
@@ -524,10 +557,14 @@ private fun ReadyTransitions.runtime() {
         stay { state.copy(answeredPermissions = state.answeredPermissions - intent.requestId) }
         output { AiStudioOutput.PermissionAnswerFailed(intent.sessionId, intent.requestId) }
     }
+    modelUpdates()
+}
+
+private fun ReadyTransitions.modelUpdates() {
     on<AiStudioIntent.Internal.ModelsChanged>(
         guard = { state.settings.modelId.isBlank() && intent.modelIds.isNotEmpty() },
     ) {
-        stay { state.copy(settings = state.settings.copy(modelId = intent.modelIds.first())) }
+        stay { state.withDiscoveredModel(intent.modelIds.first(), intent.nativeEfforts) }
     }
     // A chosen model stays chosen; an empty offer changes nothing.
     on<AiStudioIntent.Internal.ModelsChanged>(
@@ -535,10 +572,29 @@ private fun ReadyTransitions.runtime() {
     )
 }
 
+private fun AiStudioState.Ready.withDiscoveredModel(model: String, efforts: Map<String, String?>): AiStudioState.Ready {
+    val seed = if (model in efforts) StudioEffortOverride(model, efforts[model]) else null
+    return copy(
+        settings = settings.copy(modelId = model, nativeEffort = seed),
+        nextSessionSettings = nextSessionSettings?.let {
+            if (it.modelId.isBlank()) it.copy(modelId = model, nativeEffort = seed) else it
+        },
+        panes = panes.map { pane ->
+            val draft = pane.settings
+            if (pane.sessionId == null && draft?.modelId?.isBlank() == true) {
+                pane.copy(settings = draft.copy(modelId = model, nativeEffort = seed))
+            } else {
+                pane
+            }
+        },
+    )
+}
+
 private fun initialWorkspace(defaults: StudioDefaults): AiStudioState.Ready = AiStudioState.Ready(
-    panes = listOf(StudioPane(id = 0, projectId = defaults.projectId)),
+    panes = listOf(StudioPane(id = 0, projectId = defaults.projectId, settings = defaults.settings)),
     focusedPaneId = 0,
     settings = defaults.settings,
+    nextSessionSettings = defaults.settings,
     settingsVersion = defaults.settingsVersion,
     defaultProjectId = defaults.projectId,
 )
@@ -578,24 +634,58 @@ private fun AiStudioState.Ready.open(sessionId: String, paneId: Int): AiStudioSt
     }
 }
 
-private fun AiStudioState.Ready.openBeside(sessionId: String?): AiStudioState.Ready {
+private fun AiStudioState.Ready.openBeside(sessionId: String?, accepted: StudioSessionSettings?): AiStudioState.Ready {
     val shown = sessionId?.let { id -> panes.firstOrNull { it.sessionId == id } }
     if (shown != null) return copy(focusedPaneId = shown.id)
     val projectId = if (sessionId == null) pane(focusedPaneId)?.projectId ?: defaultProjectId else null
-    val content = StudioPane(id = 0, sessionId = sessionId, projectId = projectId)
-    return if (panes.size < MAX_STUDIO_PANES) {
+    val content = StudioPane(
+        id = 0,
+        sessionId = sessionId,
+        projectId = projectId,
+        settings = newPageSettings(accepted).takeIf { sessionId == null },
+        pageId = if (sessionId == null) nextPageId else 0,
+    )
+    val opened = if (panes.size < MAX_STUDIO_PANES) {
         val id = panes.maxOf { it.id } + 1
         copy(panes = panes + content.copy(id = id), focusedPaneId = id)
     } else {
         val target = panes.first { it.id != focusedPaneId }.id
         replacePane(target) { content.copy(id = it.id) }
     }
+    return if (sessionId == null) opened.copy(nextPageId = nextPageId + 1) else opened
 }
 
 /** Archived sessions leave their panes; the panes return to the new-session page of the default project. */
-private fun AiStudioState.Ready.leave(sessionId: String): AiStudioState.Ready = copy(
-    panes = panes.map { if (it.sessionId == sessionId) StudioPane(it.id, projectId = defaultProjectId) else it },
-)
+private fun AiStudioState.Ready.leave(sessionId: String, accepted: StudioSessionSettings?): AiStudioState.Ready {
+    if (panes.none { it.sessionId == sessionId }) return this
+    return copy(
+        panes = panes.map {
+            if (it.sessionId == sessionId) {
+                StudioPane(
+                    it.id,
+                    projectId = defaultProjectId,
+                    settings = newPageSettings(accepted),
+                    pageId = nextPageId,
+                )
+            } else {
+                it
+            }
+        },
+        nextPageId = nextPageId + 1,
+    )
+}
+
+/** Use the profile's synchronous receipt when observation has not yet reached this workspace. */
+private fun AiStudioState.Ready.newPageSettings(accepted: StudioSessionSettings?): RunSettings {
+    val seed = nextSessionSettings ?: settings
+    return accepted?.let {
+        seed.copy(
+            modelId = it.modelId,
+            approval = it.approval,
+            nativeEffort = StudioEffortOverride(it.modelId, it.reasoningEffort),
+        )
+    } ?: seed
+}
 
 private fun SessionEdit.isValid(): Boolean = this !is SessionEdit.Rename || title.isNotBlank()
 
@@ -683,7 +773,7 @@ private fun ReadyTransitions.queueTransitions() {
                     intent.submissionId,
                     intent.prompt.trim(),
                     intent.attachments,
-                    state.settings,
+                    state.settingsForPane(intent.paneId),
                     intent.userInstruction,
                     intent.environment != null,
                 ),

@@ -16,7 +16,7 @@ class StudioDefaultsMachineTest {
         AiStudioMachineSpec.assertTransition(
             ready,
             AiStudioIntent.Public.UpdateSettings(selected),
-            ready.copy(settings = selected, settingsVersion = next),
+            ready.copy(panes = listOf(StudioPane(0, settings = selected)), settings = selected, settingsVersion = next),
             effects = listOf(AiStudioEffect.SaveSettings(selected, next)),
         )
     }
@@ -24,13 +24,25 @@ class StudioDefaultsMachineTest {
     @Test
     fun `new conversations in another project inherit the start page choices`() {
         val withChat = ready.copy(panes = listOf(StudioPane(0, sessionId = "existing")))
-        val project = ready.copy(panes = listOf(StudioPane(0, projectId = "other-project")))
+        val project = ready.copy(
+            panes = listOf(StudioPane(0, projectId = "other-project", settings = settings, pageId = 1)),
+            nextPageId = 2,
+        )
         AiStudioMachineSpec.assertTransition(withChat, AiStudioIntent.Public.NewSession("other-project"), project)
         AiStudioMachineSpec.assertTransition(
             project,
             AiStudioIntent.Public.Submit(0, "hello"),
             project.copy(
-                panes = listOf(StudioPane(0, projectId = "other-project", isCreating = true, createRequestId = 0)),
+                panes = listOf(
+                    StudioPane(
+                        0,
+                        projectId = "other-project",
+                        isCreating = true,
+                        createRequestId = 0,
+                        settings = settings,
+                        pageId = 1,
+                    ),
+                ),
                 nextCreateRequestId = 1,
             ),
             effects = listOf(AiStudioEffect.CreateSession(0, "other-project", "hello", settings, requestId = 0)),
@@ -54,11 +66,12 @@ class StudioDefaultsMachineTest {
         AiStudioMachineSpec.assertTransition(
             AiStudioState.Loading,
             AiStudioIntent.Internal.Loaded(true, StudioDefaults(null, settings, version)),
-            ready,
+            ready.copy(panes = listOf(StudioPane(0, settings = settings)), nextSessionSettings = settings),
             effects = listOf(
                 AiStudioEffect.ObserveAvailability,
                 AiStudioEffect.ObserveRuntime,
                 AiStudioEffect.ObserveModels,
+                AiStudioEffect.ObserveDefaults,
                 AiStudioEffect.ObserveProjects,
                 AiStudioEffect.ObservePlanning,
             ),

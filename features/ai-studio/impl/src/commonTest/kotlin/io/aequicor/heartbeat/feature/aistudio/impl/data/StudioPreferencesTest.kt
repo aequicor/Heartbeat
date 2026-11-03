@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.coroutines.CompletableDeferred
@@ -265,6 +266,29 @@ class StudioPreferencesTest {
         assertEquals(StudioEffortOverride(first.studioModelId(), null), restored.nativeEffort)
         preferences.save(selected.copy(modelId = "unsent-change"), version.copy(revision = 2))
         assertEquals(restored, observeStudioDefaults(preferences, selections, efforts, started).first())
+    }
+
+    @Test
+    fun `new page freezes native default before another page changes the profile effort`() = runTest {
+        val stores = PreferenceStores()
+        val profile = PreferenceProfile(backgroundScope)
+        val preferences = KeyValueStudioPreferences(stores, profile)
+        val target = EngineTarget(EngineId("engine"), EngineBindingId("connection"), ModelId("model"))
+        val selections = object : ModelSelections {
+            override fun observe() = kotlinx.coroutines.flow.flowOf(ModelSelection().withDefault(target))
+            override suspend fun update(change: (ModelSelection) -> ModelSelection): ModelSelection = error("read only")
+        }
+        val efforts = object : EffortChoicesView {
+            override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
+        }
+        val started = KeyValueStudioLastStartedRun(stores, profile)
+        val first = observeStudioDefaults(preferences, selections, efforts, started).first()
+        efforts.state.value = EffortConfigurationState.Ready(listOf(EffortChoice(target, "high")))
+        val second = observeStudioDefaults(preferences, selections, efforts, started).first()
+
+        assertEquals(StudioEffortOverride(target.studioModelId(), null), first.nativeEffort)
+        assertEquals(StudioEffortOverride(target.studioModelId(), "high"), second.nativeEffort)
+        assertEquals(StudioEffortOverride(target.studioModelId(), null), first.nativeEffort)
     }
 
     @Test

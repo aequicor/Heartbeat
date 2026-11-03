@@ -581,7 +581,16 @@ private fun ComposerEffort(
         } else {
             content.settings.engineEfforts[model.id]?.takeIf { it in model.reasoningEfforts }
         }
-        EngineEffortMenu(model, selected, onIntent, modifier, content.pane.id, enabled = !content.isSettingPending)
+        EngineEffortMenu(
+            model,
+            selected,
+            onIntent,
+            modifier,
+            content.pane.id,
+            enabled = !content.isSettingPending,
+            pageId = content.pane.pageId,
+            expectedSessionId = content.pane.sessionId.orEmpty(),
+        )
     } else if (hasDemoPreferences) {
         EffortMenu(content.settings.effort, onIntent, content.pane.id, !content.isSettingPending, modifier)
     }

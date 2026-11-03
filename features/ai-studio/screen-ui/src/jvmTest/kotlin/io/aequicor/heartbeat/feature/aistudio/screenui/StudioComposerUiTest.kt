@@ -90,7 +90,15 @@ class StudioComposerUiTest {
             onNodeWithText("future-effort").performClick()
             runOnIdle {
                 assertEquals(
-                    listOf<StudioIntent>(StudioIntent.SelectEngineEffort(model.id, "future-effort", 0)),
+                    listOf<StudioIntent>(
+                        StudioIntent.SelectEngineEffort(
+                            model.id,
+                            "future-effort",
+                            0,
+                            pageId = 0,
+                            expectedSessionId = "",
+                        ),
+                    ),
                     events,
                 )
             }
