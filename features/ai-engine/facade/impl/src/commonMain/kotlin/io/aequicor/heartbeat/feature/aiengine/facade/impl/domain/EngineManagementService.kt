@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
@@ -163,6 +164,12 @@ class EngineManagementService(
             is EngineCommand.AnswerLogin -> jobs.answer(engine, command.code)
             EngineCommand.OpenHostApp -> openHostApp(current.requireAction(EngineActionKind.OpenHostApp))
         }
+    }
+
+    override suspend fun startOwned(engine: EngineId, action: EngineAction, onStarted: (EngineOwnedJob) -> Unit) {
+        val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+            ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+        jobs.start(engine, current.requireStart(action), onStarted)
     }
 
     /**

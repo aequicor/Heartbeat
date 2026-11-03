@@ -36,6 +36,14 @@ public interface EngineManagement {
     public suspend fun execute(engine: EngineId, command: EngineCommand)
 
     /**
+     * Starts one profile-owned job and synchronously hands its exact handle to [onStarted]. The callback must not
+     * throw or block. It runs before the job can perform work, even if the caller is cancelled during handoff.
+     * The handle waits for cleanup and can cancel only this job; it cannot affect a later job of the same engine.
+     */
+    public suspend fun startOwned(engine: EngineId, action: EngineAction, onStarted: (EngineOwnedJob) -> Unit): Unit =
+        throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+
+    /**
      * Performs one explicit inspection and returns its own immutable result, independently of state-flow delivery.
      * A result is evidence only for the inspected launch settings at that moment, not a promise about later changes.
      * Implementations that cannot correlate the result refuse rather than return an unrelated state snapshot.
@@ -75,6 +83,15 @@ public interface EngineManagement {
         settings: LaunchSettings,
         onSaved: (LaunchSettingsSnapshot) -> Unit,
     ): Unit = throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+}
+
+/** Owner-scoped handle to one particular management job, including its cancellation and cleanup. */
+public interface EngineOwnedJob {
+    /** Waits for the outcome and cleanup; cancelling the waiter does not cancel the job. */
+    public suspend fun await(): JobPhase
+
+    /** Cancels only this job and waits for its cleanup, even if a later job has already started. */
+    public suspend fun cancel(): JobPhase
 }
 
 /** Opaque, profile-owner-scoped identity; it is not persisted or transferable to another owner. */

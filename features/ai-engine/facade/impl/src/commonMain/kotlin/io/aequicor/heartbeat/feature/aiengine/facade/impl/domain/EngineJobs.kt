@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
@@ -74,20 +75,29 @@ class EngineJobs(
     val jobs: StateFlow<Map<EngineId, EngineJob>> = published.asStateFlow()
 
     /** Starts [action] for [engine]; Busy while another job of the engine runs. */
-    suspend fun start(engine: EngineId, action: EngineAction) = guard.withLock {
-        if (running.containsKey(engine)) {
-            log.w { "job refused, another one runs engine=${engine.value}" }
-            throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
+    suspend fun start(engine: EngineId, action: EngineAction, onStarted: (EngineOwnedJob) -> Unit = {}) =
+        guard.withLock {
+            if (running.containsKey(engine)) {
+                log.w { "job refused, another one runs engine=${engine.value}" }
+                throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
+            }
+            log.i { "job started engine=${engine.value} action=${action::class.simpleName.orEmpty()}" }
+            published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now())) }
+            if (action is EngineAction.Login) codes[engine] = Channel(Channel.CONFLATED)
+            val start = CompletableDeferred<Unit>()
+            val outcome = CompletableDeferred<JobPhase>()
+            val job = context.scope.launch(start = CoroutineStart.UNDISPATCHED) { run(engine, action, start, outcome) }
+            running[engine] = job
+            var isDelivered = false
+            try {
+                onStarted(OwnedJob(job, outcome))
+                isDelivered = true
+            } finally {
+                if (!isDelivered) job.cancel()
+                start.complete(Unit)
+            }
+            Unit
         }
-        log.i { "job started engine=${engine.value} action=${action::class.simpleName.orEmpty()}" }
-        published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now())) }
-        if (action is EngineAction.Login) codes[engine] = Channel(Channel.CONFLATED)
-        val start = CompletableDeferred<Unit>()
-        val job = context.scope.launch(start = CoroutineStart.UNDISPATCHED) { run(engine, action, start) }
-        running[engine] = job
-        start.complete(Unit)
-        Unit
-    }
 
     /** Cancels the running job of [engine]; its cleanup still runs. */
     suspend fun cancel(engine: EngineId) {
@@ -112,7 +122,12 @@ class EngineJobs(
         channel.trySend(code)
     }
 
-    private suspend fun run(engine: EngineId, action: EngineAction, start: CompletableDeferred<Unit>) {
+    private suspend fun run(
+        engine: EngineId,
+        action: EngineAction,
+        start: CompletableDeferred<Unit>,
+        completion: CompletableDeferred<JobPhase>,
+    ) {
         // Stays Cancelled unless the job completes; the outcome is published even when the job is cancelled.
         var outcome: JobPhase = JobPhase.Cancelled
         try {
@@ -120,8 +135,12 @@ class EngineJobs(
             outcome = perform(engine, action)
         } finally {
             withContext(NonCancellable) {
-                finish(engine, outcome)
-                inspectAfterJob(engine)
+                try {
+                    finish(engine, outcome)
+                    inspectAfterJob(engine)
+                } finally {
+                    completion.complete(outcome)
+                }
             }
         }
     }
@@ -322,6 +341,15 @@ class EngineJobs(
         const val CHECK_TIMEOUT_MILLIS = 30_000L
         const val PROGRESS_INTERVAL_MILLIS = 250L
         const val PERCENT = 100L
+    }
+}
+
+private class OwnedJob(private val job: Job, private val completion: CompletableDeferred<JobPhase>) : EngineOwnedJob {
+    override suspend fun await(): JobPhase = completion.await()
+
+    override suspend fun cancel(): JobPhase = withContext(NonCancellable) {
+        job.cancel()
+        completion.await()
     }
 }
 

@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
@@ -48,6 +49,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.PackageOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFiles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -58,6 +60,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -399,6 +402,48 @@ class EngineJobsTest {
         jobs.cancel(engine)
         runCurrent()
         assertEquals(JobPhase.Cancelled, jobs.jobs.value.getValue(engine).phase)
+        jobs.start(engine, EngineAction.Uninstall)
+        runCurrent()
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+    }
+
+    @Test
+    fun `owned cancellation waits for cleanup and cannot cancel a later job`() = runTest {
+        val cleanup = CompletableDeferred<Unit>()
+        manager.isInspectHanging = true
+        installs.onDiscard = { cleanup.await() }
+        val jobs = jobs()
+        lateinit var first: EngineOwnedJob
+        jobs.start(engine, EngineAction.Install) {
+            assertTrue(manager.candidates.isEmpty())
+            first = it
+        }
+        runCurrent()
+        val cancelling = async { first.cancel() }
+        runCurrent()
+        assertFalse(cancelling.isCompleted)
+        cleanup.complete(Unit)
+        runCurrent()
+        assertEquals(JobPhase.Cancelled, cancelling.await())
+
+        manager.isLoginHanging = true
+        lateinit var second: EngineOwnedJob
+        jobs.start(engine, EngineAction.Login()) { second = it }
+        runCurrent()
+        assertEquals(JobPhase.Cancelled, first.cancel())
+        assertFalse(jobs.jobs.value.getValue(engine).phase.isFinished)
+        assertEquals(JobPhase.Cancelled, second.cancel())
+    }
+
+    @Test
+    fun `failed handoff cancels the job and releases its slot`() = runTest {
+        val jobs = jobs()
+        assertFailsWith<IllegalStateException> {
+            jobs.start(engine, EngineAction.Install) { error("handoff failed") }
+        }
+        runCurrent()
+        assertEquals(JobPhase.Cancelled, jobs.jobs.value.getValue(engine).phase)
+        assertTrue(manager.candidates.isEmpty())
         jobs.start(engine, EngineAction.Uninstall)
         runCurrent()
         assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
