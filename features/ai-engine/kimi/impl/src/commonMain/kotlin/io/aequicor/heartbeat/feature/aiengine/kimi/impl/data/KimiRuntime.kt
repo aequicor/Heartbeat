@@ -59,6 +59,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
@@ -694,12 +695,18 @@ internal class KimiSession(
     @Suppress("SwallowedException") // Mapped to the domain failure; the turn failure path logs the original.
     private suspend fun applyEffort(request: PromptRequest) {
         val effort = request.reasoningEffort ?: return
+        var isConfirmed = false
         try {
-            runtime.connection.setConfigOption(ref.nativeId, "thinking", effort)
+            val applied = runtime.connection.setConfigOptionObserved(ref.nativeId, "thinking", effort)
+            applied.requireModel(nativeKimiModel(target.model))
+            applied.requireEffort(effort, request.id)
+            isConfirmed = true
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
             throw EngineException(error.engineFailure())
+        } finally {
+            if (!isConfirmed) withContext(NonCancellable) { runtime.close() }
         }
     }
 
@@ -1162,14 +1169,20 @@ private fun JsonObject.hasConfigOption(id: String): Boolean = this["configOption
     (it as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull == id
 }
 
-private fun JsonObject.currentModel(): String? = this["configOptions"]?.jsonArray.orEmpty()
+private fun JsonObject.currentOption(id: String): String? = this["configOptions"]?.jsonArray.orEmpty()
     .mapNotNull { it as? JsonObject }
-    .singleOrNull { (it["id"] as? JsonPrimitive)?.contentOrNull == "model" }
+    .singleOrNull { (it["id"] as? JsonPrimitive)?.contentOrNull == id }
     ?.get("currentValue")?.let { it as? JsonPrimitive }?.takeIf { it.isString }?.contentOrNull
 
 private fun JsonObject.requireModel(expected: String) {
-    if (currentModel() != expected) {
+    if (currentOption("model") != expected) {
         throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+    }
+}
+
+private fun JsonObject.requireEffort(expected: String, request: RequestId) {
+    if (currentOption("thinking") != expected) {
+        throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid, request))
     }
 }
 

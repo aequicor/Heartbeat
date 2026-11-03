@@ -70,6 +70,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -89,6 +90,74 @@ import kotlin.test.assertTrue
 
 @Suppress("LargeClass") // Shared runtime fixture exercises the complete session lifecycle.
 class KimiRuntimeTest {
+    @Test
+    fun `thinking change that substitutes model is rejected before prompt`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]},
+                    {"id":"thinking","category":"thought_level","options":[{"value":"high"}]}]}""",
+            ).jsonObject
+        }
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        connection.reportedModelAfterThinking = "other"
+
+        val error = assertFailsWith<EngineException> {
+            session.sender().send(prompt("selected-model").copy(reasoningEffort = "high"))
+        }
+
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), error.failure)
+        assertTrue(connection.content.isEmpty())
+        assertTrue(runtime.isClosed)
+    }
+
+    @Test
+    fun `thinking change with a different effective effort is rejected before prompt`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]},
+                    {"id":"thinking","category":"thought_level","options":[{"value":"high"}]}]}""",
+            ).jsonObject
+        }
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        connection.reportedThinking = "low"
+
+        val error = assertFailsWith<EngineException> {
+            session.sender().send(prompt("selected-effort").copy(reasoningEffort = "high"))
+        }
+
+        assertIs<EngineFailure.Request>(error.failure)
+        assertTrue(connection.content.isEmpty())
+        assertTrue(runtime.isClosed)
+    }
+
+    @Test
+    fun `cancelling an in-flight thinking change retires the uncertain runtime`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]},
+                    {"id":"thinking","category":"thought_level","options":[{"value":"high"}]}]}""",
+            ).jsonObject
+        }
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        val entered = CompletableDeferred<Unit>()
+        connection.beforeConfigResponse = {
+            entered.complete(Unit)
+            kotlinx.coroutines.awaitCancellation()
+        }
+        val sending = launch { session.sender().send(prompt("cancel-effort").copy(reasoningEffort = "high")) }
+        entered.await()
+        sending.cancelAndJoin()
+
+        assertTrue(connection.content.isEmpty())
+        assertTrue(runtime.isClosed)
+    }
+
     @Test
     fun `new session rejects a model substituted by the runtime`() = runTest {
         val connection = FakeConnection().apply { reportedModel = "other" }
@@ -1149,6 +1218,8 @@ private class FakeConnection : AcpConnection {
     var configFailure: Exception? = null
     var reportedModel: String? = null
     var reportedModelAfterMode: String? = null
+    var reportedModelAfterThinking: String? = null
+    var reportedThinking: String? = null
     var beforeConfigResponse: (suspend () -> Unit)? = null
     val configuration = mutableMapOf<String, String>()
     lateinit var runtime: KimiRuntime
@@ -1199,10 +1270,22 @@ private class FakeConnection : AcpConnection {
                     add(
                         buildJsonObject {
                             put("id", "model")
-                            val actual = if (optionId == "mode") reportedModelAfterMode else reportedModel
+                            val actual = when (optionId) {
+                                "mode" -> reportedModelAfterMode
+                                "thinking" -> reportedModelAfterThinking
+                                else -> reportedModel
+                            }
                             put("currentValue", actual ?: configuration["model"] ?: value)
                         },
                     )
+                    configuration["thinking"]?.let { thinking ->
+                        add(
+                            buildJsonObject {
+                                put("id", "thinking")
+                                put("currentValue", reportedThinking ?: thinking)
+                            },
+                        )
+                    }
                 },
             )
         }
