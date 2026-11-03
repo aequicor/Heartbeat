@@ -79,6 +79,10 @@ public interface AcpConnection {
     public suspend fun closeSession(sessionId: String): Unit =
         throw UnsupportedOperationException("ACP session close unavailable")
 
+    /** Deletes an idle session, including persistent history, when `sessionCapabilities.delete` was advertised. */
+    public suspend fun deleteSession(sessionId: String): Unit =
+        throw UnsupportedOperationException("ACP session delete unavailable")
+
     /** Lists native sessions, optionally filtered by an absolute cwd; [cursor] continues a previous page. */
     public suspend fun listSessions(cwd: String? = null, cursor: String? = null): AcpSessionList =
         throw UnsupportedOperationException("ACP session listing unavailable")

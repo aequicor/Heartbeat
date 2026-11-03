@@ -190,7 +190,7 @@ internal class KimiRuntime(
     private suspend fun discoverCatalog(binding: EngineBindingId): KimiModelCatalog {
         checkActive()
         val sessionCapabilities = initialization.agentCapabilities["sessionCapabilities"] as? JsonObject
-        if (sessionCapabilities?.get("close") !is JsonObject) {
+        if (sessionCapabilities?.get("delete") !is JsonObject) {
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
         val target = EngineTarget(identity.engine, binding, ModelId("catalog"))
@@ -201,7 +201,7 @@ internal class KimiRuntime(
                 withTimeout(CATALOG_TIMEOUT_MS) {
                     val native = connection.newSession(cwd)
                     val catalog = kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
-                    connection.closeSession(native.sessionId)
+                    connection.deleteSession(native.sessionId)
                     isClosed = true
                     catalog
                 }

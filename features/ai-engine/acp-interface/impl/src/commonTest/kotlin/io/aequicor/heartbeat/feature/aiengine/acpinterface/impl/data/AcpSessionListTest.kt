@@ -62,4 +62,18 @@ class AcpSessionListTest {
         assertFailsWith<IllegalArgumentException> { h.client.closeSession("session") }
         h.client.close()
     }
+
+    @Test
+    fun `delete session removes the owned native session`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize()
+        h.session()
+        val deleting = backgroundScope.async { h.client.deleteSession("session") }
+        val request = h.outgoing("session/delete")
+        assertEquals("session", request.obj("params").string("sessionId"))
+        h.reply(request, """{}""")
+        deleting.await()
+        assertFailsWith<IllegalArgumentException> { h.client.deleteSession("session") }
+        h.client.close()
+    }
 }

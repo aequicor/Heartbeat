@@ -204,6 +204,18 @@ internal class DefaultAcpConnection(
         }
     }
 
+    override suspend fun deleteSession(sessionId: String) {
+        owned {
+            admissions.withLock {
+                requireSession(sessionId)
+                lock.withLock { check(sessionId !in busySessions) { "Session is busy" } }
+                log.i { "ACP delete session" }
+                peer.request("session/delete", fields(sessionId(sessionId)))
+                lock.withLock { sessions.remove(sessionId) }
+            }
+        }
+    }
+
     override suspend fun prompt(sessionId: String, content: List<JsonObject>): AcpPromptResult =
         prompt(sessionId, content, JsonObject(emptyMap()))
 

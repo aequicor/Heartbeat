@@ -90,15 +90,15 @@ import kotlin.test.assertTrue
 @Suppress("LargeClass") // Shared runtime fixture exercises the complete session lifecycle.
 class KimiRuntimeTest {
     @Test
-    fun `model discovery returns the native catalog for the requested binding and closes its session`() = runTest {
+    fun `model discovery returns the native catalog for the requested binding and deletes its session`() = runTest {
         val connection = FakeConnection()
         connection.metadata = Json.parseToJsonElement(
             """{"configOptions":[
                 {"id":"model","category":"model","options":[{"value":"kimi-code/k3","name":"K3"}]}
             ]}""",
         ).jsonObject
-        val closeCapability = JsonObject(mapOf("close" to JsonObject(emptyMap())))
-        val capabilities = JsonObject(mapOf("sessionCapabilities" to closeCapability))
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
         val runtime = runtime(connection, this, capabilities)
         val binding = EngineBindingId("other-binding")
 
@@ -106,29 +106,29 @@ class KimiRuntimeTest {
 
         assertEquals(listOf("kimi-code/k3"), models.map { it.target.model.value })
         assertTrue(models.all { it.target.binding == binding && it.target.engine == KimiEngine.Id })
-        assertEquals("native", connection.closedSession)
+        assertEquals("native", connection.deletedSession)
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
-    fun `model discovery closes its temporary session after caller cancellation`() = runTest {
+    fun `model discovery deletes its temporary session after caller cancellation`() = runTest {
         val connection = FakeConnection()
         val barrier = CompletableDeferred<Unit>()
         connection.newSessionBarrier = barrier
-        val closeCapability = JsonObject(mapOf("close" to JsonObject(emptyMap())))
-        val capabilities = JsonObject(mapOf("sessionCapabilities" to closeCapability))
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
         val runtime = runtime(connection, this, capabilities)
         val discovery = async { runtime.discover(EngineBindingId("binding")) }
         runCurrent()
         discovery.cancel()
         barrier.complete(Unit)
         discovery.cancelAndJoin()
-        assertEquals("native", connection.closedSession)
+        assertEquals("native", connection.deletedSession)
         assertFalse(runtime.isClosed)
     }
 
     @Test
-    fun `model discovery refuses to create a session when close is unsupported`() = runTest {
+    fun `model discovery refuses to create a session when deletion is unsupported`() = runTest {
         val connection = FakeConnection()
         val runtime = runtime(connection, this)
         assertFailsWith<EngineException> { runtime.discover(EngineBindingId("binding")) }
@@ -136,10 +136,10 @@ class KimiRuntimeTest {
     }
 
     @Test
-    fun `model discovery retires runtime when session close fails`() = runTest {
-        val connection = FakeConnection().apply { closeSessionFailure = IllegalStateException("close failed") }
-        val closeCapability = JsonObject(mapOf("close" to JsonObject(emptyMap())))
-        val capabilities = JsonObject(mapOf("sessionCapabilities" to closeCapability))
+    fun `model discovery retires runtime when session deletion fails`() = runTest {
+        val connection = FakeConnection().apply { deleteSessionFailure = IllegalStateException("delete failed") }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
         val runtime = runtime(connection, this, capabilities)
         assertFailsWith<IllegalStateException> { runtime.discover(EngineBindingId("binding")) }
         assertTrue(runtime.isClosed)
@@ -149,8 +149,8 @@ class KimiRuntimeTest {
     @Test
     fun `model discovery retires runtime when session creation times out`() = runTest {
         val connection = FakeConnection().apply { newSessionBarrier = CompletableDeferred() }
-        val closeCapability = JsonObject(mapOf("close" to JsonObject(emptyMap())))
-        val capabilities = JsonObject(mapOf("sessionCapabilities" to closeCapability))
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
         val runtime = runtime(connection, this, capabilities)
         assertFailsWith<kotlinx.coroutines.TimeoutCancellationException> {
             runtime.discover(EngineBindingId("binding"))
@@ -964,8 +964,8 @@ private class TestBridge : AgentToolBridge {
 private class FakeConnection : AcpConnection {
     var newSessionBarrier: CompletableDeferred<Unit>? = null
     var newSessions = 0
-    var closedSession: String? = null
-    var closeSessionFailure: Exception? = null
+    var deletedSession: String? = null
+    var deleteSessionFailure: Exception? = null
     var prompt = CompletableDeferred<AcpPromptResult>()
     var servers: List<JsonObject> = emptyList()
     var turnToken = ""
@@ -986,9 +986,9 @@ private class FakeConnection : AcpConnection {
         newSessionBarrier?.await()
         return AcpSession("native", metadata)
     }
-    override suspend fun closeSession(sessionId: String) {
-        closeSessionFailure?.let { throw it }
-        closedSession = sessionId
+    override suspend fun deleteSession(sessionId: String) {
+        deleteSessionFailure?.let { throw it }
+        deletedSession = sessionId
     }
     override suspend fun newSession(cwd: String, servers: List<JsonObject>): AcpSession {
         this.servers = servers
