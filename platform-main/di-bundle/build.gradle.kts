@@ -154,6 +154,7 @@ kotlin {
             implementation(projects.features.checklist.api)
         }
         jvmTest.dependencies {
+            implementation(libs.compose.uiTest)
             runtimeOnly(projects.bundles.agentRuntime)
             runtimeOnly(projects.bundles.engines)
             runtimeOnly(projects.bundles.shell)

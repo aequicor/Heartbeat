@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.platform.dibundle
 
 import com.arkivanov.decompose.DefaultComponentContext
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
+import com.arkivanov.essenty.lifecycle.destroy
 import com.arkivanov.essenty.lifecycle.resume
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
@@ -10,6 +11,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsMachineKey
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
@@ -26,6 +28,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import java.io.File
@@ -34,6 +37,9 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /** The services the connection screens use, read through the engines bundle's public exports. */
@@ -73,6 +79,27 @@ class EngineConnectionsIntegrationTest {
         app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
+    }
+
+    @Test
+    fun `retained engine scoped routes do not replace the shared connections machine`() = runTest {
+        val session = app.profileSessions.open(ProfileId("scoped-connections"))
+        val lifecycle = LifecycleRegistry().apply { resume() }
+        val context = DefaultComponentContext(lifecycle)
+        val profile = (session.graph as ProfileNavigation).navigation.create(
+            context,
+            initial = listOf(EngineConnectionsRoute(isEmbedded = true)),
+            name = "profile",
+        )
+        runCurrent()
+        val legacy = assertNotNull(app.machines.find(EngineConnectionsMachineKey))
+        profile.navigator.navigate(EngineConnectionsRoute(isEmbedded = true, engine = EngineId("koog")))
+        profile.navigator.navigate(EngineConnectionsRoute(isEmbedded = true, engine = EngineId("codex")))
+        runCurrent()
+        assertSame(legacy, app.machines.find(EngineConnectionsMachineKey))
+        lifecycle.destroy()
+        runCurrent()
+        assertNull(app.machines.find(EngineConnectionsMachineKey))
     }
 
     @Test

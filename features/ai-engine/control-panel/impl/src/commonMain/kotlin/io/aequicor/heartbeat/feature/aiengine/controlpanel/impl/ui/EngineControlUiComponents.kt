@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -205,10 +206,18 @@ internal class EngineControlPanelUiComponent(private val component: EngineContro
 
     @Composable
     override fun Content(modifier: Modifier) {
+        val connections by component.connections.collectAsState()
         HbBoxWithConstraints(modifier.fillMaxSize()) {
             val isEmbedded = component.isEmbedded && HbTheme.dimensions.isDesktop &&
                 maxWidth >= HbTheme.dimensions.compactBreakpoint
-            EngineControlPanelScreen(component.model, component::close, Modifier.fillMaxSize(), isEmbedded)
+            EngineControlPanelScreen(
+                component.model,
+                component::close,
+                Modifier.fillMaxSize(),
+                isEmbedded,
+                connections = { connections?.let { NavStack(it, Modifier.fillMaxSize()) } },
+                onShowConnections = component::showConnections,
+            )
         }
     }
 }

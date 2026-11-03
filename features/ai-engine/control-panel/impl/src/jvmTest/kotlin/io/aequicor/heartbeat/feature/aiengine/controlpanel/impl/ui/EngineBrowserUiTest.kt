@@ -1,11 +1,14 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
@@ -20,9 +23,15 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineActionUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineConnectionStatusUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlListState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineItemUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EnginePanelTabUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ResourceFileUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ResourceInventoryUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ResourceKindUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ResourceOriginUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ResourceStateUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedCodexWithCopy
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedSnapshot
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.reflect
@@ -61,6 +70,36 @@ class EngineBrowserUiTest {
     fun restoreLocale() {
         Locale.setDefault(originalLocale)
     }
+
+    @Test
+    fun `four panel tabs keep embedded connections in a bounded content area`() =
+        runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+            var panel by mutableStateOf(
+                EngineControlPanelState(CodexId.value, isConnectionsEnabled = true)
+                    .reflect(CodexId, managedSnapshot(managedCodexWithCopy())),
+            )
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    EngineControlPanelContent(
+                        panel,
+                        { if (it is EngineControlPanelIntent.SelectTab) panel = panel.copy(openTab = it.tab) },
+                        connections = {
+                            Box(Modifier.fillMaxSize().testTag("test-embedded-connections"))
+                        },
+                    )
+                }
+            }
+            listOf("overview", "connections", "resources", "settings").forEach {
+                onNodeWithTag("engine-tab-$it").assertExists()
+            }
+            onNodeWithTag("engine-tab-connections").performClick()
+            onNodeWithTag("test-embedded-connections").assertExists()
+            assertTrue(onNodeWithTag("test-embedded-connections").fetchSemanticsNode().boundsInRoot.height > 0f)
+            onNodeWithTag("engine-tab-resources").performClick()
+            onNodeWithTag("test-embedded-connections").assertDoesNotExist()
+            onNodeWithTag("engine-tab-settings").performClick()
+            onNodeWithTag("engine-control-pages").assertDoesNotExist()
+        }
 
     @Test
     fun `engine selection keeps the list beside details and shows connection-specific statuses`() =
@@ -158,6 +197,46 @@ class EngineBrowserUiTest {
                     "png",
                     File(directory, "browser-${if (dark) "dark" else "light"}.png"),
                 )
+            }
+        }
+    }
+
+    @Test
+    fun `resource tab renders supported inventory and empty states in both themes`() {
+        val ready = EngineControlPanelState(CodexId.value).reflect(CodexId, managedSnapshot(managedCodexWithCopy()))
+        val files = (1..30).map {
+            ResourceFileUi(
+                ResourceKindUi.Skill,
+                ResourceOriginUi.Profile,
+                "skills/example-$it/SKILL.md",
+                "A deliberately long resource name for profile instruction $it",
+                ResourceStateUi.Enabled,
+                "Saved profile instruction, selected by the connector configuration.",
+            )
+        }.toPersistentList()
+        for (width in listOf(420, 1280)) {
+            for (dark in listOf(false, true)) {
+                for (isEmpty in listOf(false, true)) {
+                    runSkikoComposeUiTest(size = Size(width.toFloat(), 600f)) {
+                        val state = ready.copy(
+                            openTab = EnginePanelTabUi.Resources,
+                            hasResourceInventory = true,
+                            resources = ResourceInventoryUi(if (isEmpty) persistentListOf() else files, 0, false),
+                        )
+                        setContent {
+                            HbTheme(dimensions = HbDimensions.Desktop, darkTheme = dark) {
+                                EngineControlPanelContent(state, {}, isEmbedded = true)
+                            }
+                        }
+                        onNodeWithTag("resource-inventory").assertExists()
+                        val directory = File("build/reports/ui/engine-mcp").apply { mkdirs() }
+                        ImageIO.write(
+                            captureToImage().toAwtImage(),
+                            "png",
+                            File(directory, "resources-$width-$dark-$isEmpty.png"),
+                        )
+                    }
+                }
             }
         }
     }

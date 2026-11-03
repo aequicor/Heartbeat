@@ -18,17 +18,21 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlOutp
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.di.scope.EngineControlScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigCapability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
+import pro.respawn.flowmvi.plugins.whileSubscribed
 
 /** The engine a panel graph shows; null in the graph of the engine list. */
 data class EngineControlTarget(val engine: EngineId?)
@@ -38,7 +42,7 @@ data class EngineControlTarget(val engine: EngineId?)
 data class PageItemUi(val id: String, val title: TextUi)
 
 /** Top-level content of one engine; project data has no tab in this panel. */
-enum class EnginePanelTabUi { Overview, Settings }
+enum class EnginePanelTabUi { Overview, Connections, Resources, Settings }
 
 /**
  * One engine's panel: its management ([panel], null while engine management is off), the local input of the
@@ -65,10 +69,14 @@ data class EngineControlPanelState(
     val pages: ImmutableList<PageItemUi> = persistentListOf(),
     /** The selected top-level tab while no configuration page or saved project is open. */
     val openTab: EnginePanelTabUi = EnginePanelTabUi.Overview,
+    /** Connections toggle resolved by the owner graph; false until observed. */
+    val isConnectionsEnabled: Boolean = false,
     /** The page shown instead of the selected tab, or null. */
     val openPage: String? = null,
     /** The selected scope's saved resource inventory, never the local form draft. */
     val resources: ResourceInventoryUi? = null,
+    /** Both the schema capability and a page declare profile resource inventory. */
+    val hasResourceInventory: Boolean = false,
     /** A resource inventory is being read; forms stay editable meanwhile. */
     val isReadingResources: Boolean = false,
     /** The profile configuration form; null while engine configuration is off or the engine declares no schema. */
@@ -109,8 +117,11 @@ sealed interface EngineControlPanelIntent : MVIIntent {
     /** Hides the failure of the last operation. */
     data object DismissError : EngineControlPanelIntent
 
-    /** Shows overview or dynamic engine settings without discarding either tab's drafts. */
+    /** Selects a top-level tab without discarding drafts; ignored while a page or project is open. */
     data class SelectTab(val tab: EnginePanelTabUi) : EngineControlPanelIntent
+
+    /** Graph feature observation, serialized with user tab changes before requesting child acquisition. */
+    data class ConnectionsAvailability(val isEnabled: Boolean) : EngineControlPanelIntent
 
     /**
      * Steps back: from a file to its project, from a project or a page to its tab, from a tab out of the panel.
@@ -129,6 +140,9 @@ sealed interface EngineControlPanelIntent : MVIIntent {
 sealed interface EngineControlPanelAction : MVIAction {
     /** The panel is left: its owner closes it. */
     data object Leave : EngineControlPanelAction
+
+    /** The owner creates its retained public connections child on first explicit selection. */
+    data object ShowConnections : EngineControlPanelAction
 }
 
 internal typealias PanelContext =
@@ -142,6 +156,7 @@ class EngineControlPanelModel(
     target: EngineControlTarget,
     @ForScope(EngineControlScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
+    features: EnginePanelFeatures = EnginePanelFeatures(),
 ) {
     private val log = Log.tag("EngineControlPanelModel")
     private val engineId = requireNotNull(target.engine) { "A panel graph is created for one engine" }
@@ -155,6 +170,13 @@ class EngineControlPanelModel(
     ) {
         init { sendTo(machine, EngineControlIntent.Public.Start) }
         reflect(machine) { reflect(engineId, it) }
+        whileSubscribed {
+            features.connections.collect { enabled ->
+                intent(
+                    EngineControlPanelIntent.ConnectionsAvailability(enabled),
+                )
+            }
+        }
         reduce { intent -> handle(intent) }
     }
 
@@ -169,15 +191,50 @@ class EngineControlPanelModel(
             EngineControlPanelIntent.RetryLoad -> sendTo(machine, EngineControlIntent.Public.RetryLoad)
             EngineControlPanelIntent.DismissError -> sendTo(machine, EngineControlIntent.Public.DismissError)
             EngineControlPanelIntent.RefreshResources -> refreshResources()
-            is EngineControlPanelIntent.SelectTab -> updateState { copy(openTab = intent.tab) }
+            is EngineControlPanelIntent.SelectTab -> selectTab(intent.tab)
+            is EngineControlPanelIntent.ConnectionsAvailability -> connectionsAvailability(intent.isEnabled)
             EngineControlPanelIntent.Back -> back()
             EngineControlPanelIntent.DiscardAndLeave -> leave()
             EngineControlPanelIntent.KeepEditing -> updateState { copy(isLeaving = false) }
             is EngineManagementIntent -> manage(intent)
             is ConfigIntent -> configure(intent)
-            is ProjectIntent -> with(projects) { handle(intent) }
+            is ProjectIntent -> handleProject(intent)
             is ImportIntent -> with(imports) { handle(intent) }
         }
+    }
+
+    // PipelineContext carries the store reducer, not a separately launched coroutine scope.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.handleProject(intent: ProjectIntent) = with(projects) { handle(intent) }
+
+    // PipelineContext is FlowMVI's serialized reducer, not an independently launched scope.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.selectTab(tab: EnginePanelTabUi) {
+        var isConnectionsAllowed = false
+        var isInDrillDown = false
+        withState {
+            isConnectionsAllowed = isConnectionsEnabled
+            isInDrillDown = openProject != null || openPage != null
+        }
+        if (isInDrillDown) return
+        if (tab == EnginePanelTabUi.Connections && isConnectionsAllowed) {
+            action(EngineControlPanelAction.ShowConnections)
+        }
+        updateState { copy(openTab = tab) }
+        var isReadRequired = false
+        withState {
+            isReadRequired = tab == EnginePanelTabUi.Resources && hasResourceInventory && !isBusy && resources == null
+        }
+        if (isReadRequired) refreshResources()
+    }
+
+    // Availability and selection share the reducer, avoiding a blank tab after the first async observation.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.connectionsAvailability(isEnabled: Boolean) {
+        updateState { copy(isConnectionsEnabled = isEnabled) }
+        var isSelected = false
+        withState { isSelected = openTab == EnginePanelTabUi.Connections && openPage == null && openProject == null }
+        if (isEnabled && isSelected) action(EngineControlPanelAction.ShowConnections)
     }
 
     // PipelineContext is FlowMVI's coroutine receiver, not an independently launched scope.
@@ -352,6 +409,7 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
         pages = form?.pages.orEmpty().map { PageItemUi(it.id, it.title) }.toImmutableList(),
         openPage = openPage?.takeIf { form?.hasPage(it) == true },
         config = form,
+        hasResourceInventory = supportsResourceInventory(config, form),
         resources = active.resources?.takeIf {
             config != null && it.engine == engine && it.workspace?.value == openProject
         }?.toUi(),
@@ -379,3 +437,10 @@ internal fun ConfigFormUi.hasPage(page: String): Boolean {
     val file = fileOf(page)
     return if (file != null) files.any { it.id == file } else pages.any { it.id == page }
 }
+
+private fun supportsResourceInventory(config: EngineConfigState?, form: ConfigFormUi?): Boolean =
+    config != null && ConfigCapability.Resources in config.schema.capabilities &&
+        form?.pages?.any { it.hasResources } == true
+
+/** Graph-owned feature observations; absent wiring leaves embedded connections off. */
+data class EnginePanelFeatures(val connections: Flow<Boolean> = flowOf(false))

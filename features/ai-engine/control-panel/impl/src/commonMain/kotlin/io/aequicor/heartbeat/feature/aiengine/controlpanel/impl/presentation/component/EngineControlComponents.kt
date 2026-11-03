@@ -6,6 +6,7 @@ import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.navigation.GlobalRoutes
 import io.aequicor.heartbeat.core.navigation.LaunchMode
 import io.aequicor.heartbeat.core.navigation.NavHostFactory
 import io.aequicor.heartbeat.core.navigation.NavOptions
@@ -13,10 +14,15 @@ import io.aequicor.heartbeat.core.navigation.NavTransition
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.core.navigation.RouteEntry
+import io.aequicor.heartbeat.core.navigation.StackHost
+import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlListModel
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelModel
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -78,7 +84,29 @@ class EngineControlPanelComponent(
     @Assisted private val navigator: Navigator,
     @Assisted val isEmbedded: Boolean,
     val model: EngineControlPanelModel,
+    private val hosts: NavHostFactory,
+    private val target: EngineControlTarget,
 ) : ComponentContext by context {
+    private val log = Log.tag("EngineControlPanel")
+    private val mutableConnections = MutableStateFlow<StackHost?>(null)
+
+    /** Child lifetime belongs to this retained panel, so tab changes preserve its local draft. */
+    val connections: StateFlow<StackHost?> = mutableConnections
+
+    /** Acquires the public connections route only after the user opens its tab, never during composition. */
+    fun showConnections() {
+        if (mutableConnections.value != null) return
+        val engine = requireNotNull(target.engine)
+        log.i { "open connections pane engine=$engine" }
+        mutableConnections.value = hosts.stack(
+            context = this,
+            parent = navigator,
+            name = "engine-connections",
+            initial = listOf(EngineConnectionsRoute(isEmbedded = true, engine = engine)),
+            global = GlobalRoutes.Only(setOf(EngineConnectionsRoute::class)),
+        )
+    }
+
     init {
         // The panel owns back (Esc in settings, system back): it closes a file, a project or a page first and asks
         // before unsaved changes are dropped; the store answers Leave once the panel itself is left.

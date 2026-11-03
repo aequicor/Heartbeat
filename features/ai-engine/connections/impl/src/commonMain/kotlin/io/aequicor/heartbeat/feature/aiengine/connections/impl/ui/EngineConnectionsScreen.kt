@@ -141,7 +141,7 @@ internal fun EngineConnectionsContent(
             HbColumn(
                 Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxWidth()
                     .hbVerticalScroll(rememberScrollState())
-                    .padding(HbTheme.spacing.xl),
+                    .padding(if (state.fixedEngine == null) HbTheme.spacing.xl else HbTheme.spacing.none),
                 gap = HbTheme.spacing.xxl,
             ) {
                 if (state.fixedEngine == null) ConnectionsToolbar(onAddEngine = { onAddConnection(null) })

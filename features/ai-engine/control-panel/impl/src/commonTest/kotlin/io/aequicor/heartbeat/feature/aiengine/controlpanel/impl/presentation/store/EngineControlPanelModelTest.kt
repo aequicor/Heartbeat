@@ -27,6 +27,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimeSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -45,6 +47,115 @@ class EngineControlPanelModelTest {
 
     private fun TestScope.model() =
         EngineControlPanelModel(machine, EngineControlTarget(CodexId), testScopeHandle(), testStoreFactory())
+
+    @Test
+    fun `connections toggle prevents acquisition and updates while the panel is open`() = runTest {
+        val enabled = MutableStateFlow(false)
+        val model = EngineControlPanelModel(
+            machine,
+            EngineControlTarget(CodexId),
+            testScopeHandle(),
+            testStoreFactory(),
+            EnginePanelFeatures(enabled),
+        )
+        val actions = mutableListOf<EngineControlPanelAction>()
+        val screen = subscribe(model.store, actions)
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Connections))
+        runCurrent()
+        assertTrue(actions.isEmpty())
+        assertFalse(screen.states.value.isConnectionsEnabled)
+        enabled.value = true
+        runCurrent()
+        assertEquals(listOf<EngineControlPanelAction>(EngineControlPanelAction.ShowConnections), actions)
+        enabled.value = false
+        runCurrent()
+        assertFalse(screen.states.value.isConnectionsEnabled)
+    }
+
+    @Test
+    fun `stale tab changes cannot bypass an open dirty configuration page`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = EngineControlPanelModel(
+            machine,
+            EngineControlTarget(CodexId),
+            testScopeHandle(),
+            testStoreFactory(),
+            EnginePanelFeatures(flowOf(true)),
+        )
+        val actions = mutableListOf<EngineControlPanelAction>()
+        val screen = subscribe(model.store, actions)
+        model.store.intent(ConfigIntent.OpenPage("network"))
+        model.store.intent(ConfigIntent.EditField("retries", FieldInputUi.Number("3")))
+        runCurrent()
+        val sent = machine.sent.toList()
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Resources))
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Connections))
+        runCurrent()
+        assertEquals("network", screen.states.value.openPage)
+        assertTrue(screen.states.value.config?.isDirty == true)
+        assertEquals(sent, machine.sent)
+        assertTrue(actions.isEmpty())
+    }
+
+    @Test
+    fun `stale resource tab cannot read a project inventory`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ProjectIntent.Open("web"))
+        runCurrent()
+        val sent = machine.sent.toList()
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Resources))
+        runCurrent()
+        assertEquals("web", screen.states.value.openProject)
+        assertEquals(sent, machine.sent)
+    }
+
+    @Test
+    fun `resource tab reads profile inventory only when the connector declares it`() = runTest {
+        val active = configured(ConfigRevision(0))
+        val snapshot = requireNotNull(active.snapshot)
+        val configuration = snapshot.configuration.copy(
+            engines = snapshot.configuration.engines.map {
+                it.copy(
+                    schema = it.schema.copy(
+                        capabilities = it.schema.capabilities + ConfigCapability.Resources,
+                        pages = it.schema.pages.map { page -> page.copy(hasResources = true) },
+                    ),
+                )
+            },
+        )
+        machine.state.value = active.copy(snapshot = snapshot.copy(configuration = configuration))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Resources))
+        runCurrent()
+        assertEquals(EnginePanelTabUi.Resources, screen.states.value.openTab)
+        assertEquals(
+            EngineControlIntent.Public.Apply(ControlOperation.ListResources(CodexId)),
+            machine.sent.last(),
+        )
+        val reads = machine.sent.count { it is EngineControlIntent.Public.Apply }
+        machine.state.value = (machine.state.value as EngineControlState.Active).copy(
+            pending = ControlOperation.ListResources(CodexId),
+        )
+        runCurrent()
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Resources))
+        runCurrent()
+        assertEquals(reads, machine.sent.count { it is EngineControlIntent.Public.Apply })
+    }
+
+    @Test
+    fun `resource tab without declared capability does not issue a read`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineControlPanelIntent.SelectTab(EnginePanelTabUi.Resources))
+        runCurrent()
+        assertFalse(screen.states.value.hasResourceInventory)
+        assertEquals(EnginePanelTabUi.Resources, screen.states.value.openTab)
+        assertTrue(machine.sent.none { it is EngineControlIntent.Public.Apply })
+    }
 
     @Test
     fun `opening a resource page reads saved inventory and filters other scopes`() = runTest {
