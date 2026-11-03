@@ -55,6 +55,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.actions
@@ -300,6 +301,16 @@ class EngineManagementServiceTest {
         val stale = assertFailsWith<EngineException> { service.inspectCandidate(cliId, snapshot, candidate) }
         assertEquals(EngineFailure.Session(SessionFailureReason.Changed), stale.failure)
         assertEquals(1, manager.candidates.size)
+    }
+
+    @Test
+    fun `bundled candidate refuses substitution by a managed installation`() {
+        val selected = LaunchSettings(runtime = RuntimePreference.Bundled)
+        val bundled = EngineCandidateInspection(cliId, Installation(InstallSource.Bundled), null)
+        validateCandidate(cliId, selected, null, bundled)
+        val substituted = bundled.copy(installation = Installation(InstallSource.Managed))
+        val failure = assertFailsWith<EngineException> { validateCandidate(cliId, selected, null, substituted) }
+        assertEquals(EngineFailure.Transport(TransportFailureReason.ProtocolViolation), failure.failure)
     }
 
     @Test

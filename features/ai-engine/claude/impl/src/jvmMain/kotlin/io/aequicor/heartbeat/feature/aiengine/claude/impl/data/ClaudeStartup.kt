@@ -255,6 +255,8 @@ private fun preferredClaude(
 
     RuntimePreference.System -> configuredClaude(configuration) ?: systemClaude(host, withHostApp = false)
 
+    RuntimePreference.Bundled -> MissingClaude
+
     RuntimePreference.Auto -> managed?.let { FoundClaude(it, InstallSource.Managed, true) }
         ?: configuredClaude(configuration)
         ?: systemClaude(host, withHostApp = true)

@@ -16,6 +16,26 @@ import kotlin.time.Instant
 
 class PiCandidateMetadataTest {
     @Test
+    fun `bundled choice inspects only its own executable and keeps compatibility unknown`() {
+        val directory = Files.createTempDirectory("pi-bundled-metadata-")
+        try {
+            val executable = Files.writeString(directory.resolve("pi"), "binary")
+            assertTrue(executable.toFile().setExecutable(true))
+            val launch = LaunchContext(LaunchSettings(runtime = RuntimePreference.Bundled))
+            val startup = PiStartup(executable, InstallSource.Bundled, runtimeVersion = "0.87.1")
+            val result = assertNotNull(inspectPiCandidateMetadata(launch, startup))
+            assertEquals(InstallSource.Bundled, result.installation.source)
+            assertEquals(executable.toString(), result.installation.path)
+            assertEquals("0.87.1", result.installation.version)
+            assertNull(result.compatibility)
+            val wrong = assertNotNull(inspectPiCandidateMetadata(launch, startup.copy(source = InstallSource.Managed)))
+            assertEquals(InstallSource.Missing, wrong.installation.source)
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `custom executable is only examined and never executed`() {
         val directory = Files.createTempDirectory("pi-metadata-")
         try {

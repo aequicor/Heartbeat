@@ -316,6 +316,7 @@
     <string name="engine_launch_runtime">Runtime</string>
     <string name="engine_launch_runtime_custom">The custom executable above is used instead.</string>
     <string name="engine_runtime_auto">Automatic</string>
+    <string name="engine_runtime_bundled">Included with Heartbeat</string>
     <string name="engine_runtime_managed">Heartbeat\'s copy</string>
     <string name="engine_runtime_host_app">%1$s app</string>
     <string name="engine_runtime_system">Installed on this computer</string>

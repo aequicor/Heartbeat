@@ -40,7 +40,7 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
 
     /** File metadata only: no process or user configuration is opened and compatibility remains unknown. */
     override suspend fun inspectCandidate(launch: LaunchContext) =
-        withContext(dispatchers.io) { inspectPiCandidateMetadata(launch) }
+        withContext(dispatchers.io) { inspectPiCandidateMetadata(launch, processes.startup(launch)) }
 
     /** Inspection never executes the selected runtime; a stored version is display metadata, not an observation. */
     override suspend fun inspect(launch: LaunchContext): Installation = withContext(dispatchers.io) {

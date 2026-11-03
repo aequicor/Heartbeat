@@ -68,6 +68,13 @@ internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVer
             runtimeVersion = context.managed?.version,
         )
 
+        context.settings.runtime == RuntimePreference.Bundled -> PiStartup(
+            bundled,
+            InstallSource.Bundled,
+            environment,
+            runtimeVersion = bundledVersion,
+        )
+
         context.settings.runtime != RuntimePreference.Auto -> PiStartup(null, InstallSource.Missing, environment)
 
         managed != null && (
@@ -94,7 +101,8 @@ internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVer
         trust = context.trust,
         isConfigured = context.isConfigured,
         isMcpEnabled = context.settings.isMcpEnabled,
-        isBundledPreparationAllowed = custom == null && context.settings.runtime == RuntimePreference.Auto,
+        isBundledPreparationAllowed = custom == null &&
+            context.settings.runtime in setOf(RuntimePreference.Auto, RuntimePreference.Bundled),
     )
 }
 

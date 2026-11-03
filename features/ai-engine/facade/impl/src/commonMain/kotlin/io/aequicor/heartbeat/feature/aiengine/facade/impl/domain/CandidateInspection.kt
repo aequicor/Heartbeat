@@ -48,6 +48,7 @@ private fun EngineCandidateInspection.matchesSelection(settings: LaunchSettings,
         !settings.executable.isNullOrBlank() -> InstallSource.Custom
         settings.runtime == RuntimePreference.System -> InstallSource.System
         settings.runtime == RuntimePreference.Managed -> InstallSource.Managed
+        settings.runtime == RuntimePreference.Bundled -> InstallSource.Bundled
         settings.runtime == RuntimePreference.HostApp -> InstallSource.HostApp
         else -> null
     }

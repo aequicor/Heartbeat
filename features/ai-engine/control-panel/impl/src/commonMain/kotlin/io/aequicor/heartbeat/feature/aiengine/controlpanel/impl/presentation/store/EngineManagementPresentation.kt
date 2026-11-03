@@ -208,7 +208,7 @@ data class JobUi(val action: EngineActionUi, val phase: JobPhaseUi) {
 }
 
 /** Which installation an engine runs while no custom executable is set. */
-enum class RuntimePreferenceUi { Auto, Managed, HostApp, System }
+enum class RuntimePreferenceUi { Auto, Managed, HostApp, System, Bundled }
 
 /** One runtime the host application keeps; an unverified one is still being installed by the app. */
 @Immutable

@@ -658,9 +658,9 @@ private fun ManagedEngine.installActions(): Set<EngineActionKind> = buildSet {
     if (spec.install == InstallSupport.BuiltIn || spec.install == InstallSupport.External) return@buildSet
     add(EngineActionKind.CheckForUpdates)
     val managed = installation.managed
-    val supportsExplicitManaged = spec.install == InstallSupport.Bundled &&
+    val isExplicitManagedSupported = spec.install == InstallSupport.Bundled &&
         RuntimePreference.Managed in spec.launch.runtimes
-    if ((spec.install == InstallSupport.Managed || supportsExplicitManaged) && managed == null) {
+    if ((spec.install == InstallSupport.Managed || isExplicitManagedSupported) && managed == null) {
         add(EngineActionKind.Install)
     }
     val isReplaceable = spec.install == InstallSupport.Bundled || managed != null

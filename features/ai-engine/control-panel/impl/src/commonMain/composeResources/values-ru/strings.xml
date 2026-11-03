@@ -318,6 +318,7 @@
     <string name="engine_launch_runtime">Runtime</string>
     <string name="engine_launch_runtime_custom">Вместо него используется свой исполняемый файл выше.</string>
     <string name="engine_runtime_auto">Автоматически</string>
+    <string name="engine_runtime_bundled">Поставляется с Heartbeat</string>
     <string name="engine_runtime_managed">Копия Heartbeat</string>
     <string name="engine_runtime_host_app">Приложение %1$s</string>
     <string name="engine_runtime_system">Установленный в системе</string>

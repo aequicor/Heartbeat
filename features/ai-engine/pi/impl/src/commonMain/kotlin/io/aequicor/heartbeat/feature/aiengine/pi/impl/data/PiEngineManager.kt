@@ -28,7 +28,7 @@ internal val PiManagementSpec = ManagementSpec(
     launch = LaunchSpec(
         options = setOf(LaunchOption.Executable, LaunchOption.Environment, LaunchOption.Mcp, LaunchOption.Runtime),
         reservedEnvironmentPrefixes = setOf("PI_", "HEARTBEAT_"),
-        runtimes = setOf(RuntimePreference.Managed),
+        runtimes = setOf(RuntimePreference.Managed, RuntimePreference.Bundled),
     ),
     hasPackages = true,
 )

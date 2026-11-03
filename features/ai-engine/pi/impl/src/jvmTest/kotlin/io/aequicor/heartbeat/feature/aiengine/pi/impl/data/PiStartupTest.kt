@@ -100,6 +100,18 @@ class PiStartupTest {
     }
 
     @Test
+    fun `explicit bundled source never selects a newer managed runtime`() {
+        val explicit = LaunchContext(LaunchSettings(runtime = RuntimePreference.Bundled), managed)
+        val selected = resolvePiStartup(explicit, bundled, "0.87.1")
+        assertEquals(bundled to InstallSource.Bundled, selected.pair())
+        assertEquals("0.87.1", selected.runtimeVersion)
+        assertEquals(true, selected.isBundledPreparationAllowed)
+        val pending = resolvePiStartup(explicit, null, "0.87.1")
+        assertEquals(null to InstallSource.Bundled, pending.pair())
+        assertEquals(true, pending.isBundledPreparationAllowed)
+    }
+
+    @Test
     fun `the user's entries are added to the retained host environment`() {
         val settings = LaunchSettings(environment = listOf(EnvironmentEntry("HTTPS_PROXY", "http://proxy:3128")))
         val environment = mutableMapOf("PATH" to "/bin", "OPENAI_API_KEY" to "sk", "CLAUDE_CONFIG_DIR" to "/c")
