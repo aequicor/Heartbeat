@@ -4,6 +4,7 @@ import ai.koog.agents.core.tools.ToolDescriptor
 import ai.koog.prompt.Prompt
 import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.llm.LLMCapability
+import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.message.ResponseMetaInfo
 import ai.koog.prompt.params.LLMParams
@@ -672,7 +673,9 @@ internal class KoogNativeSession(
                 history.append { SessionEvent.ItemUpserted(it, message) }
             }
         }
-        if (!isEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+        // Koog's Ollama decoder emits no End frame. Only the validated transport's terminal receipt can replace it.
+        val isOllamaComplete = model.provider == LLMProvider.Ollama && client.observedFinishReason() == "stop"
+        if (!isEnded && !isOllamaComplete) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
         return ToolRound(content.text, calls.complete())
     }
 
