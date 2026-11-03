@@ -66,7 +66,7 @@ class AcpSessionListTest {
     @Test
     fun `delete session removes the owned native session`() = runTest {
         val h = AcpTestHarness(this)
-        h.initialize()
+        h.initialize("""{"sessionCapabilities":{"delete":{}}}""")
         h.session()
         val deleting = backgroundScope.async { h.client.deleteSession("session") }
         val request = h.outgoing("session/delete")
@@ -74,6 +74,30 @@ class AcpSessionListTest {
         h.reply(request, """{}""")
         deleting.await()
         assertFailsWith<IllegalArgumentException> { h.client.deleteSession("session") }
+        h.client.close()
+    }
+
+    @Test
+    fun `delete refuses an unadvertised capability without sending a request`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize()
+        h.session()
+        assertFailsWith<IllegalStateException> { h.client.deleteSession("session") }
+        kotlin.test.assertTrue(h.transport.output.tryReceive().isFailure)
+        h.client.close()
+    }
+
+    @Test
+    fun `delete refuses a session with an active turn`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize("""{"sessionCapabilities":{"delete":{}}}""")
+        h.session()
+        val prompt = backgroundScope.async { h.client.prompt("session", "hello") }
+        val request = h.outgoing("session/prompt")
+        assertFailsWith<IllegalStateException> { h.client.deleteSession("session") }
+        kotlin.test.assertTrue(h.transport.output.tryReceive().isFailure)
+        h.reply(request, """{"stopReason":"end_turn"}""")
+        prompt.await()
         h.client.close()
     }
 }

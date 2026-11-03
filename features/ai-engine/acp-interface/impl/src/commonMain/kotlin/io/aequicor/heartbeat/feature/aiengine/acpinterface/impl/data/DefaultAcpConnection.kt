@@ -207,6 +207,8 @@ internal class DefaultAcpConnection(
     override suspend fun deleteSession(sessionId: String) {
         owned {
             admissions.withLock {
+                val capabilities = ready().agentCapabilities["sessionCapabilities"] as? JsonObject
+                check(capabilities?.get("delete") is JsonObject) { "ACP session delete was not advertised" }
                 requireSession(sessionId)
                 lock.withLock { check(sessionId !in busySessions) { "Session is busy" } }
                 log.i { "ACP delete session" }
