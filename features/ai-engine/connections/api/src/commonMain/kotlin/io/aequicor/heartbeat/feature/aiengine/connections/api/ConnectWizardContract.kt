@@ -266,7 +266,9 @@ public sealed interface ConnectWizardEffect : MachineEffect {
         val removedTargets: Set<EngineTarget> = emptySet(),
     ) : ConnectWizardEffect
 
-    /** Disconnects a newly created binding, preserves an existing CLI connection and restores an owned runtime choice. */
+    /**
+     * Disconnects a newly created binding, preserves an existing CLI connection and restores an owned runtime choice.
+     */
     public data class Rollback(val connection: NewConnection) : ConnectWizardEffect
 }
 
