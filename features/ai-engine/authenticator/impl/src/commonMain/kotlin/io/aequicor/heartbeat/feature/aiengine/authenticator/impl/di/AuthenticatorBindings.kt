@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthChecks
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.spi.AuthCredentials
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.spi.Authenticator
+import io.aequicor.heartbeat.feature.aiengine.authenticator.impl.data.AuthSourceEditStorage
+import io.aequicor.heartbeat.feature.aiengine.authenticator.impl.data.AuthSourceEditsSpec
 import io.aequicor.heartbeat.feature.aiengine.authenticator.impl.data.AuthSourceStorage
 import io.aequicor.heartbeat.feature.aiengine.authenticator.impl.data.AuthSourcesSpec
 import io.aequicor.heartbeat.feature.aiengine.authenticator.impl.data.SecretStoreKeyVault
@@ -50,6 +52,7 @@ object AuthenticatorBindings {
         AuthSourceStorage(stores.keyValue(AuthSourcesSpec)),
         vault,
         scope.coroutineScope,
+        AuthSourceEditStorage(stores.keyValue(AuthSourceEditsSpec)),
     ) { Uuid.random().toHexString().take(TOKEN_LENGTH) }
 
     /** Verification over every contributed authenticator. */

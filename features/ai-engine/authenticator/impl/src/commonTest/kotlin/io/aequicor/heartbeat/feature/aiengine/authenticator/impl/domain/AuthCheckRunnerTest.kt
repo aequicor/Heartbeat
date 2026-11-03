@@ -60,7 +60,7 @@ class AuthCheckRunnerTest {
     private var counter = 0
 
     private fun TestScope.fixture(): Pair<AuthSourceRegistry, AuthCheckRunner> {
-        val registry = AuthSourceRegistry(store, vault, backgroundScope) { "t${++counter}" }
+        val registry = AuthSourceRegistry(store, vault, backgroundScope, FakeAuthEditJournal()) { "t${++counter}" }
         val authenticators = setOf(ManagedKeyAuthenticator(vault, clock), NoAuthAuthenticator(clock), cli)
         val builtIns = setOf(ManagedKeyAuthenticator.Id, NoAuthAuthenticator.Id)
         return registry to AuthCheckRunner(registry, authenticators, builtIns, clock)
