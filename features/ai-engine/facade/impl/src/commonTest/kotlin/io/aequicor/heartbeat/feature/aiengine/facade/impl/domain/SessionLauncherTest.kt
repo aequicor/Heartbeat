@@ -6,13 +6,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
@@ -25,7 +28,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SourceDiscovery
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -80,12 +85,13 @@ class SessionLauncherTest {
         features: Set<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId> =
             setOf(CreatesSessions.id, AttachesSessions.id),
         supports: Boolean = true,
+        composerAssists: ListsComposerAssists? = null,
     ): Triple<RouteFixture, SessionLauncher, FacadeCapabilities> {
         factory.runtime = { FakeRuntime(it, supports).also { runtime -> runtimes += runtime } }
         val fixture = RouteFixture(
             this,
             factory,
-            registration(factory, sources = listOf(source), features = features),
+            registration(factory, sources = listOf(source), features = features, composerAssists = composerAssists),
             release = { pool.disconnect(it) },
         )
         val enabled = EnabledEngines(fixture.registry, fixture.toggles, backgroundScope)
@@ -113,6 +119,52 @@ class SessionLauncherTest {
         capabilities = FacadeCapabilities(sessions, lazyOf(launcher), registry)
         runCurrent()
         return Triple(fixture, launcher, capabilities)
+    }
+
+    @Test
+    fun `file only composer assists do not bind or start a runtime`() = runTest {
+        val expected = EngineAssist("id", "Label", insert = "/label ", kind = EngineAssist.Kind.Command)
+        val fileOnly = object : ListsComposerAssists {
+            override suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?) = listOf(expected)
+        }
+        val (fixture, launcher) = launcher(composerAssists = fileOnly)
+        factory.runtimeRequirements = null
+        assertEquals(listOf(expected), launcher.assists(fixture.target, null))
+        assertTrue(factory.routes.isEmpty())
+        assertTrue(factory.createdRuntimes.isEmpty())
+    }
+
+    @Test
+    fun `runtime composer assists require admission before binding`() = runTest {
+        val (fixture, launcher) = launcher()
+        factory.runtimeRequirements = null
+        val error = assertFailsWith<EngineException> { launcher.assists(fixture.target, null) }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), error.failure)
+        assertTrue(factory.routes.isEmpty())
+        assertTrue(factory.createdRuntimes.isEmpty())
+    }
+
+    @Test
+    fun `runtime composer assists use the admitted runtime`() = runTest {
+        val (fixture, launcher) = launcher()
+        val expected = EngineAssist("id", "Label", insert = "/label ", kind = EngineAssist.Kind.Command)
+        factory.runtime = { identity ->
+            object : EngineRuntime by FakeRuntime(identity, supports = false) {
+                override val features = FeatureTable(
+                    mapOf(
+                        ListsComposerAssists.id to available(
+                            object : ListsComposerAssists {
+                                override suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?) =
+                                    listOf(expected)
+                            },
+                        ),
+                    ),
+                )
+            }
+        }
+        assertEquals(listOf(expected), launcher.assists(fixture.target, null))
+        assertEquals(1, factory.promotions)
+        assertEquals(1, factory.routes.size)
     }
 
     @Test
