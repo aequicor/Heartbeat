@@ -5,9 +5,10 @@ import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.SelectedModelGeneration
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.serializer
 
 internal val ModelSelectionGenerationsKey: StoreKey<ModelSelectionGenerations> =
-    jsonKey("model_check_generations", ModelSelectionGenerations.serializer())
+    jsonKey("model_check_generations", serializer<ModelSelectionGenerations>())
 
 /**
  * A sidecar keeps the legacy choice JSON readable after rollback. Pending metadata precedes the choice write;
