@@ -104,6 +104,9 @@ public interface EngineOwnedJob {
 
     /** Cancels only this job and waits for its cleanup, even if a later job has already started. */
     public suspend fun cancel(): JobPhase
+
+    /** Removes this job's finished outcome only if it is still displayed; never removes a newer job. */
+    public suspend fun dismiss(): Boolean = false
 }
 
 /** Opaque, profile-owner-scoped identity; it is not persisted or transferable to another owner. */

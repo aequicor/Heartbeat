@@ -94,7 +94,7 @@ class EngineJobs(
             run(engine, action, start, outcome, loginLaunch)
         }
         running[engine] = job
-        val handle = OwnedJob(job, outcome)
+        val handle = OwnedJob(job, outcome) { owner -> dismissOwned(engine, owner) }
         published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now(), handle)) }
         var isDelivered = false
         try {
@@ -119,6 +119,14 @@ class EngineJobs(
         if (published.value[engine]?.phase?.isFinished != true) refuse("no finished job engine=${engine.value}")
         published.update { it - engine }
         log.i { "job outcome dismissed engine=${engine.value}" }
+    }
+
+    private suspend fun dismissOwned(engine: EngineId, owner: EngineOwnedJob): Boolean = guard.withLock {
+        val current = published.value[engine]
+        if (current?.handle !== owner || !current.phase.isFinished) return@withLock false
+        published.update { it - engine }
+        log.i { "owned job outcome dismissed engine=${engine.value}" }
+        true
     }
 
     /** Passes [code] to the sign-in of [engine] that waits for it. */
@@ -353,13 +361,19 @@ class EngineJobs(
     }
 }
 
-private class OwnedJob(private val job: Job, private val completion: CompletableDeferred<JobPhase>) : EngineOwnedJob {
+private class OwnedJob(
+    private val job: Job,
+    private val completion: CompletableDeferred<JobPhase>,
+    private val dismissOwned: suspend (EngineOwnedJob) -> Boolean,
+) : EngineOwnedJob {
     override suspend fun await(): JobPhase = completion.await()
 
     override suspend fun cancel(): JobPhase = withContext(NonCancellable) {
         job.cancel()
         completion.await()
     }
+
+    override suspend fun dismiss(): Boolean = dismissOwned(this)
 }
 
 /** What engine management does after a job: re-inspect the engine and refresh signed-in CLI connections. */

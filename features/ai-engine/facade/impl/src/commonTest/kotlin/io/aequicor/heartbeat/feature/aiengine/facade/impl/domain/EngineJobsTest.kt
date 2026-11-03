@@ -445,8 +445,13 @@ class EngineJobsTest {
         runCurrent()
         assertTrue(jobs.jobs.value.getValue(engine).handle === second)
         assertEquals(JobPhase.Cancelled, first.cancel())
+        assertFalse(first.dismiss())
+        assertFalse(second.dismiss())
         assertFalse(jobs.jobs.value.getValue(engine).phase.isFinished)
         assertEquals(JobPhase.Cancelled, second.cancel())
+        assertTrue(second.dismiss())
+        assertFalse(second.dismiss())
+        assertFalse(engine in jobs.jobs.value)
     }
 
     @Test
