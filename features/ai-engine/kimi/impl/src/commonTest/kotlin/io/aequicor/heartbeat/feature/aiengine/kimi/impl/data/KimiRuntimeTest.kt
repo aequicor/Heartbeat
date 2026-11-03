@@ -123,6 +123,7 @@ class KimiRuntimeTest {
         discovery.cancel()
         barrier.complete(Unit)
         discovery.cancelAndJoin()
+        runCurrent()
         assertEquals("native", connection.deletedSession)
         assertFalse(runtime.isClosed)
     }
@@ -160,8 +161,9 @@ class KimiRuntimeTest {
         assertFalse(runtime.isClosed)
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
-    fun `model discovery retires runtime when session creation times out`() = runTest {
+    fun `model discovery owner waits after caller timeout then retires a stuck runtime`() = runTest {
         val connection = FakeConnection().apply { newSessionBarrier = CompletableDeferred() }
         val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
         val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
@@ -169,8 +171,29 @@ class KimiRuntimeTest {
         assertFailsWith<kotlinx.coroutines.TimeoutCancellationException> {
             runtime.discover(EngineBindingId("binding"))
         }
+        assertFalse(runtime.isClosed)
+        testScheduler.advanceTimeBy(50_001L)
+        runCurrent()
         assertTrue(runtime.isClosed)
         assertTrue(connection.closed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `model discovery owner deletes a session returned after caller timeout`() = runTest {
+        val barrier = CompletableDeferred<Unit>()
+        val connection = FakeConnection().apply { newSessionBarrier = barrier }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+        assertFailsWith<kotlinx.coroutines.TimeoutCancellationException> {
+            runtime.discover(EngineBindingId("binding"))
+        }
+        assertNull(connection.deletedSession)
+        barrier.complete(Unit)
+        runCurrent()
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
     }
 
     @Test

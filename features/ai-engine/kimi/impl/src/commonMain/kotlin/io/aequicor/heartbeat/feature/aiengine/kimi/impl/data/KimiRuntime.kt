@@ -195,26 +195,39 @@ internal class KimiRuntime(
         }
         val target = EngineTarget(identity.engine, binding, ModelId("catalog"))
         val cwd = directory(CreateSessionRequest(target))
-        return withContext(NonCancellable) {
-            var isClosed = false
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        // The runtime owns the operation, so a timed-out caller does not abandon a late session ID.
+        val owned = scope.async {
             try {
-                withTimeout(CATALOG_TIMEOUT_MS) {
-                    val native = connection.newSession(cwd)
-                    try {
-                        kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
-                    } finally {
-                        withContext(NonCancellable) {
-                            withTimeout(CATALOG_TIMEOUT_MS) {
-                                connection.deleteSession(native.sessionId)
-                                isClosed = true
-                            }
+                Result.success(discoverOwnedCatalog(cwd))
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
+        }
+        return withTimeout(CATALOG_TIMEOUT_MS) { owned.await().getOrThrow() }
+    }
+
+    private suspend fun discoverOwnedCatalog(cwd: String): KimiModelCatalog = withContext(NonCancellable) {
+        var isClosed = false
+        try {
+            withTimeout(CATALOG_OWNER_TIMEOUT_MS) {
+                val native = connection.newSession(cwd)
+                try {
+                    kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
+                } finally {
+                    withContext(NonCancellable) {
+                        withTimeout(CATALOG_TIMEOUT_MS) {
+                            connection.deleteSession(native.sessionId)
+                            isClosed = true
                         }
                     }
                 }
-            } finally {
-                // An unconfirmed session must not survive on a pooled connection.
-                if (!isClosed) withContext(NonCancellable) { close() }
             }
+        } finally {
+            // An unconfirmed session must not survive on a pooled connection.
+            if (!isClosed) withContext(NonCancellable) { close() }
         }
     }
 
@@ -506,6 +519,7 @@ internal class KimiRuntime(
 }
 
 private const val CATALOG_TIMEOUT_MS = 10_000L
+private const val CATALOG_OWNER_TIMEOUT_MS = 60_000L
 
 /** Metadata reads never require or start a live runtime. The facade supplies route-checked resumption. */
 internal class KimiStoredSession(ref: SessionRef) : EngineSession {
