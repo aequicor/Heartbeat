@@ -153,7 +153,7 @@ internal class KoogSdkProbe(
                 currentCoroutineContext().ensureActive()
                 result.accept(it)
             }
-            result.result()
+            result.result(client.observedFinishReason())
         }
     } catch (e: CancellationException) {
         throw e
@@ -250,9 +250,9 @@ private class SdkStreamObservation {
         blocks[key] = if (isDelta) blocks[key].orEmpty() + text else text
     }
 
-    fun result(): Observation = Observation(
+    fun result(observedFinishReason: String?): Observation = Observation(
         isPayloadValid = !isInvalid && blocks.toSortedMap().values.joinToString("") == SDK_PROBE_TEXT,
-        isNormalTerminal = !isInvalid && terminal in setOf("stop", "end_turn"),
+        isNormalTerminal = !isInvalid && (observedFinishReason ?: terminal) in setOf("stop", "end_turn"),
     )
 }
 

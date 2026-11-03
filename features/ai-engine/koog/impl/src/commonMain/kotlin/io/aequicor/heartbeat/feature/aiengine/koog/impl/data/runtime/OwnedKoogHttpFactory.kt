@@ -15,6 +15,7 @@ internal class OwnedKoogHttpFactory(
     private val delegate: KoogHttpClient.Factory,
     private val lease: OwnedKoogHttpLease,
     private val ollama: IsolatedOllamaCompletion? = null,
+    private val ollamaStream: OllamaStreamTerminal? = null,
 ) : KoogHttpClient.Factory {
     override fun create(
         clientName: String,
@@ -42,7 +43,11 @@ internal class OwnedKoogHttpFactory(
             throw IsolatedKoogRefusal(IsolatedPromptFailure.IsolationUnproven)
         }
         lease.add(ktor.ktorClient)
-        return ollama?.let { IsolatedOllamaHttp(client, it) } ?: client
+        return when {
+            ollama != null -> IsolatedOllamaHttp(client, ollama)
+            ollamaStream != null -> StrictOllamaStream(client, ollamaStream)
+            else -> client
+        }
     }
 }
 

@@ -54,6 +54,7 @@ internal class SdkKoogTransport(private val httpClient: HttpClient, private val 
         return create(request.provider, key, request.model, origin, basePath, request)
     }
 
+    @Suppress("CognitiveComplexMethod") // Acquisition keeps all owned clients under one cleanup boundary.
     private suspend fun create(
         provider: KoogProvider,
         key: String?,
@@ -81,7 +82,8 @@ internal class SdkKoogTransport(private val httpClient: HttpClient, private val 
             lease.add(base)
             val usage = KoogUsageCapture()
             val ollama = if (isolated != null && provider == KoogProvider.Ollama) IsolatedOllamaCompletion() else null
-            val factory = OwnedKoogHttpFactory(KtorKoogHttpClient.Factory(baseClient = base), lease, ollama)
+            val stream = if (isolated == null && provider == KoogProvider.Ollama) OllamaStreamTerminal() else null
+            val factory = OwnedKoogHttpFactory(KtorKoogHttpClient.Factory(baseClient = base), lease, ollama, stream)
                 .withUsage(provider, usage)
             // Keep the intermediate configuration under the same owner until transfer or failed acquisition.
             val client = sdkClient(provider, key, model, paths, factory)
@@ -95,7 +97,7 @@ internal class SdkKoogTransport(private val httpClient: HttpClient, private val 
                 usage,
                 closeOwned = lease::close,
                 awaitClosed = lease::closeAndAwait,
-                observedFinishReason = { ollama?.reason },
+                observedFinishReason = { ollama?.reason ?: stream?.reason },
             ) {
                 if (client is OllamaClient) client.getModels().map { it.toLLModel() } else client.models()
             }

@@ -38,6 +38,42 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 class KoogSdkProbeTest {
+    @Test
+    fun `ollama stream rejects invalid decoded fields abnormal finish and data after finish`() = runTest {
+        val invalidLines = listOf(
+            """{"model":"heartbeat-contract","done":false,"message":{"role":"assistant","content":42}}""",
+            """{"model":"heartbeat-contract","done":true,"done_reason":"length"}""",
+            """
+                |{"model":"heartbeat-contract","done":true,"done_reason":"stop"}
+                |{"model":"heartbeat-contract","done":false}
+            """.trimMargin(),
+        )
+        for (body in invalidLines) {
+            val http = SdkProbeHttpFixture()
+            var exchangeIndex = 0
+            val modified = object : OfflineHttpClients {
+                override suspend fun open(script: List<OfflineHttpExchange>): OfflineHttpSession {
+                    val exchange = script.single()
+                    val response = exchange.response
+                    val replacement = if (exchangeIndex++ == 1 && response is OfflineHttpResponse.Reply) {
+                        exchange.copy(response = response.copy(body = "$body\n"))
+                    } else {
+                        exchange
+                    }
+                    return http.open(listOf(replacement))
+                }
+            }
+            val report = KoogSdkProbe(modified, TestKoogPlatform, http.dispatchers).run(
+                TimeSource.Monotonic.markNow() + 10.seconds,
+                listOf(KoogProvider.Ollama),
+            )
+            val stream = report.receipts.single { it.check == KoogSdkCheck.StreamStop }
+            assertEquals(KoogSdkOutcome.Rejected, stream.outcome)
+            assertEquals(KoogSdkIssue.Terminal, stream.issue)
+            assertTrue(http.sessions.all { it.client.engine.coroutineContext.job.isCompleted })
+        }
+    }
+
     @BeforeTest
     fun enableLog() {
         Log.init(isDebug = true)
@@ -62,17 +98,12 @@ class KoogSdkProbeTest {
         for (row in report.receipts) {
             assertTrue(row.exchange?.isComplete == true, row.toString())
             assertEquals(true, row.isSdkCleanupConfirmed, row.toString())
-            val issue = when {
-                row.provider != KoogProvider.Ollama -> null
-                row.check == KoogSdkCheck.StreamStop -> KoogSdkIssue.Terminal
-                row.check == KoogSdkCheck.MalformedStream -> KoogSdkIssue.MalformedAccepted
-                else -> null
-            }
+            val issue = null
             assertEquals(issue, row.issue, row.toString())
             assertEquals(if (issue == null) KoogSdkOutcome.Confirmed else KoogSdkOutcome.Rejected, row.outcome)
         }
         assertEquals(sdkBuildInputs(), report.build)
-        assertTrue(report.hasRejectedChecks)
+        assertFalse(report.hasRejectedChecks)
         assertEquals(30, http.sessions.size)
         assertTrue(http.sessions.all { it.client.coroutineContext.job.isCompleted })
         assertTrue(http.sessions.all { it.client.engine.coroutineContext.job.isCompleted })
@@ -190,7 +221,7 @@ class KoogSdkProbeTest {
             deadline,
         )
         assertNotNull(ollama)
-        assertEquals(false, ollama.evidence.isBaselineConfirmed)
+        assertNull(ollama.evidence.isBaselineConfirmed)
         assertEquals(10, http.sessions.size)
         ollama.close()
     }
