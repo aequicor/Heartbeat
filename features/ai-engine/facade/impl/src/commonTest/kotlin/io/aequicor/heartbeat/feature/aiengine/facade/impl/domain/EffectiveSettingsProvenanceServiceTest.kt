@@ -224,13 +224,65 @@ class EffectiveSettingsProvenanceServiceTest {
                 ),
             )
         }
-        val report = observed(service().read(RouteKey(engine, binding), workspace))
+        val service = service()
+        val route = RouteKey(engine, binding)
+        val report = observed(service.read(route, workspace))
 
         assertEquals(SettingsProvenance.NeedsTrust, requireNotNull(report.surface("retries")).project.provenance)
         assertEquals(0, configuration.projectReads)
+        assertEquals(ProjectTrust.Undecided, report.projectTrust)
         assertEquals(
             EffectiveResolution.Unknown(EffectiveUnknownReason.ProjectLayerNotObserved),
             requireNotNull(report.surface("retries")).effective,
+        )
+        assertNotNull(service.report(route, workspace))
+
+        // Granting trust makes the published NeedsTrust report stale instead of leaving it current.
+        configuration.trust = mapOf(workspace to ProjectTrust.Trusted)
+        configuration.publish()
+        runCurrent()
+
+        assertNull(service.report(route, workspace))
+        assertTrue(service.reports.value.isEmpty())
+    }
+
+    @Test
+    fun `revoking project trust retires a report that published project values`() = runTest {
+        configuration.profile = EngineConfigValues().write(retries, JsonPrimitive(7))
+        configuration.trust = mapOf(workspace to ProjectTrust.Trusted)
+        configuration.project = ProjectConfig(
+            engine,
+            workspace,
+            EngineConfigValues().write(retries, JsonPrimitive(9)),
+            ProjectRevision(mapOf(settings to "project-1")),
+        )
+        files.answer = { EngineEffectiveSettings() }
+        val service = service()
+        val route = RouteKey(engine, binding)
+        val trusted = observed(service.read(route, workspace))
+
+        assertEquals(1, configuration.projectReads)
+        assertEquals(ProjectTrust.Trusted, trusted.projectTrust)
+        assertEquals(
+            SettingsProvenance.Observed(ObservedValue.Literal(JsonPrimitive(9)), SettingsSourceKind.ProjectFile),
+            requireNotNull(trusted.surface("retries")).project.provenance,
+        )
+        assertNotNull(service.report(route, workspace))
+
+        configuration.trust = emptyMap()
+        configuration.publish()
+        runCurrent()
+
+        assertNull(service.report(route, workspace))
+        assertTrue(service.reports.value.isEmpty())
+
+        // The next read reports NeedsTrust and still performs no project IO.
+        val revoked = observed(service.read(route, workspace))
+        assertEquals(1, configuration.projectReads)
+        assertEquals(ProjectTrust.Undecided, revoked.projectTrust)
+        assertEquals(SettingsProvenance.NeedsTrust, requireNotNull(revoked.surface("retries")).project.provenance)
+        assertTrue(
+            revoked.surfaces.none { it.project.provenance is SettingsProvenance.Observed },
         )
     }
 

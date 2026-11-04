@@ -64,11 +64,12 @@ import kotlin.time.Duration.Companion.seconds
  * declared engine layer. Reading [reports] and [report] is a pure lookup; [read] is the only operation that reads
  * the profile, a trusted project or the adapter.
  *
- * One read is bounded and revalidates the exact binding and source revision before and after those reads, so a
- * route or source change discards the result instead of publishing it under another identity. A project is read
- * only after its trust decision allows loading executable configuration. No layer's value is inferred: the
- * effective value exists only when the adapter declares it. Logs carry engines, counts and revisions, never values,
- * paths or secrets.
+ * One read is bounded and revalidates the exact binding, source revision, profile revision and project trust
+ * decision before and after those reads, so a route, source, configuration or trust change discards the result
+ * instead of publishing it under another identity. A project is read only after its trust decision allows loading
+ * executable configuration; revoking that decision retires a report that already published project values. No
+ * layer's value is inferred: the effective value exists only when the adapter declares it. Logs carry engines,
+ * counts and revisions, never values, paths or secrets.
  */
 internal class EffectiveSettingsProvenanceService(
     private val configuration: EngineConfiguration,
@@ -82,7 +83,7 @@ internal class EffectiveSettingsProvenanceService(
 
     override val reports: StateFlow<Map<EffectiveSettingsKey, EffectiveSettingsReport>> = published.asStateFlow()
 
-    /** The cached report while its binding, source revision and profile revision are still current; no IO. */
+    /** The cached report while its binding, source revision, profile revision and trust are current; no IO. */
     override fun report(route: RouteKey, workspace: WorkspaceRef?): EffectiveSettingsReport? {
         val key = EffectiveSettingsKey(route, workspace)
         val report = published.value[key] ?: return null
@@ -106,16 +107,21 @@ internal class EffectiveSettingsProvenanceService(
         val configurator = registry.find(route.engine)?.configurator?.value
             ?: throw ConfigException(ConfigFailure.Unsupported)
         val surfaces = surfacesOf(engine.schema)
+        val trust = observedTrust(engine, workspace)
         val project = readProject(route, workspace, engine, surfaces)
         val report = readEngine(configurator, engine, project, surfaces)
         currentCoroutineContext().ensureActive()
         val after = inputs()
-        val isChanged = after.stamp(route) != before || after.config.engine(route.engine)?.revision != engine.revision
+        val afterEngine = after.config.engine(route.engine)
+        val isChanged = after.stamp(route) != before || afterEngine?.revision != engine.revision ||
+            observedTrust(afterEngine, workspace) != trust
         if (isChanged) {
-            log.i { "effective settings discarded: route, source or profile changed engine=${route.engine.value}" }
+            log.i {
+                "effective settings discarded: route, source, profile or trust changed engine=${route.engine.value}"
+            }
             return EffectiveSettingsRead.Discarded
         }
-        val observed = reportOf(route, workspace, engine, before, project, report, surfaces)
+        val observed = reportOf(route, workspace, engine, before, trust, project, report, surfaces)
         log.i {
             "effective settings observed engine=${route.engine.value} surfaces=${surfaces.size} " +
                 "project=${project is ProjectInput.Loaded} layers=" +
@@ -125,7 +131,7 @@ internal class EffectiveSettingsProvenanceService(
         return EffectiveSettingsRead.Observed(observed)
     }
 
-    /** Retires reports whose binding, source, source revision or profile revision changed; performs no IO. */
+    /** Retires reports whose binding, source, source revision, profile revision or trust changed; no IO. */
     private fun retireStale(inputs: Inputs) {
         val current = published.value
         if (current.isEmpty()) return
@@ -138,12 +144,23 @@ internal class EffectiveSettingsProvenanceService(
 
     private fun inputs(): Inputs = Inputs(bindings.value, sources.value, configuration.state.value)
 
-    /** Whether [report] still belongs to the exact route, source revision and profile revision in [inputs]. */
+    /** Whether [report] still belongs to the exact route, source revision, profile revision and trust in [inputs]. */
     private fun isCurrent(inputs: Inputs, key: EffectiveSettingsKey, report: EffectiveSettingsReport): Boolean {
         val engine = inputs.config.engine(key.route.engine)
         return inputs.config.isEnabled && engine != null &&
             inputs.stamp(key.route) == RouteStamp(report.source, report.sourceRevision) &&
-            engine.revision == report.profileRevision
+            engine.revision == report.profileRevision &&
+            observedTrust(engine, key.workspace) == report.projectTrust
+    }
+
+    /**
+     * The trust decision a report of [workspace] was observed under; null when no project is named or the engine
+     * does not gate project configuration on trust. Revoking or granting trust therefore makes a report stale.
+     */
+    private fun observedTrust(engine: EngineConfigState?, workspace: WorkspaceRef?): ProjectTrust? {
+        if (workspace == null || engine == null) return null
+        if (ConfigCapability.ProjectTrust !in engine.schema.capabilities) return null
+        return engine.trust[workspace] ?: ProjectTrust.Undecided
     }
 
     /**
@@ -212,6 +229,7 @@ internal class EffectiveSettingsProvenanceService(
         workspace: WorkspaceRef?,
         engine: EngineConfigState,
         stamp: RouteStamp,
+        trust: ProjectTrust?,
         project: ProjectInput,
         report: EngineReport,
         surfaces: List<ConfigField>,
@@ -221,6 +239,7 @@ internal class EffectiveSettingsProvenanceService(
         sourceRevision = stamp.revision,
         profileRevision = engine.revision,
         projectRevision = (project as? ProjectInput.Loaded)?.config?.revision,
+        projectTrust = trust,
         surfaces = surfaces.map { field ->
             val heartbeat = heartbeatOf(engine, field)
             val engineLayer = engineOf(engine.schema, field, report)

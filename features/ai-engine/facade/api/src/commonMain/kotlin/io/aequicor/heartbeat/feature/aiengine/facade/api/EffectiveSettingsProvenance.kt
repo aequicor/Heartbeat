@@ -23,8 +23,9 @@ import kotlinx.serialization.json.JsonElement
  */
 public interface EffectiveSettingsProvenance {
     /**
-     * Published reports by exact route and workspace. A report is retired when its binding, source revision or
-     * profile revision no longer matches, so nothing here is presented as current after its inputs changed.
+     * Published reports by exact route and workspace. A report is retired when its binding, source revision,
+     * profile revision or project trust decision no longer matches, so nothing here is presented as current after
+     * its inputs changed, including when trust is revoked.
      */
     public val reports: StateFlow<Map<EffectiveSettingsKey, EffectiveSettingsReport>>
 
@@ -71,6 +72,12 @@ public data class EffectiveSettingsReport(
     val profileRevision: ConfigRevision,
     /** Content revision of the project layer; null when the project was not read. */
     val projectRevision: ProjectRevision? = null,
+    /**
+     * Trust decision of the project when the layers were observed; null when no project was named or the engine
+     * does not gate its project configuration on trust. A report is only current while the saved decision is still
+     * this one, so revoking trust retires project values and granting it retires a [SettingsProvenance.NeedsTrust].
+     */
+    val projectTrust: ProjectTrust? = null,
     /** One entry per documented [ConfigField] of the engine's schema, in page order. */
     val surfaces: List<SurfaceSettingsReport>,
 ) {
