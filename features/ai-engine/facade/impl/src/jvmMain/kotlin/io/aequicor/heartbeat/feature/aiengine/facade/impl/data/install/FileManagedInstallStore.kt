@@ -103,7 +103,7 @@ internal class FileManagedInstallStore(
             progress(InstallStep.Verified)
             progress(InstallStep.Unpacking)
             val executable = withContext(io) { unpack(plan, download, staging) }
-            val candidate = ManagedInstall(plan.version, executable.toString(), clock.now())
+            val candidate = ManagedInstall(plan.version, executable.toString(), clock.now(), plan.sha256)
             withContext(NonCancellable) { withContext(io) { deleteQuietly(download) } }
             currentCoroutineContext().ensureActive()
             log.i { "release staged engine=${engine.value} version=${plan.version}" }
@@ -240,7 +240,12 @@ internal class FileManagedInstallStore(
         if (previous != null && previous.directory != name && previous.directory !in retained) {
             putAside(directory, directory.resolve(VERSIONS).resolve(previous.directory))
         }
-        return ManagedInstall(staged.candidate.version, target.resolve(relative).toString(), installedAt)
+        return ManagedInstall(
+            staged.candidate.version,
+            target.resolve(relative).toString(),
+            installedAt,
+            sha256,
+        )
     }
 
     /** Moves a copy that is no longer active to the trash in one attempt; one still in use is swept later. */
@@ -310,7 +315,7 @@ internal class FileManagedInstallStore(
             log.w { "active managed copy is missing or outside its folder; ignored" }
             return null
         }
-        return ManagedInstall(record.version, executable.toString(), record.installedAt)
+        return ManagedInstall(record.version, executable.toString(), record.installedAt, record.sha256)
     }
 
     private fun retainedRecords(directory: Path): List<ActiveRecord> {

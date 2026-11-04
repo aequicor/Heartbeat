@@ -32,6 +32,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -129,6 +130,8 @@ class FileManagedInstallStoreTest {
         restarted.refresh()
         assertEquals(newer, restarted.state.value[engine])
         assertEquals(old, restarted.retained(engine, "1.0.0"))
+        assertEquals(old.sha256, restarted.retained(engine, "1.0.0")?.sha256)
+        assertNotNull(restarted.retained(engine, "1.0.0")?.sha256)
         assertEquals("codex 1.0.0", Path.of(old.executable).readText())
         assertEquals(newer, restarted.retained(engine, "2.0.0"))
         assertEquals(null, restarted.retained(engine, "3.0.0"))
@@ -257,7 +260,8 @@ class FileManagedInstallStoreTest {
         val store = store()
         val steps = mutableListOf<InstallStep>()
 
-        val staged = store.stage(engine, plan("1.0.0"), steps::add)
+        val plan = plan("1.0.0")
+        val staged = store.stage(engine, plan, steps::add)
 
         assertTrue(Path.of(staged.candidate.executable).exists())
         if (isPosix) assertTrue(Path.of(staged.candidate.executable).isExecutable())
@@ -272,6 +276,8 @@ class FileManagedInstallStoreTest {
 
         assertEquals("1.0.0", installed.version)
         assertEquals("codex 1.0.0", Path.of(installed.executable).readText())
+        // The verified release digest stays attached to the managed copy through activation.
+        assertEquals(plan.sha256, installed.sha256)
         assertEquals(mapOf(engine to installed), store.state.value)
         assertTrue(Path.of(installed.executable).startsWith(root.resolve("codex/versions")))
         assertNoLeftovers()
@@ -282,9 +288,11 @@ class FileManagedInstallStoreTest {
         val first = store()
         first.activate(first.stage(engine, plan("1.0.0")) {})
 
+        val planned = plan("1.0.0")
         val restarted = store()
         restarted.refresh()
         assertEquals("1.0.0", restarted.state.value.getValue(engine).version)
+        assertEquals(planned.sha256, restarted.state.value.getValue(engine).sha256)
 
         val updated = restarted.activate(restarted.stage(engine, plan("1.1.0")) {})
 

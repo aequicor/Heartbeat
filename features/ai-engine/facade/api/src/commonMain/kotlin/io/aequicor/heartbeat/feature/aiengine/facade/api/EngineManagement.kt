@@ -334,8 +334,18 @@ public data class Installation(
         "Installation(source=$source, version=${version ?: "null"}, isRunnable=$isRunnable)"
 }
 
-/** A copy Heartbeat installed; [executable] is absolute and never logged. */
-public data class ManagedInstall(val version: String, val executable: String, val installedAt: Instant) {
+/**
+ * A copy Heartbeat installed; [executable] is absolute and never logged. [sha256] is the digest of the verified
+ * release archive that produced this copy, as recorded by the installation store: `null` for a copy Heartbeat did
+ * not install itself, and never a path, URL or other user data. It identifies the artifact that was installed, not
+ * the bytes of a process started later, so an adapter still has to verify the executable against it.
+ */
+public data class ManagedInstall(
+    val version: String,
+    val executable: String,
+    val installedAt: Instant,
+    val sha256: String? = null,
+) {
     override fun toString(): String = "ManagedInstall(version=$version, installedAt=$installedAt)"
 }
 
