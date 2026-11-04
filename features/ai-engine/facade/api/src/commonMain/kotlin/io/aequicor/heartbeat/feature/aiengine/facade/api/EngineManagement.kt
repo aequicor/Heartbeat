@@ -435,8 +435,18 @@ public sealed interface EngineCommand {
     /** Cancels the running job; partial downloads are removed. */
     public data object Cancel : EngineCommand
 
+    /** Cancels the exact job captured by the caller, even if a newer job has started. */
+    public data class CancelOwned(val handle: EngineOwnedJob) : EngineCommand {
+        override fun toString(): String = "CancelOwned"
+    }
+
     /** Clears the outcome of the last finished job. */
     public data object Dismiss : EngineCommand
+
+    /** Clears only the captured job's outcome while it is still displayed. */
+    public data class DismissOwned(val handle: EngineOwnedJob) : EngineCommand {
+        override fun toString(): String = "DismissOwned"
+    }
 
     /** Passes the code a sign-in page shows to the CLI that asked for it. */
     public data class AnswerLogin(val code: LoginCode) : EngineCommand

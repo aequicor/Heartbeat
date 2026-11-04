@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginCode
 
 /** Management of the panel's engine: requests the machine executes and edits of local input. */
@@ -37,10 +38,10 @@ sealed interface EngineManagementIntent : EngineControlPanelIntent {
     data object DismissEngineAction : EngineInput
 
     /** Cancels the running job. */
-    data object CancelEngineJob : EngineRequest
+    data class CancelEngineJob(val handle: EngineOwnedJob) : EngineRequest
 
     /** Hides the outcome of the last job. */
-    data object DismissEngineJob : EngineRequest
+    data class DismissEngineJob(val handle: EngineOwnedJob) : EngineRequest
 
     /** Replaces the launch settings draft. */
     data class EditLaunch(val draft: LaunchDraftUi) : EngineInput
@@ -103,8 +104,8 @@ internal fun EngineControlPanelState.sent(intent: EngineManagementIntent.EngineR
     is EngineManagementIntent.SetEngineEnabled, is EngineManagementIntent.SetMcpEnabled,
     EngineManagementIntent.InspectEngine,
     EngineManagementIntent.CheckUpdates, EngineManagementIntent.RestartEngine,
-    is EngineManagementIntent.RequestEngineAction, EngineManagementIntent.CancelEngineJob,
-    EngineManagementIntent.DismissEngineJob, EngineManagementIntent.OpenHostApp,
+    is EngineManagementIntent.RequestEngineAction, is EngineManagementIntent.CancelEngineJob,
+    is EngineManagementIntent.DismissEngineJob, EngineManagementIntent.OpenHostApp,
     -> this
 }
 
@@ -122,9 +123,9 @@ internal fun EngineControlPanelState.commandFor(intent: EngineManagementIntent.E
 
         EngineManagementIntent.RestartEngine -> EngineCommand.Restart
 
-        EngineManagementIntent.CancelEngineJob -> EngineCommand.Cancel
+        is EngineManagementIntent.CancelEngineJob -> EngineCommand.CancelOwned(intent.handle)
 
-        EngineManagementIntent.DismissEngineJob -> EngineCommand.Dismiss
+        is EngineManagementIntent.DismissEngineJob -> EngineCommand.DismissOwned(intent.handle)
 
         is EngineManagementIntent.RequestEngineAction -> requestedCommand(intent)
 

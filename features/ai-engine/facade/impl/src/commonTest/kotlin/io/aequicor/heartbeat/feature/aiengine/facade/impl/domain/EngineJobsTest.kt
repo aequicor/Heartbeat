@@ -454,21 +454,28 @@ class EngineJobsTest {
         }
         assertTrue(jobs.jobs.value.getValue(engine).handle === first)
         runCurrent()
-        val cancelling = async { first.cancel() }
+        val cancelling = async { jobs.cancelOwned(engine, first) }
         runCurrent()
         assertFalse(cancelling.isCompleted)
         cleanup.complete(Unit)
         runCurrent()
-        assertEquals(JobPhase.Cancelled, cancelling.await())
+        cancelling.await()
+        assertEquals(JobPhase.Cancelled, first.await())
 
         manager.isLoginHanging = true
         lateinit var second: EngineOwnedJob
         jobs.start(engine, EngineAction.Login()) { second = it }
         runCurrent()
         assertTrue(jobs.jobs.value.getValue(engine).handle === second)
-        assertEquals(JobPhase.Cancelled, first.cancel())
+        jobs.cancelOwned(engine, first)
+        jobs.dismissCaptured(engine, first)
         assertFalse(first.dismiss())
         assertFalse(second.dismiss())
+        assertFailsWith<EngineException> { jobs.cancelOwned(EngineId("foreign"), second) }
+        assertFailsWith<EngineException> { jobs.dismissCaptured(EngineId("foreign"), second) }
+        val anotherOwner = jobs()
+        assertFailsWith<EngineException> { anotherOwner.cancelOwned(engine, second) }
+        assertFailsWith<EngineException> { anotherOwner.dismissCaptured(engine, second) }
         assertFalse(jobs.jobs.value.getValue(engine).phase.isFinished)
         assertEquals(JobPhase.Cancelled, second.cancel())
         assertTrue(second.dismiss())

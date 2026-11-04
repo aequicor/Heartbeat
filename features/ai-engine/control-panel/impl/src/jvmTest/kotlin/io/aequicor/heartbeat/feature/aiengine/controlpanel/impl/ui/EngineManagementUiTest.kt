@@ -39,6 +39,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineEnablement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallationState
@@ -192,11 +193,16 @@ class EngineManagementUiTest {
     @Test
     fun `a running download shows its progress and can only be cancelled`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineManagementIntent>()
+        val handle = object : EngineOwnedJob {
+            override suspend fun await(): JobPhase = JobPhase.Cancelled
+            override suspend fun cancel(): JobPhase = JobPhase.Cancelled
+        }
         val codex = managedCodex(
             job = EngineJob(
                 EngineAction.Install,
                 JobPhase.Downloading(1_048_576, 4_194_304),
                 Instant.fromEpochSeconds(1),
+                handle,
             ),
         )
         setContent { Host(selected(codex)) { intents += it } }
@@ -208,7 +214,7 @@ class EngineManagementUiTest {
         onNodeWithTag("engine-job-cancel").performClick()
         runOnIdle {
             assertEquals(
-                listOf<EngineManagementIntent>(EngineManagementIntent.CancelEngineJob),
+                listOf<EngineManagementIntent>(EngineManagementIntent.CancelEngineJob(handle)),
                 intents,
             )
         }
@@ -381,8 +387,14 @@ class EngineManagementUiTest {
     @Test
     fun `a pending login code submission blocks repeated submit and job cancellation immediately`() =
         runSkikoComposeUiTest(size = Size(1000f, 1600f)) {
+            val handle = object : EngineOwnedJob {
+                override suspend fun await(): JobPhase = JobPhase.Cancelled
+                override suspend fun cancel(): JobPhase = JobPhase.Cancelled
+            }
             val loaded = selected(
-                managedCodex(job = EngineJob(EngineAction.Login(), JobPhase.AwaitingCode(), Instant.DISTANT_PAST)),
+                managedCodex(
+                    job = EngineJob(EngineAction.Login(), JobPhase.AwaitingCode(), Instant.DISTANT_PAST, handle),
+                ),
             ).copy(loginCode = "code")
             var state by mutableStateOf(loaded)
             val intents = mutableListOf<EngineManagementIntent>()

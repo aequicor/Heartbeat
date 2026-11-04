@@ -160,7 +160,9 @@ class EngineManagementService(
             EngineCommand.Restart -> restart(current.requireRestartable().descriptor.id)
             is EngineCommand.Start -> jobs.start(engine, current.requireStart(command.action))
             EngineCommand.Cancel -> jobs.cancel(engine)
+            is EngineCommand.CancelOwned -> jobs.cancelOwned(engine, command.handle)
             EngineCommand.Dismiss -> jobs.dismiss(engine)
+            is EngineCommand.DismissOwned -> jobs.dismissCaptured(engine, command.handle)
             is EngineCommand.AnswerLogin -> jobs.answer(engine, command.code)
             EngineCommand.OpenHostApp -> openHostApp(current.requireAction(EngineActionKind.OpenHostApp))
         }

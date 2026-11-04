@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppSpec
@@ -243,6 +244,29 @@ class EngineManagementPresentationTest {
         )
         val saved = selected(managedCodex().copy(launch = LaunchState(proxy.toSettings())))
         assertFalse(saved.panel!!.launch!!.isDirty)
+    }
+
+    @Test
+    fun `job commands retain the clicked handle when another job is visible`() {
+        val old = object : EngineOwnedJob {
+            override suspend fun await(): JobPhase = JobPhase.Cancelled
+            override suspend fun cancel(): JobPhase = JobPhase.Cancelled
+        }
+        val next = object : EngineOwnedJob {
+            override suspend fun await(): JobPhase = JobPhase.Cancelled
+            override suspend fun cancel(): JobPhase = JobPhase.Cancelled
+        }
+        val state = selected(
+            managedCodex(job = EngineJob(EngineAction.Install, JobPhase.Preparing, Instant.DISTANT_PAST, next)),
+        )
+        assertEquals(
+            EngineCommand.CancelOwned(old),
+            state.commandFor(EngineManagementIntent.CancelEngineJob(old)),
+        )
+        assertEquals(
+            EngineCommand.DismissOwned(old),
+            state.commandFor(EngineManagementIntent.DismissEngineJob(old)),
+        )
     }
 
     @Test

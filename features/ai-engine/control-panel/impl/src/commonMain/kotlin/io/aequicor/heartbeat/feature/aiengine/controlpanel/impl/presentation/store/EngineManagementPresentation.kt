@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
@@ -202,7 +203,7 @@ sealed interface JobPhaseUi {
 
 /** A running job, or the outcome of the last one until dismissed. */
 @Immutable
-data class JobUi(val action: EngineActionUi, val phase: JobPhaseUi) {
+data class JobUi(val action: EngineActionUi, val phase: JobPhaseUi, val handle: EngineOwnedJob? = null) {
     val isRunning: Boolean
         get() = phase !is JobPhaseUi.Succeeded && phase !is JobPhaseUi.Failed && phase !is JobPhaseUi.Cancelled
 }
@@ -491,6 +492,7 @@ private fun EngineJob.toUi(): JobUi = JobUi(
         EngineAction.UpdatePackages -> EngineActionUi.UpdatePackages
     },
     phase = phase.toUi(),
+    handle = handle,
 )
 
 private fun JobPhase.toUi(): JobPhaseUi = when (this) {

@@ -94,7 +94,7 @@ class EngineJobs(
             run(engine, action, start, outcome, loginLaunch)
         }
         running[engine] = job
-        val handle = OwnedJob(job, outcome) { owner -> dismissOwned(engine, owner) }
+        val handle = OwnedJob(this, engine, job, outcome) { owner -> dismissOwned(engine, owner) }
         published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now(), handle)) }
         var isDelivered = false
         try {
@@ -112,6 +112,20 @@ class EngineJobs(
         val job = guard.withLock { running[engine] } ?: refuse("no job to cancel engine=${engine.value}")
         log.i { "job cancel requested engine=${engine.value}" }
         job.cancel()
+    }
+
+    /** Acts only on a handle issued for this engine by this owner, including an older completed job. */
+    suspend fun cancelOwned(engine: EngineId, handle: EngineOwnedJob) {
+        val job = (handle as? OwnedJob)?.takeIf { it.belongsTo(this, engine) }
+            ?: refuse("foreign job handle engine=${engine.value}")
+        job.cancel()
+    }
+
+    /** Dismisses only the captured outcome; an older handle cannot clear the next job. */
+    suspend fun dismissCaptured(engine: EngineId, handle: EngineOwnedJob) {
+        val job = (handle as? OwnedJob)?.takeIf { it.belongsTo(this, engine) }
+            ?: refuse("foreign job handle engine=${engine.value}")
+        job.dismiss()
     }
 
     /** Clears the outcome of the finished job of [engine]. */
@@ -367,10 +381,14 @@ class EngineJobs(
 }
 
 private class OwnedJob(
+    private val owner: EngineJobs,
+    private val engine: EngineId,
     private val job: Job,
     private val completion: CompletableDeferred<JobPhase>,
     private val dismissOwned: suspend (EngineOwnedJob) -> Boolean,
 ) : EngineOwnedJob {
+    fun belongsTo(owner: EngineJobs, engine: EngineId): Boolean = this.owner === owner && this.engine == engine
+
     override suspend fun await(): JobPhase = completion.await()
 
     override suspend fun cancel(): JobPhase = withContext(NonCancellable) {
