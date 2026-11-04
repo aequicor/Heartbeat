@@ -12,6 +12,13 @@ import kotlinx.serialization.json.contentOrNull
 
 internal fun JsonObject.text(key: String): String? = (get(key) as? JsonPrimitive)?.contentOrNull
 
+/**
+ * Stream-json control request that initializes the CLI and returns its model catalog. It is one protocol frame, not
+ * a model prompt: model discovery and the restricted admission baseline send exactly this and nothing else.
+ */
+internal const val CLAUDE_MODELS_INITIALIZE: String =
+    """{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}"""
+
 internal fun parseClaudeObject(line: String): JsonObject = try {
     Json.parseToJsonElement(line) as? JsonObject ?: protocolFailure()
 } catch (e: SerializationException) {

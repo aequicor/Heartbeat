@@ -79,6 +79,9 @@ internal interface ClaudeTransport {
     /** Version of this transport's captured executable, without consulting later launch settings. */
     suspend fun version(): String? = null
 
+    /** Exact executable this transport starts, or null when it resolves one per operation. */
+    val executable: String? get() = null
+
     /**
      * Whether the native history of this transport holds the conversation [id]; null when it cannot be read. A CLI
      * that died before its first session frame may or may not have created it, and only the history can tell.
@@ -481,6 +484,7 @@ private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, pr
     ClaudeTransport {
     override val nativeStore: String = claudeNativeStore(startup.configDirectory)
     override val isMcpEnabled: Boolean get() = startup.isMcpEnabled
+    override val executable: String get() = startup.executable
 
     @Volatile
     private var knownVersion: String? = null

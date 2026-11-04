@@ -64,6 +64,21 @@ inconclusive. Promotion отдаёт обычный `CodexRuntime` за точн
 сохраняют Unsupported-путь. Этим **не** доказаны: живой ход на реальном app-server, Windows/Linux lifecycle,
 retained resume и полный §9.
 
+2026-11-04: Claude получил тот же путь «политика → baseline → допуск».
+`ClaudeJvmCompatibility` объявляет heartbeat/connector из generated `ClaudeBuildContract`, protocol
+`ProbedSchema("claude-cli-stream", "1")`, floor `2.1.285` — нижнюю границу, на которую опирается гейт адаптера
+(`supportsClaudeNativeGate`; 2.1.285 прошла живой macOS initialize/hook/permission probe), ревизии конфигурации `0`
+(флаги и переопределения запуска, которые Heartbeat пишет в каждый процесс) и истории `0` (`ClaudeRecord` в
+`claude_sessions`, наблюдённый журнал хода), native target — `claudeReleasePlatform()` хоста; `verified` пуст,
+решение — **Unverified**. Кандидат не подменяет источник: managed-копия сверяется с
+`ManagedInstall.executableSha256`, а не с digest архива; System/Custom/HostApp и копии без digest остаются Unknown
+и допуска не получают. Baseline — тот же stream-json `initialize`, что и discovery: временные home/config/work,
+очищенное окружение, без входа и без промпта модели; conclusive failure отклоняет baseline, unobserved остаётся
+inconclusive. Promotion отдаёт обычный `ClaudeRuntime` за точный stamp один раз и после обычного процесса сверяет
+наблюдённую версию, выбранный executable и digest файла; при расхождении рантайм закрывается. Android/iOS политики
+не имеют и сохраняют Unsupported-путь. Этим **не** доказаны: живой `initialize` на реальном CLI без входа,
+Windows/Linux lifecycle, pin для System/HostApp и полный §9.
+
 Предпосылки допуска по коннекторам (без переноса доказательств между ними):
 
 | Коннектор | Что уже есть | Чего не хватает для допуска |
@@ -71,7 +86,7 @@ retained resume и полный §9.
 | Koog | политика из build facts, offline baseline, promotion (`81374f004`) | живой сетевой ход и loaded-classpath proof; platform privacy на Native/Android |
 | Pi | pinned distribution и SHA-256 архива, RPC-сессии, конфигуратор, сверка Managed-копии с digest в candidate inspection (`4d4ae3942`) | сверка при самом запуске, привязка процесса к проверенному артефакту; ревизии протокола/конфигурации/истории |
 | Codex | политика из build facts, clean-home `initialize`/`config/read` baseline, digest-проверка и promotion | живой ход на реальном app-server; Windows/Linux lifecycle; retained resume и полный §9 |
-| Claude | выбор источника без подмены, CLI-вход, наблюдённая история | стабильный runtime pin/newest-compatible, ревизии протокола и конфигурации, кандидат с собственным процессом |
+| Claude | политика из build facts, stream-json `initialize` baseline без входа, digest-проверка managed-копии и promotion | живой CLI без входа и с входом; Windows/Linux lifecycle; pin для System/HostApp; полный §9 |
 | Kimi | pin `2.4.0-hb7`, ACP v1 negotiation, restricted Inspect, `session/delete` | behavioral baseline на допущенном процессе, точный идентификатор владения сессией, очистка при неизвестном исходе |
 | DSH | проверяемая линия `0.2.1-rc.5`, ACP v1, scoped MCP | единая compatibility-политика и stamp сессии; live-проверка нативных сессий |
 
@@ -82,7 +97,7 @@ retained resume и полный §9.
 | Koog | `1.3.0` из `gradle/libs.versions.toml`; HTTP clients в процессе | macOS, Windows, Linux | Объявлены обе; нужны платформенные проверки | BuiltIn, без отдельного бинаря | OpenAI, Anthropic, Qwen Token Plan, compatible Chat Completions/Messages, Ollama; discovery по точному binding |
 | Pi | `0.87.1` из version catalog; RPC/stdio | macOS, Windows, Linux | Unsupported managers/configurators | Bundled, Managed update, custom executable; hash-проверка pinned архива | API-ключи и пресеты, Z.ai Coding Plan/Qwen Token Plan, оба compatible протокола; Pi catalog |
 | Codex | app-server; единого runtime pin в регистрации нет | macOS, Windows, Linux | Unsupported transport | Managed, system, custom; upstream release feed | Собственный CLI login OpenAI/ChatGPT; app-server discovery |
-| Claude | Claude Code CLI streaming; единого runtime pin нет | macOS, Windows, Linux | Unsupported manager/backend | Managed, system, custom, HostApp; стабильный upstream manifest | CLI login, в том числе runtime приложения Claude; login приложения не импортируется |
+| Claude | Claude Code CLI streaming; политика с floor 2.1.285, единого runtime pin нет | macOS, Windows, Linux | Unsupported manager/backend | Managed, system, custom, HostApp; стабильный upstream manifest | CLI login, в том числе runtime приложения Claude; login приложения не импортируется |
 | Kimi | `2.4.0-hb7`; source `f26e4d91ef8d5d233f6c20b42a150f96924d4f5e`, permissionGate 1; ACP v1 | macOS, Windows, Linux; пять native targets | Mobile backend отказывает | Только контролируемый Managed pin; retained lookup по версии/target | Собственный CLI login; `kimi-for-coding`, capability-dependent resume |
 | DeepSeek Harness | Проверяемая линия `0.2.1-rc.5`; ACP v1 + process overlay MCP | macOS, Windows, Linux | Unsupported backend/manager | External; коннектор не устанавливает/не обновляет DSH | Собственный CLI login; точные модели/режимы из ACP |
 
@@ -101,7 +116,7 @@ retained resume и полный §9.
 | Koog | `KoogBindings`, `DefaultKoogEngineAdapter`: multi-provider binding/discovery, session/history, cancel, trust, usage, compact, runtime configuration | Provider/model MIME/effort и isolated tool-deny доказать по точному маршруту; diagnostics M18, effective provenance; отсутствие отдельного бинаря не отменяет auth/студийные сценарии |
 | Pi | `PiBindings`, `DesktopPiManager`, `DesktopPiConfigurator`: pinned distribution, checksum, profile/project config, MCP/resources с trust и bounds, RPC sessions | Версия Bundled сравнивается в `piCompatibility`; нет полной связки/решения, newest-compatible вместо latest и session stamp; native MCP и hooks требуют регресса |
 | Codex | `CodexBindings`, `CodexManagement`, `LocalCodexTransport`: app-server, session trees, native gate, CLI login/install, read-only project assists; admission policy, clean-home baseline, digest-checked promotion | `EngineManager.compatibility` остаётся Unknown (metadata inspect — не допуск); живой регресс, Windows/Linux и retained resume требуют проверки |
-| Claude | `ClaudeBindings`, `JvmClaudeManager`: source selection без fallback, HostApp discovery, login, observed history/trees, tools bridge, project assists | Нет compatibility override/pin; stable manifest не доказывает newest-compatible; полный native planning и resume/history должны быть подтверждены отдельно |
+| Claude | `ClaudeBindings`, `JvmClaudeManager`: выбор источника без подмены, HostApp discovery, login, observed history/trees, tools bridge, project assists; admission policy, isolated baseline, digest-checked promotion | `EngineManager.compatibility` остаётся Unknown (нет `inspectCompatibility`); stable manifest не доказывает newest-compatible; полный native planning и resume/history проверить отдельно |
 | Kimi | `KimiRuntimeRelease`, `KimiRuntimeSetup`, `JvmKimiBackend`: manifest/source/hash/native target, pinned/retained runtime, ACP capability negotiation | Точное равенство pin даёт Verified без общей связки; связать negotiation/admission/session stamp и проверить retained history после отката |
 | DeepSeek Harness | `JvmDeepSeekManager`, `DeepSeekRuntime`, `DeepSeekHosted`: bounded version probe, ACP, scoped hosted attachment, one-shot correlation | Общая compatibility пока Unknown; fixed supported line не оформлена единым compatibility decision; сохранение native session stamp, capabilities и External fingerprint |
 
