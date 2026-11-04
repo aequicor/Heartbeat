@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDefaults
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExactRouteReadiness
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeInteractionDemand
@@ -73,6 +74,9 @@ public interface EnginesProfileExports {
 
     /** Model choices of the profile. */
     public val modelSelections: ModelSelections
+
+    /** Cached readiness of exact engine/binding routes for the studio and other model pickers. */
+    public val exactRouteReadiness: ExactRouteReadiness
 
     /** Whether an engine session currently needs the native desktop. */
     public val nativeInteractionDemand: NativeInteractionDemand

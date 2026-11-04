@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDefaults
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExactRouteReadiness
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
@@ -100,6 +101,9 @@ internal interface FoundationProfileBundleImports {
 
     /** Sessions and models of the `engines` bundle. */
     val engineFacade: EngineFacade
+
+    /** Cached readiness of exact engine/binding routes of the `engines` bundle. */
+    val exactRouteReadiness: ExactRouteReadiness
 
     /** Web search of the `engines` bundle. */
     val searchEngine: SearchEngine
@@ -374,6 +378,9 @@ internal object ProfileBundleImportBindings {
 internal object EngineServiceImportBindings {
     @Provides
     fun engineFacade(imports: FoundationProfileBundleImports): EngineFacade = imports.engineFacade
+
+    @Provides
+    fun exactRouteReadiness(imports: FoundationProfileBundleImports): ExactRouteReadiness = imports.exactRouteReadiness
 
     @Provides
     fun searchEngine(imports: FoundationProfileBundleImports): SearchEngine = imports.searchEngine

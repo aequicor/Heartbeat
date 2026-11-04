@@ -28,14 +28,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExactRouteReadiness
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteAvailability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteUnavailableReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.routeKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -47,9 +51,11 @@ class StudioOfferedModelsTest {
     fun `catalog loss hides a route without forgetting the user's selection`() = runTest {
         val facade = OfferedFacade()
         val chosen = OfferedSelections()
-        val offered = facade.observeStudioModels(chosen, OfferedSources())
+        val readiness = OfferedReadiness()
+        val offered = facade.observeStudioModels(chosen, OfferedSources(), readiness)
 
         assertEquals(1, offered.first().size)
+        assertEquals(0, readiness.refreshes)
         facade.catalog.value = ModelCatalogSnapshot(emptyList(), Observation())
         assertEquals(emptyList(), offered.first())
         assertEquals(setOf(OfferedTarget.model), chosen.value.value.enabled(OfferedTarget.binding))
@@ -71,18 +77,20 @@ class StudioOfferedModelsTest {
         val other = OfferedTarget.copy(binding = EngineBindingId("other"))
         facade.catalog.value = ModelCatalogSnapshot(listOf(ModelInfo(other, "Other account")), Observation())
 
-        assertEquals(emptyList(), facade.observeStudioModels(chosen, OfferedSources()).first())
+        assertEquals(emptyList(), facade.observeStudioModels(chosen, OfferedSources(), OfferedReadiness()).first())
         assertEquals(OfferedTarget, chosen.value.value.defaultTarget)
     }
 
     @Test
-    fun `unknown startup availability keeps restored route offered without discovery`() = runTest {
+    fun `unknown startup availability is never offered as available`() = runTest {
         val facade = OfferedFacade(EngineAvailability.Unknown)
         val chosen = OfferedSelections()
+        val readiness = OfferedReadiness(RouteAvailability.Unknown)
 
-        val offered = facade.observeStudioModels(chosen, OfferedSources()).first()
+        val offered = facade.observeStudioModels(chosen, OfferedSources(), readiness).first()
 
-        assertEquals("Model", offered.single().shortName)
+        assertEquals(emptyList(), offered)
+        assertEquals(0, readiness.refreshes)
         assertEquals(OfferedTarget, chosen.value.value.defaultTarget)
     }
 
@@ -90,7 +98,7 @@ class StudioOfferedModelsTest {
     fun `confirmed engine failures hide and restore route without changing selection`() = runTest {
         val facade = OfferedFacade()
         val chosen = OfferedSelections()
-        val offered = facade.observeStudioModels(chosen, OfferedSources())
+        val offered = facade.observeStudioModels(chosen, OfferedSources(), OfferedReadiness())
 
         facade.setAvailability(EngineAvailability.UnsupportedPlatform)
         assertEquals(emptyList(), offered.first())
@@ -109,15 +117,54 @@ class StudioOfferedModelsTest {
         val facade = OfferedFacade()
         val chosen = OfferedSelections()
         val sources = OfferedSources()
-        val offered = facade.observeStudioModels(chosen, sources)
+        val readiness = OfferedReadiness()
+        val offered = facade.observeStudioModels(chosen, sources, readiness)
 
         sources.state.value = emptyList()
         assertEquals(emptyList(), offered.first())
         assertEquals(OfferedTarget, chosen.value.value.defaultTarget)
 
         sources.state.value = listOf(OfferedSource)
+        readiness.set(RouteAvailability.Available)
         assertEquals("Engine · Model · Source", offered.first().single().name)
         assertEquals(OfferedTarget, chosen.value.value.defaultTarget)
+    }
+
+    @Test
+    fun `lost binding source revision and runtime hide the exact route`() = runTest {
+        val facade = OfferedFacade()
+        val chosen = OfferedSelections()
+        val readiness = OfferedReadiness()
+        val offered = facade.observeStudioModels(chosen, OfferedSources(), readiness)
+
+        readiness.set(RouteAvailability.Unavailable(RouteUnavailableReason.BindingMissing))
+        assertEquals(emptyList(), offered.first())
+
+        readiness.set(RouteAvailability.Unavailable(RouteUnavailableReason.SourceRevisionChanged))
+        assertEquals(emptyList(), offered.first())
+
+        readiness.set(RouteAvailability.Unavailable(RouteUnavailableReason.RuntimeClosed))
+        assertEquals(emptyList(), offered.first())
+        // The explicit selection is retained; only the offer disappears.
+        assertEquals(setOf(OfferedTarget.model), chosen.value.value.enabled(OfferedTarget.binding))
+        assertEquals(OfferedTarget, chosen.value.value.defaultTarget)
+        assertEquals(0, readiness.refreshes)
+    }
+
+    @Test
+    fun `a restored confirmed route becomes selectable again after refresh`() = runTest {
+        val facade = OfferedFacade()
+        val chosen = OfferedSelections()
+        val readiness = OfferedReadiness(RouteAvailability.Unavailable(RouteUnavailableReason.BindingMissing))
+        val offered = facade.observeStudioModels(chosen, OfferedSources(), readiness)
+
+        assertEquals(emptyList(), offered.first())
+
+        readiness.set(RouteAvailability.Available)
+
+        assertEquals(OfferedTarget, chosen.value.value.defaultTarget)
+        assertEquals(setOf(OfferedTarget.model), chosen.value.value.enabled(OfferedTarget.binding))
+        assertEquals("Model", offered.first().single().shortName)
     }
 }
 
@@ -189,6 +236,25 @@ private fun offeredEngine(availability: EngineAvailability) = EngineInfo(
     availability,
     listOf(OfferedBinding),
 )
+
+private class OfferedReadiness(initial: RouteAvailability = RouteAvailability.Available) : ExactRouteReadiness {
+    private val key = OfferedTarget.routeKey()
+    private val value = MutableStateFlow(mapOf(key to initial))
+
+    override val routes = value
+
+    var refreshes = 0
+        private set
+
+    override suspend fun refresh(target: EngineTarget): RouteAvailability {
+        refreshes++
+        return value.value[key] ?: RouteAvailability.Unknown
+    }
+
+    fun set(availability: RouteAvailability) {
+        value.value = mapOf(key to availability)
+    }
+}
 
 private class OfferedSources(initial: List<AuthSource> = listOf(OfferedSource)) : AuthSources {
     override val state = MutableStateFlow(initial)

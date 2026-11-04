@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExactRouteReadiness
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -189,6 +190,7 @@ internal class EngineStudioRepository(
     private val facade: EngineFacade,
     private val selections: ModelSelections,
     private val sources: AuthSources,
+    private val readiness: ExactRouteReadiness,
     @ForScope(ProfileScope::class) stores: DataStores,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val clock: Clock,
@@ -339,7 +341,7 @@ internal class EngineStudioRepository(
         usage.refresh(modelId)
     }
 
-    private val offeredModels = facade.observeStudioModels(selections, sources)
+    private val offeredModels = facade.observeStudioModels(selections, sources, readiness)
         .stateIn(profile.coroutineScope, SharingStarted.WhileSubscribed(), emptyList())
 
     /** All subscribers share the same sidebar projection and native-resume probes. */
@@ -608,6 +610,7 @@ internal class EngineStudioRepository(
         record(id),
         state.value.configurations[id]?.applied,
         settings,
+        readiness,
     )
 
     override suspend fun move(id: String, change: StudioChatRecord.() -> StudioChatRecord) {
@@ -730,7 +733,13 @@ internal class EngineStudioRepository(
     private suspend fun openCurrent(id: String, target: EngineTarget, chosen: ToolChoices) = conversationLocks.withLock(
         id,
     ) {
-        sessionOpening.open(id, target, chosen)
+        try {
+            sessionOpening.open(id, target, chosen)
+        } catch (e: EngineException) {
+            // The exact route failed admission or launch: stop offering it until an explicit owner refresh.
+            readiness.recordFailure(target, e.failure)
+            throw e
+        }
     }
 
     private suspend fun forgetHandle(id: String, active: ActiveSession) = handlesLock.withLock {
