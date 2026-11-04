@@ -36,6 +36,15 @@ public interface EngineConfigurator {
     public suspend fun hasGatedConfiguration(directory: String): Boolean = false
 
     /**
+     * The engine's own effective configuration for the documented surfaces, or null when this adapter cannot
+     * observe it. [request] carries exactly the layers the facade observed: the profile values Heartbeat writes at
+     * launch and, only for a trusted saved project, its parsed values. A non-null answer declares the engine layer
+     * and, per surface, the resolution only where the adapter itself knows it. The adapter reads no project files
+     * here, includes no credentials and starts no process.
+     */
+    public suspend fun effectiveSettings(request: EffectiveSettingsRequest): EngineEffectiveSettings? = null
+
+    /**
      * Lists resources confined to the profile home and optional [directory]. [profile] and [trust] are the saved
      * launch configuration. The facade supplies engine and workspace identity in the returned inventory.
      */
