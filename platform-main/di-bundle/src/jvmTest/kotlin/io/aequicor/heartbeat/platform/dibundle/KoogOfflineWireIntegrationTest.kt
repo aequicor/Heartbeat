@@ -33,7 +33,7 @@ class KoogOfflineWireIntegrationTest {
         val type = Class.forName("io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogNativeProbe")
         val probe = type.getDeclaredConstructor(DispatcherProvider::class.java).newInstance(dispatchers)
         for (provider in KoogProvider.entries) {
-            for (probeName in listOf("runProviderWire", "runIncompleteWire")) {
+            for (probeName in listOf("runProviderWire", "runIncompleteWire", "runMalformedWire")) {
                 val method = type.getDeclaredMethod(
                     probeName,
                     TimeMark::class.java,

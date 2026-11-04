@@ -96,7 +96,7 @@ class KoogIntegrationTest {
             assertNull(candidate.evidence.isProvenanceConfirmed)
             assertTrue(candidate.evidence.isBaselineConfirmed != true)
             assertNull(factory.runtimeRequirements)
-            assertEquals(6, messages.count { "POST *** -> 200" in it }, messages.joinToString("\n"))
+            assertEquals(7, messages.count { "POST *** -> 200" in it }, messages.joinToString("\n"))
             assertTrue(messages.any { "unobserved=0" in it }, messages.joinToString("\n"))
             assertTrue(profile.koogConnections.list().isEmpty())
             // Deliberately fictional: even an explicitly supplied stamp cannot promote this partial candidate.

@@ -102,23 +102,29 @@ internal class KoogNativeProbe(private val dispatchers: DispatcherProvider) {
         offline: OfflineHttpClients,
         platform: PlatformInfo,
         provider: KoogProvider,
-    ): Boolean = runWire(deadline, offline, platform, provider, isFailureExpected = false)
+    ): Boolean = runWire(deadline, offline, platform, provider, KoogSdkCheck.StreamStop)
 
     suspend fun runIncompleteWire(
         deadline: TimeMark,
         offline: OfflineHttpClients,
         platform: PlatformInfo,
         provider: KoogProvider,
-    ): Boolean = runWire(deadline, offline, platform, provider, isFailureExpected = true)
+    ): Boolean = runWire(deadline, offline, platform, provider, KoogSdkCheck.UnterminatedStream)
+
+    suspend fun runMalformedWire(
+        deadline: TimeMark,
+        offline: OfflineHttpClients,
+        platform: PlatformInfo,
+        provider: KoogProvider,
+    ): Boolean = runWire(deadline, offline, platform, provider, KoogSdkCheck.MalformedStream)
 
     private suspend fun runWire(
         deadline: TimeMark,
         offline: OfflineHttpClients,
         platform: PlatformInfo,
         provider: KoogProvider,
-        isFailureExpected: Boolean,
+        check: KoogSdkCheck,
     ): Boolean = withContext(dispatchers.io) {
-        val check = if (isFailureExpected) KoogSdkCheck.UnterminatedStream else KoogSdkCheck.StreamStop
         val exchange = nativeWireExchange(provider, check)
         val owner = offline.open(listOf(exchange))
         try {
@@ -127,7 +133,7 @@ internal class KoogNativeProbe(private val dispatchers: DispatcherProvider) {
                 withTimeout(-deadline.elapsedNow()) {
                     val isSessionConfirmed = environment.exerciseWire(
                         SdkKoogTransport(owner.client, platform),
-                        isFailureExpected,
+                        check != KoogSdkCheck.StreamStop,
                     )
                     isSessionConfirmed && owner.progress().isComplete
                 }
