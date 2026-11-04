@@ -14,19 +14,25 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStam
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimePromotion
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiAdmittedRuntime
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiRuntimeAdmission
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiRuntimeDistribution
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiRuntimeRelease
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.managedPiStartup
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.piFailure
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.pinnedPiStartup
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.resolvePiStartup
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.verifyPiManagedCopy
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.withoutDetails
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -60,13 +66,14 @@ internal class JvmPiCandidates internal constructor(
     override suspend fun open(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-        promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+        promote: suspend (PiRuntimeAdmission?, EngineCompatibilityStamp) -> EngineRuntime,
     ): EngineRuntimeCandidate? {
         currentCoroutineContext().ensureActive()
         val selected = selection(request, deadline) ?: return null
         return PiRuntimeCandidate(
             request,
             PiJvmCompatibility.evidence(selected.artifact, selected.baseline, selected.isProvenanceConfirmed),
+            selected.admission,
             promote,
         )
     }
@@ -76,51 +83,72 @@ internal class JvmPiCandidates internal constructor(
             request.identity.engine == PiEngineId && platform.host.name in PiJvmCompatibility.desktopTargets
         } ?: return null
         // A staged install candidate is inspected exactly as supplied; never substitute a retained or bundled copy.
-        val selected = if (request.launch.isInstallCandidate) {
-            request.launch.managed?.let { managed(request, release, deadline) }
-        } else {
-            val startup = resolvePiStartup(request.launch, distribution.executable(), release.version)
-            when (startup.source) {
-                InstallSource.Managed -> managed(request, release, deadline)
-
-                InstallSource.Bundled -> bundled(release, deadline)
-
-                InstallSource.Custom -> Selection(
-                    PiArtifactFacts(runtime = null, nativeTarget = null, runtimeFingerprint = null),
-                    baseline = null,
-                    isProvenanceConfirmed = null,
-                )
-
-                InstallSource.BuiltIn,
-                InstallSource.System,
-                InstallSource.HostApp,
-                InstallSource.Missing,
-                -> null
-            }
+        if (request.launch.isInstallCandidate) {
+            val staged = request.launch.managed ?: return null
+            return managed(request, staged, release, deadline)
         }
-        return selected
+        return when (resolvePiStartup(request.launch, distribution.executable(), release.version).source) {
+            InstallSource.Managed -> managed(request, request.launch.managed, release, deadline)
+
+            InstallSource.Bundled -> bundled(request, release, deadline)
+
+            InstallSource.Custom -> Selection(
+                PiArtifactFacts(runtime = null, nativeTarget = null, runtimeFingerprint = null),
+                baseline = null,
+                isProvenanceConfirmed = null,
+                admission = null,
+            )
+
+            InstallSource.BuiltIn,
+            InstallSource.System,
+            InstallSource.HostApp,
+            InstallSource.Missing,
+            -> null
+        }
     }
 
     private suspend fun managed(
         request: EngineRuntimeCandidateRequest,
+        managed: ManagedInstall?,
         release: PiRuntimeRelease,
         deadline: TimeMark,
     ): Selection {
-        val managed = request.launch.managed
-        val isVerified = managed?.let { verifyPiManagedCopy(it, dispatchers.io) }
+        // A selected managed source without its record has no provenance; it stays an inconclusive candidate.
+        if (managed == null) {
+            return Selection(
+                PiArtifactFacts(runtime = null, nativeTarget = null, runtimeFingerprint = null),
+                baseline = null,
+                isProvenanceConfirmed = null,
+                admission = null,
+            )
+        }
+        val isVerified = verifyPiManagedCopy(managed, dispatchers.io)
         val artifact = PiArtifactFacts(
-            runtime = managed?.version,
+            runtime = managed.version,
             nativeTarget = release.target,
             // The executable digest the store recorded, never the release archive digest.
-            runtimeFingerprint = managed?.executableSha256?.takeIf { isVerified == true },
+            runtimeFingerprint = managed.executableSha256?.takeIf { isVerified == true },
         )
-        if (managed == null || isVerified != true) {
-            return Selection(artifact, baseline = null, isProvenanceConfirmed = isVerified)
+        if (isVerified != true) {
+            return Selection(artifact, baseline = null, isProvenanceConfirmed = isVerified, admission = null)
         }
-        return Selection(artifact, baseline = baseline(managed.executable, deadline), isProvenanceConfirmed = true)
+        // The exact bytes verified above are the startup every later process of this runtime must use.
+        val startup = managedPiStartup(request.launch, managed)
+            ?: return Selection(artifact, baseline = null, isProvenanceConfirmed = false, admission = null)
+        val executable = checkNotNull(startup.executable)
+        return Selection(
+            artifact,
+            baseline = baseline(executable.toString(), deadline),
+            isProvenanceConfirmed = true,
+            admission = PiRuntimeAdmission(startup, executable, managed),
+        )
     }
 
-    private suspend fun bundled(release: PiRuntimeRelease, deadline: TimeMark): Selection {
+    private suspend fun bundled(
+        request: EngineRuntimeCandidateRequest,
+        release: PiRuntimeRelease,
+        deadline: TimeMark,
+    ): Selection {
         val prepared = try {
             Prepared.Ready(withContext(dispatchers.io) { distribution.prepare {} })
         } catch (e: CancellationException) {
@@ -148,12 +176,18 @@ internal class JvmPiCandidates internal constructor(
                 artifact,
                 baseline = baseline(prepared.executable.toString(), deadline),
                 isProvenanceConfirmed = true,
+                admission = PiRuntimeAdmission(
+                    pinnedPiStartup(request.launch, prepared.executable, InstallSource.Bundled, release.version),
+                    prepared.executable,
+                    managed = null,
+                ),
             )
 
             is Prepared.Failed -> Selection(
                 artifact,
                 baseline = null,
                 isProvenanceConfirmed = prepared.isProvenanceConfirmed,
+                admission = null,
             )
         }
     }
@@ -172,9 +206,11 @@ internal class JvmPiCandidates internal constructor(
 internal class PiRuntimeCandidate(
     override val request: EngineRuntimeCandidateRequest,
     override val evidence: EngineCompatibilityEvidence,
-    private val promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+    private val admission: PiRuntimeAdmission?,
+    private val promote: suspend (PiRuntimeAdmission?, EngineCompatibilityStamp) -> EngineRuntime,
 ) : EngineRuntimeCandidate {
     private val consumed = AtomicBoolean(false)
+    private val log = Log.tag("PiRuntimeCandidate")
 
     override suspend fun promote(expected: EngineCompatibilityStamp, deadline: TimeMark): EngineRuntimePromotion {
         currentCoroutineContext().ensureActive()
@@ -188,9 +224,42 @@ internal class PiRuntimeCandidate(
             piFailure(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
         }
         if (assessed != expected) piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        val runtime = promote(expected)
-        currentCoroutineContext().ensureActive()
-        return EngineRuntimePromotion(runtime, expected)
+        val runtime = promote(admission, expected)
+        var isTransferred = false
+        try {
+            currentCoroutineContext().ensureActive()
+            verifyPromoted(runtime, expected)
+            isTransferred = true
+            return EngineRuntimePromotion(runtime, expected)
+        } finally {
+            // A runtime that does not prove the admitted artifact never becomes the facade's runtime.
+            if (!isTransferred) withContext(NonCancellable) { closeTransferred(runtime) }
+        }
+    }
+
+    /** The admitted executable and version are the ones the runtime reports it was built to start. */
+    private fun verifyPromoted(runtime: EngineRuntime, stamp: EngineCompatibilityStamp) {
+        val admitted = runtime as? PiAdmittedRuntime
+        val pin = admission
+        val isSameRuntime = runtime.identity == request.identity && runtime.compatibilityStamp == stamp
+        val isSelected = pin != null && admitted?.selectedExecutable == pin.executable
+        val isVersion = pin != null && admitted?.admittedVersion == stamp.runtime
+        if (!isSameRuntime || !isSelected || !isVersion) rejectPromotion()
+    }
+
+    private fun rejectPromotion(): Nothing {
+        log.w { "Pi promotion no longer matches the admitted artifact" }
+        piFailure(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+    }
+
+    private suspend fun closeTransferred(runtime: EngineRuntime) {
+        try {
+            runtime.close()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "Rejected Pi runtime could not be closed" }
+        }
     }
 
     /** The record the facade assessed from this evidence, or null while an identity dimension is unknown. */
@@ -223,6 +292,7 @@ private data class Selection(
     val artifact: PiArtifactFacts,
     val baseline: PiBaselineReceipt?,
     val isProvenanceConfirmed: Boolean?,
+    val admission: PiRuntimeAdmission?,
 )
 
 private sealed interface Prepared {

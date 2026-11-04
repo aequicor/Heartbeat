@@ -116,9 +116,9 @@ internal class JvmPiBaselineProbe(private val dispatchers: DispatcherProvider) :
                 Files.walk(directory).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
             }
         } catch (e: IOException) {
-            log.w(e) { "Pi admission baseline directory cleanup failed" }
+            log.w(e.withoutDetails()) { "Pi admission baseline directory cleanup failed" }
         } catch (e: SecurityException) {
-            log.w(e) { "Pi admission baseline directory cleanup was denied" }
+            log.w(e.withoutDetails()) { "Pi admission baseline directory cleanup was denied" }
         }
     }
 }

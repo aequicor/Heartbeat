@@ -172,6 +172,7 @@ class PiStoredTurnStopTest {
             event: suspend (JsonObject) -> Unit,
             failed: suspend (EngineFailure) -> Unit,
             plan: PiLaunchPlan?,
+            admission: PiRuntimeAdmission?,
         ): PiConnection = error("Stop must never launch")
         override suspend fun stop(
             owner: PiExecutionOwner,

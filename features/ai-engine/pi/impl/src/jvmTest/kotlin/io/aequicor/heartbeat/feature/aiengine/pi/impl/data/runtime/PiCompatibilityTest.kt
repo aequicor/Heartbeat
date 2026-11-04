@@ -26,9 +26,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandid
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiAdmittedRuntime
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiArtifactFixture
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiConfigurationFormat
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiHistoryFormat
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiRuntimeAdmission
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiRuntimeDistribution
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.generated.PiBuildContract
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.piArchive
@@ -148,7 +150,7 @@ class PiCompatibilityTest {
                 LaunchContext(LaunchSettings(runtime = RuntimePreference.Bundled)),
             )
 
-            val first = assertNotNull(candidates.open(request, deadline) { error("unused") })
+            val first = assertNotNull(candidates.open(request, deadline) { _, _ -> error("unused") })
             try {
                 val decision = assessEngineCompatibility(policy, first.evidence)
                 assertEquals(Compatibility.Unverified, decision.status, decision.problems.toString())
@@ -168,10 +170,12 @@ class PiCompatibilityTest {
             }
 
             val promoted = mutableListOf<EngineCompatibilityStamp>()
+            var promotedAdmission: PiRuntimeAdmission? = null
             val second = assertNotNull(
-                candidates.open(request, deadline) { value ->
+                candidates.open(request, deadline) { admission, value ->
                     promoted += value
-                    TestRuntime(identity, value)
+                    promotedAdmission = admission
+                    TestRuntime(identity, value, admission)
                 },
             )
             val decision = assessEngineCompatibility(policy, second.evidence)
@@ -181,6 +185,11 @@ class PiCompatibilityTest {
             assertEquals(stamp, promotion.runtime.compatibilityStamp)
             assertEquals(identity, promotion.runtime.identity)
             assertEquals(listOf(stamp), promoted)
+            // The callback receives the executable the baseline hashed, not a launch resolved at promotion time.
+            val admission = assertNotNull(promotedAdmission)
+            assertEquals(admission.executable, admission.startup.executable)
+            assertEquals(admission.executable, assertNotNull(probe.lastExecutable))
+            assertEquals(stamp.runtimeFingerprint, second.evidence.identity.runtimeFingerprint)
             val repeated = assertFailsWith<EngineException> { second.promote(stamp, deadline) }
             assertEquals(
                 AccessFailureReason.OperationNotAllowed,
@@ -188,6 +197,98 @@ class PiCompatibilityTest {
             )
             second.close()
             second.close()
+        }
+    }
+
+    @Test
+    fun `a promotion whose runtime reports another executable or version fails closed`() = runTest {
+        piTemporary { root ->
+            val cache = PiArtifactFixture(piArchive(root))
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
+            val policy = assertNotNull(JvmPiCompatibility(distribution, platform(HostPlatform.MacOs)).requirements())
+            val probe = FakeBaselineProbe()
+            val candidates = JvmPiCandidates(distribution, platform(HostPlatform.MacOs), piDispatchers(), probe)
+            val deadline = TimeSource.Monotonic.markNow() + 10.seconds
+            val request = EngineRuntimeCandidateRequest(
+                identity,
+                LaunchContext(LaunchSettings(runtime = RuntimePreference.Bundled)),
+            )
+
+            var changedExecutable: TestRuntime? = null
+            val executableCandidate = assertNotNull(
+                candidates.open(request, deadline) { admission, stamp ->
+                    TestRuntime(
+                        identity,
+                        stamp,
+                        admission,
+                        executable = admission?.executable?.resolveSibling("another-pi"),
+                    ).also { changedExecutable = it }
+                },
+            )
+            val executableStamp = assertNotNull(
+                assessEngineCompatibility(policy, executableCandidate.evidence).stamp,
+            )
+            val executableFailure = assertFailsWith<EngineException> {
+                executableCandidate.promote(executableStamp, deadline)
+            }
+            assertEquals(
+                EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown),
+                executableFailure.failure,
+            )
+            // The rejected runtime is closed and no stamp is handed to the facade.
+            assertTrue(assertNotNull(changedExecutable).isClosed)
+            executableCandidate.close()
+
+            var changedVersion: TestRuntime? = null
+            val versionCandidate = assertNotNull(
+                candidates.open(request, deadline) { admission, stamp ->
+                    TestRuntime(identity, stamp, admission, version = "0.0.0").also { changedVersion = it }
+                },
+            )
+            val versionStamp = assertNotNull(assessEngineCompatibility(policy, versionCandidate.evidence).stamp)
+            val versionFailure = assertFailsWith<EngineException> {
+                versionCandidate.promote(versionStamp, deadline)
+            }
+            assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), versionFailure.failure)
+            assertTrue(assertNotNull(changedVersion).isClosed)
+            versionCandidate.close()
+        }
+    }
+
+    @Test
+    fun `the promote callback receives the verified executable instead of a re-resolved launch`() = runTest {
+        piTemporary { root ->
+            val cache = PiArtifactFixture(piArchive(root))
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
+            val executable = Files.writeString(root.resolve("pi"), "binary")
+            assertTrue(executable.toFile().setExecutable(true))
+            val digest = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(executable)),
+            )
+            val probe = FakeBaselineProbe()
+            val candidates = JvmPiCandidates(distribution, platform(HostPlatform.MacOs), piDispatchers(), probe)
+            val deadline = TimeSource.Monotonic.markNow() + 10.seconds
+            val request = launch(executable, digest = digest)
+
+            var received: PiRuntimeAdmission? = null
+            val candidate = assertNotNull(
+                candidates.open(request, deadline) { admission, stamp ->
+                    received = admission
+                    TestRuntime(identity, stamp, admission)
+                },
+            )
+            val policy = assertNotNull(JvmPiCompatibility(distribution, platform(HostPlatform.MacOs)).requirements())
+            val stamp = assertNotNull(assessEngineCompatibility(policy, candidate.evidence).stamp)
+            candidate.promote(stamp, deadline).runtime.close()
+
+            val admission = assertNotNull(received)
+            // This is the executable the baseline hashed and the managed record pins, not a second resolution.
+            assertEquals(executable, admission.executable)
+            assertEquals(executable, admission.startup.executable)
+            assertEquals(request.launch.managed, admission.managed)
+            assertEquals(executable, probe.lastExecutable)
+            assertEquals(1, probe.calls)
+            candidate.close()
         }
     }
 
@@ -206,7 +307,7 @@ class PiCompatibilityTest {
             val deadline = TimeSource.Monotonic.markNow() + 10.seconds
 
             val mismatched = launch(executable, digest = "0".repeat(64))
-            val rejected = assertNotNull(candidates.open(mismatched, deadline) { error("unused") })
+            val rejected = assertNotNull(candidates.open(mismatched, deadline) { _, _ -> error("unused") })
             assertEquals(false, rejected.evidence.isProvenanceConfirmed)
             assertNull(rejected.evidence.isBaselineConfirmed)
             assertNull(rejected.evidence.identity.runtimeFingerprint)
@@ -214,7 +315,7 @@ class PiCompatibilityTest {
             rejected.close()
 
             val unrecorded = launch(executable, digest = null)
-            val unknown = assertNotNull(candidates.open(unrecorded, deadline) { error("unused") })
+            val unknown = assertNotNull(candidates.open(unrecorded, deadline) { _, _ -> error("unused") })
             assertNull(unknown.evidence.isProvenanceConfirmed)
             assertNull(unknown.evidence.isBaselineConfirmed)
             assertEquals(0, probe.calls)
@@ -228,7 +329,7 @@ class PiCompatibilityTest {
                     ManagedInstall("0.87.1", executable.toString(), Instant.fromEpochSeconds(0), sha256 = digest),
                 ),
             )
-            val unknownProvenance = assertNotNull(candidates.open(archiveOnly, deadline) { error("unused") })
+            val unknownProvenance = assertNotNull(candidates.open(archiveOnly, deadline) { _, _ -> error("unused") })
             assertNull(unknownProvenance.evidence.isProvenanceConfirmed)
             assertNull(unknownProvenance.evidence.isBaselineConfirmed)
             assertNull(unknownProvenance.evidence.identity.runtimeFingerprint)
@@ -236,7 +337,7 @@ class PiCompatibilityTest {
             unknownProvenance.close()
 
             val verified = assertNotNull(
-                candidates.open(launch(executable, digest = digest), deadline) { error("unused") },
+                candidates.open(launch(executable, digest = digest), deadline) { _, _ -> error("unused") },
             )
             assertEquals(true, verified.evidence.isProvenanceConfirmed)
             assertEquals(true, verified.evidence.isBaselineConfirmed)
@@ -261,7 +362,7 @@ class PiCompatibilityTest {
                 LaunchContext(LaunchSettings(executable = executable.toString())),
             )
 
-            val candidate = assertNotNull(candidates.open(request, deadline) { error("unused") })
+            val candidate = assertNotNull(candidates.open(request, deadline) { _, _ -> error("unused") })
             try {
                 assertNull(candidate.evidence.isProvenanceConfirmed)
                 assertNull(candidate.evidence.isBaselineConfirmed)
@@ -345,12 +446,25 @@ class PiCompatibilityTest {
     private class TestRuntime(
         override val identity: RuntimeIdentity,
         override val compatibilityStamp: EngineCompatibilityStamp,
-    ) : EngineRuntime {
+        private val admission: PiRuntimeAdmission? = null,
+        private val executable: Path? = admission?.executable,
+        private val version: String? = admission?.startup?.runtimeVersion,
+    ) : EngineRuntime,
+        PiAdmittedRuntime {
+        override val selectedExecutable: Path? get() = executable
+        override val admittedVersion: String? get() = version
+
+        @Volatile
+        override var isClosed: Boolean = false
+            private set
+
         override val features: EngineFeatures = object : EngineFeatures {
             override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
                 FeatureAccess.Unsupported
         }
 
-        override suspend fun close() = Unit
+        override suspend fun close() {
+            isClosed = true
+        }
     }
 }

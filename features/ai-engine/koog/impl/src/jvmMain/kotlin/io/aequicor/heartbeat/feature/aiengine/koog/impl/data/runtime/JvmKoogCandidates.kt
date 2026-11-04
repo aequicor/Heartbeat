@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.network.OfflineHttpClients
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityEvidence
@@ -19,8 +20,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimePromot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.TimeMark
 
@@ -72,6 +76,7 @@ internal class KoogRuntimeCandidate(
     private val promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
 ) : EngineRuntimeCandidate {
     private val consumed = AtomicBoolean(false)
+    private val log = Log.tag("KoogRuntimeCandidate")
 
     override suspend fun promote(expected: EngineCompatibilityStamp, deadline: TimeMark): EngineRuntimePromotion {
         currentCoroutineContext().ensureActive()
@@ -86,8 +91,26 @@ internal class KoogRuntimeCandidate(
         }
         if (assessed != expected) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
         val runtime = promote(expected)
-        currentCoroutineContext().ensureActive()
-        return EngineRuntimePromotion(runtime, expected)
+        var isTransferred = false
+        try {
+            currentCoroutineContext().ensureActive()
+            isTransferred = true
+            return EngineRuntimePromotion(runtime, expected)
+        } finally {
+            // A runtime created by the callback must not be abandoned when cancellation lands before the transfer.
+            if (!isTransferred) withContext(NonCancellable) { closeTransferred(runtime) }
+        }
+    }
+
+    private suspend fun closeTransferred(runtime: EngineRuntime) {
+        try {
+            runtime.close()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            // The candidate no longer owns this runtime; the facade closes only what it received.
+            log.w(error) { "Rejected Koog runtime could not be closed" }
+        }
     }
 
     /** The record the facade assessed from this evidence, or null while an identity dimension is unknown. */

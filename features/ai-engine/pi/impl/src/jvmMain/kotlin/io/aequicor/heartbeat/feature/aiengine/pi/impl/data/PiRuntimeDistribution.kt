@@ -115,6 +115,23 @@ internal class PiRuntimeDistribution(
         installed.resolve(pin.executable)
     }
 
+    /**
+     * Re-verifies [executable] against the inventory of the already prepared pinned runtime, without downloading,
+     * installing or repairing anything. False means the admitted bytes are no longer there: another runtime
+     * directory was published, the file changed or no inventory was ever verified.
+     */
+    suspend fun verifyInventory(executable: Path): Boolean = mutex.withLock {
+        val pin = release ?: return@withLock false
+        val expected = trustedInventory ?: return@withLock false
+        val digest = expected[pin.executable] ?: return@withLock false
+        val directory = withContext(dispatchers.io) { activeDirectory(pin) } ?: return@withLock false
+        val file = directory.resolve(pin.executable)
+        if (file != executable) return@withLock false
+        withContext(dispatchers.io) {
+            Files.isRegularFile(file, NOFOLLOW_LINKS) && piRuntimeDigest(file) == digest
+        }
+    }
+
     private fun versionRoot(pin: PiRuntimeRelease): Path = root.resolve(pin.artifact.download.sha256)
 
     private fun activeDirectory(pin: PiRuntimeRelease): Path? {

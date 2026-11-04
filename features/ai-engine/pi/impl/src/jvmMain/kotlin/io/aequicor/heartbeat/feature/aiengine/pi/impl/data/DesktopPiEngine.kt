@@ -80,8 +80,8 @@ internal class DesktopPiEngine(
     override suspend fun openRuntimeCandidate(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { stamp ->
-        promoteRuntime(request.identity, stamp)
+    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { admission, stamp ->
+        promoteRuntime(request.identity, stamp, admission)
     }
 
     override suspend fun prepareRuntime() {
@@ -196,26 +196,41 @@ internal class DesktopPiEngine(
     }
 
     /**
-     * Creates and registers the ordinary runtime for one exact admitted stamp. Only a candidate promotion of the
-     * assessed artifact calls this; a runtime with another stamp is retired instead of reused.
+     * Creates and registers the ordinary runtime for one exact admitted stamp and artifact. Only a candidate
+     * promotion of the assessed artifact calls this; a runtime with another stamp is retired instead of reused.
+     * The admitted executable is compared with the launch that would start now and re-verified before any runtime
+     * exists, then pinned: later session starts do not re-resolve the profile's current launch.
      */
-    private suspend fun promoteRuntime(identity: RuntimeIdentity, stamp: EngineCompatibilityStamp): EngineRuntime =
-        mutex.withLock {
-            ensureEnabled()
-            require(identity.engine == PiEngineId) { "Foreign engine" }
-            val source = resolvedSource(identity)
-            val existing = runtimes[identity.source]
-            val reusable = existing?.takeIf {
-                it.identity == identity && !it.isClosed && it.compatibilityStamp == stamp
-            }
-            if (reusable != null) {
-                reusable.validate()
-                return@withLock reusable
-            }
-            existing?.close()
-            log.i { "Creating admitted Pi profile runtime" }
-            newRuntime(identity, source, stamp).also { runtimes[identity.source] = it }
+    private suspend fun promoteRuntime(
+        identity: RuntimeIdentity,
+        stamp: EngineCompatibilityStamp,
+        admission: PiRuntimeAdmission?,
+    ): EngineRuntime = mutex.withLock {
+        ensureEnabled()
+        require(identity.engine == PiEngineId) { "Foreign engine" }
+        val source = resolvedSource(identity)
+        // A promotion without a verified artifact cannot be bound to the process that will run.
+        val pinned = admission ?: rejectPromotion()
+        if (!pinned.matches(processes.startup()) || !processes.verifyAdmission(pinned)) rejectPromotion()
+        val existing = runtimes[identity.source]
+        val reusable = existing?.takeIf {
+            it.identity == identity && !it.isClosed && it.compatibilityStamp == stamp &&
+                it.selectedExecutable == pinned.executable &&
+                it.admittedVersion == pinned.startup.runtimeVersion
         }
+        if (reusable != null) {
+            reusable.validate()
+            return@withLock reusable
+        }
+        existing?.close()
+        log.i { "Creating admitted Pi profile runtime" }
+        newRuntime(identity, source, stamp, pinned).also { runtimes[identity.source] = it }
+    }
+
+    private fun rejectPromotion(): Nothing {
+        log.w { "Pi promotion no longer matches the admitted artifact" }
+        piFailure(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+    }
 
     private suspend fun resolvedSource(identity: RuntimeIdentity): AuthSource.ManagedKey {
         val source = settings.source(identity.source)
@@ -230,11 +245,13 @@ internal class DesktopPiEngine(
         identity: RuntimeIdentity,
         source: AuthSource.ManagedKey,
         stamp: EngineCompatibilityStamp? = null,
+        admission: PiRuntimeAdmission? = null,
     ): PiRuntime = PiRuntime(
         PiRuntimeCredentials(identity, source, processes.credentialFingerprint(source)),
         environment,
         PiRuntimeServices(settings, processes, workspaces, nativeWeb),
         stamp,
+        admission,
     )
 
     private suspend fun ensureEnabled() {

@@ -202,6 +202,11 @@ internal class PiProcessLauncher(
 
     override suspend fun hasExited(owner: PiExecutionOwner): Boolean = PiStoredProcessStop(dispatchers).hasExited(owner)
 
+    override suspend fun verifyAdmission(admission: PiRuntimeAdmission): Boolean = when {
+        admission.isBundled -> distribution.verifyInventory(admission.executable)
+        else -> admission.managed?.let { verifyPiManagedCopy(it, dispatchers.io) } == true
+    }
+
     /** Stored transcript of the native session [nativeId] of this profile, or null when Pi has none. */
     override suspend fun transcript(nativeId: String): String? = withContext(dispatchers.io) {
         val owner = stores.owner as? StorageOwner.Profile
@@ -220,10 +225,12 @@ internal class PiProcessLauncher(
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
         plan: PiLaunchPlan?,
+        admission: PiRuntimeAdmission?,
     ): PiConnection {
-        val startup = prepare()
+        // An admitted runtime starts the executable its candidate verified, never the launch resolved now.
+        val startup = admission?.startup ?: prepare()
         // Fetched before the non-cancellable launch so a slow compatible server stays cancellable.
-        val modelsJson = modelsJson(source, plan?.selectedModel)
+        val modelsJson = modelsJson(source, plan?.selectedModel, startup.executable)
         return launch(source, workspace, modelsJson, event, failed, plan ?: discoveryPlan(), startup)
     }
 
@@ -234,24 +241,28 @@ internal class PiProcessLauncher(
     )
 
     /** Custom model declarations or a fixed vendor endpoint; otherwise Pi uses its native catalog. */
-    private suspend fun modelsJson(source: AuthSource.ManagedKey, selectedModel: ModelId?): String? {
+    private suspend fun modelsJson(
+        source: AuthSource.ManagedKey,
+        selectedModel: ModelId?,
+        executable: Path?,
+    ): String? {
         val provider = provider(source) ?: authenticationFailure(AuthFailureReason.AuthMismatch, source.info.id)
         val protocol = provider.compatible ?: return piVendorModelsJson(provider)
         val secret = withContext(dispatchers.io) { secrets.read(SecretKey(source.secret.value)) }
             ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
         val key = secret.use { it.reveal { chars -> String(chars) } }
         val models = catalog.models(protocol, source.scope, key, source.info.id, selectedModel)
-        val known = builtinCatalog()
+        val known = builtinCatalog(executable)
         val inherited = piBuiltinModelsAt(known, protocol.piApi(), piCompatibleBaseUrl(protocol, source.scope))
         log.d { "Compatible route inherits Pi catalog metadata for ${models.count { it.id in inherited }} models" }
         return piModelsJson(provider, source.scope, models, inherited)
     }
 
-    /** Pi's own catalog, or nothing when the executable or profile storage is unavailable. */
-    private suspend fun builtinCatalog(): List<JsonObject> = withContext(dispatchers.io) {
-        val executable = executable()?.takeIf { Files.isRegularFile(it) } ?: return@withContext emptyList()
+    /** Pi's own catalog of the exact selected executable, or nothing when it or profile storage is unavailable. */
+    private suspend fun builtinCatalog(executable: Path?): List<JsonObject> = withContext(dispatchers.io) {
+        val selected = executable?.takeIf { Files.isRegularFile(it) } ?: return@withContext emptyList()
         val owner = stores.owner as? StorageOwner.Profile ?: return@withContext emptyList()
-        builtin.models(executable, storage.profileRoot(owner.id.value).resolve("runtime"))
+        builtin.models(selected, storage.profileRoot(owner.id.value).resolve("runtime"))
     }
 
     private suspend fun launch(

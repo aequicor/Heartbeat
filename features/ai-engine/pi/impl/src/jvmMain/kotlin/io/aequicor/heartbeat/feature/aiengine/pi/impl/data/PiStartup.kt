@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
@@ -105,6 +106,33 @@ internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVer
             context.settings.runtime in setOf(RuntimePreference.Auto, RuntimePreference.Bundled),
     )
 }
+
+/**
+ * A startup pinned to the exact [executable] and [source] an admission verified. It never falls back to another
+ * installation: the runtime that starts it must run these bytes or refuse, not silently re-resolve the launch.
+ */
+internal fun pinnedPiStartup(
+    context: LaunchContext,
+    executable: Path?,
+    source: InstallSource,
+    runtimeVersion: String?,
+): PiStartup = PiStartup(
+    executable = executable,
+    source = source,
+    environment = context.settings.environment,
+    config = context.config,
+    trust = context.trust,
+    isConfigured = context.isConfigured,
+    isMcpEnabled = context.settings.isMcpEnabled,
+    isBundledPreparationAllowed = false,
+    runtimeVersion = runtimeVersion,
+)
+
+/** A startup pinned to one recorded managed copy; null when its executable path cannot be named. */
+internal fun managedPiStartup(context: LaunchContext, managed: ManagedInstall): PiStartup? =
+    pathOrNull(managed.executable)?.let {
+        pinnedPiStartup(context, it, InstallSource.Managed, managed.version)
+    }
 
 /** The user's entries on top of the retained host environment; Heartbeat's own variables are set after them. */
 internal fun applyPiEnvironment(environment: MutableMap<String, String>, startup: PiStartup) {
