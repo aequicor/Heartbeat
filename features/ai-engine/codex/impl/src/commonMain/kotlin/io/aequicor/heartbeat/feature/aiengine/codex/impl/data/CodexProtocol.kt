@@ -64,8 +64,31 @@ internal interface PreparedCodexLaunch {
         record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
     ): Boolean = false
 
-    /** Version only when established without executing an unadmitted file; unknown by default. */
+    /**
+     * Version that the already held metadata process of this captured launch reported in its own handshake;
+     * unknown by default and never established by executing the selected file with a version probe.
+     */
     suspend fun version(): String? = null
+
+    /**
+     * Records the version [version] reported by the metadata process this captured launch already started, so a
+     * subsequent restricted launch can check its floor against that observation instead of probing the file.
+     * The observation belongs to exactly this executable, configuration and environment: never record a version
+     * obtained from another file, another captured launch or another account. Null and blank leave it unknown,
+     * which keeps a restricted launch refused.
+     */
+    suspend fun observeVersion(version: String?) {}
+}
+
+/**
+ * Version of the engine that produced [userAgent], for example `heartbeat/0.166.0-alpha.5.1 (Mac OS; arm64)…`.
+ * The process reports its own build: the leading `<originator>/<version>` token is used and anything else, or an
+ * absent payload, stays unknown. SemVer validity is checked by the caller's policy, not here.
+ */
+internal fun codexEngineVersion(userAgent: String?): String? {
+    val token = userAgent?.substringBefore(' ')?.takeIf(String::isNotBlank) ?: return null
+    val version = token.substringAfter('/', "").takeIf(String::isNotBlank) ?: return null
+    return version.takeIf { it.none(Char::isWhitespace) }
 }
 
 internal interface CodexTransport {

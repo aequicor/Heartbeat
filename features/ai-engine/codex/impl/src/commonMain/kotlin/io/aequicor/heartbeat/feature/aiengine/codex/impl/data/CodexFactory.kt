@@ -114,6 +114,8 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
             try {
                 // Hosted coding tools also require experimental negotiation, independently of web search.
                 rpc.initialize(experimentalApi = true)
+                // The captured launch learns the version of the process it already holds, never by probing the file.
+                launch.observeVersion(rpc.engineVersion)
                 val owner = CodexRuntime(identity, rpc, environment, isSearchToolsEnabled, launch)
                 owner.checkAccount()
                 runtime = owner

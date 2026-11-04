@@ -73,16 +73,29 @@ internal class LocalCodexTransport(
             val environment = capturedCodexEnvironment(resolved)
             object : PreparedCodexLaunch {
                 override val isMcpEnabled = context.settings.isMcpEnabled
+                private val versionLock = Mutex()
+                private var observedVersion: String? = null
 
                 override suspend fun open(): CodexWire = openResolved(resolved, environment)
 
-                /** Legacy restrictions keep the 0.160.0 floor; protected launches are judged by the probe. */
+                /**
+                 * Legacy restrictions keep the 0.160.0 floor and are judged by the version the already held
+                 * metadata process of this captured launch reported; protected launches are judged by the probe.
+                 */
                 override suspend fun open(off: CodexNativeOff): CodexWire = if (off.isVerifiedInventoryRequired) {
                     openProtected(resolved, environment, off)
                 } else {
                     if (off.isRestricted) off.requireVersion(version())
                     openResolved(resolved, environment, off)
                 }
+
+                /** Only the held metadata process of this captured launch may establish it, never a probe. */
+                override suspend fun observeVersion(version: String?) {
+                    if (version.isNullOrBlank()) return
+                    versionLock.withLock { observedVersion = version }
+                }
+
+                override suspend fun version(): String? = versionLock.withLock { observedVersion }
 
                 override suspend fun stop(
                     owner: CodexExecutionOwner,

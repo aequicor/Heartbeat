@@ -345,6 +345,85 @@ class LocalCodexTransportTest {
         assertEquals("", arguments.readText())
     }
 
+    @Test
+    fun `held process version restores legacy restricted launch without executing a probe`() = runTest {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val dispatchers = object : DispatcherProvider {
+            override val main = dispatcher
+            override val default = dispatcher
+            override val io = dispatcher
+        }
+        val probes = temporaryFolder.newFile("observed-probes")
+        val arguments = temporaryFolder.newFile("observed-arguments")
+        val context = LaunchContext(
+            LaunchSettings(
+                executable = executable("observed", "0.163.0-alpha.10.2").absolutePath,
+                environment = listOf(
+                    EnvironmentEntry("HEARTBEAT_TEST_VERSIONS", probes.absolutePath),
+                    EnvironmentEntry("HEARTBEAT_TEST_ARGS", arguments.absolutePath),
+                ),
+            ),
+        )
+        val launch = LocalCodexTransport(
+            CodexLocalConfiguration(),
+            EngineLaunchConfig { context },
+            dispatchers,
+            FakeScope(backgroundScope),
+        ).prepare()
+        // The metadata process has not reported yet: the floor is unknown and the restricted launch refuses.
+        assertNull(launch.version())
+        assertFailsWith<EngineException> { launch.open(CodexNativeOff(isShellDisabled = true)) }
+        assertEquals("", arguments.readText())
+        launch.observeVersion("0.163.0-alpha.10.2")
+        assertEquals("0.163.0-alpha.10.2", launch.version())
+        val wire = launch.open(CodexNativeOff(isShellDisabled = true))
+        try {
+            assertEquals("observed", wire.messages.first().obj("params").text("executable"))
+        } finally {
+            wire.close()
+        }
+        assertTrue("features.shell_tool=false" in arguments.readLines())
+        // No version probe of the selected file was executed to restore the launch.
+        assertEquals("", probes.readText())
+    }
+
+    @Test
+    fun `observed old baseline prerelease and malformed versions stay refused`() = runTest {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val dispatchers = object : DispatcherProvider {
+            override val main = dispatcher
+            override val default = dispatcher
+            override val io = dispatcher
+        }
+        val versions = listOf("0.159.9", "0.160.0-alpha.1", "unknown", "1.0", "  ")
+        for ((index, version) in versions.withIndex()) {
+            val arguments = temporaryFolder.newFile("observed-legacy-arguments-$index")
+            val context = LaunchContext(
+                LaunchSettings(
+                    executable = executable("observed-legacy-$index", version).absolutePath,
+                    environment = listOf(EnvironmentEntry("HEARTBEAT_TEST_ARGS", arguments.absolutePath)),
+                ),
+            )
+            val launch = LocalCodexTransport(
+                CodexLocalConfiguration(),
+                EngineLaunchConfig { context },
+                dispatchers,
+                FakeScope(backgroundScope),
+            ).prepare()
+            launch.observeVersion(version)
+            val observed = launch.version()
+            if (version.isBlank()) {
+                assertNull(observed, "blank observation must stay unknown")
+            } else {
+                assertEquals(version, observed)
+            }
+            assertFailsWith<EngineException> { launch.open(CodexNativeOff(isShellDisabled = true)) }
+            assertEquals("", arguments.readText())
+        }
+    }
+
     /** Cancels after IO has created the process but before the awaiting coroutine resumes on main. */
     private class HandoffDispatcher(private val delegate: CoroutineDispatcher) : CoroutineDispatcher() {
         var afterDispatch: () -> Unit = {}
