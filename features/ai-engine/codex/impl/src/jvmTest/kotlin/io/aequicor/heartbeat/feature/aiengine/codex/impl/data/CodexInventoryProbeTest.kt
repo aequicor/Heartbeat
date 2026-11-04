@@ -135,7 +135,11 @@ class CodexInventoryProbeTest {
         try {
             Files.writeString(executable, "first")
             val before = codexExecutableIdentity(executable.toString())
-            Files.writeString(executable, "replacement")
+            val modified = Files.getLastModifiedTime(executable)
+            Files.writeString(executable, "other")
+            Files.setLastModifiedTime(executable, modified)
+            assertEquals(5, Files.size(executable))
+            assertEquals(modified, Files.getLastModifiedTime(executable))
             assertNotEquals(before, codexExecutableIdentity(executable.toString()))
         } finally {
             Files.delete(executable)

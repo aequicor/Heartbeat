@@ -20,19 +20,47 @@ import java.io.UncheckedIOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
+import java.security.MessageDigest
+import java.util.HexFormat
 import java.util.concurrent.TimeUnit
 
-/** File identity changes invalidate the probe even when the path and the reported version stay unchanged. */
+/**
+ * Detects changes to the file used by inventory checks, including same-size rewrites with restored timestamps.
+ * This is an observation of a mutable path, not proof of the bytes loaded by any process or an admission lease.
+ */
 internal fun codexExecutableIdentity(executable: String): String = try {
     val path = Path.of(executable).toRealPath()
-    val attributes = Files.readAttributes(path, BasicFileAttributes::class.java)
-    "$path:${attributes.fileKey()}:${attributes.size()}:${attributes.lastModifiedTime()}"
+    val before = Files.readAttributes(path, BasicFileAttributes::class.java)
+    if (!before.isRegularFile || before.size() > MAX_EXECUTABLE_BYTES) inventoryFailure()
+    val digest = MessageDigest.getInstance("SHA-256")
+    var total = 0L
+    Files.newInputStream(path).use { input ->
+        val buffer = ByteArray(HASH_BUFFER_BYTES)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > MAX_EXECUTABLE_BYTES) inventoryFailure()
+            digest.update(buffer, 0, count)
+        }
+    }
+    val after = Files.readAttributes(path, BasicFileAttributes::class.java)
+    val isChanged = before.fileKey() != after.fileKey() || before.size() != after.size() ||
+        before.lastModifiedTime() != after.lastModifiedTime()
+    if (isChanged || total != after.size()) {
+        inventoryFailure()
+    }
+    val hash = HexFormat.of().formatHex(digest.digest())
+    "$path:${after.fileKey()}:${after.size()}:${after.lastModifiedTime()}:$hash"
 } catch (error: IOException) {
     Log.tag("CodexInventoryProbe").w(IllegalStateException(error.javaClass.simpleName)) {
         "Codex executable identity unavailable"
     }
     inventoryFailure()
 }
+
+private const val MAX_EXECUTABLE_BYTES = 512L * 1024 * 1024
+private const val HASH_BUFFER_BYTES = 64 * 1024
 
 /**
  * Audits the model-facing surface of one protected working thread ([CodexInventoryTarget]) with an isolated local
