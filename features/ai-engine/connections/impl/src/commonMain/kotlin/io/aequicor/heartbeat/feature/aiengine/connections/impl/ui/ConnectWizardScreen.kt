@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -67,6 +68,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.MethodKindUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.MethodRowUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelRowUi
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.RuntimeChoiceUi
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.RuntimeSourceUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.WizardStep
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.matches
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
@@ -110,6 +113,20 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_methods_empty
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_models_intro
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_no_auth_hint
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_bundled
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_cancel_install
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_check_local
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_install
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_intro
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_local_unavailable
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_managed
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_missing
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_pick
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_pick_description
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_system
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_title
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_unknown
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_runtime_use
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_save
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_saving
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_show_key
@@ -117,6 +134,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_step_engine
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_step_method
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_step_models
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_step_runtime
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_title
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.StringResource
@@ -183,9 +201,11 @@ internal fun ConnectWizardContent(
         ) {
             WizardHeader(state)
             state.preparation?.let { EnginePreparationStatus(it) }
+            state.runtimeJobProgress?.let { EnginePreparationStatus(it) }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (state.step) {
                     WizardStep.Engine -> EngineStep(state, onIntent)
+                    WizardStep.Runtime -> RuntimeStep(state, onIntent)
                     WizardStep.Method -> MethodStep(state, onIntent)
                     WizardStep.Models, WizardStep.Done -> ModelsStep(state, onIntent)
                 }
@@ -199,21 +219,172 @@ internal fun ConnectWizardContent(
 private fun WizardHeader(state: ConnectWizardScreenState, modifier: Modifier = Modifier) {
     val (number, step) = when (state.step) {
         WizardStep.Engine -> 1 to Res.string.wizard_step_engine
+        WizardStep.Runtime -> 1 to Res.string.wizard_step_runtime
         WizardStep.Method -> 2 to Res.string.wizard_step_method
         WizardStep.Models, WizardStep.Done -> 3 to Res.string.wizard_step_models
     }
     HbColumn(modifier, gap = HbTheme.spacing.xxs) {
         HbText(
-            stringResource(Res.string.wizard_title),
+            if (state.step == WizardStep.Runtime && state.engineTitle.isNotEmpty()) {
+                stringResource(Res.string.wizard_runtime_title, state.engineTitle)
+            } else {
+                stringResource(Res.string.wizard_title)
+            },
             Modifier.semantics { heading() },
             style = HbTheme.typography.title.copy(fontWeight = FontWeight.SemiBold),
         )
         HbText(
-            stringResource(Res.string.wizard_step, number, stringResource(step)) +
-                state.engineTitle.takeIf { state.step != WizardStep.Engine && it.isNotEmpty() }?.let { " · $it" }
-                    .orEmpty(),
+            if (state.step == WizardStep.Runtime) {
+                stringResource(Res.string.wizard_runtime_intro)
+            } else {
+                stringResource(Res.string.wizard_step, number, stringResource(step)) +
+                    state.engineTitle.takeIf { state.step != WizardStep.Engine && it.isNotEmpty() }?.let { " · $it" }
+                        .orEmpty()
+            },
             style = HbTheme.typography.caption,
             color = HbTheme.colors.textSecondary,
+        )
+        if (state.hasRuntimeStep) WizardSteps(state.step)
+    }
+}
+
+@Composable
+private fun WizardSteps(current: WizardStep) {
+    HbColumn(Modifier.fillMaxWidth().padding(top = HbTheme.spacing.m), gap = HbTheme.spacing.m) {
+        HbDivider()
+        HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+            listOf(
+                WizardStep.Runtime to Res.string.wizard_step_runtime,
+                WizardStep.Method to Res.string.wizard_step_method,
+                WizardStep.Models to Res.string.wizard_step_models,
+            ).forEach { (step, label) ->
+                val isSelected = current == step || (current == WizardStep.Done && step == WizardStep.Models)
+                HbRow(
+                    Modifier.weight(1f).background(
+                        if (isSelected) HbTheme.surfaces.selected else HbTheme.surfaces.backdrop,
+                        HbTheme.shapes.small,
+                    ).padding(HbTheme.spacing.s),
+                    gap = HbTheme.spacing.s,
+                ) {
+                    HbIcon(HbIcons.Circle, null, Modifier.size(HbTheme.dimensions.iconSmallSize))
+                    HbText(stringResource(label), maxLines = 1, style = HbTheme.typography.caption)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuntimeStep(state: ConnectWizardScreenState, onIntent: (ConnectWizardScreenIntent) -> Unit) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(state.isBusy, state.hasCheckedLocalRuntime) {
+        if (!state.isBusy && !state.hasCheckedLocalRuntime) {
+            withFrameNanos { }
+            focus.requestFocus()
+        }
+    }
+    HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.m) {
+        if (state.isBusy && state.runtimeJobProgress == null) HbLoadingState(stringResource(Res.string.conn_loading))
+        state.runtimeCancellationTarget?.let { target ->
+            HbButton(
+                stringResource(Res.string.wizard_runtime_cancel_install),
+                { onIntent(ConnectWizardScreenIntent.CancelRuntimeInstallation(target)) },
+                Modifier.testTag("wizard-runtime-cancel-install"),
+                style = HbButtonStyle.Secondary,
+            )
+        }
+        state.failure?.let { failure ->
+            FailurePanel(failure, onRetry = { onIntent(ConnectWizardScreenIntent.Retry) })
+        }
+        if (!state.isBusy && !state.hasCheckedLocalRuntime) {
+            HbSettingsRow(
+                stringResource(Res.string.wizard_runtime_check_local),
+                onClick = { onIntent(ConnectWizardScreenIntent.CheckLocalRuntime) },
+                modifier = Modifier.testTag("wizard-runtime-check-local").focusRequester(focus),
+            )
+        }
+        RuntimeAlternatives(state, onIntent)
+        RuntimeChoiceStatus(state)
+        if (state.hasCheckedLocalRuntime && !state.isBusy) {
+            HbButton(
+                stringResource(Res.string.wizard_runtime_use),
+                { onIntent(ConnectWizardScreenIntent.UseRuntime) },
+                Modifier.testTag("wizard-runtime-use"),
+                enabled = state.isRuntimeUsable,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RuntimeAlternatives(state: ConnectWizardScreenState, onIntent: (ConnectWizardScreenIntent) -> Unit) {
+    if (!state.hasCheckedLocalRuntime || state.isBusy) return
+    HbColumn(gap = HbTheme.spacing.m) {
+        if (!state.hasRuntimeChoice && state.failure == null) {
+            HbText(stringResource(Res.string.wizard_runtime_local_unavailable), color = HbTheme.colors.textSecondary)
+        }
+        if (state.isSystemRuntimeAvailable) {
+            HbSettingsRow(
+                stringResource(Res.string.wizard_runtime_system),
+                onClick = { onIntent(ConnectWizardScreenIntent.InspectRuntimeSource(RuntimeSourceUi.System)) },
+                isSelected = state.selectedRuntimeChoice == RuntimeChoiceUi.System,
+                leadingContent = { HbIcon(HbIcons.Terminal, null, tint = HbTheme.colors.textSecondary) },
+                modifier = Modifier.testTag("wizard-runtime-system"),
+            )
+        }
+        if (state.isManagedRuntimeAvailable) {
+            HbSettingsRow(
+                stringResource(Res.string.wizard_runtime_managed),
+                onClick = { onIntent(ConnectWizardScreenIntent.InspectRuntimeSource(RuntimeSourceUi.Managed)) },
+                isSelected = state.selectedRuntimeChoice == RuntimeChoiceUi.Managed,
+                leadingContent = { HbIcon(HbIcons.Terminal, null, tint = HbTheme.colors.textSecondary) },
+                modifier = Modifier.testTag("wizard-runtime-managed"),
+            )
+        }
+        if (state.isBundledRuntimeAvailable) {
+            HbSettingsRow(
+                stringResource(Res.string.wizard_runtime_bundled),
+                onClick = { onIntent(ConnectWizardScreenIntent.InspectRuntimeSource(RuntimeSourceUi.Bundled)) },
+                isSelected = state.selectedRuntimeChoice == RuntimeChoiceUi.Bundled,
+                leadingContent = { HbIcon(HbIcons.Terminal, null, tint = HbTheme.colors.textSecondary) },
+                modifier = Modifier.testTag("wizard-runtime-bundled"),
+            )
+        }
+        if (state.isRuntimePickerAvailable) {
+            HbSettingsRow(
+                stringResource(Res.string.wizard_runtime_pick),
+                description = stringResource(Res.string.wizard_runtime_pick_description),
+                onClick = { onIntent(ConnectWizardScreenIntent.PickRuntime) },
+                isSelected = state.selectedRuntimeChoice == RuntimeChoiceUi.Custom,
+                leadingContent = { HbIcon(HbIcons.Terminal, null, tint = HbTheme.colors.textSecondary) },
+                modifier = Modifier.testTag("wizard-runtime-pick"),
+            )
+        }
+        RuntimeInstallAction(state, onIntent)
+    }
+}
+
+@Composable
+private fun RuntimeChoiceStatus(state: ConnectWizardScreenState) {
+    state.runtimePath?.let { path -> HbText(path.value, color = HbTheme.colors.textSecondary) }
+    if (state.hasRuntimeChoice && !state.isRuntimeUsable) {
+        val message = if (state.isRuntimeMissing) {
+            Res.string.wizard_runtime_missing
+        } else {
+            Res.string.wizard_runtime_unknown
+        }
+        HbText(stringResource(message), color = HbTheme.colors.textSecondary)
+    }
+}
+
+@Composable
+private fun RuntimeInstallAction(state: ConnectWizardScreenState, onIntent: (ConnectWizardScreenIntent) -> Unit) {
+    if (state.hasCheckedLocalRuntime && state.isManagedInstallationAvailable && !state.isBusy) {
+        HbSettingsRow(
+            stringResource(Res.string.wizard_runtime_install),
+            leadingContent = { HbIcon(HbIcons.Download, null, tint = HbTheme.colors.textSecondary) },
+            onClick = { onIntent(ConnectWizardScreenIntent.InstallManagedRuntime) },
+            modifier = Modifier.testTag("wizard-runtime-install"),
         )
     }
 }
@@ -614,6 +785,14 @@ private fun WizardFooter(
             enabled = state.isCancelAllowed,
         )
         Box(Modifier.weight(1f))
+        if (state.step == WizardStep.Runtime) {
+            HbButton(
+                stringResource(Res.string.conn_back),
+                { onIntent(ConnectWizardScreenIntent.Back) },
+                style = HbButtonStyle.Secondary,
+                enabled = !state.isBusy,
+            )
+        }
         if (state.step == WizardStep.Method) {
             HbButton(
                 stringResource(Res.string.conn_back),

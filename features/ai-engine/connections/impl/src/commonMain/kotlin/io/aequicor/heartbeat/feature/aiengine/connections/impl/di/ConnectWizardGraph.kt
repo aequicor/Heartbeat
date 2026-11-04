@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.ConnectW
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ConnectWizardEffects
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineServices
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ModelChecksCoordinator
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.RuntimeFilePicker
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.component.ConnectWizardComponent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ui.ConnectWizardUiComponent
 
@@ -63,8 +64,12 @@ object ConnectWizardBindings {
         services: EngineServices,
         selections: ModelSelections,
         checks: ModelChecksCoordinator,
-    ): Machine<ConnectWizardState, ConnectWizardIntent, ConnectWizardOutput> =
-        launcher.launch(ConnectWizardMachineSpec, scope, ConnectWizardEffects(services, selections, checks))
+        runtimePicker: RuntimeFilePicker,
+    ): Machine<ConnectWizardState, ConnectWizardIntent, ConnectWizardOutput> = launcher.launch(
+        ConnectWizardMachineSpec,
+        scope,
+        ConnectWizardEffects(services, selections, checks, runtimePicker),
+    )
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

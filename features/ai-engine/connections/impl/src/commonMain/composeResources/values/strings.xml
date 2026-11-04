@@ -33,7 +33,7 @@
     <string name="wizard_title">Connect an engine</string>
     <string name="wizard_step">Step %1$d of 3 · %2$s</string>
     <string name="wizard_step_engine">Engine</string>
-    <string name="wizard_step_method">Authentication</string>
+    <string name="wizard_step_method">Access</string>
     <string name="wizard_group_subscription">Subscription</string>
     <string name="wizard_group_subscription_hint">Choose your plan</string>
     <string name="wizard_group_provider">Provider presets</string>
@@ -137,4 +137,19 @@
     <string name="settings_edit_pending">The save outcome is not yet known. Check the connection before trying again.</string>
     <string name="settings_edit_conflict">The connection changed. Close and reopen this form, then enter the new key again if needed.</string>
     <string name="settings_edit_failed">The save could not be confirmed. Close and reopen the form to check the connection before trying again.</string>
+    <string name="wizard_step_runtime">Installation</string>
+    <string name="wizard_runtime_title">Install %1$s</string>
+    <string name="wizard_runtime_intro">Choose a local installation or a stable version for Heartbeat</string>
+    <string name="wizard_runtime_pick">Choose another executable</string>
+    <string name="wizard_runtime_pick_description">The selected file will be checked again</string>
+    <string name="wizard_runtime_check_local">Check locally</string>
+    <string name="wizard_runtime_local_unavailable">No local installation source is available to check</string>
+    <string name="wizard_runtime_unknown">Compatibility could not be confirmed</string>
+    <string name="wizard_runtime_use">Use this installation</string>
+    <string name="wizard_runtime_system">Use system installation</string>
+    <string name="wizard_runtime_managed">Use Heartbeat installation</string>
+    <string name="wizard_runtime_bundled">Use the version included with Heartbeat</string>
+    <string name="wizard_runtime_install">Download a stable version for Heartbeat</string>
+    <string name="wizard_runtime_cancel_install">Cancel installation</string>
+    <string name="wizard_runtime_missing">The selected installation was not found or is not executable</string>
 </resources>

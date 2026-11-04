@@ -10,16 +10,21 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingEngine
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingModels
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingRuntime
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.Connecting
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.Finished
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.Idle
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.PreparingRuntime
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.RollingBack
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.Saving
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 
 /**
  * Wizard engine → authentication → models. The binding is created before model discovery, because models are only
@@ -33,11 +38,23 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
  * | From | Intent | Guard | To | Effect / Output |
  * |---|---|---|---|---|
  * | Idle | Start | | ChoosingEngine | ObserveEngines |
- * | ChoosingEngine | EnginesChanged | preselected engine connectable | ChoosingMethod | |
+ * | ChoosingEngine | EnginesChanged | preselected engine connectable | PreparingRuntime | LoadRuntimeOptions |
  * | ChoosingEngine | EnginesChanged | otherwise | stay (preselection dropped unless the catalog is empty) | |
  * | ChoosingEngine | EnginesFailed | | stay (failure) | |
  * | ChoosingEngine | Retry | has failure | ChoosingEngine (re-entry) | ObserveEngines |
- * | ChoosingEngine | ChooseEngine | engine connectable | ChoosingMethod | |
+ * | ChoosingEngine | ChooseEngine | engine connectable | PreparingRuntime | LoadRuntimeOptions |
+ * | PreparingRuntime | RuntimeOptionsLoaded | built in or management unavailable | ChoosingMethod | |
+ * | PreparingRuntime | RuntimeOptionsLoaded | installation actions declared | ChoosingRuntime | |
+ * | PreparingRuntime | RuntimeOptionsFailed / Retry | | stay / PreparingRuntime | LoadRuntimeOptions on retry |
+ * | ChoosingRuntime | CheckLocalRuntime / Retry | idle | stay (checking) | CheckLocalRuntime |
+ * | ChoosingRuntime | PickRuntimeFile / InspectRuntimeSource | checked, declared, idle | stay | inspect |
+ * | ChoosingRuntime | InstallManagedRuntime | local check complete, declared and idle | stay (busy) | install |
+ * | ChoosingRuntime | RuntimeFilePicked / RuntimeFilePickFailed | picking | stay | |
+ * | ChoosingRuntime | UseRuntimeChoice | inspected baseline allowed | ChoosingMethod | |
+ * | PreparingRuntime, ChoosingRuntime | Back / Dismiss | | ChoosingEngine | ObserveEngines |
+ * | ChoosingMethod | PickRuntimeFile | no operation running | stay (picking) | PickRuntimeFile |
+ * | ChoosingMethod | RuntimeFilePicked / RuntimeFilePickFailed | picking | stay | |
+ * | ChoosingMethod | ClearRuntimeChoice | not picking | stay | |
  * | ChoosingMethod | CheckConnection | accepts credential, no check running | stay (check Running) | CheckConnection |
  * | ChoosingMethod | ConnectionChecked | check running | stay (check result) | |
  * | ChoosingMethod | Connect | accepts credential, no check running | Connecting | Connect |
@@ -75,7 +92,11 @@ public val ConnectWizardMachineSpec:
         }
         state<ChoosingEngine> {
             on<Internal.EnginesChanged>(guard = { state.preselectedIn(intent.engines) != null }) {
-                goto<ChoosingMethod> { ChoosingMethod(requireNotNull(state.preselectedIn(intent.engines))) }
+                goto<PreparingRuntime> { PreparingRuntime(requireNotNull(state.preselectedIn(intent.engines))) }
+                effect {
+                    val selected = requireNotNull(state.preselectedIn(intent.engines))
+                    ConnectWizardEffect.LoadRuntimeOptions(selected.descriptor.id)
+                }
             }
             on<Internal.EnginesChanged>(guard = { state.preselectedIn(intent.engines) == null }) {
                 stay {
@@ -90,13 +111,179 @@ public val ConnectWizardMachineSpec:
                 effect { ObserveEngines }
             }
             on<Public.ChooseEngine>(guard = { state.engines.connectable(intent.engine) != null }) {
-                goto<ChoosingMethod> { ChoosingMethod(requireNotNull(state.engines.connectable(intent.engine))) }
+                goto<PreparingRuntime> { PreparingRuntime(requireNotNull(state.engines.connectable(intent.engine))) }
+                effect { ConnectWizardEffect.LoadRuntimeOptions(intent.engine) }
             }
             on<Public.Cancel> { cancel() }
             on<Public.Dismiss> { cancel() }
         }
+        state<PreparingRuntime> {
+            on<Internal.RuntimeOptionsLoaded>(guard = { intent.options == null }) {
+                goto<ChoosingMethod> { ChoosingMethod(state.engine) }
+            }
+            on<Internal.RuntimeOptionsLoaded>(guard = { intent.options != null }) {
+                goto<ChoosingRuntime> { ChoosingRuntime(state.engine, requireNotNull(intent.options)) }
+                effect { ConnectWizardEffect.ObserveRuntimeJob(state.engine.descriptor.id) }
+            }
+            on<Internal.RuntimeOptionsFailed> { stay { state.copy(failure = intent.failure) } }
+            on<Public.Retry>(guard = { state.failure != null }) {
+                goto<PreparingRuntime> { state.copy(failure = null) }
+                effect { ConnectWizardEffect.LoadRuntimeOptions(state.engine.descriptor.id) }
+            }
+            on<Public.Back> {
+                goto<ChoosingEngine> { ChoosingEngine() }
+                effect { ObserveEngines }
+            }
+            on<Public.Dismiss> {
+                goto<ChoosingEngine> { ChoosingEngine() }
+                effect { ObserveEngines }
+            }
+            on<Public.Cancel> { cancel() }
+        }
+        state<ChoosingRuntime> {
+            on<Internal.RuntimeJobChanged> {
+                stay {
+                    state.copy(
+                        runtimeJob = intent.job,
+                        options = state.options.copy(isManagedInstallAvailable = intent.isManagedInstallAvailable),
+                    )
+                }
+            }
+            on<Public.CheckLocalRuntime>(guard = { !state.isPicking && !state.isManagementBusy() }) {
+                stay { state.copy(isPicking = true, isCheckingLocal = true, failure = null) }
+                effect {
+                    val source = listOf(RuntimePreference.System, RuntimePreference.Bundled)
+                        .firstOrNull { it in state.options.sources }
+                    ConnectWizardEffect.CheckLocalRuntime(state.engine.descriptor.id, source)
+                }
+            }
+            on<Public.Retry>(guard = { !state.isPicking && !state.isManagementBusy() && state.failure != null }) {
+                stay { state.copy(isPicking = true, isCheckingLocal = true, failure = null) }
+                effect {
+                    val source = listOf(RuntimePreference.System, RuntimePreference.Bundled)
+                        .firstOrNull { it in state.options.sources }
+                    ConnectWizardEffect.CheckLocalRuntime(state.engine.descriptor.id, source)
+                }
+            }
+            on<Public.InstallManagedRuntime>(
+                guard = {
+                    state.hasCheckedLocal && !state.isPicking && !state.isManagementBusy() &&
+                        state.options.isManagedInstallAvailable
+                },
+            ) {
+                stay { state.copy(isPicking = true, isInstalling = true, failure = null) }
+                effect { ConnectWizardEffect.InstallManagedRuntime(state.engine.descriptor.id) }
+            }
+            on<Internal.RuntimeInstallationStarted>(guard = { state.isInstalling && state.isPicking }) {
+                stay { state.copy(isInstallationStarted = true, installationHandle = intent.handle) }
+            }
+            on<Public.CancelRuntimeInstallation>(guard = {
+                !state.isCancellingInstallation && state.cancellableInstallation() === intent.handle
+            }) {
+                stay { state.copy(isCancellingInstallation = true) }
+                effect { ConnectWizardEffect.CancelRuntimeInstallation(intent.handle) }
+            }
+            on<Internal.RuntimeInstallationCancelled>(guard = {
+                state.isInstalling || state.isCancellingInstallation
+            }) {
+                stay {
+                    state.copy(
+                        isPicking = false,
+                        isInstalling = false,
+                        isInstallationStarted = false,
+                        installationHandle = null,
+                        isCancellingInstallation = false,
+                    )
+                }
+            }
+            on<Internal.RuntimeInstallationCancelFailed>(guard = { state.isCancellingInstallation }) {
+                stay { state.copy(isCancellingInstallation = false, failure = intent.failure) }
+            }
+            on<Internal.RuntimeInstallationAlreadyFinished>(guard = { state.isCancellingInstallation }) {
+                stay { state.copy(isCancellingInstallation = false) }
+            }
+            on<Public.InspectRuntimeSource>(guard = {
+                state.hasCheckedLocal && !state.isPicking && !state.isManagementBusy() &&
+                    intent.source in state.options.sources
+            }) {
+                stay { state.copy(isPicking = true, failure = null) }
+                effect { ConnectWizardEffect.InspectRuntimeSource(state.engine.descriptor.id, intent.source) }
+            }
+            on<Public.PickRuntimeFile>(guard = {
+                state.hasCheckedLocal && state.options.isFilePickerAvailable && !state.isPicking &&
+                    !state.isManagementBusy()
+            }) {
+                stay { state.copy(isPicking = true, failure = null) }
+                effect { ConnectWizardEffect.PickRuntimeFile(state.engine.descriptor.id) }
+            }
+            on<Internal.RuntimeFilePicked>(guard = { state.isPicking }) {
+                stay {
+                    state.copy(
+                        isPicking = false,
+                        choice = intent.choice ?: state.choice,
+                        hasCheckedLocal = state.hasCheckedLocal || state.isCheckingLocal,
+                        isCheckingLocal = false,
+                        isInstalling = false,
+                        isInstallationStarted = false,
+                        installationHandle = null,
+                        isCancellingInstallation = false,
+                    )
+                }
+            }
+            on<Internal.RuntimeFilePickFailed>(guard = { state.isPicking }) {
+                stay {
+                    state.copy(
+                        isPicking = false,
+                        failure = intent.failure,
+                        hasCheckedLocal = state.hasCheckedLocal || state.isCheckingLocal,
+                        isCheckingLocal = false,
+                        isInstalling = false,
+                        isInstallationStarted = false,
+                        installationHandle = null,
+                        isCancellingInstallation = false,
+                    )
+                }
+            }
+            on<Public.ClearRuntimeChoice>(guard = { !state.isPicking }) {
+                stay { state.copy(choice = null, failure = null) }
+            }
+            on<Public.UseRuntimeChoice>(
+                guard = {
+                    state.hasCheckedLocal && !state.isPicking && !state.isManagementBusy() &&
+                        state.choice != null && state.choice.isUsable()
+                },
+            ) {
+                goto<ChoosingMethod> {
+                    ChoosingMethod(state.engine, runtimeChoice = state.choice, runtimeOptions = state.options)
+                }
+            }
+            on<Public.Back> {
+                goto<ChoosingEngine> { ChoosingEngine() }
+                effect { ObserveEngines }
+            }
+            on<Public.Dismiss> {
+                goto<ChoosingEngine> { ChoosingEngine() }
+                effect { ObserveEngines }
+            }
+            on<Public.Cancel> { cancel() }
+        }
         state<ChoosingMethod> {
-            on<Public.CheckConnection>(guard = { state.isReadyFor(intent.method, intent.credential) }) {
+            on<Public.PickRuntimeFile>(guard = { !state.isPickingRuntime && state.check != ConnectionCheck.Running }) {
+                stay { state.copy(isPickingRuntime = true, failure = null) }
+                effect { ConnectWizardEffect.PickRuntimeFile(state.engine.descriptor.id) }
+            }
+            on<Internal.RuntimeFilePicked>(guard = { state.isPickingRuntime }) {
+                stay { state.copy(isPickingRuntime = false, runtimeChoice = intent.choice ?: state.runtimeChoice) }
+            }
+            on<Internal.RuntimeFilePickFailed>(guard = { state.isPickingRuntime }) {
+                stay { state.copy(isPickingRuntime = false, failure = intent.failure) }
+            }
+            on<Public.ClearRuntimeChoice>(guard = { !state.isPickingRuntime }) {
+                stay { state.copy(runtimeChoice = null, failure = null) }
+            }
+            on<Public.CheckConnection>(guard = {
+                state.runtimeChoice == null && state.isReadyFor(intent.method, intent.credential)
+            }) {
                 stay { state.copy(failure = null, check = ConnectionCheck.Running) }
                 effect {
                     val method = requireNotNull(state.engine.method(intent.method))
@@ -109,19 +296,46 @@ public val ConnectWizardMachineSpec:
                 stay { state.copy(check = intent.result) }
             }
             on<Public.Connect>(guard = { state.isReadyFor(intent.method, intent.credential) }) {
-                goto<Connecting> { Connecting(state.engine, intent.method) }
+                goto<Connecting> { Connecting(state.engine, intent.method, state.runtimeChoice, state.runtimeOptions) }
                 effect {
                     val method = requireNotNull(state.engine.method(intent.method))
-                    ConnectWizardEffect.Connect(state.engine.descriptor.id, method, intent.credential)
+                    ConnectWizardEffect.Connect(
+                        state.engine.descriptor.id,
+                        method,
+                        intent.credential,
+                        state.runtimeChoice,
+                    )
                 }
             }
-            on<Public.Back> {
+            on<Public.Back>(guard = { state.runtimeOptions == null }) {
                 goto<ChoosingEngine> { ChoosingEngine() }
                 effect { ObserveEngines }
             }
-            on<Public.Dismiss> {
+            on<Public.Back>(guard = { state.runtimeOptions != null }) {
+                goto<ChoosingRuntime> {
+                    ChoosingRuntime(
+                        state.engine,
+                        requireNotNull(state.runtimeOptions),
+                        state.runtimeChoice,
+                        hasCheckedLocal = true,
+                    )
+                }
+                effect { ConnectWizardEffect.ObserveRuntimeJob(state.engine.descriptor.id) }
+            }
+            on<Public.Dismiss>(guard = { state.runtimeOptions == null }) {
                 goto<ChoosingEngine> { ChoosingEngine() }
                 effect { ObserveEngines }
+            }
+            on<Public.Dismiss>(guard = { state.runtimeOptions != null }) {
+                goto<ChoosingRuntime> {
+                    ChoosingRuntime(
+                        state.engine,
+                        requireNotNull(state.runtimeOptions),
+                        state.runtimeChoice,
+                        hasCheckedLocal = true,
+                    )
+                }
+                effect { ConnectWizardEffect.ObserveRuntimeJob(state.engine.descriptor.id) }
             }
             on<Public.Cancel> { cancel() }
         }
@@ -136,7 +350,16 @@ public val ConnectWizardMachineSpec:
                 }
                 effect { ConnectWizardEffect.DiscoverModels(state.engine.descriptor.id, intent.connection.binding) }
             }
-            on<Internal.ConnectFailed> { goto<ChoosingMethod> { ChoosingMethod(state.engine, intent.failure) } }
+            on<Internal.ConnectFailed> {
+                goto<ChoosingMethod> {
+                    ChoosingMethod(
+                        state.engine,
+                        intent.failure,
+                        runtimeChoice = state.runtimeChoice,
+                        runtimeOptions = state.runtimeOptions,
+                    )
+                }
+            }
         }
         state<ChoosingModels> {
             on<Internal.ModelsLoaded> {
@@ -209,6 +432,13 @@ public val ConnectWizardMachineSpec:
             val failure = error.toEngineFailure()
             when (effect) {
                 ObserveEngines -> Internal.EnginesFailed(failure)
+                is ConnectWizardEffect.LoadRuntimeOptions -> Internal.RuntimeOptionsFailed(failure)
+                is ConnectWizardEffect.ObserveRuntimeJob -> Internal.RuntimeOptionsFailed(failure)
+                is ConnectWizardEffect.CheckLocalRuntime -> Internal.RuntimeFilePickFailed(failure)
+                is ConnectWizardEffect.PickRuntimeFile -> Internal.RuntimeFilePickFailed(failure)
+                is ConnectWizardEffect.InspectRuntimeSource -> Internal.RuntimeFilePickFailed(failure)
+                is ConnectWizardEffect.InstallManagedRuntime -> Internal.RuntimeFilePickFailed(failure)
+                is ConnectWizardEffect.CancelRuntimeInstallation -> Internal.RuntimeInstallationCancelFailed(failure)
                 is ConnectWizardEffect.Connect -> Internal.ConnectFailed(failure)
                 is ConnectWizardEffect.CheckConnection -> Internal.ConnectionChecked(ConnectionCheck.Failed(failure))
                 is ConnectWizardEffect.DiscoverModels -> Internal.ModelsFailed(failure)
@@ -258,4 +488,23 @@ private fun EngineInfo.method(id: ConnectionMethodId): ConnectionMethod? =
     descriptor.connectionMethods.firstOrNull { it.id == id }
 
 private fun ChoosingMethod.isReadyFor(method: ConnectionMethodId, credential: CredentialInput): Boolean =
-    check != ConnectionCheck.Running && engine.method(method)?.accepts(credential) == true
+    !isPickingRuntime && runtimeChoice.isUsable() && check != ConnectionCheck.Running &&
+        engine.method(method)?.accepts(credential) == true
+
+private fun WizardRuntimeChoice?.isUsable(): Boolean {
+    if (this == null) return true
+    val found = inspection ?: return false
+    return found.installation.isRunnable && found.installation.source != InstallSource.Missing &&
+        found.compatibility?.decision?.isBaselineAllowed == true
+}
+
+private fun ChoosingRuntime.isManagementBusy(): Boolean = runtimeJob?.phase?.isFinished == false
+
+private fun ChoosingRuntime.cancellableInstallation() = if (isInstalling && isInstallationStarted) {
+    installationHandle
+} else {
+    runtimeJob?.takeIf {
+        !it.phase.isFinished && (it.action == EngineAction.Install || it.action == EngineAction.Update)
+    }
+        ?.handle
+}

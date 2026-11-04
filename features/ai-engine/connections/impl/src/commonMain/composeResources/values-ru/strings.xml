@@ -33,7 +33,7 @@
     <string name="wizard_title">Подключение движка</string>
     <string name="wizard_step">Шаг %1$d из 3 · %2$s</string>
     <string name="wizard_step_engine">Движок</string>
-    <string name="wizard_step_method">Авторизация</string>
+    <string name="wizard_step_method">Доступ</string>
     <string name="wizard_group_subscription">Подписка</string>
     <string name="wizard_group_subscription_hint">Выберите ваш тарифный план</string>
     <string name="wizard_group_provider">Готовые настройки провайдеров</string>
@@ -137,4 +137,19 @@
     <string name="settings_edit_pending">Результат сохранения ещё неизвестен. Проверьте подключение перед повтором.</string>
     <string name="settings_edit_conflict">Подключение изменилось. Закройте и откройте форму снова, затем при необходимости введите новый ключ.</string>
     <string name="settings_edit_failed">Не удалось подтвердить сохранение. Закройте и откройте форму, чтобы проверить подключение перед повтором.</string>
+    <string name="wizard_step_runtime">Установка</string>
+    <string name="wizard_runtime_title">Установка %1$s</string>
+    <string name="wizard_runtime_intro">Выберите локальную установку или стабильную версию для Heartbeat</string>
+    <string name="wizard_runtime_pick">Выбрать другой исполняемый файл</string>
+    <string name="wizard_runtime_pick_description">Выбранный файл будет проверен повторно</string>
+    <string name="wizard_runtime_check_local">Проверить локально</string>
+    <string name="wizard_runtime_local_unavailable">Нет доступного источника для локальной проверки</string>
+    <string name="wizard_runtime_unknown">Совместимость не подтверждена</string>
+    <string name="wizard_runtime_use">Использовать эту установку</string>
+    <string name="wizard_runtime_system">Использовать системную установку</string>
+    <string name="wizard_runtime_managed">Использовать установку для Heartbeat</string>
+    <string name="wizard_runtime_bundled">Использовать версию из Heartbeat</string>
+    <string name="wizard_runtime_install">Скачать стабильную версию для Heartbeat</string>
+    <string name="wizard_runtime_cancel_install">Отменить установку</string>
+    <string name="wizard_runtime_missing">Выбранная установка не найдена или файл не исполняется</string>
 </resources>

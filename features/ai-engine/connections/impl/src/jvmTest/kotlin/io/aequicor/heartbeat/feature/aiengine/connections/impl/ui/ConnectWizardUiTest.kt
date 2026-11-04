@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardRuntimeOptions
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
@@ -26,7 +27,9 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CredentialForm
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.RuntimeJobHandle
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.SecretText
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.WizardStep
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connect
@@ -36,7 +39,10 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import org.jetbrains.compose.resources.getString
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -44,6 +50,54 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class ConnectWizardUiTest {
+    @Test
+    fun `confirmed runtime can be selected from the installation step`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<ConnectWizardScreenIntent>()
+        val state = ConnectWizardScreenState(
+            step = WizardStep.Runtime,
+            isBusy = false,
+            hasRuntimeStep = true,
+            hasCheckedLocalRuntime = true,
+            hasRuntimeChoice = true,
+            isRuntimeUsable = true,
+        )
+        setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
+        onNodeWithTag("wizard-runtime-use").performClick()
+        runOnIdle { assertEquals(listOf<ConnectWizardScreenIntent>(ConnectWizardScreenIntent.UseRuntime), intents) }
+    }
+
+    private val jobHandle = object : EngineOwnedJob {
+        override suspend fun await(): JobPhase = JobPhase.Cancelled
+        override suspend fun cancel(): JobPhase = JobPhase.Cancelled
+    }
+
+    @Test
+    fun `active owned installation offers explicit cancellation`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<ConnectWizardScreenIntent>()
+        val options = WizardRuntimeOptions(true, true, setOf(RuntimePreference.System))
+        val state = ConnectWizardScreenState().reflect(
+            ConnectWizardState.ChoosingRuntime(
+                engineInfo(),
+                options,
+                isPicking = true,
+                hasCheckedLocal = true,
+                isInstalling = true,
+                isInstallationStarted = true,
+                installationHandle = jobHandle,
+            ),
+        )
+        setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
+        onNodeWithTag("wizard-runtime-cancel-install").performClick()
+        runOnIdle {
+            assertEquals(
+                listOf<ConnectWizardScreenIntent>(
+                    ConnectWizardScreenIntent.CancelRuntimeInstallation(RuntimeJobHandle(jobHandle)),
+                ),
+                intents,
+            )
+        }
+    }
+
     @Test
     fun `access group offers only declared categories and opens provider choices`() = runSkikoComposeUiTest {
         val intents = mutableListOf<ConnectWizardScreenIntent>()

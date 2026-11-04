@@ -24,10 +24,14 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.ConnectWizardScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.isCompatibleOriginAllowed
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -44,7 +48,13 @@ import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
 
 /** Wizard steps as shown to the user. */
-enum class WizardStep { Engine, Method, Models, Done }
+enum class WizardStep { Engine, Runtime, Method, Models, Done }
+
+/** User-visible installation sources. */
+enum class RuntimeSourceUi { System, Managed, Bundled }
+
+/** Source represented by the current, still uncommitted runtime choice. */
+enum class RuntimeChoiceUi { System, Managed, Bundled, Custom }
 
 /** Form validation problems found before the machine is asked to connect. */
 enum class FormError { MissingKey, InvalidOrigin, InsecureOrigin }
@@ -53,6 +63,18 @@ enum class FormError { MissingKey, InvalidOrigin, InsecureOrigin }
 @Immutable
 data class SecretText(val value: String = "") {
     override fun toString(): String = "SecretText(***)"
+}
+
+/** A user-selected local path; screen logging must not disclose it. */
+@Immutable
+data class RuntimePath(val value: String) {
+    override fun toString(): String = "RuntimePath(***)"
+}
+
+/** Exact profile job selected for cancellation; never rendered or logged. */
+@Immutable
+data class RuntimeJobHandle(val value: EngineOwnedJob) {
+    override fun toString(): String = "RuntimeJobHandle"
 }
 
 /** Editable credential form of the selected method. */
@@ -78,12 +100,44 @@ data class ConnectWizardScreenState(
     val isFinishing: Boolean = false,
     val failure: FailureUi? = null,
     val preparation: EnginePreparationUi? = null,
+    val runtimeJobProgress: EnginePreparationUi? = null,
+    val hasRuntimeStep: Boolean = false,
+    val isRuntimePickerAvailable: Boolean = false,
+    val isSystemRuntimeAvailable: Boolean = false,
+    val isManagedRuntimeAvailable: Boolean = false,
+    val isBundledRuntimeAvailable: Boolean = false,
+    val isManagedInstallationAvailable: Boolean = false,
+    val hasCheckedLocalRuntime: Boolean = false,
+    val runtimeCancellationTarget: RuntimeJobHandle? = null,
+    val hasRuntimeChoice: Boolean = false,
+    val selectedRuntimeChoice: RuntimeChoiceUi? = null,
+    val isRuntimeMissing: Boolean = false,
+    val runtimePath: RuntimePath? = null,
+    val isRuntimeUsable: Boolean = false,
 ) : MVIState
 
 /** User events of the wizard. */
 sealed interface ConnectWizardScreenIntent : MVIIntent {
     /** Picks an engine on the first step. */
     data class ChooseEngine(val id: String) : ConnectWizardScreenIntent
+
+    /** Opens the native executable picker. */
+    data object PickRuntime : ConnectWizardScreenIntent
+
+    /** Checks the local installation before offering other sources. */
+    data object CheckLocalRuntime : ConnectWizardScreenIntent
+
+    /** Accepts the inspected runtime choice. */
+    data object UseRuntime : ConnectWizardScreenIntent
+
+    /** Starts installation of a managed runtime. */
+    data object InstallManagedRuntime : ConnectWizardScreenIntent
+
+    /** Cancels this wizard's active installation without closing the wizard. */
+    data class CancelRuntimeInstallation(val handle: RuntimeJobHandle) : ConnectWizardScreenIntent
+
+    /** Inspects the declared runtime source. */
+    data class InspectRuntimeSource(val source: RuntimeSourceUi) : ConnectWizardScreenIntent
 
     /** Picks a provider/method; resets the form to its defaults. */
     data class SelectMethod(val id: String) : ConnectWizardScreenIntent
@@ -160,6 +214,10 @@ class ConnectWizardModel(
                     val id = when (state) {
                         is ConnectWizardState.ChoosingMethod -> state.engine.descriptor.id
 
+                        is ConnectWizardState.PreparingRuntime -> state.engine.descriptor.id
+
+                        is ConnectWizardState.ChoosingRuntime -> state.engine.descriptor.id
+
                         is ConnectWizardState.Connecting -> state.engine.descriptor.id
 
                         is ConnectWizardState.ChoosingModels -> state.engine
@@ -194,6 +252,31 @@ class ConnectWizardModel(
             when (intent) {
                 is ConnectWizardScreenIntent.ChooseEngine ->
                     sendTo(machine, ConnectWizardIntent.Public.ChooseEngine(EngineId(intent.id)))
+
+                ConnectWizardScreenIntent.PickRuntime -> sendTo(machine, ConnectWizardIntent.Public.PickRuntimeFile)
+
+                ConnectWizardScreenIntent.CheckLocalRuntime ->
+                    sendTo(machine, ConnectWizardIntent.Public.CheckLocalRuntime)
+
+                ConnectWizardScreenIntent.UseRuntime -> sendTo(machine, ConnectWizardIntent.Public.UseRuntimeChoice)
+
+                ConnectWizardScreenIntent.InstallManagedRuntime ->
+                    sendTo(machine, ConnectWizardIntent.Public.InstallManagedRuntime)
+
+                is ConnectWizardScreenIntent.CancelRuntimeInstallation ->
+                    sendTo(machine, ConnectWizardIntent.Public.CancelRuntimeInstallation(intent.handle.value))
+
+                is ConnectWizardScreenIntent.InspectRuntimeSource ->
+                    sendTo(
+                        machine,
+                        ConnectWizardIntent.Public.InspectRuntimeSource(
+                            when (intent.source) {
+                                RuntimeSourceUi.System -> RuntimePreference.System
+                                RuntimeSourceUi.Managed -> RuntimePreference.Managed
+                                RuntimeSourceUi.Bundled -> RuntimePreference.Bundled
+                            },
+                        ),
+                    )
 
                 is ConnectWizardScreenIntent.SelectMethod -> updateState { selectMethod(intent.id) }
 
@@ -360,37 +443,40 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
     ConnectWizardState.Idle -> ConnectWizardScreenState()
 
     // Leaving the method step drops the form, so a typed key never outlives it or reaches another engine.
-    is ConnectWizardState.ChoosingEngine -> copy(
-        step = WizardStep.Engine,
-        selectedMethod = null,
-        selectedGroup = null,
-        form = CredentialForm(),
-        formError = null,
-        engines = state.engines?.map { it.toRow() }?.toImmutableList(),
-        isBusy = state.engines == null && state.failure == null,
+    is ConnectWizardState.ChoosingEngine -> reflectEngines(state)
+
+    is ConnectWizardState.PreparingRuntime -> copy(
+        step = WizardStep.Runtime,
+        engineTitle = state.engine.descriptor.title,
+        isBusy = state.failure == null,
         isCancelAllowed = true,
-        isNewConnection = true,
-        isFinishing = false,
+        runtimeJobProgress = null,
         failure = state.failure?.toUi(),
     )
+
+    is ConnectWizardState.ChoosingRuntime -> reflectRuntime(state)
 
     is ConnectWizardState.ChoosingMethod -> withMethods(state.engine.descriptor.title, state.engine.methods())
         .copy(
             step = WizardStep.Method,
-            isBusy = state.check == ConnectionCheck.Running,
+            hasRuntimeStep = state.runtimeOptions != null,
+            isBusy = state.isPickingRuntime || state.check == ConnectionCheck.Running,
             isCancelAllowed = true,
             isNewConnection = true,
             isFinishing = false,
+            runtimeJobProgress = null,
             failure = state.failure?.toUi(),
         )
 
     is ConnectWizardState.Connecting -> withMethods(state.engine.descriptor.title, state.engine.methods())
         .copy(
             step = WizardStep.Method,
+            hasRuntimeStep = state.runtimeOptions != null,
             isBusy = true,
             isCancelAllowed = false,
             isNewConnection = true,
             isFinishing = false,
+            runtimeJobProgress = null,
             failure = null,
         )
 
@@ -402,6 +488,7 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
         isCancelAllowed = true,
         isNewConnection = state.connection.isCreated,
         isFinishing = false,
+        runtimeJobProgress = null,
         failure = state.failure?.toUi(),
     )
 
@@ -411,6 +498,7 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
         isCancelAllowed = false,
         isNewConnection = state.connection.isCreated,
         isFinishing = true,
+        runtimeJobProgress = null,
         failure = null,
     )
 
@@ -420,6 +508,78 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
     is ConnectWizardState.Finished, ConnectWizardState.Cancelled ->
         terminal()
 }
+
+private fun ConnectWizardScreenState.reflectEngines(state: ConnectWizardState.ChoosingEngine) = copy(
+    step = WizardStep.Engine,
+    selectedMethod = null,
+    selectedGroup = null,
+    form = CredentialForm(),
+    formError = null,
+    engines = state.engines?.map { it.toRow() }?.toImmutableList(),
+    isBusy = state.engines == null && state.failure == null,
+    isCancelAllowed = true,
+    isNewConnection = true,
+    isFinishing = false,
+    isRuntimePickerAvailable = false,
+    isSystemRuntimeAvailable = false,
+    isManagedRuntimeAvailable = false,
+    isBundledRuntimeAvailable = false,
+    isManagedInstallationAvailable = false,
+    hasCheckedLocalRuntime = false,
+    runtimeCancellationTarget = null,
+    runtimeJobProgress = null,
+    hasRuntimeStep = false,
+    hasRuntimeChoice = false,
+    selectedRuntimeChoice = null,
+    isRuntimeMissing = false,
+    runtimePath = null,
+    isRuntimeUsable = false,
+    failure = state.failure?.toUi(),
+)
+
+private fun ConnectWizardScreenState.reflectRuntime(state: ConnectWizardState.ChoosingRuntime) = copy(
+    step = WizardStep.Runtime,
+    hasRuntimeStep = true,
+    engineTitle = state.engine.descriptor.title,
+    isRuntimePickerAvailable = state.options.isFilePickerAvailable,
+    isSystemRuntimeAvailable = RuntimePreference.System in state.options.sources,
+    isManagedRuntimeAvailable = RuntimePreference.Managed in state.options.sources,
+    isBundledRuntimeAvailable = RuntimePreference.Bundled in state.options.sources,
+    isManagedInstallationAvailable = state.options.isManagedInstallAvailable,
+    hasCheckedLocalRuntime = state.hasCheckedLocal,
+    runtimeCancellationTarget = state.cancellationTarget()?.takeUnless { state.isCancellingInstallation }
+        ?.let(::RuntimeJobHandle),
+    runtimeJobProgress = state.runtimeJob.installationProgress(),
+    hasRuntimeChoice = state.choice != null,
+    selectedRuntimeChoice = state.choice?.let { choice ->
+        when {
+            !choice.settings.executable.isNullOrBlank() -> RuntimeChoiceUi.Custom
+            choice.settings.runtime == RuntimePreference.System -> RuntimeChoiceUi.System
+            choice.settings.runtime == RuntimePreference.Managed -> RuntimeChoiceUi.Managed
+            choice.settings.runtime == RuntimePreference.Bundled -> RuntimeChoiceUi.Bundled
+            else -> null
+        }
+    },
+    isRuntimeMissing = state.choice?.inspection?.installation?.source == InstallSource.Missing,
+    runtimePath = (state.choice?.settings?.executable ?: state.choice?.inspection?.installation?.path)
+        ?.let(::RuntimePath),
+    isRuntimeUsable = state.choice?.inspection?.let {
+        it.installation.isRunnable && it.installation.source != InstallSource.Missing &&
+            it.compatibility?.decision?.isBaselineAllowed == true
+    } == true,
+    isBusy = state.isPicking || state.runtimeJob?.phase?.isFinished == false,
+    isCancelAllowed = true,
+    failure = state.failure?.toUi(),
+)
+
+private fun ConnectWizardState.ChoosingRuntime.cancellationTarget(): EngineOwnedJob? =
+    if (isInstalling && isInstallationStarted) {
+        installationHandle
+    } else {
+        runtimeJob?.takeIf {
+            !it.phase.isFinished && (it.action == EngineAction.Install || it.action == EngineAction.Update)
+        }?.handle
+    }
 
 private fun ConnectWizardScreenState.terminal(): ConnectWizardScreenState = copy(
     step = WizardStep.Done,

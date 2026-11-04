@@ -14,11 +14,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 
 /** Credential typed on the method step. [label] names the connection for the user and may contain PII. */
 public sealed interface CredentialInput {
@@ -103,6 +106,25 @@ public sealed interface ConnectWizardState : MachineState {
         val failure: EngineFailure? = null,
     ) : ConnectWizardState
 
+    /** Resolves the chosen engine's installation capabilities without starting a runtime. */
+    public data class PreparingRuntime(val engine: EngineInfo, val failure: EngineFailure? = null) : ConnectWizardState
+
+    /** Installation choice before the access method; no launch setting has been written. */
+    public data class ChoosingRuntime(
+        val engine: EngineInfo,
+        val options: WizardRuntimeOptions,
+        val choice: WizardRuntimeChoice? = null,
+        val isPicking: Boolean = false,
+        val failure: EngineFailure? = null,
+        val hasCheckedLocal: Boolean = false,
+        val isCheckingLocal: Boolean = false,
+        val isInstalling: Boolean = false,
+        val isInstallationStarted: Boolean = false,
+        val installationHandle: EngineOwnedJob? = null,
+        val isCancellingInstallation: Boolean = false,
+        val runtimeJob: EngineJob? = options.initialJob,
+    ) : ConnectWizardState
+
     /**
      * Step 2: provider and authentication method of [engine]; [failure] explains a rejected connection attempt,
      * [check] is the last explicit connection check.
@@ -111,10 +133,18 @@ public sealed interface ConnectWizardState : MachineState {
         val engine: EngineInfo,
         val failure: EngineFailure? = null,
         val check: ConnectionCheck? = null,
+        val runtimeChoice: WizardRuntimeChoice? = null,
+        val isPickingRuntime: Boolean = false,
+        val runtimeOptions: WizardRuntimeOptions? = null,
     ) : ConnectWizardState
 
     /** Creating the source and the binding. */
-    public data class Connecting(val engine: EngineInfo, val method: ConnectionMethodId) : ConnectWizardState
+    public data class Connecting(
+        val engine: EngineInfo,
+        val method: ConnectionMethodId,
+        val runtimeChoice: WizardRuntimeChoice? = null,
+        val runtimeOptions: WizardRuntimeOptions? = null,
+    ) : ConnectWizardState
 
     /**
      * Step 3: models discovered through the new connection; [models] is null while discovering.
@@ -159,6 +189,27 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** Picks a connectable engine. */
         public data class ChooseEngine(val engine: EngineId) : Public
 
+        /** Opens the system executable picker and inspects the chosen candidate without writing settings. */
+        public data object PickRuntimeFile : Public
+
+        /** Explicitly inspects the local installation before offering alternatives. */
+        public data object CheckLocalRuntime : Public
+
+        /** Discards an uncommitted file choice. */
+        public data object ClearRuntimeChoice : Public
+
+        /** Accepts the explicitly checked installation and proceeds to access selection. */
+        public data object UseRuntimeChoice : Public
+
+        /** Inspects one declared installation source without changing saved launch settings. */
+        public data class InspectRuntimeSource(val source: RuntimePreference) : Public
+
+        /** Installs the declared managed runtime in a job owned by this wizard. */
+        public data object InstallManagedRuntime : Public
+
+        /** Cancels the installation started by this wizard, without affecting another owner's job. */
+        public data class CancelRuntimeInstallation(val handle: EngineOwnedJob) : Public
+
         /** Creates the connection. An ignored request leaves the key with the sender, who closes it. */
         public data class Connect(val method: ConnectionMethodId, val credential: CredentialInput) : Public
 
@@ -202,6 +253,33 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** The catalog could not be observed. */
         public data class EnginesFailed(val failure: EngineFailure) : Internal
 
+        /** Null means the engine has no installation choice on this platform. */
+        public data class RuntimeOptionsLoaded(val options: WizardRuntimeOptions?) : Internal
+
+        /** Capability resolution failed. */
+        public data class RuntimeOptionsFailed(val failure: EngineFailure) : Internal
+
+        /** Current profile management job and installation action for this engine. */
+        public data class RuntimeJobChanged(val job: EngineJob?, val isManagedInstallAvailable: Boolean) : Internal
+
+        /** The picker returned; null means cancellation or an unavailable platform picker. */
+        public data class RuntimeFilePicked(val choice: WizardRuntimeChoice?) : Internal
+
+        /** Picking or restricted inspection failed. */
+        public data class RuntimeFilePickFailed(val failure: EngineFailure) : Internal
+
+        /** The owned installation handle is available for explicit cancellation. */
+        public data class RuntimeInstallationStarted(val handle: EngineOwnedJob) : Internal
+
+        /** The requested installation cancellation and its cleanup completed. */
+        public data object RuntimeInstallationCancelled : Internal
+
+        /** The selected installation already finished before cancellation. */
+        public data object RuntimeInstallationAlreadyFinished : Internal
+
+        /** Cancellation could not be confirmed. */
+        public data class RuntimeInstallationCancelFailed(val failure: EngineFailure) : Internal
+
         /** Source and binding exist. */
         public data class Connected(val connection: NewConnection) : Internal
 
@@ -236,9 +314,34 @@ public sealed interface ConnectWizardEffect : MachineEffect {
     /** Observes the engine catalog while choosing an engine. */
     public data object ObserveEngines : ConnectWizardEffect
 
+    /** Reads the selected engine's declared management capabilities without probing the runtime. */
+    public data class LoadRuntimeOptions(val engine: EngineId) : ConnectWizardEffect
+
+    /** Selects and inspects a runtime file without changing saved launch settings. */
+    public data class PickRuntimeFile(val engine: EngineId) : ConnectWizardEffect
+
+    /** Inspects a specific declared source, without automatic fallback or writes. */
+    public data class InspectRuntimeSource(val engine: EngineId, val source: RuntimePreference) : ConnectWizardEffect
+
+    /** Runs the first local inspection, or reports no local source when none is declared. */
+    public data class CheckLocalRuntime(val engine: EngineId, val source: RuntimePreference?) : ConnectWizardEffect
+
+    /** Observes profile management progress for the selected engine while the step is open. */
+    public data class ObserveRuntimeJob(val engine: EngineId) : ConnectWizardEffect
+
+    /** Installs a managed runtime and inspects the resulting selected source. */
+    public data class InstallManagedRuntime(val engine: EngineId) : ConnectWizardEffect
+
+    /** Cancels the handle published by this wizard's installation effect. */
+    public data class CancelRuntimeInstallation(val handle: EngineOwnedJob) : ConnectWizardEffect
+
     /** Probes installation, creates the source and binds it; removes the source again if binding fails. */
-    public data class Connect(val engine: EngineId, val method: ConnectionMethod, val credential: CredentialInput) :
-        ConnectWizardEffect
+    public data class Connect(
+        val engine: EngineId,
+        val method: ConnectionMethod,
+        val credential: CredentialInput,
+        val runtimeChoice: WizardRuntimeChoice? = null,
+    ) : ConnectWizardEffect
 
     /**
      * Probes installation, connects temporarily, discovers models and always removes the temporary connection.

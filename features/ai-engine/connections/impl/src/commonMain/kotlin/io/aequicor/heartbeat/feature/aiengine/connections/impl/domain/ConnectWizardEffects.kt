@@ -14,8 +14,12 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardLaunchRollback
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardRuntimeChoice
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardRuntimeOptions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineActionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -27,22 +31,29 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.actions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -58,6 +69,7 @@ internal class ConnectWizardEffects(
     private val services: EngineServices,
     private val selections: ModelSelections,
     private val checks: ModelChecks,
+    private val runtimePicker: RuntimeFilePicker = UnavailableRuntimeFilePicker,
 ) : EffectHandler<ConnectWizardEffect, ConnectWizardIntent> {
     private val log = Log.tag("ConnectWizardEffects")
 
@@ -67,9 +79,22 @@ internal class ConnectWizardEffects(
                 machine.send(ConnectWizardIntent.Internal.EnginesChanged(it))
             }
 
+            is ConnectWizardEffect.LoadRuntimeOptions -> loadRuntimeOptions(effect.engine, machine)
+
+            is ConnectWizardEffect.ObserveRuntimeJob -> observeRuntimeJob(effect.engine, machine)
+
+            is ConnectWizardEffect.CheckLocalRuntime,
+            is ConnectWizardEffect.PickRuntimeFile,
+            is ConnectWizardEffect.InspectRuntimeSource,
+            -> inspectRuntime(effect, machine)
+
+            is ConnectWizardEffect.InstallManagedRuntime -> installManagedRuntime(effect.engine, machine)
+
+            is ConnectWizardEffect.CancelRuntimeInstallation -> cancelRuntimeInstallation(effect.handle, machine)
+
             is ConnectWizardEffect.Connect -> {
                 val prepared = try {
-                    connect(effect.engine, effect.method, effect.credential)
+                    connect(effect.engine, effect.method, effect.credential, effect.runtimeChoice)
                 } finally {
                     (effect.credential as? CredentialInput.ApiKey)?.key?.close()
                 }
@@ -100,6 +125,112 @@ internal class ConnectWizardEffects(
                 machine.send(ConnectWizardIntent.Internal.RolledBack)
             }
         }
+    }
+
+    private suspend fun inspectRuntime(effect: ConnectWizardEffect, machine: EffectScope<ConnectWizardIntent>) {
+        when {
+            effect is ConnectWizardEffect.CheckLocalRuntime -> checkLocalRuntime(effect, machine)
+
+            effect is ConnectWizardEffect.PickRuntimeFile -> {
+                val selected = selectRuntimeFile(effect.engine, services.management, runtimePicker)
+                val choice = (selected as? RuntimeFileSelection.Selected)?.let {
+                    WizardRuntimeChoice(it.expected, it.settings, it.inspection)
+                }
+                machine.send(ConnectWizardIntent.Internal.RuntimeFilePicked(choice))
+            }
+
+            effect is ConnectWizardEffect.InspectRuntimeSource ->
+                inspectRuntimeSource(effect.engine, effect.source, machine)
+
+            else -> error("Unexpected runtime inspection effect")
+        }
+    }
+
+    private suspend fun cancelRuntimeInstallation(handle: EngineOwnedJob, machine: EffectScope<ConnectWizardIntent>) {
+        if (handle.cancel() == JobPhase.Cancelled) {
+            machine.send(ConnectWizardIntent.Internal.RuntimeInstallationCancelled)
+        } else {
+            machine.send(ConnectWizardIntent.Internal.RuntimeInstallationAlreadyFinished)
+        }
+    }
+
+    private suspend fun checkLocalRuntime(
+        effect: ConnectWizardEffect.CheckLocalRuntime,
+        machine: EffectScope<ConnectWizardIntent>,
+    ) {
+        val source = effect.source
+        if (source == null) {
+            machine.send(ConnectWizardIntent.Internal.RuntimeFilePicked(null))
+        } else {
+            inspectRuntimeSource(effect.engine, source, machine)
+        }
+    }
+
+    private suspend fun inspectRuntimeSource(
+        engine: EngineId,
+        source: RuntimePreference,
+        machine: EffectScope<ConnectWizardIntent>,
+    ) {
+        val snapshot = services.management.snapshotLaunchSettings(engine)
+        val settings = snapshot.settings.copy(executable = null, runtime = source)
+        val inspection = services.management.inspectCandidate(engine, snapshot, settings)
+        machine.send(
+            ConnectWizardIntent.Internal.RuntimeFilePicked(WizardRuntimeChoice(snapshot, settings, inspection)),
+        )
+    }
+
+    private suspend fun loadRuntimeOptions(engine: EngineId, machine: EffectScope<ConnectWizardIntent>) {
+        val managed = services.management.state.value.takeIf { it.isEnabled }?.engine(engine)
+        val options = managed?.spec?.takeUnless { it.install == InstallSupport.BuiltIn }?.let { spec ->
+            val sources = if (LaunchOption.Runtime in spec.launch.options) {
+                spec.launch.runtimes.intersect(
+                    setOf(RuntimePreference.System, RuntimePreference.Managed, RuntimePreference.Bundled),
+                )
+            } else {
+                emptySet()
+            }
+            WizardRuntimeOptions(
+                isFilePickerAvailable = runtimePicker.isAvailable && LaunchOption.Executable in spec.launch.options,
+                isManagedInstallAvailable = EngineActionKind.Install in managed.actions() &&
+                    RuntimePreference.Managed in sources,
+                sources = sources,
+                initialJob = managed.job,
+            ).takeIf { it.isFilePickerAvailable || it.isManagedInstallAvailable || it.sources.isNotEmpty() }
+        }
+        machine.send(ConnectWizardIntent.Internal.RuntimeOptionsLoaded(options))
+    }
+
+    private suspend fun observeRuntimeJob(engine: EngineId, machine: EffectScope<ConnectWizardIntent>) {
+        services.management.state.map { state ->
+            val entry = state.takeIf { it.isEnabled }?.engine(engine)
+            val isManagedSupported = entry != null && LaunchOption.Runtime in entry.spec.launch.options &&
+                RuntimePreference.Managed in entry.spec.launch.runtimes
+            ConnectWizardIntent.Internal.RuntimeJobChanged(
+                entry?.job,
+                isManagedSupported && entry.actions().contains(EngineActionKind.Install),
+            )
+        }.distinctUntilChanged().collect { machine.send(it) }
+    }
+
+    private suspend fun installManagedRuntime(engine: EngineId, machine: EffectScope<ConnectWizardIntent>) {
+        var owned: EngineOwnedJob? = null
+        services.management.startOwned(engine, EngineAction.Install) { owned = it }
+        machine.send(ConnectWizardIntent.Internal.RuntimeInstallationStarted(requireNotNull(owned)))
+        // The profile owns the job; leaving this step cancels only the waiter.
+        val result = owned.await()
+        if (result == JobPhase.Cancelled) {
+            machine.send(ConnectWizardIntent.Internal.RuntimeInstallationCancelled)
+            return
+        }
+        if (result != JobPhase.Succeeded) {
+            val failure = ((result as? JobPhase.Failed)?.failure as? ManagementFailure.Engine)?.failure
+            throw EngineException(failure ?: EngineFailure.Unknown())
+        }
+        val snapshot = services.management.snapshotLaunchSettings(engine)
+        val settings = snapshot.settings.copy(executable = null, runtime = RuntimePreference.Managed)
+        val inspection = services.management.inspectCandidate(engine, snapshot, settings)
+        val choice = WizardRuntimeChoice(snapshot, settings, inspection)
+        machine.send(ConnectWizardIntent.Internal.RuntimeFilePicked(choice))
     }
 
     private suspend fun saveModels(effect: ConnectWizardEffect.SaveModels, machine: EffectScope<ConnectWizardIntent>) {
@@ -161,20 +292,27 @@ internal class ConnectWizardEffects(
         engine: EngineId,
         method: ConnectionMethod,
         credential: CredentialInput,
+        choice: WizardRuntimeChoice?,
     ): PreparedConnection {
         log.i { "connect engine=${engine.value} method=${method.id.value}" }
         val hostApp = method.hostApp
-        // The engine's current runtime may be missing (no CLI yet); the app's runtime replaces it once connected.
-        val initial = if (hostApp != null) {
-            requireHostRuntime(engine)
-        } else {
-            requireAvailable(engine)
-            null
-        }
-        val switch = RuntimeSwitch().apply { current = initial?.savedLaunch }
+        val switch = RuntimeSwitch()
         var connection: NewConnection? = null
         var isApplied = false
         try {
+            if (choice != null) {
+                // CLI login cannot yet bind its process to this inspection; do not run it on this path.
+                if (method is ConnectionMethod.CliLogin || hostApp != null) {
+                    throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+                }
+                applyRuntimeChoice(engine, choice, switch)
+            }
+            // The app's runtime replaces the current runtime only after its own inspection.
+            if (hostApp != null) {
+                switch.current = requireHostRuntime(engine).savedLaunch
+            } else {
+                requireAvailable(engine)
+            }
             signInIfNeeded(engine, method, mayChangeRuntime = true, switch)
             connection = write(engine, method, credential)
             currentCoroutineContext().ensureActive()
@@ -195,6 +333,20 @@ internal class ConnectWizardEffects(
                     compensate(engine, connection, switch)
                 }
             }
+        }
+    }
+
+    private suspend fun applyRuntimeChoice(engine: EngineId, choice: WizardRuntimeChoice, switch: RuntimeSwitch) {
+        val result = services.management.inspectCandidate(engine, choice.expected, choice.settings)
+        if (result?.installation?.isRunnable != true || result.installation.source == InstallSource.Missing ||
+            result.compatibility?.decision?.isBaselineAllowed != true
+        ) {
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+        }
+        services.management.configureIfUnchanged(engine, choice.expected, choice.settings) { receipt ->
+            switch.previous = choice.expected.settings
+            switch.receipt = receipt
+            switch.current = receipt
         }
     }
 

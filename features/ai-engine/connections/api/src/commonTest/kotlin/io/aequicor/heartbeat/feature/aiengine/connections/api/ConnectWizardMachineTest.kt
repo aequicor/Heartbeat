@@ -10,9 +10,11 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingEngine
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingModels
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingRuntime
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.Connecting
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.Finished
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.Idle
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.PreparingRuntime
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.RollingBack
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.Saving
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.apiKey
@@ -23,18 +25,53 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.local
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.mobileOnly
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.model
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.noMethods
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsToken
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.time.Instant
 
 class ConnectWizardMachineTest {
+    private val jobHandle = object : EngineOwnedJob {
+        override suspend fun await(): JobPhase = JobPhase.Cancelled
+        override suspend fun cancel(): JobPhase = JobPhase.Cancelled
+    }
     private val spec = ConnectWizardMachineSpec
     private val engines = listOf(koog, codex, mobileOnly, noMethods)
     private val failure = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
+
+    @Test
+    fun `runtime file picker tracks selection cancellation and stale results`() {
+        val ready = ChoosingMethod(codex)
+        val picking = ready.copy(isPickingRuntime = true)
+        val snapshot = LaunchSettingsSnapshot(LaunchSettings(), object : LaunchSettingsToken {})
+        val choice = WizardRuntimeChoice(snapshot, snapshot.settings.copy(executable = "/opt/cli"), null)
+        spec.assertTransition(
+            ready,
+            Public.PickRuntimeFile,
+            picking,
+            effects = listOf(ConnectWizardEffect.PickRuntimeFile(codex.descriptor.id)),
+        )
+        spec.assertTransition(picking, Internal.RuntimeFilePicked(choice), ready.copy(runtimeChoice = choice))
+        spec.assertTransition(picking, Internal.RuntimeFilePicked(null), ready)
+        spec.assertTransition(picking, Internal.RuntimeFilePickFailed(failure), ready.copy(failure = failure))
+        spec.assertTransition(ready.copy(runtimeChoice = choice), Public.ClearRuntimeChoice, ready)
+        spec.assertIgnored(ready, Internal.RuntimeFilePicked(choice))
+        spec.assertIgnored(picking, Public.PickRuntimeFile)
+        val credential = CredentialInput.Existing("LAN", EndpointOrigin("http://192.168.1.5:11434"))
+        spec.assertIgnored(ChoosingMethod(koog, runtimeChoice = choice), Public.Connect(local.id, credential))
+    }
 
     @Test
     fun `start observes the engine catalog`() {
@@ -51,7 +88,8 @@ class ConnectWizardMachineTest {
         spec.assertTransition(
             ChoosingEngine(preselected = koog.descriptor.id),
             Internal.EnginesChanged(engines),
-            ChoosingMethod(koog),
+            PreparingRuntime(koog),
+            effects = listOf(ConnectWizardEffect.LoadRuntimeOptions(koog.descriptor.id)),
         )
         spec.assertTransition(
             ChoosingEngine(preselected = mobileOnly.descriptor.id),
@@ -68,7 +106,12 @@ class ConnectWizardMachineTest {
             Internal.EnginesChanged(emptyList()),
             waiting,
         )
-        spec.assertTransition(waiting, Internal.EnginesChanged(engines), ChoosingMethod(koog))
+        spec.assertTransition(
+            waiting,
+            Internal.EnginesChanged(engines),
+            PreparingRuntime(koog),
+            effects = listOf(ConnectWizardEffect.LoadRuntimeOptions(koog.descriptor.id)),
+        )
     }
 
     @Test
@@ -83,9 +126,144 @@ class ConnectWizardMachineTest {
     @Test
     fun `only connectable engines can be chosen`() {
         val choosing = ChoosingEngine(engines)
-        spec.assertTransition(choosing, Public.ChooseEngine(codex.descriptor.id), ChoosingMethod(codex))
+        spec.assertTransition(
+            choosing,
+            Public.ChooseEngine(codex.descriptor.id),
+            PreparingRuntime(codex),
+            effects = listOf(ConnectWizardEffect.LoadRuntimeOptions(codex.descriptor.id)),
+        )
         spec.assertIgnored(choosing, Public.ChooseEngine(mobileOnly.descriptor.id))
         spec.assertIgnored(choosing, Public.ChooseEngine(noMethods.descriptor.id))
+    }
+
+    @Test
+    fun `runtime capabilities choose the installation step or skip built in engines`() {
+        val options = WizardRuntimeOptions(
+            isFilePickerAvailable = true,
+            isManagedInstallAvailable = true,
+            sources = setOf(RuntimePreference.System),
+        )
+        spec.assertTransition(PreparingRuntime(koog), Internal.RuntimeOptionsLoaded(null), ChoosingMethod(koog))
+        spec.assertTransition(
+            PreparingRuntime(codex),
+            Internal.RuntimeOptionsLoaded(options),
+            ChoosingRuntime(codex, options),
+            effects = listOf(ConnectWizardEffect.ObserveRuntimeJob(codex.descriptor.id)),
+        )
+        val choosing = ChoosingRuntime(codex, options)
+        spec.assertIgnored(choosing, Public.PickRuntimeFile)
+        spec.assertIgnored(choosing, Public.InstallManagedRuntime)
+        val checking = choosing.copy(isPicking = true, isCheckingLocal = true)
+        spec.assertTransition(
+            choosing,
+            Public.CheckLocalRuntime,
+            checking,
+            effects = listOf(ConnectWizardEffect.CheckLocalRuntime(codex.descriptor.id, RuntimePreference.System)),
+        )
+        val checked = choosing.copy(hasCheckedLocal = true)
+        spec.assertTransition(checking, Internal.RuntimeFilePicked(null), checked)
+        val picking = checked.copy(isPicking = true)
+        spec.assertTransition(
+            checked,
+            Public.InstallManagedRuntime,
+            picking.copy(isInstalling = true),
+            effects = listOf(ConnectWizardEffect.InstallManagedRuntime(codex.descriptor.id)),
+        )
+        spec.assertIgnored(
+            checked.copy(options = options.copy(isManagedInstallAvailable = false)),
+            Public.InstallManagedRuntime,
+        )
+        spec.assertTransition(
+            checked,
+            Public.PickRuntimeFile,
+            picking,
+            effects = listOf(ConnectWizardEffect.PickRuntimeFile(codex.descriptor.id)),
+        )
+        spec.assertTransition(picking, Internal.RuntimeFilePicked(null), checked)
+        spec.assertTransition(
+            checked,
+            Public.InspectRuntimeSource(RuntimePreference.System),
+            picking,
+            effects = listOf(ConnectWizardEffect.InspectRuntimeSource(codex.descriptor.id, RuntimePreference.System)),
+        )
+        spec.assertIgnored(checked, Public.InspectRuntimeSource(RuntimePreference.Managed))
+        spec.assertIgnored(choosing, Public.UseRuntimeChoice)
+    }
+
+    @Test
+    fun `reopened wizard observes the running profile job without selecting its result`() {
+        val job = EngineJob(EngineAction.Install, JobPhase.Downloading(30, 100), Instant.fromEpochSeconds(1), jobHandle)
+        val options = WizardRuntimeOptions(true, false, setOf(RuntimePreference.Managed), initialJob = job)
+        val busy = ChoosingRuntime(codex, options)
+        spec.assertIgnored(busy, Public.CheckLocalRuntime)
+        spec.assertIgnored(busy, Public.InstallManagedRuntime)
+        val stale = object : EngineOwnedJob {
+            override suspend fun await(): JobPhase = JobPhase.Cancelled
+            override suspend fun cancel(): JobPhase = JobPhase.Cancelled
+        }
+        spec.assertIgnored(busy, Public.CancelRuntimeInstallation(stale))
+        spec.assertTransition(
+            busy,
+            Public.CancelRuntimeInstallation(jobHandle),
+            busy.copy(isCancellingInstallation = true),
+            effects = listOf(ConnectWizardEffect.CancelRuntimeInstallation(jobHandle)),
+        )
+        val finished = busy.copy(runtimeJob = job.copy(phase = JobPhase.Succeeded))
+        spec.assertTransition(busy, Internal.RuntimeJobChanged(finished.runtimeJob, false), finished)
+        spec.assertTransition(
+            finished,
+            Public.CheckLocalRuntime,
+            finished.copy(isPicking = true, isCheckingLocal = true),
+            effects = listOf(ConnectWizardEffect.CheckLocalRuntime(codex.descriptor.id, null)),
+        )
+    }
+
+    @Test
+    fun `installation cancellation waits for the owned handle and preserves completed outcomes`() {
+        val options = WizardRuntimeOptions(true, true, setOf(RuntimePreference.System))
+        val installing = ChoosingRuntime(codex, options, isPicking = true, hasCheckedLocal = true, isInstalling = true)
+        spec.assertIgnored(installing, Public.CancelRuntimeInstallation(jobHandle))
+        val started = installing.copy(isInstallationStarted = true, installationHandle = jobHandle)
+        spec.assertTransition(installing, Internal.RuntimeInstallationStarted(jobHandle), started)
+        val cancelling = started.copy(isCancellingInstallation = true)
+        spec.assertTransition(
+            started,
+            Public.CancelRuntimeInstallation(jobHandle),
+            cancelling,
+            effects = listOf(ConnectWizardEffect.CancelRuntimeInstallation(jobHandle)),
+        )
+        spec.assertTransition(
+            cancelling,
+            Internal.RuntimeFilePicked(null),
+            ChoosingRuntime(codex, options, hasCheckedLocal = true),
+        )
+        spec.assertTransition(
+            cancelling,
+            Internal.RuntimeInstallationCancelled,
+            ChoosingRuntime(codex, options, hasCheckedLocal = true),
+        )
+    }
+
+    @Test
+    fun `local inspection failure can be retried and missing source is explicit`() {
+        val options = WizardRuntimeOptions(true, true, setOf(RuntimePreference.System))
+        val choosing = ChoosingRuntime(codex, options)
+        val checking = choosing.copy(isPicking = true, isCheckingLocal = true)
+        val failed = choosing.copy(hasCheckedLocal = true, failure = failure)
+        spec.assertTransition(checking, Internal.RuntimeFilePickFailed(failure), failed)
+        spec.assertTransition(
+            failed,
+            Public.Retry,
+            checking.copy(hasCheckedLocal = true),
+            effects = listOf(ConnectWizardEffect.CheckLocalRuntime(codex.descriptor.id, RuntimePreference.System)),
+        )
+        val noLocalSource = choosing.copy(options = options.copy(sources = emptySet()))
+        spec.assertTransition(
+            noLocalSource,
+            Public.CheckLocalRuntime,
+            noLocalSource.copy(isPicking = true, isCheckingLocal = true),
+            effects = listOf(ConnectWizardEffect.CheckLocalRuntime(codex.descriptor.id, null)),
+        )
     }
 
     @Test
