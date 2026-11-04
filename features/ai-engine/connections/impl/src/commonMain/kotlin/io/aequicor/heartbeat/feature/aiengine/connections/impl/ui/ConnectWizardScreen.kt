@@ -59,6 +59,7 @@ import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.AccessGroupUi
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.AdmissionUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardModel
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenAction
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenIntent
@@ -85,6 +86,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_mo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_search
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_search_clear
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_selected
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_admission_allowed
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_admission_refused
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_base_url_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_cli_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connect
@@ -644,6 +647,7 @@ private fun ModelsStep(
     }
     HbColumn(modifier.fillMaxSize(), gap = HbTheme.spacing.s) {
         Hint(stringResource(Res.string.wizard_models_intro))
+        AdmissionStatus(state)
         state.failure?.let { failure ->
             FailurePanel(failure, onRetry = { onIntent(ConnectWizardScreenIntent.Retry) }) {
                 HbButton(
@@ -655,6 +659,9 @@ private fun ModelsStep(
             }
         }
         when {
+            // A refused or unknown admission has no models to offer; a probe failure already has its banner.
+            state.admission == AdmissionUi.Unknown || state.admission == AdmissionUi.Incompatible -> Unit
+
             models == null && state.failure == null -> HbLoadingState(
                 stringResource(Res.string.conn_models_discovering),
             )
@@ -678,6 +685,29 @@ private fun ModelsStep(
                 }
             }
         }
+    }
+}
+
+/** Admission of the exact saved route; only a proven baseline is positive, metadata is never shown as proof. */
+@Composable
+private fun AdmissionStatus(state: ConnectWizardScreenState) {
+    when (state.admission) {
+        AdmissionUi.Allowed -> HbText(
+            stringResource(Res.string.wizard_admission_allowed),
+            Modifier.testTag("wizard-admission"),
+            color = HbTheme.colors.textSecondary,
+        )
+
+        AdmissionUi.Unknown -> if (state.failure == null) {
+            HbBanner(stringResource(Res.string.wizard_runtime_unknown), Modifier.testTag("wizard-admission"))
+        }
+
+        AdmissionUi.Incompatible -> HbBanner(
+            stringResource(Res.string.wizard_admission_refused),
+            Modifier.testTag("wizard-admission"),
+        )
+
+        AdmissionUi.Checking, null -> Unit
     }
 }
 
@@ -815,7 +845,7 @@ private fun WizardFooter(
                 stringResource(state.finishLabel()),
                 { onIntent(ConnectWizardScreenIntent.Finish) },
                 Modifier.testTag("wizard-finish"),
-                enabled = !state.isBusy && state.models != null,
+                enabled = !state.isBusy && state.models != null && state.admission == AdmissionUi.Allowed,
             )
         }
     }

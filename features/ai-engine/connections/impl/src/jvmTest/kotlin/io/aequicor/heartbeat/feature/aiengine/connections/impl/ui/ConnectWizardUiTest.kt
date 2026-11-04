@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardAdmission
 import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardRuntimeOptions
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
@@ -33,10 +34,13 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.WizardStep
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_admission_allowed
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_admission_refused
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_hide_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_save
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_show_key
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibilityProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -281,6 +285,35 @@ class ConnectWizardUiTest {
         val state = ConnectWizardScreenState().reflect(machine)
         setContent { HbTheme { ConnectWizardContent(state, {}) } }
         onNodeWithText(getString(Res.string.wizard_save)).assertExists()
+    }
+
+    @Test
+    fun `a refused route shows its status and cannot finish`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<ConnectWizardScreenIntent>()
+        val connection = NewConnection(EngineBindingId("binding-1"), AuthSourceId("source-1"))
+        val machine = ConnectWizardState.CheckingAdmission(
+            KoogId,
+            connection,
+            WizardAdmission.Refused(setOf(CompatibilityProblem.BaselineRejected)),
+        )
+        val state = ConnectWizardScreenState().reflect(machine)
+        setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
+        onNodeWithTag("wizard-admission").assertExists()
+        onNodeWithTag("wizard-finish").assertIsNotEnabled()
+        onNodeWithText(getString(Res.string.wizard_admission_refused)).assertExists()
+        runOnIdle { assertTrue(intents.isEmpty()) }
+    }
+
+    @Test
+    fun `an allowed route shows the positive status`() = runSkikoComposeUiTest {
+        val connection = NewConnection(EngineBindingId("binding-1"), AuthSourceId("source-1"))
+        val models = listOf(modelInfo(connection.binding, "gpt-a"))
+        val machine = ConnectWizardState.ChoosingModels(KoogId, connection, models, setOf(ModelId("gpt-a")))
+        val state = ConnectWizardScreenState().reflect(machine)
+        setContent { HbTheme { ConnectWizardContent(state, {}) } }
+        onNodeWithTag("wizard-admission").assertExists()
+        onNodeWithText(getString(Res.string.wizard_admission_allowed)).assertExists()
+        onNodeWithTag("wizard-finish").assertIsEnabled()
     }
 
     @Test

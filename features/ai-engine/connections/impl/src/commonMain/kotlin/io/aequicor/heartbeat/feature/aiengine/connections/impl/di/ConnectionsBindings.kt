@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ModelCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ModelChecksCoordinator
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import kotlinx.coroutines.CoroutineScope
 
@@ -26,11 +27,15 @@ import kotlinx.coroutines.CoroutineScope
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 object ConnectionsBindings {
-    /** Engine services of the profile: the facade runtime, the source registry and engine management. */
+    /** Engine services of the profile: the facade runtime, the source registry, engine management and admission. */
     @Provides
     @SingleIn(ProfileScope::class)
-    fun services(facade: EngineFacade, sources: AuthSources, management: EngineManagement): EngineServices =
-        EngineServices(facade, sources, management)
+    fun services(
+        facade: EngineFacade,
+        sources: AuthSources,
+        management: EngineManagement,
+        admission: EngineRouteAdmission,
+    ): EngineServices = EngineServices(facade, sources, management, admission)
 
     /** The wizard and settings share run ownership, publication ordering and the profile cleanup lifetime. */
     @Provides

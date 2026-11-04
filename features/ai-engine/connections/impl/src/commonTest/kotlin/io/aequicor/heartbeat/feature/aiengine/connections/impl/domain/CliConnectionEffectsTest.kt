@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardAdmission
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ClaudeId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.DesktopMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeAuthSources
@@ -77,7 +78,10 @@ class CliConnectionEffectsTest {
         val connected = assertIs<ConnectWizardIntent.Internal.Connected>(wizardScope.intents.last())
         val info = engineInfo().let { it.copy(descriptor = it.descriptor.copy(id = codex)) }
         val spec = ConnectWizardMachineSpec
-        val discovering = requireNotNull(spec.resolve(ConnectWizardState.Connecting(info, cli.id), connected))
+        val checking = requireNotNull(spec.resolve(ConnectWizardState.Connecting(info, cli.id), connected))
+        val discovering = requireNotNull(
+            spec.resolve(checking.to, ConnectWizardIntent.Internal.AdmissionAssessed(WizardAdmission.Allowed)),
+        )
         assertEquals(
             setOf(ModelId("saved-model")),
             assertIs<ConnectWizardState.ChoosingModels>(discovering.to).selected,

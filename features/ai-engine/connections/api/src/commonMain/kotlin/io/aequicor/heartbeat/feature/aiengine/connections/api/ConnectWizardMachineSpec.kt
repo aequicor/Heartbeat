@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardEffec
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent.Internal
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent.Public
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.Cancelled
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.CheckingAdmission
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingEngine
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingModels
@@ -30,6 +31,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
  * Wizard engine → authentication → models. The binding is created before model discovery, because models are only
  * resolvable through an exact binding; abandoning the wizard afterwards rolls a newly created connection back and
  * conditionally restores the wizard's runtime choice without overwriting later settings.
+ * Once the binding exists, its exact saved route is assessed with one restricted admission probe before any models
+ * are discovered; a refused or unknown decision stays on [ConnectWizardState.CheckingAdmission] and can only be
+ * cancelled. Metadata inspection of a runtime choice never stands in for that admission.
  * An existing CLI binding is reused with its saved model choice. A disabled route is enabled for the wizard;
  * checks, cancellation and rejected delivery restore its original enabled state. Finishing keeps it enabled.
  * Previously saved models absent from discovery are preserved unless the user explicitly deselects them when shown.
@@ -59,8 +63,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
  * | ChoosingMethod | ConnectionChecked | check running | stay (check result) | |
  * | ChoosingMethod | Connect | accepts credential, no check running | Connecting | Connect |
  * | ChoosingMethod | Back / Dismiss | | ChoosingEngine | ObserveEngines |
- * | Connecting | Connected | | ChoosingModels | DiscoverModels |
+ * | Connecting | Connected | | CheckingAdmission | AssessAdmission |
  * | Connecting | ConnectFailed | | ChoosingMethod (failure) | |
+ * | CheckingAdmission | AdmissionAssessed | baseline allowed | ChoosingModels | DiscoverModels |
+ * | CheckingAdmission | AdmissionAssessed | refused or unknown | stay (typed reason) | |
+ * | CheckingAdmission | AdmissionFailed | | stay (failure) | |
+ * | CheckingAdmission | Retry | has failure | CheckingAdmission (re-entry) | AssessAdmission |
  * | ChoosingModels | ModelsLoaded / ModelsFailed | | stay | |
  * | ChoosingModels | ToggleModel / SelectAllModels | models discovered | stay | |
  * | ChoosingModels | Retry | discovery failed | stay (discovering) | DiscoverModels |
@@ -70,6 +78,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
  * | Saving | Checking | same operation | stay (phase Checking) | |
  * | Saving | Saved | same operation | Finished (save may be pending) | Completed |
  * | Saving | SaveFailed | same operation | ChoosingModels (failure, sequence retained) | |
+ * | CheckingAdmission, ChoosingModels | Cancel / Dismiss | | RollingBack | Rollback |
  * | RollingBack | RolledBack | | Cancelled | Cancelled |
  * | Idle, ChoosingEngine, ChoosingMethod | Cancel | | Cancelled | Cancelled |
  * | Idle, ChoosingEngine | Dismiss | | Cancelled | Cancelled |
@@ -341,14 +350,10 @@ public val ConnectWizardMachineSpec:
         }
         state<Connecting> {
             on<Internal.Connected> {
-                goto<ChoosingModels> {
-                    ChoosingModels(
-                        state.engine.descriptor.id,
-                        intent.connection,
-                        selected = intent.connection.initialModels,
-                    )
+                goto<CheckingAdmission> {
+                    CheckingAdmission(state.engine.descriptor.id, intent.connection)
                 }
-                effect { ConnectWizardEffect.DiscoverModels(state.engine.descriptor.id, intent.connection.binding) }
+                effect { ConnectWizardEffect.AssessAdmission(state.engine.descriptor.id, intent.connection.binding) }
             }
             on<Internal.ConnectFailed> {
                 goto<ChoosingMethod> {
@@ -360,6 +365,37 @@ public val ConnectWizardMachineSpec:
                     )
                 }
             }
+        }
+        state<CheckingAdmission> {
+            on<Internal.AdmissionAssessed>(guard = { intent.admission == WizardAdmission.Allowed }) {
+                goto<ChoosingModels> {
+                    ChoosingModels(
+                        state.engine,
+                        state.connection,
+                        selected = state.connection.initialModels,
+                    )
+                }
+                effect { ConnectWizardEffect.DiscoverModels(state.engine, state.connection.binding) }
+            }
+            on<Internal.AdmissionAssessed>(guard = { intent.admission != WizardAdmission.Allowed }) {
+                stay { state.copy(admission = intent.admission) }
+            }
+            on<Internal.AdmissionFailed> {
+                stay {
+                    state.copy(
+                        admission = WizardAdmission.Unknown(),
+                        failure = intent.failure,
+                    )
+                }
+            }
+            on<Public.Retry>(guard = { state.failure != null }) {
+                goto<CheckingAdmission> {
+                    CheckingAdmission(state.engine, state.connection, failure = null)
+                }
+                effect { ConnectWizardEffect.AssessAdmission(state.engine, state.connection.binding) }
+            }
+            on<Public.Cancel> { checkingRollBack() }
+            on<Public.Dismiss> { checkingRollBack() }
         }
         state<ChoosingModels> {
             on<Internal.ModelsLoaded> {
@@ -441,6 +477,7 @@ public val ConnectWizardMachineSpec:
                 is ConnectWizardEffect.CancelRuntimeInstallation -> Internal.RuntimeInstallationCancelFailed(failure)
                 is ConnectWizardEffect.Connect -> Internal.ConnectFailed(failure)
                 is ConnectWizardEffect.CheckConnection -> Internal.ConnectionChecked(ConnectionCheck.Failed(failure))
+                is ConnectWizardEffect.AssessAdmission -> Internal.AdmissionFailed(failure)
                 is ConnectWizardEffect.DiscoverModels -> Internal.ModelsFailed(failure)
                 is ConnectWizardEffect.SaveModels -> Internal.SaveFailed(failure, effect.operation)
                 is ConnectWizardEffect.Rollback -> Internal.RolledBack
@@ -454,6 +491,11 @@ private fun <T : ConnectWizardState, J : ConnectWizardIntent> WizardTransition<T
 }
 
 private fun <J : ConnectWizardIntent> WizardTransition<ChoosingModels, J>.rollBack() {
+    goto<RollingBack> { RollingBack(state.connection) }
+    effect { ConnectWizardEffect.Rollback(state.connection) }
+}
+
+private fun <J : ConnectWizardIntent> WizardTransition<CheckingAdmission, J>.checkingRollBack() {
     goto<RollingBack> { RollingBack(state.connection) }
     effect { ConnectWizardEffect.Rollback(state.connection) }
 }

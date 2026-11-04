@@ -44,6 +44,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
@@ -64,6 +65,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -249,6 +251,19 @@ internal class FakeModelSelections : ModelSelections {
         updateFailure?.let { throw it }
         state.update(change)
         return state.value
+    }
+}
+
+/** In-memory admission contract; records exact routes and never touches a runtime. */
+internal class FakeEngineRouteAdmission : EngineRouteAdmission {
+    val calls = mutableListOf<Pair<EngineId, EngineBindingId>>()
+    var result: RouteAdmission = RouteAdmission.Unavailable
+    var failure: Exception? = null
+
+    override suspend fun assess(engine: EngineId, binding: EngineBindingId): RouteAdmission {
+        calls += engine to binding
+        failure?.let { throw it }
+        return result
     }
 }
 

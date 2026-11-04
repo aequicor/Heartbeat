@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent.Internal
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent.Public
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.Cancelled
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.CheckingAdmission
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingEngine
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState.ChoosingModels
@@ -25,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.local
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.mobileOnly
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.model
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.noMethods
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibilityProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -42,6 +44,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.time.Instant
 
+@Suppress("LargeClass") // One fixture exercises every transition of the single wizard machine.
 class ConnectWizardMachineTest {
     private val jobHandle = object : EngineOwnedJob {
         override suspend fun await(): JobPhase = JobPhase.Cancelled
@@ -334,12 +337,12 @@ class ConnectWizardMachineTest {
     }
 
     @Test
-    fun `connection result leads to model discovery or back to the method`() {
+    fun `connection result starts the exact route assessment before model discovery`() {
         spec.assertTransition(
             Connecting(koog, apiKey.id),
             Internal.Connected(connection),
-            ChoosingModels(koog.descriptor.id, connection),
-            effects = listOf(ConnectWizardEffect.DiscoverModels(koog.descriptor.id, connection.binding)),
+            CheckingAdmission(koog.descriptor.id, connection),
+            effects = listOf(ConnectWizardEffect.AssessAdmission(koog.descriptor.id, connection.binding)),
         )
         spec.assertTransition(
             Connecting(koog, apiKey.id),
@@ -350,15 +353,84 @@ class ConnectWizardMachineTest {
     }
 
     @Test
-    fun `a reused connection starts model selection from its saved models`() {
+    fun `only an allowed route advances to models and finish`() {
+        val checking = CheckingAdmission(koog.descriptor.id, connection)
+        spec.assertTransition(
+            checking,
+            Internal.AdmissionAssessed(WizardAdmission.Allowed),
+            ChoosingModels(koog.descriptor.id, connection),
+            effects = listOf(ConnectWizardEffect.DiscoverModels(koog.descriptor.id, connection.binding)),
+        )
+        val unknown = checking.copy(
+            admission = WizardAdmission.Unknown(setOf(CompatibilityProblem.MissingBaseline)),
+        )
+        spec.assertTransition(
+            checking,
+            Internal.AdmissionAssessed(unknown.admission),
+            unknown,
+        )
+        val refused = checking.copy(
+            admission = WizardAdmission.Refused(setOf(CompatibilityProblem.BaselineRejected)),
+        )
+        spec.assertTransition(
+            checking,
+            Internal.AdmissionAssessed(refused.admission),
+            refused,
+        )
+        val credential = CredentialInput.Existing("LAN", local.origin)
+        spec.assertIgnored(unknown, Public.Connect(local.id, credential))
+        spec.assertIgnored(refused, Public.Connect(local.id, credential))
+        spec.assertIgnored(unknown, Public.Finish)
+        spec.assertIgnored(refused, Public.Finish)
+        spec.assertIgnored(checking, Public.Finish)
+    }
+
+    @Test
+    fun `an admissible reused connection starts model selection from its saved models`() {
         val saved = setOf(ModelId("gpt-a"))
         val reused = connection.copy(isCreated = false, initialModels = saved)
         spec.assertTransition(
             Connecting(koog, apiKey.id),
             Internal.Connected(reused),
+            CheckingAdmission(koog.descriptor.id, reused),
+            effects = listOf(ConnectWizardEffect.AssessAdmission(koog.descriptor.id, reused.binding)),
+        )
+        spec.assertTransition(
+            CheckingAdmission(koog.descriptor.id, reused),
+            Internal.AdmissionAssessed(WizardAdmission.Allowed),
             ChoosingModels(koog.descriptor.id, reused, selected = saved),
             effects = listOf(ConnectWizardEffect.DiscoverModels(koog.descriptor.id, reused.binding)),
         )
+    }
+
+    @Test
+    fun `a failed assessment stays fail closed and can be retried or rolled back`() {
+        val checking = CheckingAdmission(koog.descriptor.id, connection)
+        spec.assertTransition(
+            checking,
+            Internal.AdmissionFailed(failure),
+            checking.copy(admission = WizardAdmission.Unknown(), failure = failure),
+        )
+        val failed = checking.copy(admission = WizardAdmission.Unknown(), failure = failure)
+        spec.assertTransition(
+            failed,
+            Public.Retry,
+            checking,
+            effects = listOf(ConnectWizardEffect.AssessAdmission(koog.descriptor.id, connection.binding)),
+        )
+        spec.assertTransition(
+            failed,
+            Public.Cancel,
+            RollingBack(connection),
+            effects = listOf(ConnectWizardEffect.Rollback(connection)),
+        )
+        spec.assertTransition(
+            failed,
+            Public.Dismiss,
+            RollingBack(connection),
+            effects = listOf(ConnectWizardEffect.Rollback(connection)),
+        )
+        spec.assertIgnored(failed, Public.Finish)
     }
 
     @Test
@@ -656,6 +728,13 @@ class ConnectWizardMachineTest {
             Internal.ModelsFailed(EngineFailure.Unknown()),
             resolve(
                 ConnectWizardEffect.DiscoverModels(koog.descriptor.id, connection.binding),
+                IllegalStateException(),
+            ),
+        )
+        assertEquals(
+            Internal.AdmissionFailed(EngineFailure.Unknown()),
+            resolve(
+                ConnectWizardEffect.AssessAdmission(koog.descriptor.id, connection.binding),
                 IllegalStateException(),
             ),
         )

@@ -13,10 +13,12 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardAdmission
 import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardLaunchRollback
 import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardRuntimeChoice
 import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardRuntimeOptions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineActionKind
@@ -31,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
@@ -41,10 +44,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineRouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.actions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import kotlinx.coroutines.CancellationException
@@ -62,6 +67,7 @@ data class EngineServices(
     val facade: EngineFacade,
     val sources: AuthSources,
     val management: EngineManagement = UnavailableEngineManagement(),
+    val admission: EngineRouteAdmission = UnavailableEngineRouteAdmission(),
 )
 
 /** Executes wizard effects. Typed keys are closed after use whatever the outcome. */
@@ -108,6 +114,13 @@ internal class ConnectWizardEffects(
                     (effect.credential as? CredentialInput.ApiKey)?.key?.close()
                 }
                 machine.send(ConnectWizardIntent.Internal.ConnectionChecked(ConnectionCheck.Succeeded(models)))
+            }
+
+            is ConnectWizardEffect.AssessAdmission -> {
+                log.i { "assess route admission engine=${effect.engine.value}" }
+                val admission = services.admission.assess(effect.engine, effect.binding).toWizardAdmission()
+                log.i { "route admission engine=${effect.engine.value} status=${admission.statusLabel()}" }
+                machine.send(ConnectWizardIntent.Internal.AdmissionAssessed(admission))
             }
 
             is ConnectWizardEffect.DiscoverModels -> {
@@ -640,6 +653,27 @@ internal fun EngineAvailability.failure(): EngineFailure? = when (this) {
     EngineAvailability.Available, EngineAvailability.Unknown -> null
     EngineAvailability.UnsupportedPlatform -> EngineFailure.Engine(EngineFailureReason.Unavailable)
     is EngineAvailability.Unavailable -> failure
+}
+
+/**
+ * Maps the facade's assessment to the wizard's fail-closed status: no policy or candidate is unknown, and only a
+ * proven baseline is allowed. Typed problems are preserved for diagnostics and tests, never rendered as raw data.
+ */
+internal fun RouteAdmission.toWizardAdmission(): WizardAdmission = when (this) {
+    RouteAdmission.Unavailable -> WizardAdmission.Unknown()
+
+    is RouteAdmission.Assessed -> when {
+        decision.isBaselineAllowed -> WizardAdmission.Allowed
+        decision.status == Compatibility.Incompatible -> WizardAdmission.Refused(decision.problems)
+        else -> WizardAdmission.Unknown(decision.problems)
+    }
+}
+
+private fun WizardAdmission.statusLabel(): String = when (this) {
+    WizardAdmission.Checking -> "checking"
+    WizardAdmission.Allowed -> "allowed"
+    is WizardAdmission.Refused -> "refused"
+    is WizardAdmission.Unknown -> "unknown"
 }
 
 /** The launch settings a sign-in replaced, kept outside the sign-in so a cancelled wizard can still restore them. */

@@ -7,10 +7,12 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardAdmission
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.OllamaMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibilityProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -48,11 +50,52 @@ class ConnectWizardPresentationTest {
         val new = initial.reflect(ConnectWizardState.ChoosingModels(KoogId, created))
         assertTrue(new.isNewConnection)
         assertFalse(new.isFinishing)
+        assertEquals(AdmissionUi.Allowed, new.admission)
         val editing = initial.reflect(ConnectWizardState.ChoosingModels(KoogId, reused))
         assertFalse(editing.isNewConnection)
         val saving = editing.reflect(ConnectWizardState.Saving(KoogId, reused, null, emptySet()))
         assertFalse(saving.isNewConnection)
         assertTrue(saving.isFinishing)
+        assertEquals(AdmissionUi.Allowed, saving.admission)
+    }
+
+    @Test
+    fun `admission status is shown only from the exact route assessment`() {
+        val connection = NewConnection(EngineBindingId("binding-1"), AuthSourceId("source-1"))
+        val checking = ConnectWizardScreenState().reflect(ConnectWizardState.CheckingAdmission(KoogId, connection))
+        assertEquals(WizardStep.Models, checking.step)
+        assertEquals(AdmissionUi.Checking, checking.admission)
+        assertTrue(checking.isBusy)
+        assertEquals(null, checking.models)
+        val refused = ConnectWizardScreenState().reflect(
+            ConnectWizardState.CheckingAdmission(
+                KoogId,
+                connection,
+                WizardAdmission.Refused(setOf(CompatibilityProblem.BaselineRejected)),
+            ),
+        )
+        assertEquals(AdmissionUi.Incompatible, refused.admission)
+        assertFalse(refused.isBusy)
+        val unknown = ConnectWizardScreenState().reflect(
+            ConnectWizardState.CheckingAdmission(
+                KoogId,
+                connection,
+                WizardAdmission.Unknown(setOf(CompatibilityProblem.MissingBaseline)),
+            ),
+        )
+        assertEquals(AdmissionUi.Unknown, unknown.admission)
+        assertFalse(unknown.isBusy)
+        val failed = ConnectWizardScreenState().reflect(
+            ConnectWizardState.CheckingAdmission(
+                KoogId,
+                connection,
+                WizardAdmission.Unknown(),
+                EngineFailure.Unknown(),
+            ),
+        )
+        assertEquals(AdmissionUi.Unknown, failed.admission)
+        assertFalse(failed.isBusy)
+        assertTrue(failed.failure != null)
     }
 
     @Test

@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardOutpu
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardAdmission
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.ConnectWizardScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
@@ -55,6 +56,9 @@ enum class RuntimeSourceUi { System, Managed, Bundled }
 
 /** Source represented by the current, still uncommitted runtime choice. */
 enum class RuntimeChoiceUi { System, Managed, Bundled, Custom }
+
+/** Admission status of the connection's exact saved route, shown before model selection. */
+enum class AdmissionUi { Checking, Allowed, Unknown, Incompatible }
 
 /** Form validation problems found before the machine is asked to connect. */
 enum class FormError { MissingKey, InvalidOrigin, InsecureOrigin }
@@ -114,6 +118,8 @@ data class ConnectWizardScreenState(
     val isRuntimeMissing: Boolean = false,
     val runtimePath: RuntimePath? = null,
     val isRuntimeUsable: Boolean = false,
+    /** Null outside the model step; only an allowed probe may enable finishing. */
+    val admission: AdmissionUi? = null,
 ) : MVIState
 
 /** User events of the wizard. */
@@ -219,6 +225,8 @@ class ConnectWizardModel(
                         is ConnectWizardState.ChoosingRuntime -> state.engine.descriptor.id
 
                         is ConnectWizardState.Connecting -> state.engine.descriptor.id
+
+                        is ConnectWizardState.CheckingAdmission -> state.engine
 
                         is ConnectWizardState.ChoosingModels -> state.engine
 
@@ -451,6 +459,7 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
         isBusy = state.failure == null,
         isCancelAllowed = true,
         runtimeJobProgress = null,
+        admission = null,
         failure = state.failure?.toUi(),
     )
 
@@ -465,6 +474,7 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
             isNewConnection = true,
             isFinishing = false,
             runtimeJobProgress = null,
+            admission = null,
             failure = state.failure?.toUi(),
         )
 
@@ -477,37 +487,71 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
             isNewConnection = true,
             isFinishing = false,
             runtimeJobProgress = null,
+            admission = null,
             failure = null,
         )
 
-    is ConnectWizardState.ChoosingModels -> copy(
-        step = WizardStep.Models,
-        form = form.copy(key = SecretText()),
-        models = state.models?.map { it.toRow(it.target.model in state.selected) }?.toImmutableList(),
-        isBusy = state.models == null && state.failure == null,
-        isCancelAllowed = true,
-        isNewConnection = state.connection.isCreated,
-        isFinishing = false,
-        runtimeJobProgress = null,
-        failure = state.failure?.toUi(),
-    )
+    is ConnectWizardState.CheckingAdmission -> reflectAdmission(state)
 
-    is ConnectWizardState.Saving -> copy(
-        step = WizardStep.Models,
-        isBusy = true,
-        isCancelAllowed = false,
-        isNewConnection = state.connection.isCreated,
-        isFinishing = true,
-        runtimeJobProgress = null,
-        failure = null,
-    )
+    is ConnectWizardState.ChoosingModels -> reflectModels(state)
 
-    is ConnectWizardState.RollingBack ->
-        copy(step = WizardStep.Models, isBusy = true, isCancelAllowed = false, isFinishing = false, failure = null)
+    is ConnectWizardState.Saving -> reflectSaving(state)
+
+    is ConnectWizardState.RollingBack -> reflectRollingBack()
 
     is ConnectWizardState.Finished, ConnectWizardState.Cancelled ->
         terminal()
 }
+
+private fun ConnectWizardScreenState.reflectAdmission(
+    state: ConnectWizardState.CheckingAdmission,
+): ConnectWizardScreenState = copy(
+    step = WizardStep.Models,
+    form = form.copy(key = SecretText()),
+    models = null,
+    admission = state.admission.toUi(),
+    isBusy = state.admission == WizardAdmission.Checking,
+    isCancelAllowed = true,
+    isNewConnection = state.connection.isCreated,
+    isFinishing = false,
+    runtimeJobProgress = null,
+    failure = state.failure?.toUi(),
+)
+
+private fun ConnectWizardScreenState.reflectModels(
+    state: ConnectWizardState.ChoosingModels,
+): ConnectWizardScreenState = copy(
+    step = WizardStep.Models,
+    form = form.copy(key = SecretText()),
+    models = state.models?.map { it.toRow(it.target.model in state.selected) }?.toImmutableList(),
+    admission = AdmissionUi.Allowed,
+    isBusy = state.models == null && state.failure == null,
+    isCancelAllowed = true,
+    isNewConnection = state.connection.isCreated,
+    isFinishing = false,
+    runtimeJobProgress = null,
+    failure = state.failure?.toUi(),
+)
+
+private fun ConnectWizardScreenState.reflectSaving(state: ConnectWizardState.Saving): ConnectWizardScreenState = copy(
+    step = WizardStep.Models,
+    admission = AdmissionUi.Allowed,
+    isBusy = true,
+    isCancelAllowed = false,
+    isNewConnection = state.connection.isCreated,
+    isFinishing = true,
+    runtimeJobProgress = null,
+    failure = null,
+)
+
+private fun ConnectWizardScreenState.reflectRollingBack(): ConnectWizardScreenState = copy(
+    step = WizardStep.Models,
+    admission = null,
+    isBusy = true,
+    isCancelAllowed = false,
+    isFinishing = false,
+    failure = null,
+)
 
 private fun ConnectWizardScreenState.reflectEngines(state: ConnectWizardState.ChoosingEngine) = copy(
     step = WizardStep.Engine,
@@ -534,6 +578,7 @@ private fun ConnectWizardScreenState.reflectEngines(state: ConnectWizardState.Ch
     isRuntimeMissing = false,
     runtimePath = null,
     isRuntimeUsable = false,
+    admission = null,
     failure = state.failure?.toUi(),
 )
 
@@ -569,6 +614,7 @@ private fun ConnectWizardScreenState.reflectRuntime(state: ConnectWizardState.Ch
     } == true,
     isBusy = state.isPicking || state.runtimeJob?.phase?.isFinished == false,
     isCancelAllowed = true,
+    admission = null,
     failure = state.failure?.toUi(),
 )
 
@@ -586,10 +632,18 @@ private fun ConnectWizardScreenState.terminal(): ConnectWizardScreenState = copy
     form = CredentialForm(),
     selectedMethod = null,
     selectedGroup = null,
+    admission = null,
     isBusy = true,
     isCancelAllowed = false,
     isFinishing = false,
 )
+
+internal fun WizardAdmission.toUi(): AdmissionUi = when (this) {
+    WizardAdmission.Checking -> AdmissionUi.Checking
+    WizardAdmission.Allowed -> AdmissionUi.Allowed
+    is WizardAdmission.Refused -> AdmissionUi.Incompatible
+    is WizardAdmission.Unknown -> AdmissionUi.Unknown
+}
 
 private fun EngineInfo.methods(): List<MethodRowUi> = descriptor.connectionMethods.map { it.toRow() }
 

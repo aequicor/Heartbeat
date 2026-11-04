@@ -147,6 +147,18 @@ public sealed interface ConnectWizardState : MachineState {
     ) : ConnectWizardState
 
     /**
+     * The connection exists, so its exact saved route can be assessed. No models are discovered until the
+     * connector proves the route; a refused or unknown decision never advances and can only be cancelled.
+     * [failure] reports a probe that did not produce a decision; it is not a refusal.
+     */
+    public data class CheckingAdmission(
+        val engine: EngineId,
+        val connection: NewConnection,
+        val admission: WizardAdmission = WizardAdmission.Checking,
+        val failure: EngineFailure? = null,
+    ) : ConnectWizardState
+
+    /**
      * Step 3: models discovered through the new connection; [models] is null while discovering.
      * [failure] belongs to discovery while [models] is null and to saving once they are loaded.
      */
@@ -286,6 +298,12 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** Nothing was created. */
         public data class ConnectFailed(val failure: EngineFailure) : Internal
 
+        /** Result of the restricted admission probe of the connection's exact saved route. */
+        public data class AdmissionAssessed(val admission: WizardAdmission) : Internal
+
+        /** The admission probe could not produce a decision; nothing is admitted. */
+        public data class AdmissionFailed(val failure: EngineFailure) : Internal
+
         /** Result of [Public.CheckConnection]; never [ConnectionCheck.Running]. */
         public data class ConnectionChecked(val result: ConnectionCheck) : Internal
 
@@ -352,6 +370,12 @@ public sealed interface ConnectWizardEffect : MachineEffect {
         val method: ConnectionMethod,
         val credential: CredentialInput,
     ) : ConnectWizardEffect
+
+    /**
+     * Runs one restricted admission assessment of the exact saved route [binding], without discovering models,
+     * starting an ordinary runtime or changing any saved choice. The handler reports its typed result.
+     */
+    public data class AssessAdmission(val engine: EngineId, val binding: EngineBindingId) : ConnectWizardEffect
 
     /** Explicit model discovery through the new binding. */
     public data class DiscoverModels(val engine: EngineId, val binding: EngineBindingId) : ConnectWizardEffect

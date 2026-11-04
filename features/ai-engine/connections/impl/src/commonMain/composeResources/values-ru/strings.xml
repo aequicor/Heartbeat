@@ -152,4 +152,6 @@
     <string name="wizard_runtime_install">Скачать стабильную версию для Heartbeat</string>
     <string name="wizard_runtime_cancel_install">Отменить установку</string>
     <string name="wizard_runtime_missing">Выбранная установка не найдена или файл не исполняется</string>
+    <string name="wizard_admission_allowed">Рантайм допущен к сессиям</string>
+    <string name="wizard_admission_refused">Рантайм не допущен к сессиям</string>
 </resources>

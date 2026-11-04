@@ -152,4 +152,6 @@
     <string name="wizard_runtime_install">Download a stable version for Heartbeat</string>
     <string name="wizard_runtime_cancel_install">Cancel installation</string>
     <string name="wizard_runtime_missing">The selected installation was not found or is not executable</string>
+    <string name="wizard_admission_allowed">The runtime is admitted for sessions</string>
+    <string name="wizard_admission_refused">The runtime is not admitted for sessions</string>
 </resources>
