@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelRowUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelsPaneUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.PreparationPhaseUi
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.RuntimeChoiceUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.WizardStep
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.checkedSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.openCheckDetails
@@ -123,7 +124,50 @@ class ConnectionsSnapshotTest {
         }
     }
 
+    private fun renderRuntime(width: Int, isDark: Boolean) {
+        val runtime = wizard.copy(step = WizardStep.Runtime, engineTitle = "Pi", isBusy = false, hasRuntimeStep = true)
+        render("wizard-runtime-local", width, isDark) { ConnectWizardContent(runtime, {}) }
+        render("wizard-runtime-ready", width, isDark) {
+            ConnectWizardContent(
+                runtime.copy(
+                    hasCheckedLocalRuntime = true,
+                    hasRuntimeChoice = true,
+                    isRuntimeUsable = true,
+                    isRuntimePickerAvailable = true,
+                    isSystemRuntimeAvailable = true,
+                    selectedRuntimeChoice = RuntimeChoiceUi.System,
+                    isManagedInstallationAvailable = true,
+                ),
+                {},
+            )
+        }
+        render("wizard-runtime-unknown", width, isDark) {
+            ConnectWizardContent(
+                runtime.copy(
+                    hasCheckedLocalRuntime = true,
+                    hasRuntimeChoice = true,
+                    isRuntimePickerAvailable = true,
+                    isBundledRuntimeAvailable = true,
+                    selectedRuntimeChoice = RuntimeChoiceUi.Bundled,
+                    isManagedInstallationAvailable = true,
+                ),
+                {},
+            )
+        }
+        render("wizard-runtime-download", width, isDark) {
+            ConnectWizardContent(
+                runtime.copy(
+                    isBusy = true,
+                    hasCheckedLocalRuntime = true,
+                    runtimeJobProgress = EnginePreparationUi(PreparationPhaseUi.Downloading, 42),
+                ),
+                {},
+            )
+        }
+    }
+
     private fun renderWizard(width: Int, isDark: Boolean) {
+        renderRuntime(width, isDark)
         render("wizard", width, isDark) { ConnectWizardContent(wizard, {}) }
         render("wizard-access-groups", width, isDark) {
             val groups = wizard.methods + listOf(

@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CredentialForm
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.RuntimeJobHandle
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.RuntimeSourceUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.SecretText
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.WizardStep
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
@@ -36,9 +37,11 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_hide_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_save
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_show_key
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -47,6 +50,7 @@ import org.jetbrains.compose.resources.getString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 @OptIn(ExperimentalTestApi::class)
 class ConnectWizardUiTest {
@@ -72,6 +76,44 @@ class ConnectWizardUiTest {
     }
 
     @Test
+    fun `runtime step inspects only declared sources before allowing continuation`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<ConnectWizardScreenIntent>()
+        val options = WizardRuntimeOptions(true, false, setOf(RuntimePreference.System))
+        val state = ConnectWizardScreenState().reflect(
+            ConnectWizardState.ChoosingRuntime(engineInfo(), options, hasCheckedLocal = true),
+        )
+        setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
+        onNodeWithTag("wizard-runtime-use").assertIsNotEnabled()
+        onNodeWithTag("wizard-runtime-managed").assertDoesNotExist()
+        onNodeWithTag("wizard-runtime-system").performClick()
+        onNodeWithTag("wizard-runtime-pick").performClick()
+        runOnIdle {
+            assertEquals(
+                listOf(
+                    ConnectWizardScreenIntent.InspectRuntimeSource(RuntimeSourceUi.System),
+                    ConnectWizardScreenIntent.PickRuntime,
+                ),
+                intents,
+            )
+        }
+    }
+
+    @Test
+    fun `runtime alternatives are hidden until local inspection`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<ConnectWizardScreenIntent>()
+        val options = WizardRuntimeOptions(true, true, setOf(RuntimePreference.System))
+        val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingRuntime(engineInfo(), options))
+        setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
+        onNodeWithTag("wizard-runtime-pick").assertDoesNotExist()
+        onNodeWithTag("wizard-runtime-install").assertDoesNotExist()
+        onNodeWithTag("wizard-runtime-system").assertDoesNotExist()
+        onNodeWithTag("wizard-runtime-check-local").assertIsFocused().performClick()
+        runOnIdle {
+            assertEquals(listOf<ConnectWizardScreenIntent>(ConnectWizardScreenIntent.CheckLocalRuntime), intents)
+        }
+    }
+
+    @Test
     fun `active owned installation offers explicit cancellation`() = runSkikoComposeUiTest {
         val intents = mutableListOf<ConnectWizardScreenIntent>()
         val options = WizardRuntimeOptions(true, true, setOf(RuntimePreference.System))
@@ -87,6 +129,27 @@ class ConnectWizardUiTest {
             ),
         )
         setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
+        onNodeWithTag("wizard-runtime-cancel-install").performClick()
+        runOnIdle {
+            assertEquals(
+                listOf<ConnectWizardScreenIntent>(
+                    ConnectWizardScreenIntent.CancelRuntimeInstallation(RuntimeJobHandle(jobHandle)),
+                ),
+                intents,
+            )
+        }
+    }
+
+    @Test
+    fun `reopened wizard shows profile progress and cancels the observed job`() = runSkikoComposeUiTest {
+        val job = EngineJob(EngineAction.Install, JobPhase.Downloading(30, 100), Instant.fromEpochSeconds(1), jobHandle)
+        val options = WizardRuntimeOptions(true, false, setOf(RuntimePreference.Managed), initialJob = job)
+        val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingRuntime(engineInfo(), options))
+        assertEquals(30, state.runtimeJobProgress?.percent)
+        assertTrue(state.isBusy)
+        val intents = mutableListOf<ConnectWizardScreenIntent>()
+        setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
+        onNodeWithTag("wizard-runtime-check-local").assertDoesNotExist()
         onNodeWithTag("wizard-runtime-cancel-install").performClick()
         runOnIdle {
             assertEquals(

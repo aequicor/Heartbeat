@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardEffec
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardRuntimeChoice
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardRuntimeOptions
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ClaudeId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.DesktopMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeAuthSources
@@ -23,15 +24,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequ
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -43,6 +49,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 class RuntimeChoiceConnectTest {
     private val facade = FakeEngineFacade()
@@ -60,6 +67,24 @@ class RuntimeChoiceConnectTest {
         wizard.handle(ConnectWizardEffect.CheckLocalRuntime(ClaudeId, null), scope)
         assertEquals(ConnectWizardIntent.Internal.RuntimeFilePicked(null), scope.intents.single())
         assertTrue(management.commands.isEmpty())
+    }
+
+    @Test
+    fun `job observer follows progress and completion without choosing a runtime`() = runTest {
+        val state = claudeManagement()
+        val entry = state.engines.single()
+        val current = EngineJob(EngineAction.Install, JobPhase.Downloading(1, 4), Instant.fromEpochSeconds(1))
+        management.state.value = state.copy(engines = listOf(entry.copy(job = current)))
+        val wizard = ConnectWizardEffects(EngineServices(facade, sources, management), selections, FakeModelChecks())
+        val observer = launch { wizard.handle(ConnectWizardEffect.ObserveRuntimeJob(ClaudeId), scope) }
+        runCurrent()
+        assertEquals(current, assertIs<ConnectWizardIntent.Internal.RuntimeJobChanged>(scope.intents.last()).job)
+        val finished = current.copy(phase = JobPhase.Succeeded)
+        management.state.value = state.copy(engines = listOf(entry.copy(job = finished)))
+        runCurrent()
+        assertEquals(finished, assertIs<ConnectWizardIntent.Internal.RuntimeJobChanged>(scope.intents.last()).job)
+        assertTrue(scope.intents.none { it is ConnectWizardIntent.Internal.RuntimeFilePicked })
+        observer.cancelAndJoin()
     }
 
     @Test
@@ -92,6 +117,112 @@ class RuntimeChoiceConnectTest {
             listOf<ConnectWizardIntent>(ConnectWizardIntent.Internal.RuntimeInstallationStarted(handle)),
             scope.intents,
         )
+    }
+
+    @Test
+    fun `explicit cancellation targets only the published installation`() = runTest {
+        var cancelled = false
+        val handle = object : EngineOwnedJob {
+            override suspend fun await(): JobPhase = awaitCancellation()
+            override suspend fun cancel(): JobPhase {
+                cancelled = true
+                return JobPhase.Cancelled
+            }
+        }
+        val owned = object : EngineManagement by management {
+            override suspend fun startOwned(
+                engine: EngineId,
+                action: EngineAction,
+                onStarted: (EngineOwnedJob) -> Unit,
+            ) = onStarted(handle)
+        }
+        val wizard = ConnectWizardEffects(EngineServices(facade, sources, owned), selections, FakeModelChecks())
+        val job = launch { wizard.handle(ConnectWizardEffect.InstallManagedRuntime(ClaudeId), scope) }
+        runCurrent()
+        wizard.handle(ConnectWizardEffect.CancelRuntimeInstallation(handle), scope)
+        assertTrue(cancelled)
+        assertEquals(ConnectWizardIntent.Internal.RuntimeInstallationCancelled, scope.intents.last())
+        job.cancelAndJoin()
+    }
+
+    @Test
+    fun `successful installation inspects managed source without changing launch settings`() = runTest {
+        val snapshot = choice().expected
+        val handle = object : EngineOwnedJob {
+            override suspend fun await(): JobPhase = JobPhase.Succeeded
+            override suspend fun cancel(): JobPhase = error("finished job must not be cancelled")
+        }
+        val owned = object : EngineManagement by management {
+            override suspend fun startOwned(
+                engine: EngineId,
+                action: EngineAction,
+                onStarted: (EngineOwnedJob) -> Unit,
+            ) {
+                onStarted(handle)
+            }
+            override suspend fun snapshotLaunchSettings(engine: EngineId): LaunchSettingsSnapshot = snapshot
+            override suspend fun inspectCandidate(
+                engine: EngineId,
+                expected: LaunchSettingsSnapshot,
+                candidate: LaunchSettings,
+            ): EngineCandidateInspection? {
+                assertEquals(snapshot, expected)
+                assertEquals(original.copy(executable = null, runtime = RuntimePreference.Managed), candidate)
+                return null
+            }
+        }
+        val wizard = ConnectWizardEffects(EngineServices(facade, sources, owned), selections, FakeModelChecks())
+        wizard.handle(ConnectWizardEffect.InstallManagedRuntime(ClaudeId), scope)
+        assertEquals(ConnectWizardIntent.Internal.RuntimeInstallationStarted(handle), scope.intents.first())
+        val picked = assertIs<ConnectWizardIntent.Internal.RuntimeFilePicked>(scope.intents.last())
+        assertEquals(RuntimePreference.Managed, picked.choice?.settings?.runtime)
+        assertEquals(null, picked.choice?.inspection)
+        assertEquals(original, management.state.value.engines.single().launch.settings)
+    }
+
+    @Test
+    fun `runtime step reflects declared capabilities and skips built in engines`() = runTest {
+        val state = claudeManagement()
+        val entry = state.engines.single()
+        val picker = object : RuntimeFilePicker {
+            override val isAvailable = true
+            override suspend fun pick(): String? = null
+        }
+        val wizard = ConnectWizardEffects(
+            EngineServices(facade, sources, management),
+            selections,
+            FakeModelChecks(),
+            picker,
+        )
+        val managedSpec = entry.spec.copy(
+            install = InstallSupport.Managed,
+            launch = LaunchSpec(
+                options = setOf(LaunchOption.Executable, LaunchOption.Runtime),
+                runtimes = setOf(RuntimePreference.System, RuntimePreference.Managed, RuntimePreference.Bundled),
+            ),
+        )
+        management.state.value = state.copy(engines = listOf(entry.copy(spec = managedSpec)))
+        wizard.handle(ConnectWizardEffect.LoadRuntimeOptions(ClaudeId), scope)
+        assertEquals(
+            ConnectWizardIntent.Internal.RuntimeOptionsLoaded(
+                WizardRuntimeOptions(
+                    true,
+                    true,
+                    setOf(RuntimePreference.System, RuntimePreference.Managed, RuntimePreference.Bundled),
+                ),
+            ),
+            scope.intents.single(),
+        )
+        scope.intents.clear()
+        val builtInSpec = entry.spec.copy(install = InstallSupport.BuiltIn)
+        management.state.value = state.copy(engines = listOf(entry.copy(spec = builtInSpec)))
+        wizard.handle(ConnectWizardEffect.LoadRuntimeOptions(ClaudeId), scope)
+        assertEquals(ConnectWizardIntent.Internal.RuntimeOptionsLoaded(null), scope.intents.single())
+        scope.intents.clear()
+        val unsupportedSpec = managedSpec.copy(launch = LaunchSpec(runtimes = setOf(RuntimePreference.Managed)))
+        management.state.value = state.copy(engines = listOf(entry.copy(spec = unsupportedSpec)))
+        wizard.handle(ConnectWizardEffect.LoadRuntimeOptions(ClaudeId), scope)
+        assertEquals(ConnectWizardIntent.Internal.RuntimeOptionsLoaded(null), scope.intents.single())
     }
 
     private suspend fun choice(): WizardRuntimeChoice {
