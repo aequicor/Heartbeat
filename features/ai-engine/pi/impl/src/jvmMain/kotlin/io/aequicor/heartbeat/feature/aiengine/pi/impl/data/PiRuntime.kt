@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
@@ -69,6 +70,8 @@ internal class PiRuntime(
     private val credentials: PiRuntimeCredentials,
     internal val environment: PiSessionEnvironment,
     private val services: PiRuntimeServices,
+    /** Admitted artifact/contract; null for a runtime created outside admission. */
+    override val compatibilityStamp: EngineCompatibilityStamp? = null,
 ) : EngineRuntime,
     PiSessions {
     private val log = Log.tag("PiRuntime")
