@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCandidateInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
@@ -38,9 +39,22 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
     @Volatile
     private var bundled: String? = null
 
-    /** File metadata only: no process or user configuration is opened and compatibility remains unknown. */
-    override suspend fun inspectCandidate(launch: LaunchContext) =
-        withContext(dispatchers.io) { inspectPiCandidateMetadata(launch, processes.startup(launch)) }
+    /**
+     * File metadata only: no process or user configuration is opened and compatibility remains unknown. A managed
+     * copy whose bytes no longer match the installer's pinned digest is reported as not runnable.
+     */
+    override suspend fun inspectCandidate(launch: LaunchContext): EngineCandidateInspection? {
+        val inspection =
+            withContext(dispatchers.io) { inspectPiCandidateMetadata(launch, processes.startup(launch)) } ?: return null
+        val managed = launch.managed ?: return inspection
+        if (inspection.installation.source != InstallSource.Managed ||
+            verifyPiManagedCopy(managed, dispatchers.io) != false
+        ) {
+            return inspection
+        }
+        log.w { "Selected managed copy differs from its pinned digest" }
+        return inspection.copy(installation = inspection.installation.copy(isRunnable = false))
+    }
 
     /** Inspection never executes the selected runtime; a stored version is display metadata, not an observation. */
     override suspend fun inspect(launch: LaunchContext): Installation = withContext(dispatchers.io) {
