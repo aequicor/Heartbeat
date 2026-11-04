@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCandidateInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -44,12 +45,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineCandidateInsp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiConfiguration
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.runtime.KimiCandidates
 import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.runtime.KimiCompatibility
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.runtime.UnsupportedKimiCandidates
 import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.runtime.UnsupportedKimiCompatibility
 import io.aequicor.heartbeat.feature.aiengine.kimi.impl.domain.KimiBackend
 import kotlinx.coroutines.CancellationException
@@ -60,6 +65,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.TimeMark
 
 @ContributesBinding(ProfileScope::class, binding = binding<KimiBackend>())
 @SingleIn(ProfileScope::class)
@@ -80,6 +86,7 @@ internal class JvmKimiBackend(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: KimiConfiguration = KimiConfiguration(),
     private val compatibility: KimiCompatibility = UnsupportedKimiCompatibility,
+    private val candidates: KimiCandidates = UnsupportedKimiCandidates,
 ) : KimiBackend,
     EngineCandidateInspector {
     private val log = Log.tag("KimiBackend")
@@ -91,6 +98,13 @@ internal class JvmKimiBackend(
 
     /** Researched policy of this build; a target without generated facts reports null and keeps no admission. */
     override val runtimeRequirements: EngineCompatibilityRequirements? get() = compatibility.requirements()
+
+    override suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { stamp ->
+        promoteRuntime(request.identity, stamp)
+    }
 
     override suspend fun prepareRuntime() = setup.prepare(this, launches.context(KimiEngine.Id))
 
@@ -262,7 +276,33 @@ internal class JvmKimiBackend(
         }
     }
 
-    private suspend fun openRuntime(identity: RuntimeIdentity, launch: LaunchContext): KimiRuntime {
+    /**
+     * Ordinary Kimi runtime for [stamp], the same construction sessions use outside admission. The selected
+     * executable is captured so promotion can compare it with the assessed artifact instead of a path claim.
+     */
+    private suspend fun promoteRuntime(identity: RuntimeIdentity, stamp: EngineCompatibilityStamp): KimiRuntime =
+        mutex.withLock {
+            require(identity.engine == KimiEngine.Id) { "Foreign engine" }
+            val launch = launches.context(KimiEngine.Id)
+            val existing = runtime
+            val reusable = existing?.takeIf {
+                it.identity == identity && !it.isClosed && it.compatibilityStamp == stamp
+            }
+            if (reusable != null) return@withLock reusable
+            existing?.close()
+            runtime = null
+            runtimeLaunch = null
+            openRuntime(identity, launch, stamp).also {
+                runtime = it
+                runtimeLaunch = launch
+            }
+        }
+
+    private suspend fun openRuntime(
+        identity: RuntimeIdentity,
+        launch: LaunchContext,
+        stamp: EngineCompatibilityStamp? = null,
+    ): KimiRuntime {
         val executable = requireNotNull(setup.locateRelease(launch).path)
         val transport = transports.open(
             AcpCommand(
@@ -282,6 +322,8 @@ internal class JvmKimiBackend(
             resources,
             localApi::usage,
             bridge,
+            compatibilityStamp = stamp,
+            selectedExecutable = executable,
         )
     }
 

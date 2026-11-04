@@ -82,7 +82,11 @@ private fun managedKimiExecutable(managed: ManagedInstall, binary: String): File
     return executable
 }
 
-private fun kimiExecutableHash(executable: File, checkCancellation: () -> Unit): String {
+/** SHA-256 of the selected executable; admission reuses this digest instead of a path- or manifest-based claim. */
+internal fun kimiExecutableSha256(executable: File, checkCancellation: () -> Unit = {}): String =
+    kimiExecutableHash(executable, checkCancellation)
+
+internal fun kimiExecutableHash(executable: File, checkCancellation: () -> Unit): String {
     val digest = MessageDigest.getInstance("SHA-256")
     executable.inputStream().use { input ->
         val bytes = ByteArray(DEFAULT_BUFFER_SIZE)

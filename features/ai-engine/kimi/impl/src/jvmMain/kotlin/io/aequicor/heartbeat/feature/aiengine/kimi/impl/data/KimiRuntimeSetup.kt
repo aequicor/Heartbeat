@@ -75,6 +75,16 @@ internal class KimiRuntimeSetup internal constructor(
 
     /** Revalidates the actual selected artifact and returns its digest without trusting a prior inspection. */
     suspend fun locateControlled(launch: LaunchContext): Pair<KimiControlledRuntime, InstallSource> {
+        val selection = locateSelection(launch)
+        return selection.runtime to selection.source
+    }
+
+    /**
+     * The exact selected copy and the installation record it came from. A staged candidate is inspected as
+     * supplied; a retained or bundled copy is never substituted for another source. This is the same selection
+     * [locateControlled] uses, so admission never reimplements the adapter's install precedence.
+     */
+    suspend fun locateSelection(launch: LaunchContext): KimiControlledSelection {
         val managed = selectedManaged(launch)
         val runtime = withContext(dispatchers.io) {
             val context = currentCoroutineContext()
@@ -91,7 +101,11 @@ internal class KimiRuntimeSetup internal constructor(
                 )
             }
         }
-        return runtime to if (managed == null) InstallSource.Bundled else InstallSource.Managed
+        return KimiControlledSelection(
+            runtime,
+            if (managed == null) InstallSource.Bundled else InstallSource.Managed,
+            managed,
+        )
     }
 
     private suspend fun selectedManaged(launch: LaunchContext): ManagedInstall? = if (launch.isInstallCandidate) {
@@ -144,4 +158,13 @@ internal class KimiRuntimeSetup internal constructor(
             throw error
         }
     }
+}
+
+/** Exact selected runtime plus the managed record it was resolved from; null [managed] means the bundled copy. */
+internal data class KimiControlledSelection(
+    val runtime: KimiControlledRuntime,
+    val source: InstallSource,
+    val managed: ManagedInstall?,
+) {
+    override fun toString(): String = "KimiControlledSelection(source=$source)"
 }

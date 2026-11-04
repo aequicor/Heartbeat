@@ -79,6 +79,23 @@ inconclusive. Promotion отдаёт обычный `ClaudeRuntime` за точ�
 не имеют и сохраняют Unsupported-путь. Этим **не** доказаны: живой `initialize` на реальном CLI без входа,
 Windows/Linux lifecycle, pin для System/HostApp и полный §9.
 
+2026-11-04: Kimi получил тот же путь «политика → baseline → допуск».
+`KimiJvmCompatibility` объявляет heartbeat/connector из generated `KimiBuildContract`, protocol
+`Negotiated("acp", 1)` (общий ACP-клиент действительно согласует v1), `minimumRuntime` — закреплённый
+`2.4.0-hb7` без выдуманной верхней границы, ревизии конфигурации `0` (launch/runtime contract: `kimi acp`,
+рабочий каталог, managed/bundled pin и `runtime.properties`) и истории `0` (наблюдённый журнал и записи ходов
+`KimiHistory`/`KimiSession`; профильного транскрипта адаптер не пишет), native targets — ровно пять целей
+опубликованного manifest. `verified` пуст, решение — **Unverified**. Кандидат не подменяет источник: выбранная
+managed/bundled копия должна совпасть с опубликованным digest pin (тот же preflight `isKnownKimiRelease`), а при
+записанном `ManagedInstall.executableSha256` — и с ним; System/Custom/retained без pin остаются Unknown и допуска
+не получают. Baseline — существующий restricted ACP `initialize` inspect: временные home/work, очищенное
+окружение, без login, `session/new`, промпта и записи истории; conclusive failure отклоняет baseline, timeout
+остаётся inconclusive. Promotion отдаёт обычный `KimiRuntime` за точный stamp один раз и после старта процесса
+сверяет наблюдённую версию runtime, negotiated ACP и digest файла; при расхождении рантайм закрывается.
+Android/iOS политики не имеют и сохраняют Unsupported-путь. Вне допуска остаются открытые вопросы Kimi:
+неизвестный исход `session/new` и владение сессией по cwd; кандидат не создаёт native-сессию. Этим **не**
+доказаны: живой ход на реальном runtime, Windows/Linux lifecycle, retained history после отката и полный §9.
+
 Предпосылки допуска по коннекторам (без переноса доказательств между ними):
 
 | Коннектор | Что уже есть | Чего не хватает для допуска |
@@ -87,7 +104,7 @@ Windows/Linux lifecycle, pin для System/HostApp и полный §9.
 | Pi | pinned distribution и SHA-256 архива, RPC-сессии, конфигуратор, сверка Managed-копии с digest в candidate inspection (`4d4ae3942`) | сверка при самом запуске, привязка процесса к проверенному артефакту; ревизии протокола/конфигурации/истории |
 | Codex | политика из build facts, clean-home `initialize`/`config/read` baseline, digest-проверка и promotion | живой ход на реальном app-server; Windows/Linux lifecycle; retained resume и полный §9 |
 | Claude | политика из build facts, stream-json `initialize` baseline без входа, digest-проверка managed-копии и promotion | живой CLI без входа и с входом; Windows/Linux lifecycle; pin для System/HostApp; полный §9 |
-| Kimi | pin `2.4.0-hb7`, ACP v1 negotiation, restricted Inspect, `session/delete` | behavioral baseline на допущенном процессе, точный идентификатор владения сессией, очистка при неизвестном исходе |
+| Kimi | pin `2.4.0-hb7`, ACP v1 negotiation, restricted Inspect, `session/delete`, политика из build facts, `initialize` baseline, digest-проверка и promotion | живой ход на реальном runtime; Windows/Linux lifecycle; неизвестный исход `session/new` и владение сессией по cwd; retained history после отката и полный §9 |
 | DSH | проверяемая линия `0.2.1-rc.5`, ACP v1, scoped MCP | единая compatibility-политика и stamp сессии; live-проверка нативных сессий |
 
 ## Версии, платформы, установка и доступ
@@ -117,7 +134,7 @@ Windows/Linux lifecycle, pin для System/HostApp и полный §9.
 | Pi | `PiBindings`, `DesktopPiManager`, `DesktopPiConfigurator`: pinned distribution, checksum, profile/project config, MCP/resources с trust и bounds, RPC sessions | Версия Bundled сравнивается в `piCompatibility`; нет полной связки/решения, newest-compatible вместо latest и session stamp; native MCP и hooks требуют регресса |
 | Codex | `CodexBindings`, `CodexManagement`, `LocalCodexTransport`: app-server, session trees, native gate, CLI login/install, read-only project assists; admission policy, clean-home baseline, digest-checked promotion | `EngineManager.compatibility` остаётся Unknown (metadata inspect — не допуск); живой регресс, Windows/Linux и retained resume требуют проверки |
 | Claude | `ClaudeBindings`, `JvmClaudeManager`: выбор источника без подмены, HostApp discovery, login, observed history/trees, tools bridge, project assists; admission policy, isolated baseline, digest-checked promotion | `EngineManager.compatibility` остаётся Unknown (нет `inspectCompatibility`); stable manifest не доказывает newest-compatible; полный native planning и resume/history проверить отдельно |
-| Kimi | `KimiRuntimeRelease`, `KimiRuntimeSetup`, `JvmKimiBackend`: manifest/source/hash/native target, pinned/retained runtime, ACP capability negotiation | Точное равенство pin даёт Verified без общей связки; связать negotiation/admission/session stamp и проверить retained history после отката |
+| Kimi | `KimiRuntimeRelease`, `KimiRuntimeSetup`, `JvmKimiBackend`: manifest/source/hash/native target, pinned/retained runtime, ACP capability negotiation; admission policy, `initialize` baseline и digest-checked promotion | `EngineManager.compatibility(version)` остаётся legacy display metadata, а не admission; живой ход, Windows/Linux lifecycle и retained history после отката требуют проверки |
 | DeepSeek Harness | `JvmDeepSeekManager`, `DeepSeekRuntime`, `DeepSeekHosted`: bounded version probe, ACP, scoped hosted attachment, one-shot correlation | Общая compatibility пока Unknown; fixed supported line не оформлена единым compatibility decision; сохранение native session stamp, capabilities и External fingerprint |
 
 Конфигурация: Pi объявляет полноценный configurator; Codex/Claude подключают `ProjectAssistReader.Schema` (это не эквивалент всех настроек CLI). Koog/Kimi/DSH не объявляют полноценного configurator в регистрации. Отсутствие настройки в UI не доказывает, что upstream не имеет такой возможности.
