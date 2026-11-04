@@ -68,7 +68,8 @@ internal object PiJvmCompatibility {
     /**
      * Evidence of one restricted acquisition of [artifact]. Confirmed rows prove the recorded capabilities; a
      * conclusive failure rejects the baseline, and anything unobserved stays inconclusive instead of becoming a pass.
-     * Provenance is the pinned archive digest or the verified managed copy's recorded digest, never another artifact.
+     * Provenance is the pinned archive digest of the bundled artifact or the recorded executable digest of the
+     * verified managed copy, never another artifact.
      */
     fun evidence(
         artifact: PiArtifactFacts,

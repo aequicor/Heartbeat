@@ -41,7 +41,8 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
 
     /**
      * File metadata only: no process or user configuration is opened and compatibility remains unknown. A managed
-     * copy whose bytes no longer match the installer's pinned digest is reported as not runnable.
+     * copy whose executable no longer matches the digest the installation store recorded is reported as not
+     * runnable.
      */
     override suspend fun inspectCandidate(launch: LaunchContext): EngineCandidateInspection? {
         val inspection =
@@ -52,7 +53,7 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
         ) {
             return inspection
         }
-        log.w { "Selected managed copy differs from its pinned digest" }
+        log.w { "Selected managed copy differs from its recorded executable digest" }
         return inspection.copy(installation = inspection.installation.copy(isRunnable = false))
     }
 

@@ -111,7 +111,8 @@ internal class JvmPiCandidates internal constructor(
         val artifact = PiArtifactFacts(
             runtime = managed?.version,
             nativeTarget = release.target,
-            runtimeFingerprint = managed?.sha256?.takeIf { isVerified == true },
+            // The executable digest the store recorded, never the release archive digest.
+            runtimeFingerprint = managed?.executableSha256?.takeIf { isVerified == true },
         )
         if (managed == null || isVerified != true) {
             return Selection(artifact, baseline = null, isProvenanceConfirmed = isVerified)

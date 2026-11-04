@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 import kotlin.io.path.isExecutable
 import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.readBytes
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.AfterTest
@@ -132,6 +133,8 @@ class FileManagedInstallStoreTest {
         assertEquals(old, restarted.retained(engine, "1.0.0"))
         assertEquals(old.sha256, restarted.retained(engine, "1.0.0")?.sha256)
         assertNotNull(restarted.retained(engine, "1.0.0")?.sha256)
+        assertEquals(old.executableSha256, restarted.retained(engine, "1.0.0")?.executableSha256)
+        assertNotNull(restarted.retained(engine, "1.0.0")?.executableSha256)
         assertEquals("codex 1.0.0", Path.of(old.executable).readText())
         assertEquals(newer, restarted.retained(engine, "2.0.0"))
         assertEquals(null, restarted.retained(engine, "3.0.0"))
@@ -276,11 +279,57 @@ class FileManagedInstallStoreTest {
 
         assertEquals("1.0.0", installed.version)
         assertEquals("codex 1.0.0", Path.of(installed.executable).readText())
-        // The verified release digest stays attached to the managed copy through activation.
+        // The verified release archive digest stays attached to the managed copy through activation.
         assertEquals(plan.sha256, installed.sha256)
         assertEquals(mapOf(engine to installed), store.state.value)
         assertTrue(Path.of(installed.executable).startsWith(root.resolve("codex/versions")))
         assertNoLeftovers()
+    }
+
+    @Test
+    fun `the executable digest follows the installed bytes through stage, activation and restart`() = runTest {
+        val first = store()
+        val plan = plan("1.0.0")
+
+        val staged = first.stage(engine, plan) {}
+
+        val stagedExecutable = Path.of(staged.candidate.executable)
+        assertEquals(sha256(stagedExecutable.readBytes()), staged.candidate.executableSha256)
+        assertEquals(plan.sha256, staged.candidate.sha256)
+
+        val installed = first.activate(staged)
+
+        val installedExecutable = Path.of(installed.executable)
+        assertEquals(sha256(installedExecutable.readBytes()), installed.executableSha256)
+        assertEquals(plan.sha256, installed.sha256)
+        // The archive and the executable it contains are different bytes, so the two digests cannot be interchangeable.
+        assertTrue(installed.executableSha256 != installed.sha256)
+
+        val restarted = store()
+        restarted.refresh()
+
+        val restored = assertNotNull(restarted.state.value[engine])
+        assertEquals(installed, restored)
+        assertEquals(sha256(installedExecutable.readBytes()), restored.executableSha256)
+        assertEquals(plan.sha256, restored.sha256)
+    }
+
+    @Test
+    fun `a record written before the executable digest stays unknown`() = runTest {
+        val first = store()
+        val installed = first.activate(first.stage(engine, plan("1.0.0")) {})
+        val digest = assertNotNull(installed.executableSha256)
+        val record = root.resolve("codex/active.json")
+        record.writeText(record.readText().replace(",\"executableSha256\":\"$digest\"", ""))
+
+        val restarted = store()
+        restarted.refresh()
+
+        val restored = assertNotNull(restarted.state.value[engine])
+        assertEquals(null, restored.executableSha256)
+        assertEquals(installed.version, restored.version)
+        assertEquals(installed.sha256, restored.sha256)
+        assertEquals("codex 1.0.0", Path.of(restored.executable).readText())
     }
 
     @Test

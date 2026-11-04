@@ -192,7 +192,7 @@ class PiCompatibilityTest {
     }
 
     @Test
-    fun `a managed copy that differs from its recorded digest is rejected before any probe`() = runTest {
+    fun `a managed copy that differs from its recorded executable digest is rejected before any probe`() = runTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(piArchive(root))
             val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
@@ -209,6 +209,7 @@ class PiCompatibilityTest {
             val rejected = assertNotNull(candidates.open(mismatched, deadline) { error("unused") })
             assertEquals(false, rejected.evidence.isProvenanceConfirmed)
             assertNull(rejected.evidence.isBaselineConfirmed)
+            assertNull(rejected.evidence.identity.runtimeFingerprint)
             assertEquals(0, probe.calls)
             rejected.close()
 
@@ -218,6 +219,21 @@ class PiCompatibilityTest {
             assertNull(unknown.evidence.isBaselineConfirmed)
             assertEquals(0, probe.calls)
             unknown.close()
+
+            // The record's release archive digest, even when it equals the file's digest, is not executable provenance.
+            val archiveOnly = EngineRuntimeCandidateRequest(
+                identity,
+                LaunchContext(
+                    LaunchSettings(runtime = RuntimePreference.Managed),
+                    ManagedInstall("0.87.1", executable.toString(), Instant.fromEpochSeconds(0), sha256 = digest),
+                ),
+            )
+            val unknownProvenance = assertNotNull(candidates.open(archiveOnly, deadline) { error("unused") })
+            assertNull(unknownProvenance.evidence.isProvenanceConfirmed)
+            assertNull(unknownProvenance.evidence.isBaselineConfirmed)
+            assertNull(unknownProvenance.evidence.identity.runtimeFingerprint)
+            assertEquals(0, probe.calls)
+            unknownProvenance.close()
 
             val verified = assertNotNull(
                 candidates.open(launch(executable, digest = digest), deadline) { error("unused") },
@@ -310,7 +326,7 @@ class PiCompatibilityTest {
             identity,
             LaunchContext(
                 LaunchSettings(runtime = RuntimePreference.Managed),
-                ManagedInstall("0.87.1", executable.toString(), Instant.fromEpochSeconds(0), digest),
+                ManagedInstall("0.87.1", executable.toString(), Instant.fromEpochSeconds(0), executableSha256 = digest),
             ),
         )
 
