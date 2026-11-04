@@ -428,7 +428,7 @@ class ClaudeCompatibilityTest {
     fun `the baseline command is the existing stream-json initialize handshake`() {
         val command = claudeBaselineArguments(Path.of("/data/claude"))
         assertEquals(
-            listOf("/data/claude") + claudeArguments() + listOf("--input-format", "stream-json"),
+            listOf(Path.of("/data/claude").toString()) + claudeArguments() + listOf("--input-format", "stream-json"),
             command,
         )
         assertTrue("--print" in command)

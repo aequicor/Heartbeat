@@ -61,16 +61,20 @@ class PiCandidateMetadataTest {
         try {
             val executable = directory.resolve("pi")
             Files.writeString(executable, "binary")
-            assertTrue(executable.toFile().setExecutable(true))
+            // The executable bit is POSIX-only: on Windows the file runs by name, so only POSIX checks it.
+            val isWindows = System.getProperty("os.name").startsWith("Windows")
+            if (!isWindows) assertTrue(executable.toFile().setExecutable(true))
             val managed = ManagedInstall("1.0.0", executable.toString(), Instant.fromEpochSeconds(0))
             val selection = LaunchContext(LaunchSettings(runtime = RuntimePreference.Managed), managed)
             val result = assertNotNull(inspectPiCandidateMetadata(selection))
             assertEquals(InstallSource.Managed, result.installation.source)
             assertEquals(managed.version, result.installation.version)
             assertNull(result.compatibility)
-            assertTrue(executable.toFile().setExecutable(false, false))
-            val notExecutable = assertNotNull(inspectPiCandidateMetadata(selection))
-            assertEquals(InstallSource.Missing, notExecutable.installation.source)
+            if (!isWindows) {
+                assertTrue(executable.toFile().setExecutable(false, false))
+                val notExecutable = assertNotNull(inspectPiCandidateMetadata(selection))
+                assertEquals(InstallSource.Missing, notExecutable.installation.source)
+            }
             Files.delete(executable)
             val missing = assertNotNull(inspectPiCandidateMetadata(selection))
             assertEquals(InstallSource.Missing, missing.installation.source)

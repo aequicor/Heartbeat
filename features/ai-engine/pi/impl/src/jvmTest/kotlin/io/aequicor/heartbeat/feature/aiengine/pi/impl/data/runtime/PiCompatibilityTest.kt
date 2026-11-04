@@ -289,7 +289,7 @@ class PiCompatibilityTest {
     fun `the baseline command is the existing socket-free catalog probe`() {
         assertEquals(
             listOf(
-                "/data/pi",
+                Path.of("/data/pi").toString(),
                 "--mode",
                 "rpc",
                 "--no-session",

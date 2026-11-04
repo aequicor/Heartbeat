@@ -383,7 +383,7 @@ class CodexCompatibilityTest {
     @Test
     fun `the baseline command is the existing clean-home app-server probe`() {
         assertEquals(
-            listOf("/data/codex", "app-server"),
+            listOf(Path.of("/data/codex").toString(), "app-server"),
             codexBaselineArguments(Path.of("/data/codex")),
         )
     }
