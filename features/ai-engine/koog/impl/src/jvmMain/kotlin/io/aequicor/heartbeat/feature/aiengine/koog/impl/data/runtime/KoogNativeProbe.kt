@@ -6,6 +6,7 @@ import ai.koog.prompt.dsl.ModerationResult
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.message.Message
+import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.common.PlatformInfo
@@ -27,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
@@ -42,6 +44,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
@@ -61,6 +66,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -74,6 +80,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.TimeMark
 
@@ -83,6 +90,7 @@ internal data class KoogNativeReceipt(
     val isHistoryAndResumeConfirmed: Boolean,
     val isCancellationConfirmed: Boolean,
     val isRecoveryConfirmed: Boolean,
+    val isToolRoundConfirmed: Boolean,
 )
 
 /** Exercises production session code against synthetic in-memory ports without a user profile or network. */
@@ -155,14 +163,17 @@ private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogPr
     private val identity = RuntimeIdentity(KoogEngineId, source.info.id, source.info.revision)
     private val records = ProbeRecords()
     private val transport = ProbeTransport(provider)
+    private val toggles = ProbeToggles()
+    private val search = ProbeSearch()
     private val access = KoogAccess(
         ProbeConnections(KoogConnection(binding, source)),
         ProbeSecrets,
-        ProbeToggles,
+        toggles,
         profile,
         transport,
-        KoogReasoningLevels(ProbeReasoning(), ProbeCatalog, ProbeToggles),
+        KoogReasoningLevels(ProbeReasoning(), ProbeCatalog, toggles),
         KoogContextWindows(),
+        tools = ProbeTools,
     )
     private var runtime = newRuntime()
 
@@ -172,7 +183,7 @@ private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogPr
         records,
         profile.coroutineScope,
         KoogSessionCache(profile),
-        ProbeSearch,
+        search,
         KoogWorkspaces { null },
     )
 
@@ -224,17 +235,34 @@ private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogPr
             recoveredPage.items == interrupted.items &&
             records.values[ref]?.lastTurn?.outcome == TurnOutcome.Unknown
         recovered.close()
-        return KoogNativeReceipt(isSent && isTranscript, isResumed, isCancelled, isRecovered)
+        return KoogNativeReceipt(isSent && isTranscript, isResumed, isCancelled, isRecovered, exerciseToolRound())
+    }
+
+    private suspend fun exerciseToolRound(): Boolean {
+        transport.isWaiting = false
+        toggles.areToolsEnabled = true
+        transport.isToolRound = true
+        val toolSession = runtime.create(CreateSessionRequest(target))
+        val toolTurn = toolSession.features.require(SendsPrompts).send(request("tool"))
+        val toolState = toolSession.state.first { it is ActiveSessionState.Ready && it.lastTurn?.id == toolTurn }
+        val toolItems = toolSession.features.require(SessionHistory).page().items
+        val toolCall = toolItems.filterIsInstance<SessionItem.ToolCall>().singleOrNull()
+        val toolResult = toolItems.filterIsInstance<SessionItem.ToolResult>().singleOrNull()
+        val isToolRound = (toolState as ActiveSessionState.Ready).lastTurn?.outcome == TurnOutcome.Completed &&
+            search.calls.get() == 1 && transport.toolRequests.get() == 2 &&
+            toolCall?.name == "web_search" && toolResult?.failure == null && toolResult != null
+        toolSession.close()
+        return isToolRound
     }
 
     suspend fun exerciseWire(wire: KoogTransport, isFailureExpected: Boolean): Boolean {
         val wireAccess = KoogAccess(
             ProbeConnections(KoogConnection(binding, source)),
             ProbeSecrets,
-            ProbeToggles,
+            toggles,
             profile,
             wire,
-            KoogReasoningLevels(ProbeReasoning(), ProbeCatalog, ProbeToggles),
+            KoogReasoningLevels(ProbeReasoning(), ProbeCatalog, toggles),
             KoogContextWindows(),
         )
         val wireRuntime = KoogRuntime(
@@ -243,7 +271,7 @@ private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogPr
             records,
             profile.coroutineScope,
             KoogSessionCache(profile),
-            ProbeSearch,
+            search,
             KoogWorkspaces { null },
         )
         try {
@@ -341,10 +369,12 @@ private object ProbeSecrets : SecretStore {
     override suspend fun remove(key: SecretKey): SecretRemoval = error("Probe must not remove credentials")
 }
 
-private object ProbeToggles : FeatureToggles {
+private class ProbeToggles : FeatureToggles {
+    var areToolsEnabled = false
+
     @Suppress("UNCHECKED_CAST")
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = when (toggle) {
-        is FeatureToggle.Flag -> (toggle == KoogEngineEnabled) as T
+        is FeatureToggle.Flag -> (toggle == KoogEngineEnabled || (toggle == SearchEngineTools && areToolsEnabled)) as T
         is FeatureToggle.Choice -> toggle.default
     }
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
@@ -362,9 +392,22 @@ private object ProbeCatalog : KoogReasoningCatalog {
     override suspend fun levels(provider: KoogProvider, origin: EndpointOrigin, model: String): List<String>? = null
 }
 
-private object ProbeSearch : SearchEngine {
-    override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> =
-        error("Probe must not access search")
+private object ProbeTools : ProfileAgentTools by NoAgentTools {
+    override suspend fun authorizeHosted(
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+    ): NativeVerdict =
+        if (name == "web_search") NativeVerdict.Allow else NativeVerdict.Deny("Unsupported synthetic tool")
+}
+
+private class ProbeSearch : SearchEngine {
+    val calls = AtomicInteger()
+    override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> {
+        check(query == "synthetic query")
+        calls.incrementAndGet()
+        return listOf(SearchResult("https://example.invalid", "Synthetic", "Synthetic result"))
+    }
     override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent =
         error("Probe must not access network")
 }
@@ -372,6 +415,8 @@ private object ProbeSearch : SearchEngine {
 private class ProbeTransport(private val expected: KoogProvider) : KoogTransport {
     @Volatile
     var isWaiting = false
+    var isToolRound = false
+    val toolRequests = AtomicInteger()
     val started = CompletableDeferred<Unit>()
     val openExecutors = AtomicInteger()
     override suspend fun open(
@@ -385,8 +430,8 @@ private class ProbeTransport(private val expected: KoogProvider) : KoogTransport
         check(provider == expected && key == expectedKey && origin == expected.origin && basePath == null)
         val isWaiting = this.isWaiting
         openExecutors.incrementAndGet()
-        val executor = ProbeExecutor(isWaiting, started, openExecutors)
-        return KoogClient(executor) { listOf(provider.textModel("probe-model")) }
+        val executor = ProbeExecutor(isWaiting, started, openExecutors, isToolRound, toolRequests)
+        return KoogClient(executor) { listOf(provider.textModel("probe-model", tools = isToolRound)) }
     }
 }
 
@@ -394,10 +439,26 @@ private class ProbeExecutor(
     private val isWaiting: Boolean,
     private val started: CompletableDeferred<Unit>,
     private val openExecutors: AtomicInteger,
+    private val isToolRound: Boolean,
+    private val toolRequests: AtomicInteger,
 ) : PromptExecutor() {
     override fun executeStreaming(prompt: Prompt, model: LLModel, tools: List<ToolDescriptor>): Flow<StreamFrame> =
         flow {
-            check(tools.isEmpty())
+            if (isToolRound) {
+                check(tools.any { it.name == "web_search" })
+                if (toolRequests.incrementAndGet() == 1) {
+                    emit(StreamFrame.ToolCallComplete("probe-call", "web_search", """{"query":"synthetic query"}""", 0))
+                    emit(StreamFrame.End("tool_calls"))
+                    return@flow
+                }
+                check(
+                    prompt.messages.flatMap { it.parts }.any {
+                        it is MessagePart.Tool.Result && it.id == "probe-call" && "Synthetic result" in it.output
+                    },
+                )
+            } else {
+                check(tools.isEmpty())
+            }
             if (isWaiting) {
                 started.complete(Unit)
                 awaitCancellation()

@@ -228,7 +228,7 @@ class KoogSdkProbeTest {
         )
         assertNotNull(openai)
         assertNull(openai.evidence.isBaselineConfirmed)
-        assertEquals(KoogNativeReceipt(true, true, true, true), assertIs<PartialKoogCandidate>(openai).native)
+        assertEquals(KoogNativeReceipt(true, true, true, true, true), assertIs<PartialKoogCandidate>(openai).native)
         assertEquals(true, assertIs<PartialKoogCandidate>(openai).isWireConfirmed)
         assertEquals(nativeWireExchange(KoogProvider.OpenAI).body, http.lastBody)
         assertEquals(8, http.sessions.size)
