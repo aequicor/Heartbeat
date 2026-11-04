@@ -24,6 +24,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -97,7 +99,10 @@ internal class LocalCodexTransport(
         nativeOff: CodexNativeOff,
     ): CodexWire {
         validateLaunch(resolved)
-        val identity = withContext(dispatchers.io) { codexExecutableIdentity(resolved.executable) }
+        val identity = withContext(dispatchers.io) {
+            val context = currentCoroutineContext()
+            codexExecutableIdentity(resolved.executable) { context.ensureActive() }
+        }
         val catalog = CodexModelCatalog.create(resolved, environment, dispatchers)
         var isTransferred = false
         try {

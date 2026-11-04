@@ -6,6 +6,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -28,7 +30,8 @@ import java.util.concurrent.TimeUnit
  * Detects changes to the file used by inventory checks, including same-size rewrites with restored timestamps.
  * This is an observation of a mutable path, not proof of the bytes loaded by any process or an admission lease.
  */
-internal fun codexExecutableIdentity(executable: String): String = try {
+internal fun codexExecutableIdentity(executable: String, checkCancellation: () -> Unit = {}): String = try {
+    checkCancellation()
     val path = Path.of(executable).toRealPath()
     val before = Files.readAttributes(path, BasicFileAttributes::class.java)
     if (!before.isRegularFile || before.size() > MAX_EXECUTABLE_BYTES) inventoryFailure()
@@ -37,6 +40,7 @@ internal fun codexExecutableIdentity(executable: String): String = try {
     Files.newInputStream(path).use { input ->
         val buffer = ByteArray(HASH_BUFFER_BYTES)
         while (true) {
+            checkCancellation()
             val count = input.read(buffer)
             if (count < 0) break
             total += count
@@ -44,6 +48,7 @@ internal fun codexExecutableIdentity(executable: String): String = try {
             digest.update(buffer, 0, count)
         }
     }
+    checkCancellation()
     val after = Files.readAttributes(path, BasicFileAttributes::class.java)
     val isChanged = before.fileKey() != after.fileKey() || before.size() != after.size() ||
         before.lastModifiedTime() != after.lastModifiedTime()
@@ -99,7 +104,8 @@ internal class CodexInventoryProbe(
         var root: Path? = null
         try {
             withContext(dispatchers.io) {
-                if (codexExecutableIdentity(executable) != identity) inventoryFailure()
+                val context = currentCoroutineContext()
+                if (codexExecutableIdentity(executable) { context.ensureActive() } != identity) inventoryFailure()
                 catalog.requireModel(target.model)
                 root = Files.createTempDirectory("heartbeat-codex-inventory-")
             }
@@ -109,7 +115,8 @@ internal class CodexInventoryProbe(
                 // Socket accept, process start and teardown block, so the whole capture stays off the UI thread.
                 withContext(dispatchers.io) { capture(executable, directory, target, off) }
                 withContext(dispatchers.io) {
-                    if (codexExecutableIdentity(executable) != identity) inventoryFailure()
+                    val context = currentCoroutineContext()
+                    if (codexExecutableIdentity(executable) { context.ensureActive() } != identity) inventoryFailure()
                 }
                 true
             }
