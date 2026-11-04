@@ -364,7 +364,7 @@ class EngineControlPanelModel(
         var screen = EngineControlPanelState(engineId.value)
         withState { screen = this }
         if (intent is EngineManagementIntent.RequestEngineAction && screen.needsConfirmation(intent.action)) {
-            updateState { copy(confirmAction = intent.action) }
+            if (screen.canRequest(intent.action, intent.method)) updateState { copy(confirmAction = intent.action) }
             return
         }
         val command = screen.commandFor(intent)

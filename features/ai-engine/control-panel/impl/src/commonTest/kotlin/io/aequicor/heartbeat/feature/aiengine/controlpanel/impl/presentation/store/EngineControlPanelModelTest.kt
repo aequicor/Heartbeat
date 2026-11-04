@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportPreview
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportSelection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalizedText
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
@@ -289,6 +290,24 @@ class EngineControlPanelModelTest {
 
         assertTrue(machine.sent.none { it is EngineControlIntent.Public.Apply })
         assertEquals(EngineActionUi.Uninstall, screen.states.value.confirmAction)
+    }
+
+    @Test
+    fun `a stale sign out confirmation cannot run after sign out`() = runTest {
+        val initial = managedCodexWithCopy().copy(login = LoginState.SignedIn("synthetic"))
+        machine.state.value = managedSnapshot(initial)
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Logout))
+        runCurrent()
+        assertEquals(EngineActionUi.Logout, screen.states.value.confirmAction)
+
+        machine.state.value = managedSnapshot(initial.copy(login = LoginState.SignedOut))
+        runCurrent()
+        model.store.intent(EngineManagementIntent.ConfirmEngineAction)
+        runCurrent()
+
+        assertTrue(machine.sent.none { it is EngineControlIntent.Public.Apply })
     }
 
     @Test

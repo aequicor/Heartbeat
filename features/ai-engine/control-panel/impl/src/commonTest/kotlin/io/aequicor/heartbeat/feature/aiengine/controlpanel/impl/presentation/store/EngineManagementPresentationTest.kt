@@ -42,6 +42,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -242,6 +243,31 @@ class EngineManagementPresentationTest {
         )
         val saved = selected(managedCodex().copy(launch = LaunchState(proxy.toSettings())))
         assertFalse(saved.panel!!.launch!!.isDirty)
+    }
+
+    @Test
+    fun `stale actions and confirmations do not start jobs after their capabilities disappear`() {
+        val initial = selected(managedCodexWithCopy())
+        val actions = listOf(
+            EngineActionUi.Install to EngineActionKindUi.Install,
+            EngineActionUi.Update to EngineActionKindUi.Update,
+            EngineActionUi.Uninstall to EngineActionKindUi.Uninstall,
+            EngineActionUi.Login to EngineActionKindUi.Login,
+            EngineActionUi.Logout to EngineActionKindUi.Logout,
+            EngineActionUi.SyncPackages to EngineActionKindUi.Packages,
+            EngineActionUi.UpdatePackages to EngineActionKindUi.Packages,
+        )
+        for ((action, kind) in actions) {
+            val unavailable = initial.copy(panel = initial.panel!!.copy(actions = persistentSetOf()))
+            assertNull(unavailable.commandFor(EngineManagementIntent.RequestEngineAction(action)), action.name)
+            assertNull(unavailable.copy(confirmAction = action).commandFor(EngineManagementIntent.ConfirmEngineAction))
+            val busy = initial.copy(isSaving = true, panel = initial.panel!!.copy(actions = persistentSetOf(kind)))
+            assertNull(busy.commandFor(EngineManagementIntent.RequestEngineAction(action)), action.name)
+        }
+        assertNull(
+            initial.copy(panel = initial.panel!!.copy(loginMethods = persistentListOf(LoginMethodUi.Browser)))
+                .commandFor(EngineManagementIntent.RequestEngineAction(EngineActionUi.Login, LoginMethodUi.DeviceCode)),
+        )
     }
 
     @Test
