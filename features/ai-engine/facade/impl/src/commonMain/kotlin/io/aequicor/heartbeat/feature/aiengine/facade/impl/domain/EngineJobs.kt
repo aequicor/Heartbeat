@@ -130,12 +130,11 @@ class EngineJobs(
     }
 
     /** Passes [code] to the sign-in of [engine] that waits for it. */
-    suspend fun answer(engine: EngineId, code: LoginCode) {
-        val channel =
-            guard.withLock { codes[engine] }?.takeIf { published.value[engine]?.phase is JobPhase.AwaitingCode }
-                ?: refuse("no sign-in waits for a code engine=${engine.value}")
+    suspend fun answer(engine: EngineId, code: LoginCode) = guard.withLock {
+        val channel = codes[engine]?.takeIf { published.value[engine]?.phase is JobPhase.AwaitingCode }
+            ?: refuse("no sign-in waits for a code engine=${engine.value}")
         log.i { "sign-in code passed engine=${engine.value}" }
-        channel.trySend(code)
+        if (channel.trySend(code).isFailure) refuse("sign-in stopped waiting for a code engine=${engine.value}")
     }
 
     private suspend fun run(
@@ -269,20 +268,26 @@ class EngineJobs(
 
     private suspend fun login(engine: EngineId, action: EngineAction.Login, loginLaunch: LaunchContext?) {
         val manager = manager(engine)
+        val owner = requireNotNull(published.value[engine]?.handle)
+        val codeChannel = guard.withLock { codes.getValue(engine) }
         val session = object : LoginSession {
             override fun prompt(prompt: LoginPrompt) {
-                phase(engine, prompt.toPhase())
+                published.update { all ->
+                    val current = all[engine]
+                    if (current?.handle === owner && !current.phase.isFinished) {
+                        all + (engine to current.copy(phase = prompt.toPhase()))
+                    } else {
+                        all
+                    }
+                }
             }
 
-            override suspend fun awaitCode(): LoginCode {
-                val channel = guard.withLock { codes.getValue(engine) }
-                return channel.receive()
-            }
+            override suspend fun awaitCode(): LoginCode = codeChannel.receive()
         }
         val signedIn = withTimeoutOrNull(loginTimeoutMillis) {
             manager.login(loginLaunch ?: launch.context(engine), action.method, session)
         }
-        guard.withLock { codes.remove(engine) }
+        guard.withLock { codes.remove(engine)?.cancel() }
         if (signedIn == null) {
             log.w { "sign-in timed out engine=${engine.value}" }
             throw ManagementException(ManagementFailure.Login(LoginFailureReason.TimedOut))
@@ -341,7 +346,7 @@ class EngineJobs(
     private suspend fun finish(engine: EngineId, phase: JobPhase) {
         guard.withLock {
             running.remove(engine)
-            codes.remove(engine)
+            codes.remove(engine)?.cancel()
             progress.remove(engine)
             published.update { all -> all[engine]?.let { all + (engine to it.copy(phase = phase)) } ?: all }
         }

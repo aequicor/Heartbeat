@@ -362,6 +362,28 @@ class EngineJobsTest {
     }
 
     @Test
+    fun `late callbacks from an old sign-in cannot alter or consume a later sign-in`() = runTest {
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Login())
+        runCurrent()
+        val oldSession = requireNotNull(manager.loginSession)
+        jobs.answer(engine, LoginCode("first"))
+        runCurrent()
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+
+        jobs.start(engine, EngineAction.Login())
+        runCurrent()
+        assertEquals(JobPhase.AwaitingCode("https://claude.ai/oauth"), jobs.jobs.value.getValue(engine).phase)
+        oldSession.prompt(LoginPrompt.OpenUrl("https://stale.invalid", "OLD"))
+        assertEquals(JobPhase.AwaitingCode("https://claude.ai/oauth"), jobs.jobs.value.getValue(engine).phase)
+        assertFailsWith<kotlinx.coroutines.CancellationException> { oldSession.awaitCode() }
+        jobs.answer(engine, LoginCode("second"))
+        runCurrent()
+        assertEquals(LoginCode("second"), manager.received)
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+    }
+
+    @Test
     fun `a cancelled install discards its staged copy and a second job waits for the first`() = runTest {
         manager.isInspectHanging = true
         val jobs = jobs()
@@ -565,6 +587,7 @@ private fun jobPolicy(): EngineCompatibilityRequirements {
 }
 
 private class JobManager : EngineManager {
+    var loginSession: LoginSession? = null
     var loginLaunch: LaunchContext? = null
     var logoutResult: LoginState = LoginState.SignedOut
     override suspend fun logout(launch: LaunchContext): LoginState = logoutResult
@@ -629,6 +652,7 @@ private class JobManager : EngineManager {
 
     override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState {
         loginLaunch = launch
+        loginSession = session
         this.method = method
         try {
             if (isLoginHanging) awaitCancellation()
