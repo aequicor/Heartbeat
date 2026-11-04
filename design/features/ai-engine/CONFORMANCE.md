@@ -49,17 +49,18 @@ Android/iOS политики не имеют и сохраняют явный Un
 Codex (`3b12b8f03`, `e92ce307b`): версия берётся из `initialize`-handshake уже удерживаемого metadata-процесса того
 же зафиксированного launch, а не пробой `--version`; legacy restricted launch восстановлен для наблюдённой версии
 ≥ 0.160.0, неизвестная/некорректная версия по-прежнему отказывает до старта второго app-server. Кандидат панели и
-мастера проверяется metadata-only, без процесса и без заявления совместимости. Допуска Codex пока нет: нужны
-закреплённый digest артефакта для provenance (сейчас `ManagedInstall` его не хранит), объявленные ревизии
-app-server protocol и конфигурации/истории, а также кандидат, удерживающий процесс до promotion.
+мастера проверяется metadata-only, без процесса и без заявления совместимости. Допуска Codex пока нет: нужна
+проверка выбранного исполняемого файла по сохранённому digest (`ManagedInstall.sha256` с `f3311a27e` содержит digest
+проверенного архива, но сам запуск им ещё не сверяется), объявленные ревизии app-server protocol и
+конфигурации/истории, а также кандидат, удерживающий процесс до promotion.
 
 Предпосылки допуска по коннекторам (без переноса доказательств между ними):
 
 | Коннектор | Что уже есть | Чего не хватает для допуска |
 |---|---|---|
 | Koog | политика из build facts, offline baseline, promotion (`81374f004`) | живой сетевой ход и loaded-classpath proof; platform privacy на Native/Android |
-| Pi | pinned distribution и SHA-256 архива, RPC-сессии, конфигуратор | закреплённый digest установленного исполняемого файла и привязка процесса; ревизии протокола/конфигурации/истории |
-| Codex | наблюдённая версия процесса, protected inventory probe, metadata inspect | digest-pin Managed-копии, ревизии app-server protocol и config/history, кандидат, удерживающий процесс |
+| Pi | pinned distribution и SHA-256 архива, RPC-сессии, конфигуратор | сверка запускаемого файла с сохранённым digest и привязка процесса; ревизии протокола/конфигурации/истории |
+| Codex | наблюдённая версия процесса, protected inventory probe, metadata inspect, digest Managed-копии | сверка файла с digest, ревизии app-server protocol и config/history, кандидат, удерживающий процесс |
 | Claude | выбор источника без подмены, CLI-вход, наблюдённая история | стабильный runtime pin/newest-compatible, ревизии протокола и конфигурации, кандидат с собственным процессом |
 | Kimi | pin `2.4.0-hb7`, ACP v1 negotiation, restricted Inspect, `session/delete` | behavioral baseline на допущенном процессе, точный идентификатор владения сессией, очистка при неизвестном исходе |
 | DSH | проверяемая линия `0.2.1-rc.5`, ACP v1, scoped MCP | единая compatibility-политика и stamp сессии; live-проверка нативных сессий |
