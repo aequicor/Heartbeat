@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -131,6 +132,48 @@ class RuntimePool(
                     }
                     cleanup.retryFor(key.first, key.second)
                     acquireSession(resolved, deadline, recheck, prepare)
+                }
+            }
+        }
+    }
+
+    /**
+     * Assesses whether [resolved] could create a session without starting, reusing or transferring an ordinary
+     * runtime: one restricted candidate is acquired for the exact identity, launch context and provider, then
+     * assessed against the connector policy and closed. The source lock serializes the probe with runtime
+     * replacement, and [recheck] must still authorize the canonical route. Cleanup is always awaited.
+     */
+    suspend fun assessAdmission(
+        resolved: ResolvedRoute,
+        deadline: TimeMark,
+        recheck: suspend () -> Unit,
+    ): RouteAdmission {
+        if (deadline.hasPassedNow()) fail(EngineFailure.Transport(TransportFailureReason.Timeout))
+        return withContext(context.io) {
+            withTimeout(-deadline.elapsedNow()) {
+                val identity = resolved.identity
+                val key = identity.engine to identity.source
+                locked(key) {
+                    mutex.withLock {
+                        ensureOpen(identity.engine)
+                        requireConnected(resolved)
+                    }
+                    val launch = launchOf(identity.engine)
+                    admission.assess(
+                        resolved.registration,
+                        EngineRuntimeCandidateRequest(identity, launch, resolved.source.scope.provider),
+                        deadline,
+                        recheck = {
+                            mutex.withLock {
+                                ensureOpen(identity.engine)
+                                requireConnected(resolved)
+                            }
+                            recheck()
+                            if (launchOf(identity.engine) != launch) {
+                                fail(EngineFailure.Session(SessionFailureReason.Changed))
+                            }
+                        },
+                    )
                 }
             }
         }

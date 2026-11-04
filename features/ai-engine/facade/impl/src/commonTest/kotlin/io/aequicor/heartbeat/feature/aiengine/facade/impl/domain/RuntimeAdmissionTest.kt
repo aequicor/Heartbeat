@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.identity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
@@ -282,6 +283,81 @@ class RuntimeAdmissionTest {
         assertEquals(0, candidate.promotions)
         assertEquals(1, candidate.closes)
     }
+
+    @Test
+    fun `assessment closes the candidate and never promotes or transfers a runtime`() = runTest {
+        val result = assertIs<RouteAdmission.Assessed>(assess())
+        assertEquals(Compatibility.Verified, result.decision.status)
+        assertEquals(1, opens)
+        assertEquals(0, candidate.promotions)
+        assertEquals(1, candidate.closes)
+        assertEquals(0, candidate.runtime.closes)
+        assertTrue(legacy.createdRuntimes.isEmpty())
+        assertEquals(0, legacy.preparations)
+    }
+
+    @Test
+    fun `assessment reports an incompatible candidate without promoting it`() = runTest {
+        candidate.facts = candidate.facts.copy(isBaselineConfirmed = false)
+        val result = assertIs<RouteAdmission.Assessed>(assess())
+        assertEquals(Compatibility.Incompatible, result.decision.status)
+        assertEquals(0, candidate.promotions)
+        assertEquals(1, candidate.closes)
+        assertTrue(legacy.createdRuntimes.isEmpty())
+    }
+
+    @Test
+    fun `assessment without policy or candidate is unavailable and starts nothing`() = runTest {
+        requirements = null
+        assertEquals(RouteAdmission.Unavailable, assess())
+        assertEquals(0, opens)
+        requirements = policy
+        open = { null }
+        assertEquals(RouteAdmission.Unavailable, assess())
+        assertEquals(1, opens)
+        assertEquals(0, candidate.promotions)
+        assertTrue(candidate.runtime.closes == 0)
+        assertTrue(legacy.createdRuntimes.isEmpty())
+    }
+
+    @Test
+    fun `assessment rejects a substituted request and still closes the candidate`() = runTest {
+        candidate.input = request.copy(identity = identity.copy(source = AuthSourceId("foreign")))
+        assertProtocolFailure { assess() }
+        assertEquals(0, candidate.promotions)
+        assertEquals(1, candidate.closes)
+    }
+
+    @Test
+    fun `assessment rechecks the route and fails closed when it changed`() = runTest {
+        recheck = {
+            checks++
+            if (checks == 2) throw EngineException(OperationNotAllowed)
+        }
+        assertEquals(OperationNotAllowed, assertFailsWith<EngineException> { assess() }.failure)
+        assertEquals(0, candidate.promotions)
+        assertEquals(1, candidate.closes)
+    }
+
+    @Test
+    fun `expired assessment deadline opens no candidate`() = runTest {
+        val expired = testScheduler.timeSource.markNow() - 1.seconds
+        assertEquals(
+            EngineFailure.Transport(TransportFailureReason.Timeout),
+            assertFailsWith<EngineException> { assess(expired) }.failure,
+        )
+        assertEquals(0, opens)
+        assertEquals(0, candidate.closes)
+    }
+
+    private suspend fun TestScope.assess(
+        deadline: TimeMark = testScheduler.timeSource.markNow() + 5.seconds,
+    ): RouteAdmission = RuntimeAdmission(facadeContext(), cleanupOwner()).assess(
+        registration(factory),
+        request,
+        deadline,
+        recheck,
+    )
 
     private fun TestScope.cleanupOwner(): RuntimeCleanupOwner =
         cleanup ?: RuntimeCleanupOwner(facadeContext()).also { cleanup = it }

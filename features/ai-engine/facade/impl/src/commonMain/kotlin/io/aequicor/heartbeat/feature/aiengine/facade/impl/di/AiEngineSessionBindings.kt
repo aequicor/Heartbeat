@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeInteractionDemand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -23,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionHo
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.BindingRelease
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnabledEngines
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineRouteAdmissionService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeCapabilities
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeContext
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ProfileEngineFacade
@@ -102,6 +104,11 @@ object AiEngineSessionBindings {
         host: ActiveSessionHost,
         context: FacadeContext,
     ): SessionLauncher = SessionLauncher(routes, pool, sessions, host, context)
+
+    /** Explicit admission assessment of a saved route; never opens an ordinary runtime. */
+    @Provides
+    fun routeAdmission(routes: RouteResolver, pool: RuntimePool, context: FacadeContext): EngineRouteAdmission =
+        EngineRouteAdmissionService(routes, pool, context)
 
     /** Facade-implemented capabilities. */
     @Provides

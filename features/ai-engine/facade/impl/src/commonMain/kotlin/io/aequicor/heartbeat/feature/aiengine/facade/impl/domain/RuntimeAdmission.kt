@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.assessEngineCompatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -51,6 +52,45 @@ internal sealed interface RuntimeAdmissionResult {
  */
 internal class RuntimeAdmission(private val context: FacadeContext, private val cleanup: RuntimeAdmissionCleanup) {
     private val log = Log.tag("RuntimeAdmission")
+
+    /**
+     * Assesses one restricted candidate for [request] and always closes it. Unlike [acquire] nothing is
+     * transferred, reused or prepared: only the observed evidence and the connector policy contribute to the
+     * result, so a caller can report an admission decision before any ordinary runtime exists.
+     */
+    suspend fun assess(
+        registration: EngineRegistration,
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+        recheck: suspend () -> Unit,
+    ): RouteAdmission {
+        currentCoroutineContext().ensureActive()
+        checkDeadline(deadline)
+        requireProtocol(request.identity.engine == registration.descriptor.id)
+        val factory = registration.factory.value
+        val policy = factory.runtimeRequirements ?: return RouteAdmission.Unavailable
+        requireProtocol(policy.engine == registration.descriptor.id)
+        return withTimeout(-deadline.elapsedNow()) {
+            var candidate: EngineRuntimeCandidate? = null
+            try {
+                recheck()
+                checkDeadline(deadline)
+                adapterCall(log, "open restricted candidate") {
+                    // Capture inside the dispatcher boundary: prompt cancellation can drop its result.
+                    withContext(context.io) { candidate = factory.openRuntimeCandidate(request, deadline) }
+                }
+                val acquired = candidate ?: return@withTimeout RouteAdmission.Unavailable
+                requireProtocol(acquired.request == request)
+                val decision = assessEngineCompatibility(policy, acquired.evidence)
+                recheck()
+                checkDeadline(deadline)
+                RouteAdmission.Assessed(decision)
+            } finally {
+                val owned = candidate
+                if (owned != null) withContext(NonCancellable) { closeCandidate(owned, request.identity) }
+            }
+        }
+    }
 
     /**
      * Acquires one candidate and transfers it only while [recheck] still authorizes the canonical route and

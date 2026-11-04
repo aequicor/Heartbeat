@@ -2,12 +2,14 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -24,6 +26,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -205,6 +208,48 @@ class RuntimeSessionAdmissionTest {
         first.join()
     }
 
+    @Test
+    fun `route assessment observes the exact provider and never starts or promotes a runtime`() = runTest {
+        val f = Fixture(this)
+        val result = assertIs<RouteAdmission.Assessed>(f.assess())
+        assertEquals(Compatibility.Verified, result.decision.status)
+        assertEquals(1, f.factory.candidates)
+        assertEquals(f.route.source.scope.provider, f.factory.lastCandidateRequest?.provider)
+        assertEquals(0, f.factory.promotions)
+        assertEquals(1, f.factory.candidateCloses)
+        assertTrue(f.runtimes.isEmpty())
+        assertEquals(0, f.prepared)
+    }
+
+    @Test
+    fun `route assessment surfaces a refused baseline and closes its candidate`() = runTest {
+        val f = Fixture(this)
+        f.factory.runtimeEvidence = f.factory.runtimeEvidence.copy(isBaselineConfirmed = false)
+        assertEquals(Compatibility.Incompatible, assertIs<RouteAdmission.Assessed>(f.assess()).decision.status)
+        assertEquals(0, f.factory.promotions)
+        assertEquals(1, f.factory.candidateCloses)
+        assertTrue(f.runtimes.isEmpty())
+    }
+
+    @Test
+    fun `route assessment without a policy is unavailable and creates nothing`() = runTest {
+        val f = Fixture(this)
+        f.factory.runtimeRequirements = null
+        assertEquals(RouteAdmission.Unavailable, f.assess())
+        assertEquals(0, f.factory.candidates)
+        assertTrue(f.runtimes.isEmpty())
+    }
+
+    @Test
+    fun `route assessment is refused after revocation without starting a runtime`() = runTest {
+        val f = Fixture(this)
+        f.isAllowed = false
+        assertFailsWith<EngineException> { f.assess() }
+        assertEquals(0, f.factory.candidates)
+        assertEquals(0, f.factory.promotions)
+        assertTrue(f.runtimes.isEmpty())
+    }
+
     private class Fixture(val scope: TestScope) {
         val factory = FakeEngineFactory()
         val runtimes = mutableListOf<FakeRuntime>()
@@ -230,6 +275,13 @@ class RuntimeSessionAdmissionTest {
                 deadline,
                 recheck = { if (!isAllowed) throw EngineException(OperationNotAllowed) },
                 prepare = { prepared++ },
+            )
+
+        suspend fun assess(deadline: TimeMark = scope.testScheduler.timeSource.markNow() + 5.seconds) =
+            pool.assessAdmission(
+                route,
+                deadline,
+                recheck = { if (!isAllowed) throw EngineException(OperationNotAllowed) },
             )
 
         fun changeFingerprint() {
