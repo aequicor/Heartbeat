@@ -11,10 +11,11 @@ import java.util.HexFormat
 /**
  * Explicitly external fingerprint of the selected DSH executable. This is an observed, trust-on-first-use class
  * digest of the launcher file, **not** a pinned release digest and not proof of the whole execution closure: DSH
- * may resolve Electron, ASAR or native resources outside this file, and the user owns and updates it. An absent,
- * unreadable, non-regular, oversized or concurrently changing file leaves the fingerprint unknown, so admission
- * must refuse rather than claim sealed provenance. The `external:sha256:` prefix is the machine-visible marker of
- * this policy and is never produced for a Heartbeat-managed artifact.
+ * may resolve Electron, ASAR or native resources outside this file, and the user owns and updates it. Only the
+ * adapter's single resolved launch is fingerprinted; a duplicate installation elsewhere is never substituted. An
+ * absent, unreadable, non-regular, oversized or concurrently changing file leaves the fingerprint unknown, so
+ * admission must refuse rather than claim sealed provenance. The `external:sha256:` prefix is the machine-visible
+ * marker of this policy and is never produced for a Heartbeat-managed artifact.
  */
 internal object DshExternalFingerprint {
     /** Machine-visible marker of an observed external executable, never a pinned release digest. */

@@ -14,9 +14,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -41,6 +43,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class DeepSeekRuntimeTest {
@@ -155,6 +158,56 @@ class DeepSeekRuntimeTest {
         val provided = runtime(FakeAcpConnection(), sessionTrees = trees)
         assertIs<FeatureAccess.Available<SessionTrees>>(provided.features.resolve(SessionTrees))
         assertEquals(FeatureAccess.Unsupported, runtime(FakeAcpConnection()).features.resolve(SessionTrees))
+    }
+
+    @Test
+    fun `the promoted group reports the assessed stamp and observes one ordinary child`() = runTest {
+        val stamp = EngineCompatibilityStamp(
+            DeepSeekEngine.Id,
+            "heartbeat",
+            "connector",
+            "0.2.1-rc.5",
+            EngineProtocolIdentity.Negotiated("acp", 1),
+            0,
+            0,
+            "darwin-arm64",
+            DshExternalFingerprint.PREFIX + "a".repeat(64),
+        )
+        val child = DeepSeekRuntime(
+            RuntimeIdentity(DeepSeekEngine.Id, AuthSourceId("auth"), AuthRevision.Unknown),
+            FakeAcpConnection(),
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()),
+            directory = { "C:\\workspace" },
+            observedRuntimeVersion = "0.0.1",
+            observedProtocol = EngineProtocolIdentity.Negotiated("acp", 1),
+            selectedExecutable = "/selected/dsh",
+            compatibilityStamp = stamp,
+        )
+        var opened = 0
+        val group = DeepSeekRuntimeGroup(
+            RuntimeIdentity(DeepSeekEngine.Id, AuthSourceId("auth"), AuthRevision.Unknown),
+            sessionTrees(),
+            compatibilityStamp = stamp,
+            selectedExecutable = "/selected/dsh",
+        ) {
+            opened++
+            child
+        }
+
+        val observation = assertNotNull(group.observeOrdinaryStartup())
+        assertEquals(1, opened)
+        assertEquals(stamp, group.compatibilityStamp)
+        assertEquals("/selected/dsh", observation.selectedExecutable)
+        assertEquals(EngineProtocolIdentity.Negotiated("acp", 1), observation.protocol)
+        assertTrue(child.isClosed)
+        group.close()
+    }
+
+    private fun sessionTrees() = object : SessionTrees {
+        override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = emptyFlow()
+
+        override suspend fun history(root: SessionRef, ref: SessionRef, access: SessionTreeAccess): SessionHistory =
+            throw UnsupportedOperationException("not used")
     }
 
     private fun target(model: ModelId) = EngineTarget(

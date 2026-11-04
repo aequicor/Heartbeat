@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -27,8 +28,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class DeepSeekRuntimeGroup(
     override val identity: RuntimeIdentity,
     trees: SessionTrees,
+    override val compatibilityStamp: EngineCompatibilityStamp? = null,
+    override val selectedExecutable: String? = null,
     private val open: suspend (suspend (DeepSeekRuntime) -> Unit) -> DeepSeekRuntime,
 ) : EngineRuntime,
+    DshAdmittedRuntime,
     CreatesSessions,
     AttachesSessions {
     override val features = DeepSeekFeatures(CreatesSessions to this, AttachesSessions to this, SessionTrees to trees)
@@ -118,6 +122,27 @@ internal class DeepSeekRuntimeGroup(
         mutex.withLock {
             opening.remove(runtime)
             children.entries.removeAll { it.value === runtime }
+        }
+    }
+
+    /**
+     * Starts one ordinary child process through [open] without a session, reads the ACP identity it negotiated and
+     * stops it again. Promotion uses this to prove the promoted runtime is bound to the assessed launch; the group
+     * itself stays reusable for real sessions.
+     */
+    override suspend fun observeOrdinaryStartup(): DshProcessObservation? {
+        ensureOpen()
+        val runtime = open(::forget)
+        return try {
+            runtime.observeOrdinaryStartup()
+        } finally {
+            withContext(NonCancellable) {
+                try {
+                    runtime.close()
+                } finally {
+                    runtime.awaitRetired()
+                }
+            }
         }
     }
 

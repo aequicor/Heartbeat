@@ -7,7 +7,9 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekConfiguration
+import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data.runtime.DshCompatibilityProbe
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekEngineManager
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityObservation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -22,6 +24,7 @@ import kotlinx.coroutines.withContext
 @ContributesBinding(ProfileScope::class)
 internal class JvmDeepSeekManager(
     private val dispatchers: DispatcherProvider,
+    private val probe: DshCompatibilityProbe,
     private val configuration: DeepSeekConfiguration = DeepSeekConfiguration(),
     private val host: DeepSeekHost = DeepSeekHost(),
 ) : DeepSeekEngineManager {
@@ -45,6 +48,15 @@ internal class JvmDeepSeekManager(
         log.i { "DeepSeek Harness located source=${startup.source} version=${version ?: "unknown"}" }
         Installation(startup.source, version, startup.executable, startup.isRunnable)
     }
+
+    /**
+     * Structured inspect of exactly [installation] through the same isolated ACP `initialize` baseline admission
+     * uses. It reports the observed external fingerprint and never treats the report as a launch permit.
+     */
+    override suspend fun inspectCompatibility(
+        installation: Installation,
+        launch: LaunchContext,
+    ): EngineCompatibilityObservation = probe.inspect(installation)
 
     private companion object {
         const val PROBE_TIMEOUT_MS = 10_000L

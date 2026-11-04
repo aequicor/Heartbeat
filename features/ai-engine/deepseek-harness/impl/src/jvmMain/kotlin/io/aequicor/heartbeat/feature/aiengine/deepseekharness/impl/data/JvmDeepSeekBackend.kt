@@ -19,11 +19,17 @@ import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekAuthen
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekConfiguration
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekEngine
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.api.DeepSeekLogin
+import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data.runtime.DshCandidates
+import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data.runtime.DshCompatibility
+import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data.runtime.UnsupportedDshCandidates
+import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.data.runtime.UnsupportedDshCompatibility
 import io.aequicor.heartbeat.feature.aiengine.deepseekharness.impl.domain.DeepSeekBackend
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -36,6 +42,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -44,6 +52,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.TimeMark
 
 @ContributesBinding(ProfileScope::class, binding = binding<DeepSeekBackend>())
 @ContributesBinding(ProfileScope::class, binding = binding<DeepSeekAuthentication>())
@@ -60,6 +69,8 @@ internal class JvmDeepSeekBackend(
     private val account: DeepSeekAccount,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: DeepSeekConfiguration = DeepSeekConfiguration(),
+    private val compatibility: DshCompatibility = UnsupportedDshCompatibility,
+    private val candidates: DshCandidates = UnsupportedDshCandidates,
 ) : DeepSeekBackend {
     private val log = Log.tag("DeepSeekBackend")
     private val mutex = Mutex()
@@ -70,6 +81,16 @@ internal class JvmDeepSeekBackend(
         get() = nativeHistory
 
     override val nativeTrees = DeepSeekSessionTrees(nativeHistory)
+
+    /** Researched policy of this build; a target without generated facts reports null and keeps no admission. */
+    override val runtimeRequirements: EngineCompatibilityRequirements? get() = compatibility.requirements()
+
+    override suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { stamp ->
+        promoteRuntime(request.identity, stamp)
+    }
 
     override suspend fun inspect(): DeepSeekLogin = account.inspect(configuration.homeDirectory)
 
@@ -132,23 +153,67 @@ internal class JvmDeepSeekBackend(
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
         runtime?.takeUnless { it.isClosed || it.identity != identity }?.let { return@withLock it }
         runtime?.close()
-        DeepSeekRuntimeGroup(identity, DeepSeekSessionTrees(nativeHistory)) { retired ->
-            openRuntime(identity, isSingleSession = true, onRetired = retired)
-        }.also { runtime = it }
+        openGroup(identity).also { runtime = it }
+    }
+
+    private fun openGroup(
+        identity: RuntimeIdentity,
+        stamp: EngineCompatibilityStamp? = null,
+        selectedExecutable: String? = null,
+    ): DeepSeekRuntimeGroup = DeepSeekRuntimeGroup(
+        identity,
+        DeepSeekSessionTrees(nativeHistory),
+        compatibilityStamp = stamp,
+        selectedExecutable = selectedExecutable,
+    ) { retired ->
+        openRuntime(
+            identity,
+            isSingleSession = true,
+            onRetired = retired,
+            compatibilityStamp = stamp,
+            selectedExecutable = selectedExecutable,
+        )
+    }
+
+    /**
+     * Ordinary DSH runtime for [stamp], the same construction sessions use outside admission. The assessed
+     * executable is pinned so every child process of this runtime starts from the fingerprinted launcher; a changed
+     * configuration is not silently substituted and fails closed before any runtime is transferred.
+     */
+    private suspend fun promoteRuntime(
+        identity: RuntimeIdentity,
+        stamp: EngineCompatibilityStamp,
+    ): DeepSeekRuntimeGroup = mutex.withLock {
+        require(identity.engine == DeepSeekEngine.Id) { "Foreign engine" }
+        val existing = runtime
+        val reusable = existing?.takeIf {
+            it.identity == identity && !it.isClosed && it.compatibilityStamp == stamp
+        }
+        if (reusable != null) return@withLock reusable
+        existing?.close()
+        runtime = null
+        val startup = resolveDeepSeekStartup(configuration)
+        if (!startup.isRunnable) {
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
+        openGroup(identity, stamp, startup.executable).also { runtime = it }
     }
 
     private suspend fun openRuntime(
         identity: RuntimeIdentity,
         isSingleSession: Boolean = false,
         onRetired: suspend (DeepSeekRuntime) -> Unit = {},
+        compatibilityStamp: EngineCompatibilityStamp? = null,
+        selectedExecutable: String? = null,
     ): DeepSeekRuntime {
         val startup = resolveDeepSeekStartup(configuration)
-        if (!startup.isRunnable) {
+        val executable = selectedExecutable ?: startup.executable
+        if (selectedExecutable == null && !startup.isRunnable) {
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
         val transport = transports.open(
             AcpCommand(
-                startup.executable,
+                executable,
                 DeepSeekAcpPatch.arguments(),
                 configuration.workingDirectory,
                 dshEnvironment(startup.homeDirectory),
@@ -166,6 +231,8 @@ internal class JvmDeepSeekBackend(
             bridge = bridge,
             isSingleSession = isSingleSession,
             onRetired = onRetired,
+            compatibilityStamp = compatibilityStamp,
+            selectedExecutable = executable,
         )
     }
 
