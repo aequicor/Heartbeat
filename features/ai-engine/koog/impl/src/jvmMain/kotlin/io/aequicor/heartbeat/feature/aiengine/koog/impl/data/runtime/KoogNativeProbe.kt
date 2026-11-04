@@ -96,30 +96,35 @@ internal class KoogNativeProbe(private val dispatchers: DispatcherProvider) {
         }
     }
 
-    /** Runs the real native session and SDK over a finite socket-free Ollama exchange. */
-    suspend fun runOllamaWire(deadline: TimeMark, offline: OfflineHttpClients, platform: PlatformInfo): Boolean =
-        withContext(dispatchers.io) {
-            val owner = offline.open(listOf(sdkExchange(KoogProvider.Ollama, KoogSdkCheck.StreamStop)))
+    /** Runs the real native session and selected provider SDK over a finite socket-free exchange. */
+    suspend fun runProviderWire(
+        deadline: TimeMark,
+        offline: OfflineHttpClients,
+        platform: PlatformInfo,
+        provider: KoogProvider,
+    ): Boolean = withContext(dispatchers.io) {
+        val exchange = nativeWireExchange(provider)
+        val owner = offline.open(listOf(exchange))
+        try {
+            val environment = ProbeEnvironment(dispatchers, provider, isWire = true)
             try {
-                val environment = ProbeEnvironment(dispatchers, KoogProvider.Ollama)
-                try {
-                    withTimeout(-deadline.elapsedNow()) {
-                        val isSessionConfirmed = environment.exerciseWire(SdkKoogTransport(owner.client, platform))
-                        isSessionConfirmed && owner.progress().isComplete
-                    }
-                } finally {
-                    withContext(NonCancellable) { environment.close() }
+                withTimeout(-deadline.elapsedNow()) {
+                    val isSessionConfirmed = environment.exerciseWire(SdkKoogTransport(owner.client, platform))
+                    isSessionConfirmed && owner.progress().isComplete
                 }
             } finally {
-                withContext(NonCancellable) { owner.closeAndAwait() }
+                withContext(NonCancellable) { environment.close() }
             }
+        } finally {
+            withContext(NonCancellable) { owner.closeAndAwait() }
         }
+    }
 }
 
-private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogProvider) {
+private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogProvider, isWire: Boolean = false) {
     private val job = SupervisorJob()
     private val profile = ProbeProfile(CoroutineScope(job + dispatchers.main.limitedParallelism(1)))
-    private val source = probeSource(provider)
+    private val source = probeSource(provider, if (isWire) provider.sdkProbeOrigin else provider.origin)
     private val binding = EngineBinding(EngineBindingId("probe-binding"), KoogEngineId, source.info.id)
     private val target = EngineTarget(KoogEngineId, binding.id, ModelId("probe-model"))
     private val identity = RuntimeIdentity(KoogEngineId, source.info.id, source.info.revision)
@@ -387,9 +392,9 @@ private fun <F : EngineFeature> EngineFeatures.require(key: EngineFeatureKey<F>)
     (resolve(key) as? FeatureAccess.Available)?.feature ?: error("Missing native probe capability")
 
 /** Fixed synthetic route metadata; no user-controlled endpoint or credential enters the probe. */
-private fun probeSource(provider: KoogProvider): AuthSource {
+private fun probeSource(provider: KoogProvider, origin: EndpointOrigin): AuthSource {
     val info = AuthSourceInfo(AuthSourceId("probe-source"), "", AuthRevision.Known("synthetic"))
-    val scope = AuthScope(provider.id, provider.origin)
+    val scope = AuthScope(provider.id, origin)
     return if (provider == KoogProvider.Ollama) {
         AuthSource.NoAuth(info, scope)
     } else {

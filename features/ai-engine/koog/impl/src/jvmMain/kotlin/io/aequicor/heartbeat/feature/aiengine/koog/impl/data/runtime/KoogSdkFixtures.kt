@@ -50,6 +50,24 @@ internal fun sdkExchange(provider: KoogProvider, check: KoogSdkCheck): OfflineHt
     )
 }
 
+/** Ordinary native turns use default output limits and a separate synthetic profile credential. */
+internal fun nativeWireExchange(provider: KoogProvider): OfflineHttpExchange {
+    val exchange = sdkExchange(provider, KoogSdkCheck.StreamStop)
+    val header = when (provider) {
+        KoogProvider.Ollama -> emptyMap()
+
+        KoogProvider.Anthropic, KoogProvider.AnthropicCompatible -> mapOf("x-api-key" to "synthetic-key")
+
+        KoogProvider.OpenAI, KoogProvider.OpenAICompatible, KoogProvider.AlibabaQwen ->
+            mapOf("Authorization" to "Bearer synthetic-key")
+    }
+    return exchange.copy(
+        headers = exchange.headers + header,
+        body = exchange.body.replace(",\"max_completion_tokens\":8", "")
+            .replace("\"max_tokens\":8", "\"max_tokens\":2048"),
+    )
+}
+
 internal val KoogProvider.sdkProbeOrigin: EndpointOrigin
     get() = if (isOriginEditable) EndpointOrigin("https://offline.example") else origin
 

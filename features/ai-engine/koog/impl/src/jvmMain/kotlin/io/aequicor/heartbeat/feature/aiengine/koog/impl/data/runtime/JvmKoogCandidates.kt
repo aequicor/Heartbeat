@@ -45,11 +45,7 @@ internal class JvmKoogCandidates(
         currentCoroutineContext().ensureActive()
         val native = nativeProbe.run(deadline, provider)
         currentCoroutineContext().ensureActive()
-        val isWireConfirmed = if (provider == KoogProvider.Ollama) {
-            nativeProbe.runOllamaWire(deadline, offline, platform)
-        } else {
-            null
-        }
+        val isWireConfirmed = nativeProbe.runProviderWire(deadline, offline, platform, provider)
         currentCoroutineContext().ensureActive()
         return PartialKoogCandidate(request, report, native, isWireConfirmed)
     }

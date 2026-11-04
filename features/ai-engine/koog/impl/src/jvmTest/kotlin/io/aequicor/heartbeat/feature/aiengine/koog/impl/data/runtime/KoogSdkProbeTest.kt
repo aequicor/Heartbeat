@@ -39,6 +39,22 @@ import kotlin.time.TimeSource
 
 class KoogSdkProbeTest {
     @Test
+    fun `native wire fixture matches each actual SDK request`() = runTest {
+        for (provider in KoogProvider.entries) {
+            val http = SdkProbeHttpFixture()
+            val confirmed = KoogNativeProbe(http.dispatchers).runProviderWire(
+                TimeSource.Monotonic.markNow() + 10.seconds,
+                http,
+                TestKoogPlatform,
+                provider,
+            )
+            assertTrue(confirmed, provider.name)
+            assertEquals(nativeWireExchange(provider).body, http.lastBody, provider.name)
+            assertEquals(nativeWireExchange(provider).url, http.lastUrl, provider.name)
+        }
+    }
+
+    @Test
     fun `ollama stream rejects invalid decoded fields abnormal finish and data after finish`() = runTest {
         val invalidLines = listOf(
             """{"model":"heartbeat-contract","done":false,"message":{"role":"assistant","content":42}}""",
@@ -213,7 +229,9 @@ class KoogSdkProbeTest {
         assertNotNull(openai)
         assertNull(openai.evidence.isBaselineConfirmed)
         assertEquals(KoogNativeReceipt(true, true, true, true), assertIs<PartialKoogCandidate>(openai).native)
-        assertEquals(5, http.sessions.size)
+        assertEquals(true, assertIs<PartialKoogCandidate>(openai).isWireConfirmed)
+        assertEquals(nativeWireExchange(KoogProvider.OpenAI).body, http.lastBody)
+        assertEquals(6, http.sessions.size)
         openai.close()
 
         val ollama = factory.open(
@@ -227,7 +245,7 @@ class KoogSdkProbeTest {
         assertEquals(expectedWire.body, http.lastBody)
         assertEquals(expectedWire.method, http.lastMethod)
         assertEquals(expectedWire.url, http.lastUrl)
-        assertEquals(11, http.sessions.size)
+        assertEquals(12, http.sessions.size)
         ollama.close()
     }
 

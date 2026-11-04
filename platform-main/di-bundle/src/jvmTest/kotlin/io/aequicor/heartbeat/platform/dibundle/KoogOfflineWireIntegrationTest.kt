@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.network.OfflineHttpClients
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlin.coroutines.Continuation
@@ -17,7 +18,7 @@ import kotlin.time.TimeSource
 /** Exercises the internal probe with the production network implementation across bundle boundaries. */
 class KoogOfflineWireIntegrationTest {
     @Test
-    fun `ollama native probe matches the real socket free transport`() = runBlocking {
+    fun `native probes match the real socket free transport`() = runBlocking {
         val dispatchers = object : DispatcherProvider {
             override val main = Dispatchers.Default
             override val default = Dispatchers.Default
@@ -31,16 +32,26 @@ class KoogOfflineWireIntegrationTest {
             .newInstance(dispatchers) as OfflineHttpClients
         val type = Class.forName("io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogNativeProbe")
         val probe = type.getDeclaredConstructor(DispatcherProvider::class.java).newInstance(dispatchers)
-        val method = type.getDeclaredMethod(
-            "runOllamaWire",
-            TimeMark::class.java,
-            OfflineHttpClients::class.java,
-            PlatformInfo::class.java,
-            Continuation::class.java,
-        )
-        val confirmed = suspendCoroutineUninterceptedOrReturn<Boolean> { continuation ->
-            method.invoke(probe, TimeSource.Monotonic.markNow() + 10.seconds, offline, platform, continuation)
+        for (provider in KoogProvider.entries) {
+            val method = type.getDeclaredMethod(
+                "runProviderWire",
+                TimeMark::class.java,
+                OfflineHttpClients::class.java,
+                PlatformInfo::class.java,
+                KoogProvider::class.java,
+                Continuation::class.java,
+            )
+            val confirmed = suspendCoroutineUninterceptedOrReturn<Boolean> { continuation ->
+                method.invoke(
+                    probe,
+                    TimeSource.Monotonic.markNow() + 10.seconds,
+                    offline,
+                    platform,
+                    provider,
+                    continuation,
+                )
+            }
+            assertTrue(confirmed, provider.name)
         }
-        assertTrue(confirmed)
     }
 }
