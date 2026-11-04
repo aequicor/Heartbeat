@@ -62,6 +62,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("LargeClass") // Shared fixture covers the wizard and its conditional management operations.
 class ConnectionEffectsTest {
     private val facade = FakeEngineFacade()
     private val sources = FakeAuthSources()
@@ -303,6 +304,44 @@ class ConnectionEffectsTest {
 
         assertTrue(management.commands.contains(EngineCommand.Cancel))
         assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
+    }
+
+    @Test
+    fun `a changed launch before sign-in is rejected without reverting the new selection`() = runTest {
+        management.state.value = claudeManagement(login = LoginState.SignedOut)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val replacement = LaunchSettings(executable = "/new/cli")
+        management.beforeConditionalLogin = { management.execute(ClaudeId, EngineCommand.Configure(replacement)) }
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        val failure = assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), failure.failure)
+        assertEquals(replacement, management.state.value.engines.single().launch.settings)
+        assertTrue(management.commands.none { it is EngineCommand.Start })
+        assertTrue(facade.bindingsState.value.isEmpty())
+    }
+
+    @Test
+    fun `cancellation during login handoff cancels the exact owned job`() = runTest {
+        management.state.value = claudeManagement(login = LoginState.SignedOut)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val started = CompletableDeferred<Unit>()
+        management.afterLoginStarted = {
+            started.complete(Unit)
+            kotlinx.coroutines.awaitCancellation()
+        }
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+        val worker = launch {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        started.await()
+        worker.cancelAndJoin()
+
+        assertTrue(management.commands.contains(EngineCommand.Cancel))
+        assertTrue(facade.bindingsState.value.isEmpty())
     }
 
     @Test

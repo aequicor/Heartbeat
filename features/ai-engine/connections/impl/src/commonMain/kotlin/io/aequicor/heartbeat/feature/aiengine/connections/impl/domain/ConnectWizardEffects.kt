@@ -16,22 +16,21 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardLaunchRollback
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInspection
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
@@ -44,7 +43,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -258,7 +256,7 @@ internal class ConnectWizardEffects(
                 switch.accept(managed)
             }
             if (managed.login == LoginState.SignedOut) {
-                signIn(engine, services.management.state.value.engine(engine)?.job)
+                signIn(engine, switch.current ?: changedLaunch())
             }
         } catch (e: CancellationException) {
             throw e
@@ -287,19 +285,19 @@ internal class ConnectWizardEffects(
         return settings.runtime == RuntimePreference.HostApp && settings.executable.isNullOrBlank()
     }
 
-    private suspend fun signIn(engine: EngineId, previous: EngineJob?) {
+    private suspend fun signIn(engine: EngineId, expected: LaunchSettingsSnapshot) {
         val management = services.management
         log.i { "sign in engine=${engine.value}" }
-        management.execute(engine, EngineCommand.Start(EngineAction.Login()))
+        var owned: EngineOwnedJob? = null
         var phase: JobPhase? = null
         try {
-            phase = withTimeoutOrNull(SIGN_IN_WAIT_MILLIS) {
-                management.state.map { it.engine(engine)?.job }
-                    .first { it != null && it != previous && it.action is EngineAction.Login && it.phase.isFinished }
-                    ?.phase
-            }
+            management.startLoginIfUnchanged(engine, expected, LoginMethod.Browser) { owned = it }
+            phase = withTimeoutOrNull(SIGN_IN_WAIT_MILLIS) { requireNotNull(owned).await() }
         } finally {
-            if (phase == null) withContext(NonCancellable) { cancelSignIn(engine) }
+            withContext(NonCancellable) {
+                if (phase == null) owned?.cancel()
+                owned?.dismiss()
+            }
         }
         when {
             phase == JobPhase.Succeeded -> log.i { "signed in engine=${engine.value}" }
@@ -311,14 +309,6 @@ internal class ConnectWizardEffects(
                     "failure=${(phase as? JobPhase.Failed)?.failure?.let { it::class.simpleName }.orEmpty()}"
             }
         }
-        // The outcome is the wizard's own; the panel must not show it as a login the user started.
-        withContext(NonCancellable) {
-            attempt("dismiss the sign-in outcome") { management.execute(engine, EngineCommand.Dismiss) }
-        }
-    }
-
-    private suspend fun cancelSignIn(engine: EngineId) = withContext(NonCancellable) {
-        attempt("cancel the sign-in job") { services.management.execute(engine, EngineCommand.Cancel) }
     }
 
     /**

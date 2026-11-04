@@ -282,6 +282,8 @@ internal class FakeEngineManagement : EngineManagement {
     /** The phase a started sign-in reaches; AwaitingCode stays until cancelled. */
     var loginPhase: JobPhase = JobPhase.Succeeded
     var startFailure: EngineException? = null
+    var beforeConditionalLogin: suspend () -> Unit = {}
+    var afterLoginStarted: suspend () -> Unit = {}
     private var logins = 0L
 
     /** Publishes inspections later in this scope, like the real service's state flow; null publishes at once. */
@@ -324,6 +326,38 @@ internal class FakeEngineManagement : EngineManagement {
             onSaved(LaunchSettingsSnapshot(settings, token))
             afterConfigure()
         }
+    }
+
+    override suspend fun startLoginIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        method: io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod,
+        onStarted: (io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob) -> Unit,
+    ) {
+        beforeConditionalLogin()
+        if (expected.token !== token) throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        execute(engine, EngineCommand.Start(EngineAction.Login(method)))
+        val handle = object : io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob {
+            override suspend fun await(): JobPhase =
+                if (loginPhase.isFinished) loginPhase else kotlinx.coroutines.awaitCancellation()
+
+            override suspend fun cancel(): JobPhase {
+                if (state.value.engines.single { it.descriptor.id == engine }.job?.handle === this) {
+                    execute(engine, EngineCommand.Cancel)
+                }
+                return JobPhase.Cancelled
+            }
+
+            override suspend fun dismiss(): Boolean {
+                val job = state.value.engines.single { it.descriptor.id == engine }.job
+                if (job?.handle !== this || !job.phase.isFinished) return false
+                execute(engine, EngineCommand.Dismiss)
+                return true
+            }
+        }
+        change(engine) { current -> current.copy(job = current.job?.copy(handle = handle)) }
+        onStarted(handle)
+        afterLoginStarted()
     }
 
     override suspend fun execute(engine: EngineId, command: EngineCommand) {
