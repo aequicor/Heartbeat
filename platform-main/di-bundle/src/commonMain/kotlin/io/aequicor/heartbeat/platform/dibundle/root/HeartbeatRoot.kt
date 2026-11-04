@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.serializer
 
 /** Start routes of the two navigation trees; each must be registered in its tree. */
 data class RootStart(
@@ -79,7 +80,7 @@ class HeartbeatRoot(
     /** The shown tree; `child == null` while the persisted profile is being restored. */
     val slot: Value<ChildSlot<RootConfig, RootChild>> = childSlot(
         source = navigation,
-        serializer = RootConfig.serializer(),
+        serializer = serializer<RootConfig>(),
         key = "root",
         childFactory = ::createChild,
     )
