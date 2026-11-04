@@ -59,7 +59,7 @@ Codex (`3b12b8f03`, `e92ce307b`): версия берётся из `initialize`-
 | Коннектор | Что уже есть | Чего не хватает для допуска |
 |---|---|---|
 | Koog | политика из build facts, offline baseline, promotion (`81374f004`) | живой сетевой ход и loaded-classpath proof; platform privacy на Native/Android |
-| Pi | pinned distribution и SHA-256 архива, RPC-сессии, конфигуратор | сверка запускаемого файла с сохранённым digest и привязка процесса; ревизии протокола/конфигурации/истории |
+| Pi | pinned distribution и SHA-256 архива, RPC-сессии, конфигуратор, сверка Managed-копии с digest в candidate inspection (`4d4ae3942`) | сверка при самом запуске, привязка процесса к проверенному артефакту; ревизии протокола/конфигурации/истории |
 | Codex | наблюдённая версия процесса, protected inventory probe, metadata inspect, digest Managed-копии | сверка файла с digest, ревизии app-server protocol и config/history, кандидат, удерживающий процесс |
 | Claude | выбор источника без подмены, CLI-вход, наблюдённая история | стабильный runtime pin/newest-compatible, ревизии протокола и конфигурации, кандидат с собственным процессом |
 | Kimi | pin `2.4.0-hb7`, ACP v1 negotiation, restricted Inspect, `session/delete` | behavioral baseline на допущенном процессе, точный идентификатор владения сессией, очистка при неизвестном исходе |
