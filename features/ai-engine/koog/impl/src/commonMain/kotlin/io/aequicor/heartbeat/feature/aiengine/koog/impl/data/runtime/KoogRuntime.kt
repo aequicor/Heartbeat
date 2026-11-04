@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -53,6 +54,8 @@ internal class KoogRuntime(
     private val cache: KoogSessionCache,
     private val search: SearchEngine,
     private val workspaces: KoogWorkspaces,
+    /** Identity of the admitted build contract; null until this runtime was admitted for an exact stamp. */
+    override val compatibilityStamp: EngineCompatibilityStamp? = null,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {

@@ -16,12 +16,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
@@ -42,9 +42,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
@@ -77,7 +75,7 @@ class KoogIntegrationTest {
     }
 
     @Test
-    fun `SDK checks use the real offline transport through the candidate SPI without granting admission`() = runTest {
+    fun `SDK checks use the real offline transport and admit only the assessed build`() = runTest {
         val profile = app.profileSessions.open(ProfileId("koog-sdk-contract")).graph as KoogAccessors
         assertTrue(profile.koogConnections.list().isEmpty())
         val registration = (profile as RegisteredEnginesAccess).registeredEngines.all
@@ -92,14 +90,15 @@ class KoogIntegrationTest {
             assertFalse(deadline.hasPassedNow(), messages.joinToString("\n"))
             assertEquals(request, candidate.request)
             assertEquals(KoogEngineId, candidate.evidence.identity.engine)
-            assertNull(candidate.evidence.identity.runtimeFingerprint)
-            assertNull(candidate.evidence.isProvenanceConfirmed)
-            assertTrue(candidate.evidence.isBaselineConfirmed != true)
-            assertNull(factory.runtimeRequirements)
+            assertNotNull(candidate.evidence.identity.runtimeFingerprint)
+            assertEquals(true, candidate.evidence.isProvenanceConfirmed)
+            assertEquals(true, candidate.evidence.isBaselineConfirmed)
+            assertNotNull(candidate.evidence.capabilities)
+            assertEquals(KoogEngineId, factory.runtimeRequirements?.engine)
             assertEquals(7, messages.count { "POST *** -> 200" in it }, messages.joinToString("\n"))
             assertTrue(messages.any { "unobserved=0" in it }, messages.joinToString("\n"))
             assertTrue(profile.koogConnections.list().isEmpty())
-            // Deliberately fictional: even an explicitly supplied stamp cannot promote this partial candidate.
+            // A stamp of another artifact is refused and transfers nothing.
             val forged = EngineCompatibilityStamp(
                 KoogEngineId, "fictional", "fictional", "0.0.0",
                 EngineProtocolIdentity.ProbedSchema("fictional", "fictional"),
@@ -107,8 +106,8 @@ class KoogIntegrationTest {
             )
             val denied = assertFailsWith<EngineException> { candidate.promote(forged, deadline) }
             assertEquals(
-                EngineFailureReason.CompatibilityUnknown,
-                assertIs<EngineFailure.Engine>(denied.failure).reason,
+                EngineFailure.Transport(TransportFailureReason.ProtocolViolation),
+                denied.failure,
             )
         } finally {
             candidate.close()

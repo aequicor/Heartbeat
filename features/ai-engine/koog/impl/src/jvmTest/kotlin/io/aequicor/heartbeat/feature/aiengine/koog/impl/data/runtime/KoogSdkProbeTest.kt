@@ -9,16 +9,24 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.assessEngineCompatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
+import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogHistoryFormat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.job
@@ -32,7 +40,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
@@ -206,7 +213,7 @@ class KoogSdkProbeTest {
         val factory = JvmKoogCandidates(http, TestKoogPlatform, http.dispatchers)
         val identity = RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1"))
         val request = EngineRuntimeCandidateRequest(identity, LaunchContext(isInstallCandidate = true))
-        assertNull(factory.open(request, TimeSource.Monotonic.markNow() + 10.seconds))
+        assertNull(factory.open(request, TimeSource.Monotonic.markNow() + 10.seconds) { error("unused") })
         assertTrue(http.sessions.isEmpty())
     }
 
@@ -216,23 +223,24 @@ class KoogSdkProbeTest {
         val factory = JvmKoogCandidates(http, TestKoogPlatform, http.dispatchers)
         val identity = RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1"))
         val deadline = TimeSource.Monotonic.markNow() + 10.seconds
-        assertNull(factory.open(EngineRuntimeCandidateRequest(identity, LaunchContext()), deadline))
+        assertNull(factory.open(EngineRuntimeCandidateRequest(identity, LaunchContext()), deadline) { error("unused") })
         assertNull(
-            factory.open(EngineRuntimeCandidateRequest(identity, LaunchContext(), ProviderId("unknown")), deadline),
+            factory.open(
+                EngineRuntimeCandidateRequest(identity, LaunchContext(), ProviderId("unknown")),
+                deadline,
+            ) { error("unused") },
         )
         assertTrue(http.sessions.isEmpty())
 
         val openai = factory.open(
             EngineRuntimeCandidateRequest(identity, LaunchContext(), KoogProvider.OpenAI.id),
             deadline,
-        )
+        ) { error("unused") }
         assertNotNull(openai)
-        assertNull(openai.evidence.isBaselineConfirmed)
-        assertEquals(
-            KoogNativeReceipt(true, true, true, true, true, true),
-            assertIs<PartialKoogCandidate>(openai).native,
-        )
-        assertEquals(true, assertIs<PartialKoogCandidate>(openai).isWireConfirmed)
+        assertTrue(openai.evidence.isBaselineConfirmed == true, "confirmed offline baseline")
+        assertEquals(KoogJvmCompatibility.baselineCapabilities, openai.evidence.capabilities)
+        assertEquals(true, openai.evidence.isProvenanceConfirmed)
+        assertEquals(KoogJvmCompatibility.identity(TestKoogPlatform.host), openai.evidence.identity)
         assertEquals(nativeWireExchange(KoogProvider.OpenAI).body, http.lastBody)
         assertEquals(8, http.sessions.size)
         openai.close()
@@ -240,10 +248,10 @@ class KoogSdkProbeTest {
         val ollama = factory.open(
             EngineRuntimeCandidateRequest(identity, LaunchContext(), KoogProvider.Ollama.id),
             deadline,
-        )
+        ) { error("unused") }
         assertNotNull(ollama)
-        assertNull(ollama.evidence.isBaselineConfirmed)
-        assertEquals(true, assertIs<PartialKoogCandidate>(ollama).isWireConfirmed)
+        assertTrue(ollama.evidence.isBaselineConfirmed == true, "confirmed offline baseline")
+        assertEquals(KoogJvmCompatibility.baselineCapabilities, ollama.evidence.capabilities)
         val expectedWire = sdkExchange(KoogProvider.Ollama, KoogSdkCheck.StreamStop)
         assertEquals(expectedWire.body, http.lastBody)
         assertEquals(expectedWire.method, http.lastMethod)
@@ -254,11 +262,6 @@ class KoogSdkProbeTest {
 
     @Test
     fun `a failure of another provider cannot reject the selected route`() {
-        val request = EngineRuntimeCandidateRequest(
-            RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1")),
-            LaunchContext(),
-            KoogProvider.OpenAI.id,
-        )
         val report = KoogSdkReport(
             sdkBuildInputs(),
             listOf(
@@ -266,48 +269,129 @@ class KoogSdkProbeTest {
                 KoogSdkReceipt(KoogProvider.Ollama, KoogSdkCheck.StreamStop, KoogSdkOutcome.Rejected),
             ),
         )
-        assertNull(PartialKoogCandidate(request, report).evidence.isBaselineConfirmed)
+        val native = KoogNativeReceipt(true, true, true, true, true, true)
+        val evidence = KoogJvmCompatibility.evidence(
+            TestKoogPlatform.host,
+            KoogProvider.OpenAI,
+            report,
+            native,
+            isWireConfirmed = true,
+        )
+        // The failing row names another provider, so it neither rejects nor completes this baseline.
+        assertNull(evidence.isBaselineConfirmed)
+        val rejected = KoogJvmCompatibility.evidence(
+            TestKoogPlatform.host,
+            KoogProvider.Ollama,
+            report,
+            native,
+            isWireConfirmed = true,
+        )
+        assertEquals(false, rejected.isBaselineConfirmed)
     }
 
     @Test
-    fun `even all confirmed SDK rows grant no baseline provenance or promotion`() = runTest {
-        for (outcome in KoogSdkOutcome.entries) {
-            val request = EngineRuntimeCandidateRequest(
-                RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1")),
-                LaunchContext(),
-                KoogProvider.OpenAI.id,
-            )
-            val report = KoogSdkReport(
-                sdkBuildInputs(),
-                KoogProvider.entries.flatMap { provider ->
-                    KoogSdkCheck.entries.map { KoogSdkReceipt(provider, it, outcome) }
-                },
-            )
-            val candidate = PartialKoogCandidate(request, report)
-            assertSame(request, candidate.request)
-            assertEquals(
-                if (outcome == KoogSdkOutcome.Rejected) false else null,
-                candidate.evidence.isBaselineConfirmed,
-            )
-            assertNull(candidate.evidence.isProvenanceConfirmed)
-            assertNull(candidate.evidence.identity.runtimeFingerprint)
-            val forged = EngineCompatibilityStamp(
-                KoogEngineId, "fictional", "fictional", "0.0.0",
-                EngineProtocolIdentity.ProbedSchema("fictional", "fictional"),
-                0, 0, "fictional", "fictional",
-            )
-            val deadline = TimeSource.Monotonic.markNow() + 10.seconds
-            val first = assertFailsWith<EngineException> { candidate.promote(forged, deadline) }
-            assertEquals(EngineFailureReason.CompatibilityUnknown, assertIs<EngineFailure.Engine>(first.failure).reason)
-            val repeated = assertFailsWith<EngineException> { candidate.promote(forged, deadline) }
-            assertEquals(
-                AccessFailureReason.OperationNotAllowed,
-                assertIs<EngineFailure.Access>(repeated.failure).reason,
-            )
-            candidate.close()
-            candidate.close()
-            val closed = assertFailsWith<EngineException> { candidate.promote(forged, deadline) }
-            assertEquals(AccessFailureReason.OperationNotAllowed, assertIs<EngineFailure.Access>(closed.failure).reason)
-        }
+    fun `a confirmed baseline admits only the exact assessed stamp once`() = runTest {
+        val http = SdkProbeHttpFixture()
+        val factory = JvmKoogCandidates(http, TestKoogPlatform, http.dispatchers)
+        val identity = RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1"))
+        val request = EngineRuntimeCandidateRequest(identity, LaunchContext(), KoogProvider.OpenAI.id)
+        val deadline = TimeSource.Monotonic.markNow() + 10.seconds
+        val promoted = mutableListOf<EngineCompatibilityStamp>()
+        fun promote(stamp: EngineCompatibilityStamp): EngineRuntime = stubRuntime(identity, stamp)
+
+        val candidate = assertNotNull(
+            factory.open(request, deadline) { stamp ->
+                promoted += stamp
+                promote(stamp)
+            },
+        )
+        val decision = assessEngineCompatibility(KoogJvmCompatibility.requirements, candidate.evidence)
+        assertEquals(Compatibility.Unverified, decision.status, decision.problems.toString())
+        assertTrue(decision.isBaselineAllowed)
+        val stamp = assertNotNull(decision.stamp)
+
+        val forged = stamp.copy(runtime = "0.0.0")
+        val mismatch = assertFailsWith<EngineException> { candidate.promote(forged, deadline) }
+        assertEquals(EngineFailure.Transport(TransportFailureReason.ProtocolViolation), mismatch.failure)
+        assertTrue(promoted.isEmpty(), "a mismatched stamp must not transfer a runtime")
+
+        val second = assertNotNull(
+            factory.open(request, deadline) { value ->
+                promoted += value
+                promote(value)
+            },
+        )
+        val promotion = second.promote(stamp, deadline)
+        assertEquals(stamp, promotion.stamp)
+        assertEquals(stamp, promotion.runtime.compatibilityStamp)
+        assertEquals(identity, promotion.runtime.identity)
+        assertEquals(listOf(stamp), promoted)
+        val repeated = assertFailsWith<EngineException> { second.promote(stamp, deadline) }
+        assertEquals(AccessFailureReason.OperationNotAllowed, assertIs<EngineFailure.Access>(repeated.failure).reason)
+        second.close()
+        second.close()
     }
+
+    @Test
+    fun `inconclusive and rejected baselines transfer no runtime`() = runTest {
+        val request = EngineRuntimeCandidateRequest(
+            RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1")),
+            LaunchContext(),
+            KoogProvider.OpenAI.id,
+        )
+        val deadline = TimeSource.Monotonic.markNow() + 10.seconds
+        val host = TestKoogPlatform.host
+        val native = KoogNativeReceipt(true, true, true, true, true, true)
+        val inconclusive = KoogRuntimeCandidate(
+            request,
+            KoogJvmCompatibility.evidence(
+                host = host,
+                provider = KoogProvider.OpenAI,
+                report = KoogSdkReport(sdkBuildInputs(), emptyList()),
+                native = native,
+                isWireConfirmed = true,
+            ),
+        ) { error("an inconclusive baseline must not transfer a runtime") }
+        val unknown = assertFailsWith<EngineException> {
+            inconclusive.promote(provisionalStamp(), deadline)
+        }
+        assertEquals(EngineFailureReason.CompatibilityUnknown, assertIs<EngineFailure.Engine>(unknown.failure).reason)
+
+        val rejected = KoogRuntimeCandidate(
+            request,
+            KoogJvmCompatibility.evidence(
+                host,
+                KoogProvider.OpenAI,
+                KoogSdkReport(sdkBuildInputs(), emptyList()),
+                KoogNativeReceipt(true, false, true, true, true, true),
+                true,
+            ),
+        ) { error("a rejected baseline must not transfer a runtime") }
+        val failed = assertFailsWith<EngineException> { rejected.promote(provisionalStamp(), deadline) }
+        assertEquals(EngineFailureReason.CompatibilityUnknown, assertIs<EngineFailure.Engine>(failed.failure).reason)
+    }
+
+    private fun provisionalStamp(): EngineCompatibilityStamp = EngineCompatibilityStamp(
+        KoogEngineId,
+        "heartbeat",
+        "connector",
+        "1.3.0",
+        KoogJvmCompatibility.protocol,
+        KoogJvmCompatibility.CONFIGURATION_REVISION,
+        KoogHistoryFormat.CURRENT_REVISION,
+        TestKoogPlatform.host.name,
+        "dependencies",
+    )
+
+    private fun stubRuntime(identity: RuntimeIdentity, stamp: EngineCompatibilityStamp): EngineRuntime =
+        object : EngineRuntime {
+            override val identity = identity
+            override val compatibilityStamp = stamp
+            override val features = object : EngineFeatures {
+                override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
+                    FeatureAccess.Unsupported
+            }
+
+            override suspend fun close() = Unit
+        }
 }

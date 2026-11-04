@@ -1,11 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
-import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
-import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
-import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.test.runTest
@@ -32,37 +26,25 @@ class KoogNativeProbeTest {
 
     @Test
     fun `native failure rejects baseline but passing checks alone cannot grant it`() {
-        val request = EngineRuntimeCandidateRequest(
-            RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1")),
-            LaunchContext(),
-            KoogProvider.OpenAI.id,
-        )
         val sdk = KoogSdkReport(sdkBuildInputs(), emptyList())
-        assertNull(
-            PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, true, true, true, true, true))
-                .evidence.isBaselineConfirmed,
-        )
-        assertEquals(
-            false,
-            PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, false, true, true, true, true))
-                .evidence.isBaselineConfirmed,
-        )
-        assertEquals(
-            false,
-            PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, true, true, false, true, true))
-                .evidence.isBaselineConfirmed,
-        )
-        assertEquals(
-            false,
-            PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, true, true, true, false, true))
-                .evidence.isBaselineConfirmed,
-        )
-        assertEquals(
-            false,
-            PartialKoogCandidate(request, sdk, KoogNativeReceipt(true, true, true, true, true, false))
-                .evidence.isBaselineConfirmed,
-        )
-        assertEquals(false, PartialKoogCandidate(request, sdk, isWireConfirmed = false).evidence.isBaselineConfirmed)
+        fun evidence(native: KoogNativeReceipt?, isWireConfirmed: Boolean = true): Boolean? =
+            KoogJvmCompatibility.evidence(
+                host = TestKoogPlatform.host,
+                provider = KoogProvider.OpenAI,
+                report = sdk,
+                native = native,
+                isWireConfirmed = isWireConfirmed,
+            ).isBaselineConfirmed
+        // Native and wire checks alone leave the SDK rows unobserved: the baseline stays inconclusive.
+        assertNull(evidence(KoogNativeReceipt(true, true, true, true, true, true)))
+        listOf(
+            KoogNativeReceipt(true, false, true, true, true, true),
+            KoogNativeReceipt(true, true, true, false, true, true),
+            KoogNativeReceipt(true, true, true, true, false, true),
+            KoogNativeReceipt(true, true, true, true, true, false),
+        ).forEach { assertEquals(false, evidence(it), it.toString()) }
+        assertEquals(false, evidence(KoogNativeReceipt(true, true, true, true, true, true), isWireConfirmed = false))
+        assertNull(evidence(null))
     }
 
     @Test

@@ -8,10 +8,11 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.network.OfflineHttpClients
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityEvidence
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimePromotion
@@ -23,7 +24,11 @@ import kotlinx.coroutines.ensureActive
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.TimeMark
 
-/** Restricted, non-promoting candidate until the full behavioral baseline and loaded-classpath proofs exist. */
+/**
+ * Restricted candidate of the embedded JVM adapter. Acquisition runs only socket-free SDK and native-session
+ * probes of the selected provider, with no credentials, user configuration, project, tools or history writes.
+ * Promotion hands over the ordinary runtime the adapter builds for the assessed stamp and is allowed at most once.
+ */
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class JvmKoogCandidates(
@@ -34,7 +39,11 @@ internal class JvmKoogCandidates(
     private val probe = KoogSdkProbe(offline, platform, dispatchers)
     private val nativeProbe = KoogNativeProbe(dispatchers)
 
-    override suspend fun open(request: EngineRuntimeCandidateRequest, deadline: TimeMark): EngineRuntimeCandidate? {
+    override suspend fun open(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+        promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+    ): EngineRuntimeCandidate? {
         currentCoroutineContext().ensureActive()
         // Do not substitute the embedded SDK for an explicitly different installation/configuration contract.
         val provider = KoogProvider.entries.firstOrNull { it.id == request.provider }
@@ -49,42 +58,57 @@ internal class JvmKoogCandidates(
             nativeProbe.runIncompleteWire(deadline, offline, platform, provider) &&
             nativeProbe.runMalformedWire(deadline, offline, platform, provider)
         currentCoroutineContext().ensureActive()
-        return PartialKoogCandidate(request, report, native, isWireConfirmed)
+        return KoogRuntimeCandidate(
+            request,
+            KoogJvmCompatibility.evidence(platform.host, provider, report, native, isWireConfirmed),
+            promote,
+        )
     }
 }
 
-internal class PartialKoogCandidate(
+internal class KoogRuntimeCandidate(
     override val request: EngineRuntimeCandidateRequest,
-    report: KoogSdkReport,
-    val native: KoogNativeReceipt? = null,
-    val isWireConfirmed: Boolean? = null,
+    override val evidence: EngineCompatibilityEvidence,
+    private val promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
 ) : EngineRuntimeCandidate {
     private val consumed = AtomicBoolean(false)
-    private val hasRejectedProviderChecks = report.receipts.any {
-        it.provider.id == request.provider && it.outcome == KoogSdkOutcome.Rejected
-    }
-    private val hasRejectedNativeChecks = native != null &&
-        (
-            !native.isCreateAndSendConfirmed || !native.isHistoryAndResumeConfirmed ||
-                !native.isCancellationConfirmed || !native.isRecoveryConfirmed ||
-                !native.isToolRoundConfirmed || !native.isModelChangeConfirmed
-        )
-    override val evidence = EngineCompatibilityEvidence(
-        identity = EngineCompatibilityIdentity(engine = KoogEngineId),
-        // A conclusive SDK failure is a failed prerequisite. Success does not prove the whole baseline.
-        isBaselineConfirmed = if (hasRejectedProviderChecks || hasRejectedNativeChecks || isWireConfirmed == false) {
-            false
-        } else {
-            null
-        },
-    )
 
     override suspend fun promote(expected: EngineCompatibilityStamp, deadline: TimeMark): EngineRuntimePromotion {
         currentCoroutineContext().ensureActive()
+        if (deadline.hasPassedNow()) fail(EngineFailure.Transport(TransportFailureReason.Timeout))
         if (!consumed.compareAndSet(false, true)) {
             fail(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
         }
-        fail(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+        // Nothing may be transferred while the assessed contract is inconclusive or was rejected.
+        val assessed = assessedStamp()
+        if (assessed == null || evidence.isBaselineConfirmed != true || evidence.capabilities == null) {
+            fail(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+        }
+        if (assessed != expected) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+        val runtime = promote(expected)
+        currentCoroutineContext().ensureActive()
+        return EngineRuntimePromotion(runtime, expected)
+    }
+
+    /** The record the facade assessed from this evidence, or null while an identity dimension is unknown. */
+    private fun assessedStamp(): EngineCompatibilityStamp? {
+        val identity = evidence.identity
+        val facts = listOf(
+            identity.engine, identity.heartbeat, identity.connector, identity.runtime, identity.protocol,
+            identity.configurationSchema, identity.historySchema, identity.nativeTarget, identity.runtimeFingerprint,
+        )
+        if (facts.any { it == null || (it is String && it.isBlank()) }) return null
+        return EngineCompatibilityStamp(
+            engine = requireNotNull(identity.engine),
+            heartbeat = requireNotNull(identity.heartbeat),
+            connector = requireNotNull(identity.connector),
+            runtime = requireNotNull(identity.runtime),
+            protocol = requireNotNull(identity.protocol),
+            configurationSchema = requireNotNull(identity.configurationSchema),
+            historySchema = requireNotNull(identity.historySchema),
+            nativeTarget = requireNotNull(identity.nativeTarget),
+            runtimeFingerprint = requireNotNull(identity.runtimeFingerprint),
+        )
     }
 
     override suspend fun close() {
