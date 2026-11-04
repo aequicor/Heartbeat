@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCandidateInspection
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -48,6 +49,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiConfiguration
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.runtime.KimiCompatibility
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.runtime.UnsupportedKimiCompatibility
 import io.aequicor.heartbeat.feature.aiengine.kimi.impl.domain.KimiBackend
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -76,6 +79,7 @@ internal class JvmKimiBackend(
     private val launches: EngineLaunchConfig,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val configuration: KimiConfiguration = KimiConfiguration(),
+    private val compatibility: KimiCompatibility = UnsupportedKimiCompatibility,
 ) : KimiBackend,
     EngineCandidateInspector {
     private val log = Log.tag("KimiBackend")
@@ -84,6 +88,9 @@ internal class JvmKimiBackend(
     private var runtimeLaunch: LaunchContext? = null
 
     override val preparation = setup.preparation
+
+    /** Researched policy of this build; a target without generated facts reports null and keeps no admission. */
+    override val runtimeRequirements: EngineCompatibilityRequirements? get() = compatibility.requirements()
 
     override suspend fun prepareRuntime() = setup.prepare(this, launches.context(KimiEngine.Id))
 

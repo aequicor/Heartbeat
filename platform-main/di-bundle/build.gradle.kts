@@ -25,6 +25,7 @@ kotlin {
             api(projects.core.common)
             api(projects.features.aiEngine.facade.api)
             api(projects.features.aiEngine.pi.api)
+            api(projects.features.aiEngine.kimi.api)
             api(projects.features.welcome.api)
             api(projects.features.questionnaire.api)
             implementation(projects.features.aiStudio.impl)

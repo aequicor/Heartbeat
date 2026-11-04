@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientHandler
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpCommand
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpConnection
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpImplementation
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpInitialization
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionOutcome
@@ -17,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.runtime.KimiBaselineOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -40,10 +42,64 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class KimiCompatibilityProbeTest {
+    @Test
+    fun `baseline confirms only the ABI the explicit initialize answer advertises`() = runTest {
+        Fixture().use { fixture ->
+            val receipt = fixture.probe.run(fixture.installation, fixture.launch)
+            assertEquals(KimiBaselineOutcome.Confirmed, receipt.initialize)
+            assertEquals(KimiBaselineOutcome.Confirmed, receipt.permissionGate)
+            assertEquals(KimiBaselineOutcome.Confirmed, receipt.hostedCallBinding)
+            assertEquals(KIMI_RUNTIME_VERSION, receipt.runtimeVersion)
+            assertFalse(receipt.hasRejectedCheck)
+            assertNotNull(fixture.command)
+        }
+    }
+
+    @Test
+    fun `baseline rejects a handshake without the mandatory heartbeat ABI`() = runTest {
+        Fixture().use { fixture ->
+            fixture.initialize = { AcpInitialization(1, JsonObject(emptyMap()), agentInfo = peer()) }
+            val receipt = fixture.probe.run(fixture.installation, fixture.launch)
+            assertEquals(KimiBaselineOutcome.Confirmed, receipt.initialize)
+            assertEquals(KimiBaselineOutcome.Rejected, receipt.permissionGate)
+            assertEquals(KimiBaselineOutcome.Rejected, receipt.hostedCallBinding)
+            assertTrue(receipt.hasRejectedCheck)
+        }
+    }
+
+    @Test
+    fun `baseline rejects a process that cannot start and never opens a session`() = runTest {
+        Fixture().use { fixture ->
+            fixture.openFailure = AcpException.LaunchFailed()
+            val receipt = fixture.probe.run(fixture.installation, fixture.launch)
+            assertEquals(KimiBaselineOutcome.Rejected, receipt.initialize)
+            assertEquals(KimiBaselineOutcome.Unobserved, receipt.permissionGate)
+            assertNull(receipt.runtimeVersion)
+            assertTrue(receipt.hasRejectedCheck)
+            assertEquals(null, fixture.command)
+        }
+    }
+
+    @Test
+    fun `a hung initialize stays unobserved instead of becoming a failed baseline`() = runTest {
+        Fixture().use { fixture ->
+            fixture.initialize = { awaitCancellation() }
+            val receipt = fixture.probe.run(fixture.installation, fixture.launch)
+            assertEquals(KimiBaselineOutcome.Unobserved, receipt.initialize)
+            assertEquals(KimiBaselineOutcome.Unobserved, receipt.permissionGate)
+            assertEquals(KimiBaselineOutcome.Unobserved, receipt.hostedCallBinding)
+            assertNull(receipt.runtimeVersion)
+            assertFalse(receipt.hasRejectedCheck)
+            assertTrue(fixture.transportClosed)
+            assertFalse(Files.exists(fixture.rootObserved))
+        }
+    }
+
     @Test
     fun `self consistent but unpinned artifact is rejected before a transport is opened`() = runTest {
         Fixture().use { fixture ->
@@ -222,6 +278,7 @@ class KimiCompatibilityProbeTest {
         val launch = LaunchContext(managed = managed, isInstallCandidate = true)
         val installation = Installation(InstallSource.Managed, KIMI_RUNTIME_VERSION, executable.absolutePath)
         var initialize: suspend () -> AcpInitialization = { initialized() }
+        var openFailure: Exception? = null
         var stop: suspend () -> Unit = {}
         var command: AcpCommand? = null
         var rootObserved: Path? = null
@@ -241,6 +298,7 @@ class KimiCompatibilityProbeTest {
         private val transports = object : AcpStdioTransportFactory {
             override val isSupported = true
             override suspend fun open(command: AcpCommand): AcpTransport {
+                openFailure?.let { throw it }
                 this@Fixture.command = command
                 rootObserved = Path.of(requireNotNull(command.workingDirectory)).parent
                 assertTrue(Files.list(Path.of(requireNotNull(command.workingDirectory))).use { it.count() == 0L })

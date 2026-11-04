@@ -31,9 +31,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -1383,6 +1385,33 @@ class KimiRuntimeTest {
         testScheduler.advanceUntilIdle()
     }
 
+    @Test
+    fun `admitted runtime exposes the stamp and the observed handshake facts`() = runTest {
+        val stamp = EngineCompatibilityStamp(
+            KimiEngine.Id,
+            "heartbeat",
+            "connector",
+            "2.4.0-hb7",
+            EngineProtocolIdentity.Negotiated("acp", 1),
+            0,
+            0,
+            "darwin-arm64",
+            "a".repeat(64),
+        )
+        val runtime = runtime(
+            FakeConnection(),
+            this,
+            agentInfo = AcpImplementation("Kimi Code CLI", "2.4.0-hb7"),
+            compatibilityStamp = stamp,
+            selectedExecutable = "/data/kimi",
+        )
+        assertEquals(stamp, runtime.compatibilityStamp)
+        assertEquals("2.4.0-hb7", runtime.observedRuntimeVersion)
+        assertEquals(EngineProtocolIdentity.Negotiated("acp", 1), runtime.observedProtocol)
+        assertEquals("/data/kimi", runtime.selectedExecutable)
+        runtime.close()
+    }
+
     private fun prompt(id: String) = PromptRequest(RequestId(id), listOf(ContentPart.Text("Hello")))
 
     private fun runtime(
@@ -1391,16 +1420,21 @@ class KimiRuntimeTest {
         capabilities: JsonObject = JsonObject(emptyMap()),
         tools: ProfileAgentTools = TestAgentTools,
         bridge: AgentToolBridge = UnavailableAgentToolBridge,
+        agentInfo: AcpImplementation? = null,
+        compatibilityStamp: EngineCompatibilityStamp? = null,
+        selectedExecutable: String? = null,
     ): KimiRuntime {
         val runtime = KimiRuntime(
             RuntimeIdentity(KimiEngine.Id, KimiEngine.AuthSource, AuthRevision.Known("one")),
             connection,
             CoroutineScope(scope.coroutineContext + Job((scope as TestScope).backgroundScope.coroutineContext[Job])),
-            AcpInitialization(1, capabilities),
+            AcpInitialization(1, capabilities, agentInfo = agentInfo),
             directory = { "/workspace" },
             toggles = TestToggles(),
             tools = tools,
             bridge = bridge,
+            compatibilityStamp = compatibilityStamp,
+            selectedExecutable = selectedExecutable,
         )
         connection.runtime = runtime
         return runtime

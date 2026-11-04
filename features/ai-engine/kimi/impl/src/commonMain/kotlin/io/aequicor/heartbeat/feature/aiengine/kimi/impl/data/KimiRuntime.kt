@@ -27,9 +27,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
@@ -81,7 +83,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeModelDiscovery
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
@@ -129,7 +130,11 @@ internal class KimiRuntime(
     fetchProviderUsage: (suspend () -> ProviderUsageSnapshot?)? = null,
     private val bridge: AgentToolBridge = UnavailableAgentToolBridge,
     private val ownedScope: Job? = null,
-) : EngineRuntime,
+    /** Artifact/contract the facade admitted; null for a runtime created outside admission. */
+    override val compatibilityStamp: EngineCompatibilityStamp? = null,
+    /** Executable this process was started from; null when the launch has no external artifact. */
+    override val selectedExecutable: String? = null,
+) : KimiAdmittedRuntime,
     CreatesSessions,
     AttachesSessions,
     RuntimeModelDiscovery,
@@ -156,6 +161,15 @@ internal class KimiRuntime(
     private var isDisconnected = false
     override val isClosed: Boolean
         get() = isShutdown || isDisconnected || scope.coroutineContext[Job]?.isActive == false
+
+    /** Runtime version the already held process reported in its own ACP `initialize` answer. */
+    override val observedRuntimeVersion: String? get() = initialization.agentInfo?.version
+
+    /** Negotiated ACP identity of this process; null when the handshake never reported a positive version. */
+    override val observedProtocol: EngineProtocolIdentity?
+        get() = initialization.protocolVersion
+            .takeIf { it > 0 }
+            ?.let { EngineProtocolIdentity.Negotiated("acp", it) }
 
     private val usageToggleObserver = scope.launch {
         try {
@@ -587,6 +601,8 @@ internal class KimiRuntime(
             resources: ResourceResolver = ResourceResolver { null },
             fetchProviderUsage: (suspend () -> ProviderUsageSnapshot?)? = null,
             bridge: AgentToolBridge = UnavailableAgentToolBridge,
+            compatibilityStamp: EngineCompatibilityStamp? = null,
+            selectedExecutable: String? = null,
         ): KimiRuntime {
             val runtime = MutableStateFlow<KimiRuntime?>(null)
             val disconnected = MutableStateFlow(false)
@@ -647,6 +663,8 @@ internal class KimiRuntime(
                     fetchProviderUsage,
                     bridge,
                     runtimeScope.coroutineContext[Job],
+                    compatibilityStamp,
+                    selectedExecutable,
                 ).also { created ->
                     runtime.value = created
                     if (disconnected.value) {

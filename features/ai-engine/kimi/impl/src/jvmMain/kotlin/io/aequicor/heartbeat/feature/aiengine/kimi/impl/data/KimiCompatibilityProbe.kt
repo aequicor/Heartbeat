@@ -22,6 +22,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.runtime.KimiBaselineOutcome
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.runtime.KimiBaselineProbe
+import io.aequicor.heartbeat.feature.aiengine.kimi.impl.data.runtime.KimiBaselineReceipt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -33,6 +37,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
+import java.io.IOException
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
@@ -49,7 +54,7 @@ internal class KimiCompatibilityProbe internal constructor(
     private val clients: AcpClientFactory,
     private val dispatchers: DispatcherProvider,
     private val isTrusted: (KimiControlledRuntime) -> Boolean,
-) {
+) : KimiBaselineProbe {
     @Inject
     constructor(
         setup: KimiRuntimeSetup,
@@ -71,6 +76,35 @@ internal class KimiCompatibilityProbe internal constructor(
                 negotiate(command, runtime, directory)
             }
         }
+
+    /**
+     * Admission baseline over the same inspect. A completed handshake confirms only the ABI it actually
+     * advertised; a process-version conflict or any conclusive protocol/preflight failure rejects the baseline;
+     * a timeout or an otherwise unobserved check stays inconclusive. Caller cancellation is never swallowed.
+     */
+    override suspend fun run(installation: Installation, launch: LaunchContext): KimiBaselineReceipt = try {
+        baselineReceipt(inspect(installation, launch))
+    } catch (error: CancellationException) {
+        // The inspect's own timeout is inconclusive; a cancelled caller keeps its cancellation.
+        if (currentCoroutineContext()[Job]?.isActive == false) throw error
+        unobservedBaseline()
+    } catch (error: AcpException) {
+        Log.tag("KimiCompatibilityProbe").w(error) { "Kimi admission handshake failed" }
+        rejectedBaseline()
+    } catch (error: EngineException) {
+        Log.tag("KimiCompatibilityProbe").w(error) { "Kimi admission preflight failed" }
+        rejectedBaseline()
+    } catch (error: IOException) {
+        Log.tag("KimiCompatibilityProbe").w(IllegalStateException(error.javaClass.simpleName)) {
+            "Kimi admission baseline could not start"
+        }
+        unobservedBaseline()
+    } catch (error: SecurityException) {
+        Log.tag("KimiCompatibilityProbe").w(IllegalStateException(error.javaClass.simpleName)) {
+            "Kimi admission baseline could not start"
+        }
+        unobservedBaseline()
+    }
 
     private suspend fun negotiate(
         command: AcpCommand,
@@ -169,6 +203,41 @@ internal fun isolatedKimiProbeCommand(executable: String, root: Path): AcpComman
     ) + listOf("SystemRoot", "WINDIR").mapNotNull { key -> System.getenv(key)?.let { key to it } }.toMap()
     return AcpCommand(executable, listOf("acp"), work, environment, isEnvironmentInherited = false)
 }
+
+private fun baselineReceipt(observation: EngineCompatibilityObservation): KimiBaselineReceipt {
+    val capabilities = observation.evidence.capabilities.orEmpty()
+    val isVersionMismatch = observation.evidence.isProvenanceConfirmed == false
+    return KimiBaselineReceipt(
+        initialize = if (isVersionMismatch) {
+            KimiBaselineOutcome.Rejected
+        } else {
+            KimiBaselineOutcome.Confirmed
+        },
+        permissionGate = if ("heartbeat.permissionGate.1" in capabilities) {
+            KimiBaselineOutcome.Confirmed
+        } else {
+            KimiBaselineOutcome.Rejected
+        },
+        hostedCallBinding = if ("heartbeat.hostedCallBinding.1" in capabilities) {
+            KimiBaselineOutcome.Confirmed
+        } else {
+            KimiBaselineOutcome.Rejected
+        },
+        runtimeVersion = observation.evidence.identity.runtime,
+    )
+}
+
+private fun unobservedBaseline() = KimiBaselineReceipt(
+    KimiBaselineOutcome.Unobserved,
+    KimiBaselineOutcome.Unobserved,
+    KimiBaselineOutcome.Unobserved,
+)
+
+private fun rejectedBaseline() = KimiBaselineReceipt(
+    KimiBaselineOutcome.Rejected,
+    KimiBaselineOutcome.Unobserved,
+    KimiBaselineOutcome.Unobserved,
+)
 
 private fun kimiCompatibilityObservation(
     runtime: KimiControlledRuntime,
