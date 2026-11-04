@@ -34,6 +34,36 @@ runtime `2.4.0-hb7`, `permissionGate=1`, `hostedCallBinding=1` за 2133 мс. �
 Вход подключён к AuthChecks по точному owner/location/provider/origin/basePath. Device id не доказывает
 account identity: revision остаётся Unknown и не разрешает runtime admission. Серверная авторизация не проверена.
 
+2026-11-04: Koog — первый коннектор с полным безопасным путём «политика → изолированный baseline → допуск»
+(`81374f004`). Политика объявлена в `KoogJvmCompatibility` и целиком построена на фактах этой сборки:
+`heartbeat`/`connector` — generated `EmbeddedEngineBuild.compiledFacade`/`connector`, `runtime` — закреплённый
+SDK из version catalog, protocol — объявленная ревизия `koog-http`/`1`, профильная конфигурация — ревизия `0`,
+история — `{0, 1}`, native target — только Desktop-хосты. Производственный кандидат подтверждает ровно те
+возможности, которые реально подтвердили socket-free SDK/native/wire проверки выбранного провайдера; conclusively
+failed отклоняет baseline, unobserved оставляет его неизвестным. `verified` пуст, поэтому решение — **Unverified**:
+допуск к baseline есть, автоматических Managed-обновлений нет. Provenance — компилируемый build-контракт, а не
+отпечаток другого артефакта; promotion отдаёт обычный `KoogRuntime` только за точный assessed stamp и один раз.
+Android/iOS политики не имеют и сохраняют явный Unsupported-путь. Этим **не** доказаны: loaded classpath,
+живой сетевой/модельный ход, platform privacy на Native/Android, поведение за пределами offline-фикстур.
+
+Codex (`3b12b8f03`, `e92ce307b`): версия берётся из `initialize`-handshake уже удерживаемого metadata-процесса того
+же зафиксированного launch, а не пробой `--version`; legacy restricted launch восстановлен для наблюдённой версии
+≥ 0.160.0, неизвестная/некорректная версия по-прежнему отказывает до старта второго app-server. Кандидат панели и
+мастера проверяется metadata-only, без процесса и без заявления совместимости. Допуска Codex пока нет: нужны
+закреплённый digest артефакта для provenance (сейчас `ManagedInstall` его не хранит), объявленные ревизии
+app-server protocol и конфигурации/истории, а также кандидат, удерживающий процесс до promotion.
+
+Предпосылки допуска по коннекторам (без переноса доказательств между ними):
+
+| Коннектор | Что уже есть | Чего не хватает для допуска |
+|---|---|---|
+| Koog | политика из build facts, offline baseline, promotion (`81374f004`) | живой сетевой ход и loaded-classpath proof; platform privacy на Native/Android |
+| Pi | pinned distribution и SHA-256 архива, RPC-сессии, конфигуратор | закреплённый digest установленного исполняемого файла и привязка процесса; ревизии протокола/конфигурации/истории |
+| Codex | наблюдённая версия процесса, protected inventory probe, metadata inspect | digest-pin Managed-копии, ревизии app-server protocol и config/history, кандидат, удерживающий процесс |
+| Claude | выбор источника без подмены, CLI-вход, наблюдённая история | стабильный runtime pin/newest-compatible, ревизии протокола и конфигурации, кандидат с собственным процессом |
+| Kimi | pin `2.4.0-hb7`, ACP v1 negotiation, restricted Inspect, `session/delete` | behavioral baseline на допущенном процессе, точный идентификатор владения сессией, очистка при неизвестном исходе |
+| DSH | проверяемая линия `0.2.1-rc.5`, ACP v1, scoped MCP | единая compatibility-политика и stamp сессии; live-проверка нативных сессий |
+
 ## Версии, платформы, установка и доступ
 
 | Коннектор | Runtime / транспорт | Desktop | Android / iOS | Источники runtime | Доступ и каталог |
