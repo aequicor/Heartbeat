@@ -51,8 +51,11 @@ internal fun sdkExchange(provider: KoogProvider, check: KoogSdkCheck): OfflineHt
 }
 
 /** Ordinary native turns use default output limits and a separate synthetic profile credential. */
-internal fun nativeWireExchange(provider: KoogProvider): OfflineHttpExchange {
-    val exchange = sdkExchange(provider, KoogSdkCheck.StreamStop)
+internal fun nativeWireExchange(
+    provider: KoogProvider,
+    check: KoogSdkCheck = KoogSdkCheck.StreamStop,
+): OfflineHttpExchange {
+    val exchange = sdkExchange(provider, check)
     val header = when (provider) {
         KoogProvider.Ollama -> emptyMap()
 

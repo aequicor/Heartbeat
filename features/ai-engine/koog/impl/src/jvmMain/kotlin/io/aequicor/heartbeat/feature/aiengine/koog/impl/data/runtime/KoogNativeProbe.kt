@@ -102,14 +102,33 @@ internal class KoogNativeProbe(private val dispatchers: DispatcherProvider) {
         offline: OfflineHttpClients,
         platform: PlatformInfo,
         provider: KoogProvider,
+    ): Boolean = runWire(deadline, offline, platform, provider, isFailureExpected = false)
+
+    suspend fun runIncompleteWire(
+        deadline: TimeMark,
+        offline: OfflineHttpClients,
+        platform: PlatformInfo,
+        provider: KoogProvider,
+    ): Boolean = runWire(deadline, offline, platform, provider, isFailureExpected = true)
+
+    private suspend fun runWire(
+        deadline: TimeMark,
+        offline: OfflineHttpClients,
+        platform: PlatformInfo,
+        provider: KoogProvider,
+        isFailureExpected: Boolean,
     ): Boolean = withContext(dispatchers.io) {
-        val exchange = nativeWireExchange(provider)
+        val check = if (isFailureExpected) KoogSdkCheck.UnterminatedStream else KoogSdkCheck.StreamStop
+        val exchange = nativeWireExchange(provider, check)
         val owner = offline.open(listOf(exchange))
         try {
             val environment = ProbeEnvironment(dispatchers, provider, isWire = true)
             try {
                 withTimeout(-deadline.elapsedNow()) {
-                    val isSessionConfirmed = environment.exerciseWire(SdkKoogTransport(owner.client, platform))
+                    val isSessionConfirmed = environment.exerciseWire(
+                        SdkKoogTransport(owner.client, platform),
+                        isFailureExpected,
+                    )
                     isSessionConfirmed && owner.progress().isComplete
                 }
             } finally {
@@ -202,7 +221,7 @@ private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogPr
         return KoogNativeReceipt(isSent && isTranscript, isResumed, isCancelled, isRecovered)
     }
 
-    suspend fun exerciseWire(wire: KoogTransport): Boolean {
+    suspend fun exerciseWire(wire: KoogTransport, isFailureExpected: Boolean): Boolean {
         val wireAccess = KoogAccess(
             ProbeConnections(KoogConnection(binding, source)),
             ProbeSecrets,
@@ -227,6 +246,7 @@ private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogPr
             val request = PromptRequest(RequestId("wire"), listOf(ContentPart.Text(SDK_PROBE_TEXT)))
             val turn = session.features.require(SendsPrompts).send(request)
             val state = session.state.first { it is ActiveSessionState.Ready && it.lastTurn?.id == turn }
+            if (isFailureExpected) return (state as ActiveSessionState.Ready).lastTurn?.outcome is TurnOutcome.Failed
             val messages = session.features.require(SessionHistory).page().items.filterIsInstance<SessionItem.Message>()
             return (state as ActiveSessionState.Ready).lastTurn?.outcome == TurnOutcome.Completed &&
                 messages.map { it.role to it.parts } == listOf(

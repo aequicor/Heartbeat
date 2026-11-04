@@ -231,7 +231,7 @@ class KoogSdkProbeTest {
         assertEquals(KoogNativeReceipt(true, true, true, true), assertIs<PartialKoogCandidate>(openai).native)
         assertEquals(true, assertIs<PartialKoogCandidate>(openai).isWireConfirmed)
         assertEquals(nativeWireExchange(KoogProvider.OpenAI).body, http.lastBody)
-        assertEquals(6, http.sessions.size)
+        assertEquals(7, http.sessions.size)
         openai.close()
 
         val ollama = factory.open(
@@ -245,7 +245,7 @@ class KoogSdkProbeTest {
         assertEquals(expectedWire.body, http.lastBody)
         assertEquals(expectedWire.method, http.lastMethod)
         assertEquals(expectedWire.url, http.lastUrl)
-        assertEquals(12, http.sessions.size)
+        assertEquals(14, http.sessions.size)
         ollama.close()
     }
 

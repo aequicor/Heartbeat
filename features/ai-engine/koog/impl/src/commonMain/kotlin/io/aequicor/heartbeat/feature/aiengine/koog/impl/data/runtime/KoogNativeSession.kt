@@ -653,7 +653,8 @@ internal class KoogNativeSession(
                 is StreamFrame.ToolCallDelta, is StreamFrame.ToolCallComplete -> calls.append(frame)
 
                 is StreamFrame.End -> {
-                    isEnded = true
+                    // Some SDK decoders emit End at EOF even when the provider never confirmed completion.
+                    isEnded = frame.finishReason in setOf("stop", "end_turn", "stop_sequence", "tool_calls", "tool_use")
                     recordUsage(client, model, frame.metaInfo)
                 }
 

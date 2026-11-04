@@ -33,25 +33,27 @@ class KoogOfflineWireIntegrationTest {
         val type = Class.forName("io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogNativeProbe")
         val probe = type.getDeclaredConstructor(DispatcherProvider::class.java).newInstance(dispatchers)
         for (provider in KoogProvider.entries) {
-            val method = type.getDeclaredMethod(
-                "runProviderWire",
-                TimeMark::class.java,
-                OfflineHttpClients::class.java,
-                PlatformInfo::class.java,
-                KoogProvider::class.java,
-                Continuation::class.java,
-            )
-            val confirmed = suspendCoroutineUninterceptedOrReturn<Boolean> { continuation ->
-                method.invoke(
-                    probe,
-                    TimeSource.Monotonic.markNow() + 10.seconds,
-                    offline,
-                    platform,
-                    provider,
-                    continuation,
+            for (probeName in listOf("runProviderWire", "runIncompleteWire")) {
+                val method = type.getDeclaredMethod(
+                    probeName,
+                    TimeMark::class.java,
+                    OfflineHttpClients::class.java,
+                    PlatformInfo::class.java,
+                    KoogProvider::class.java,
+                    Continuation::class.java,
                 )
+                val confirmed = suspendCoroutineUninterceptedOrReturn<Boolean> { continuation ->
+                    method.invoke(
+                        probe,
+                        TimeSource.Monotonic.markNow() + 10.seconds,
+                        offline,
+                        platform,
+                        provider,
+                        continuation,
+                    )
+                }
+                assertTrue(confirmed, "${provider.name}: $probeName")
             }
-            assertTrue(confirmed, provider.name)
         }
     }
 }
