@@ -30,6 +30,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
@@ -254,6 +257,43 @@ internal class JvmKimiBackend(
     }
 
     override suspend fun unbind(binding: EngineBindingId) = Unit
+
+    /**
+     * Strict isolated prompts are refused before any process, ACP session or provider request.
+     *
+     * The facade contract requires a fresh tool-less context, exactly one provider round, an explicit
+     * provider-side output-token cap and no persisted session/configuration/history. The pinned Kimi ACP
+     * connector cannot prove every property from its wire contract:
+     * - ACP v1 `session/new` accepts only `cwd` and `mcpServers`. The CLI always declares its built-in
+     *   native tool catalog to the model; the host can refuse every `session/request_permission`, but it
+     *   cannot prove that no native tool is declared or attempted.
+     * - ACP v1 `session/prompt` has no output-token field. A host-side character bound can stop reading
+     *   and cancel the turn, but it is not a provider token cap; the provider may generate until that
+     *   cancellation. The API contract therefore cannot be satisfied on the wire.
+     * - `session/new` has no "no instructions" switch. Even an empty temporary working directory does
+     *   not prove that the CLI ignores instructions from its own home/configuration.
+     * - A strict session must be removable. Removal depends on `sessionCapabilities.delete`; when the
+     *   capability is absent or deletion fails, closing the process does not prove that the CLI did not
+     *   already persist the native session in its home.
+     * - Selecting [IsolatedPrompt.target] is an ACP configuration write (`session/set_config_option`),
+     *   while the strict contract forbids configuration writes.
+     *
+     * No best-effort answer is produced and [beforeDispatch] is never invoked, so a failed strict attempt
+     * cannot fall back to a normal runtime, model discovery, history or tools. A future connector may
+     * implement this method only after the pinned runtime exposes a tool-less, non-persistent session, a
+     * provider token cap and a no-instructions switch, and the adapter can verify all of them before
+     * dispatch.
+     */
+    override suspend fun answerIsolated(
+        prompt: IsolatedPrompt,
+        source: AuthSource,
+        context: EngineContext,
+        deadline: TimeMark,
+        beforeDispatch: suspend () -> Unit,
+    ): IsolatedAnswer {
+        log.d { "Strict Kimi prompt refused: isolation unproven" }
+        return IsolatedAnswer.Unavailable(IsolatedPromptFailure.IsolationUnproven)
+    }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> {
         if (!accepts(source, context)) {
