@@ -15,7 +15,7 @@ internal fun interface KimiCandidates {
     suspend fun open(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-        promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+        promote: suspend (String?, EngineCompatibilityStamp) -> EngineRuntime,
     ): EngineRuntimeCandidate?
 }
 
@@ -24,6 +24,6 @@ internal object UnsupportedKimiCandidates : KimiCandidates {
     override suspend fun open(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-        promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+        promote: suspend (String?, EngineCompatibilityStamp) -> EngineRuntime,
     ): EngineRuntimeCandidate? = null
 }

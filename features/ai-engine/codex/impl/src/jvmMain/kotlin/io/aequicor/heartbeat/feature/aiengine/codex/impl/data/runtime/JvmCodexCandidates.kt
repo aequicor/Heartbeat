@@ -62,7 +62,7 @@ internal class JvmCodexCandidates internal constructor(
     override suspend fun open(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-        promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+        promote: suspend (String?, EngineCompatibilityStamp) -> EngineRuntime,
     ): EngineRuntimeCandidate? {
         currentCoroutineContext().ensureActive()
         val target = desktopTarget(request) ?: return null
@@ -166,16 +166,17 @@ internal class JvmCodexCandidates internal constructor(
 
 /**
  * One-use owner of the restricted baseline and the exact artifact identity it checked. The probe process was
- * already joined before this candidate was returned, so [close] releases no process of its own. After the ordinary
- * metadata process starts, promotion verifies its handshake version and the still-matching executable digest
- * against the evidence; a mismatch closes that runtime and transfers nothing.
+ * already joined before this candidate was returned, so [close] releases no process of its own. The promotion
+ * callback receives the verified executable so the adapter can compare it with the captured launch before that
+ * process opens; after it starts, promotion again verifies its handshake version and executable digest against the
+ * evidence; a mismatch closes that runtime and transfers nothing.
  */
 internal class CodexRuntimeCandidate(
     override val request: EngineRuntimeCandidateRequest,
     override val evidence: EngineCompatibilityEvidence,
     private val selectedExecutable: String?,
     private val dispatchers: DispatcherProvider,
-    private val promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+    private val promote: suspend (String?, EngineCompatibilityStamp) -> EngineRuntime,
 ) : EngineRuntimeCandidate {
     private val consumed = AtomicBoolean(false)
     private val log = Log.tag("CodexRuntimeCandidate")
@@ -192,7 +193,7 @@ internal class CodexRuntimeCandidate(
             fail(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
         }
         if (assessed != expected) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        val runtime = promote(expected)
+        val runtime = promote(selectedExecutable, expected)
         var isTransferred = false
         try {
             currentCoroutineContext().ensureActive()

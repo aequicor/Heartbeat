@@ -88,8 +88,8 @@ internal class JvmDeepSeekBackend(
     override suspend fun openRuntimeCandidate(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { stamp ->
-        promoteRuntime(request.identity, stamp)
+    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { executable, stamp ->
+        promoteRuntime(request.identity, stamp, executable)
     }
 
     override suspend fun inspect(): DeepSeekLogin = account.inspect(configuration.homeDirectory)
@@ -176,15 +176,18 @@ internal class JvmDeepSeekBackend(
     }
 
     /**
-     * Ordinary DSH runtime for [stamp], the same construction sessions use outside admission. The assessed
-     * executable is pinned so every child process of this runtime starts from the fingerprinted launcher; a changed
-     * configuration is not silently substituted and fails closed before any runtime is transferred.
+     * Ordinary DSH runtime for [stamp], the same construction sessions use outside admission. The launcher this
+     * launch would start is compared with the admitted one and its fingerprints before any runtime is created; the
+     * assessed executable is then pinned so every child process starts from the fingerprinted launcher, and a
+     * changed configuration fails closed instead of being silently substituted.
      */
     private suspend fun promoteRuntime(
         identity: RuntimeIdentity,
         stamp: EngineCompatibilityStamp,
+        admittedExecutable: String?,
     ): DeepSeekRuntimeGroup = mutex.withLock {
         require(identity.engine == DeepSeekEngine.Id) { "Foreign engine" }
+        val executable = admittedLauncher(admittedExecutable, stamp)
         val existing = runtime
         val reusable = existing?.takeIf {
             it.identity == identity && !it.isClosed && it.compatibilityStamp == stamp
@@ -192,11 +195,25 @@ internal class JvmDeepSeekBackend(
         if (reusable != null) return@withLock reusable
         existing?.close()
         runtime = null
+        openGroup(identity, stamp, executable).also { runtime = it }
+    }
+
+    /**
+     * The launcher this profile's current startup would open, required to be the admitted one whose bytes still
+     * match the stamp. Runs before any ordinary ACP process or user configuration is opened.
+     */
+    private suspend fun admittedLauncher(admittedExecutable: String?, stamp: EngineCompatibilityStamp): String {
         val startup = resolveDeepSeekStartup(configuration)
-        if (!startup.isRunnable) {
-            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
-        }
-        openGroup(identity, stamp, startup.executable).also { runtime = it }
+        if (!startup.isRunnable) throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        if (admittedExecutable == null || startup.executable != admittedExecutable) rejectPromotion()
+        val fingerprint = DshExternalFingerprint.of(startup.executable)
+        if (fingerprint != stamp.runtimeFingerprint) rejectPromotion()
+        return startup.executable
+    }
+
+    private fun rejectPromotion(): Nothing {
+        log.w { "DSH launch no longer starts the admitted launcher" }
+        throw EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
     }
 
     private suspend fun openRuntime(
@@ -211,6 +228,8 @@ internal class JvmDeepSeekBackend(
         if (selectedExecutable == null && !startup.isRunnable) {
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
+        // The group opens its child lazily: re-check the pinned launcher right before this process exists.
+        if (compatibilityStamp != null) admittedLauncher(selectedExecutable, compatibilityStamp)
         val transport = transports.open(
             AcpCommand(
                 executable,

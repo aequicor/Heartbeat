@@ -82,6 +82,9 @@ internal interface ClaudeTransport {
     /** Exact executable this transport starts, or null when it resolves one per operation. */
     val executable: String? get() = null
 
+    /** SHA-256 of the captured executable, or null when this transport cannot read it. */
+    suspend fun executableSha256(): String? = null
+
     /**
      * Whether the native history of this transport holds the conversation [id]; null when it cannot be read. A CLI
      * that died before its first session frame may or may not have created it, and only the history can tell.
@@ -147,6 +150,10 @@ internal class ProcessClaudeTransport(
     }
 
     override suspend fun pinned(launch: LaunchContext?): ClaudeTransport = PinnedClaudeTransport(this, startup(launch))
+
+    /** Hashes the exact [executable] a pinned launch selected; the unpinned transport has none. */
+    internal suspend fun executableSha256(executable: String): String? =
+        claudeExecutableSha256(executable, dispatchers.io)
 
     override suspend fun locate(launch: LaunchContext): Installation {
         val startup = startup(launch)
@@ -485,6 +492,8 @@ private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, pr
     override val nativeStore: String = claudeNativeStore(startup.configDirectory)
     override val isMcpEnabled: Boolean get() = startup.isMcpEnabled
     override val executable: String get() = startup.executable
+
+    override suspend fun executableSha256(): String? = base.executableSha256(startup.executable)
 
     @Volatile
     private var knownVersion: String? = null

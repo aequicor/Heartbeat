@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
@@ -64,8 +65,8 @@ internal class CodexFactory(
     override suspend fun openRuntimeCandidate(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { stamp ->
-        obtainRuntime(request.identity, stamp)
+    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { executable, stamp ->
+        obtainRuntime(request.identity, stamp, executable)
     }
 
     override suspend fun checkRequirements(): EngineAvailability = withContext(dispatchers.main) {
@@ -114,17 +115,19 @@ internal class CodexFactory(
 
     private var isSearchToolsChangeLogged = false
 
-    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = obtainRuntime(identity, null)
+    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = obtainRuntime(identity, null, null)
 
     /**
-     * Starts the ordinary metadata process for [identity]. Admission passes the assessed [compatibilityStamp]; the
-     * runtime reports it and keeps the handshake version and selected executable the candidate verifies before the
-     * facade accepts the transfer. An unadmitted creation keeps its stamped runtime rather than starting a second
-     * process for the same identity.
+     * Starts the ordinary metadata process for [identity]. Admission passes the assessed [compatibilityStamp] and
+     * the [admittedExecutable] the candidate verified; the captured launch is compared with those bytes before the
+     * process is opened, and the runtime reports the handshake version and selected executable the candidate
+     * verifies before the facade accepts the transfer. An unadmitted creation keeps its stamped runtime rather than
+     * starting a second process for the same identity.
      */
     private suspend fun obtainRuntime(
         identity: RuntimeIdentity,
         compatibilityStamp: EngineCompatibilityStamp?,
+        admittedExecutable: String?,
     ): EngineRuntime = withContext(dispatchers.main) {
         lock.withLock {
             gate(identity)
@@ -133,7 +136,7 @@ internal class CodexFactory(
             isSearchToolsChangeLogged = false
             runtime?.close()
             runtime = null
-            startRuntime(identity, compatibilityStamp, isSearchToolsEnabled)
+            startRuntime(identity, compatibilityStamp, admittedExecutable, isSearchToolsEnabled)
         }
     }
 
@@ -158,9 +161,12 @@ internal class CodexFactory(
     private suspend fun startRuntime(
         identity: RuntimeIdentity,
         compatibilityStamp: EngineCompatibilityStamp?,
+        admittedExecutable: String?,
         isSearchToolsEnabled: Boolean,
     ): CodexRuntime {
         val launch = transport.prepare()
+        // Compare the admitted artifact with the captured launch before its process or user configuration opens.
+        if (compatibilityStamp != null) verifyAdmittedLaunch(launch, admittedExecutable, compatibilityStamp)
         val rpc = CodexRpc(launch.open(), profile.coroutineScope)
         val startup = profile.onClose(rpc::close)
         var isStarted = false
@@ -178,6 +184,21 @@ internal class CodexFactory(
         } finally {
             if (!isStarted) rpc.close()
             startup.dispose()
+        }
+    }
+
+    /** The captured launch must start exactly the admitted executable, whose bytes must still match the stamp. */
+    private suspend fun verifyAdmittedLaunch(
+        launch: PreparedCodexLaunch,
+        admittedExecutable: String?,
+        stamp: EngineCompatibilityStamp,
+    ) {
+        val executable = launch.executable
+        val isSelected = admittedExecutable != null && executable == admittedExecutable
+        val isDigest = isSelected && launch.executableSha256() == stamp.runtimeFingerprint
+        if (!isDigest) {
+            log.w { "Codex launch no longer starts the admitted executable" }
+            fail(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
         }
     }
 

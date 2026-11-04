@@ -68,6 +68,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 import kotlin.time.TimeMark
 
 @ContributesBinding(ProfileScope::class, binding = binding<KimiBackend>())
@@ -105,8 +106,8 @@ internal class JvmKimiBackend(
     override suspend fun openRuntimeCandidate(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { stamp ->
-        promoteRuntime(request.identity, stamp)
+    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { executable, stamp ->
+        promoteRuntime(request.identity, stamp, executable)
     }
 
     override suspend fun prepareRuntime() = setup.prepare(this, launches.context(KimiEngine.Id))
@@ -317,33 +318,71 @@ internal class JvmKimiBackend(
     }
 
     /**
-     * Ordinary Kimi runtime for [stamp], the same construction sessions use outside admission. The selected
-     * executable is captured so promotion can compare it with the assessed artifact instead of a path claim.
+     * Ordinary Kimi runtime for [stamp], the same construction sessions use outside admission. The controlled copy
+     * this launch resolves is compared with the admitted executable and its digest before any ACP process opens,
+     * and the runtime starts exactly that executable instead of resolving the launch again.
      */
-    private suspend fun promoteRuntime(identity: RuntimeIdentity, stamp: EngineCompatibilityStamp): KimiRuntime =
-        mutex.withLock {
-            require(identity.engine == KimiEngine.Id) { "Foreign engine" }
-            val launch = launches.context(KimiEngine.Id)
-            val existing = runtime
-            val reusable = existing?.takeIf {
-                it.identity == identity && !it.isClosed && it.compatibilityStamp == stamp
-            }
-            if (reusable != null) return@withLock reusable
-            existing?.close()
-            runtime = null
-            runtimeLaunch = null
-            openRuntime(identity, launch, stamp).also {
-                runtime = it
-                runtimeLaunch = launch
-            }
+    private suspend fun promoteRuntime(
+        identity: RuntimeIdentity,
+        stamp: EngineCompatibilityStamp,
+        admittedExecutable: String?,
+    ): KimiRuntime = mutex.withLock {
+        require(identity.engine == KimiEngine.Id) { "Foreign engine" }
+        val launch = launches.context(KimiEngine.Id)
+        val executable = admittedExecutable(launch, admittedExecutable, stamp)
+        val existing = runtime
+        val reusable = existing?.takeIf {
+            it.identity == identity && !it.isClosed && it.compatibilityStamp == stamp
         }
+        if (reusable != null) return@withLock reusable
+        existing?.close()
+        runtime = null
+        runtimeLaunch = null
+        openRuntime(identity, launch, stamp, executable).also {
+            runtime = it
+            runtimeLaunch = launch
+        }
+    }
+
+    /** The executable this launch would start, required to be the admitted one whose bytes still match the stamp. */
+    private suspend fun admittedExecutable(
+        launch: LaunchContext,
+        admittedExecutable: String?,
+        stamp: EngineCompatibilityStamp,
+    ): String {
+        val executable = try {
+            requireNotNull(setup.locateRelease(launch).path)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.redactedFailure()) { "Admitted Kimi executable could not be located" }
+            rejectPromotion()
+        }
+        if (admittedExecutable == null || executable != admittedExecutable) rejectPromotion()
+        val digest = try {
+            kimiExecutableSha256(File(executable))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.redactedFailure()) { "Admitted Kimi executable could not be hashed" }
+            rejectPromotion()
+        }
+        if (!digest.equals(stamp.runtimeFingerprint, ignoreCase = true)) rejectPromotion()
+        return executable
+    }
+
+    private fun rejectPromotion(): Nothing {
+        log.w { "Kimi launch no longer starts the admitted executable" }
+        throw EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+    }
 
     private suspend fun openRuntime(
         identity: RuntimeIdentity,
         launch: LaunchContext,
         stamp: EngineCompatibilityStamp? = null,
+        admittedExecutable: String? = null,
     ): KimiRuntime {
-        val executable = requireNotNull(setup.locateRelease(launch).path)
+        val executable = admittedExecutable ?: requireNotNull(setup.locateRelease(launch).path)
         val transport = transports.open(
             AcpCommand(
                 executable,

@@ -115,8 +115,8 @@ internal class JvmClaudeBackend(
     override suspend fun openRuntimeCandidate(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { stamp ->
-        obtainRuntime(request.identity, stamp)
+    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { executable, stamp ->
+        obtainRuntime(request.identity, stamp, executable)
     }
 
     /** An installation probe reports every adapter failure as availability; only cancellation escapes. */
@@ -263,14 +263,18 @@ internal class JvmClaudeBackend(
         )
     }
 
-    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = obtainRuntime(identity, null)
+    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = obtainRuntime(identity, null, null)
 
     /**
-     * Runtime entry point: [stamp] is non-null only for a facade admission of exactly that contract. A runtime
-     * created outside admission keeps a null stamp, so the first admission replaces it instead of reusing it.
+     * Runtime entry point: [stamp] is non-null only for a facade admission of exactly that contract, and
+     * [admittedExecutable] is the executable its candidate verified. A runtime created outside admission keeps a
+     * null stamp, so the first admission replaces it instead of reusing it.
      */
-    private suspend fun obtainRuntime(identity: RuntimeIdentity, stamp: EngineCompatibilityStamp?): ClaudeRuntime =
-        open(identity, isRouteRequired = true, stamp = stamp)
+    private suspend fun obtainRuntime(
+        identity: RuntimeIdentity,
+        stamp: EngineCompatibilityStamp?,
+        admittedExecutable: String?,
+    ): ClaudeRuntime = open(identity, isRouteRequired = true, stamp = stamp, admittedExecutable = admittedExecutable)
 
     /**
      * The pooled runtime of [identity]. Only a stored session opens without a bound route ([isRouteRequired] is
@@ -284,6 +288,7 @@ internal class JvmClaudeBackend(
         identity: RuntimeIdentity,
         isRouteRequired: Boolean,
         stamp: EngineCompatibilityStamp? = null,
+        admittedExecutable: String? = null,
     ): ClaudeRuntime = mutex.withLock {
         enabled()
         val isRouteKnown = identity.source == ClaudeEngine.AuthSource || identity.source in routes.values
@@ -299,7 +304,7 @@ internal class JvmClaudeBackend(
             // A live runtime belongs to its turns: reading a stored session of another identity must not end them.
             !isRouteRequired && current != null && !current.isClosed -> reading(identity, current.identity.revision)
 
-            else -> replaceRuntime(current, identity, stamp)
+            else -> replaceRuntime(current, identity, stamp, admittedExecutable)
         }
     }
 
@@ -307,9 +312,13 @@ internal class JvmClaudeBackend(
         current: ClaudeRuntime?,
         identity: RuntimeIdentity,
         stamp: EngineCompatibilityStamp?,
+        admittedExecutable: String?,
     ): ClaudeRuntime {
         restoreCapabilities(identity.revision)
         val pinnedTransport = transport.pinned()
+        // Compare the admitted artifact with the transport this runtime is about to pin before any process,
+        // account probe or user configuration access.
+        if (stamp != null) verifyAdmittedTransport(pinnedTransport, admittedExecutable, stamp)
         val pinnedAccount = account.pinned(pinnedTransport)
         pinnedAccount.validate(identity.revision)
         // The ordinary process reports its version once; the candidate compares it with the assessed stamp.
@@ -331,6 +340,21 @@ internal class JvmClaudeBackend(
         log.i { "Creating Claude profile runtime" }
         return newRuntime(identity, pinnedTransport, pinnedAccount, isReadOnly = false, admission = admission)
             .also { runtime = it }
+    }
+
+    /** The pinned transport must start the admitted executable whose bytes still match the assessed stamp. */
+    private suspend fun verifyAdmittedTransport(
+        transport: ClaudeTransport,
+        admittedExecutable: String?,
+        stamp: EngineCompatibilityStamp,
+    ) {
+        val executable = transport.executable
+        val isSelected = admittedExecutable != null && executable == admittedExecutable
+        val isDigest = isSelected && transport.executableSha256() == stamp.runtimeFingerprint
+        if (!isDigest) {
+            log.w { "Claude transport no longer starts the admitted executable" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+        }
     }
 
     /**

@@ -44,6 +44,9 @@ internal interface PreparedCodexLaunch {
     /** Absolute executable this captured launch starts, or null when no external artifact is selected. */
     val executable: String? get() = null
 
+    /** SHA-256 of the captured executable, or null when this transport cannot read it. */
+    suspend fun executableSha256(): String? = null
+
     /** Starts the captured executable with the captured home, arguments and environment. */
     suspend fun open(): CodexWire
 

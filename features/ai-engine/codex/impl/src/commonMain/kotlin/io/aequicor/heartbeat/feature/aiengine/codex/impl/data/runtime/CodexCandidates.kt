@@ -8,14 +8,15 @@ import kotlin.time.TimeMark
 
 /**
  * Platform support is explicit; an absent implementation never invents an artifact or a baseline for another
- * target. [promote] transfers ownership of an ordinary Codex runtime only for the exact assessed stamp, so the
- * candidate never constructs a runtime itself.
+ * target. [promote] receives the exact executable the candidate verified together with the assessed stamp, so it
+ * can compare that pin with the launch it is about to start before any ordinary process opens. Ownership of the
+ * runtime transfers only for the exact assessed stamp; the candidate never constructs a runtime itself.
  */
 internal fun interface CodexCandidates {
     suspend fun open(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-        promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+        promote: suspend (String?, EngineCompatibilityStamp) -> EngineRuntime,
     ): EngineRuntimeCandidate?
 }
 
@@ -24,6 +25,6 @@ internal object UnsupportedCodexCandidates : CodexCandidates {
     override suspend fun open(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-        promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+        promote: suspend (String?, EngineCompatibilityStamp) -> EngineRuntime,
     ): EngineRuntimeCandidate? = null
 }

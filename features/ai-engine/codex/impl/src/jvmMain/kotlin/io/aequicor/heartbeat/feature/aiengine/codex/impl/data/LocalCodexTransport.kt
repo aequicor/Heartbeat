@@ -74,6 +74,8 @@ internal class LocalCodexTransport(
             object : PreparedCodexLaunch {
                 override val isMcpEnabled = context.settings.isMcpEnabled
                 override val executable: String = resolved.executable
+                override suspend fun executableSha256(): String? =
+                    codexExecutableSha256(resolved.executable, dispatchers.io)
                 private val versionLock = Mutex()
                 private var observedVersion: String? = null
 

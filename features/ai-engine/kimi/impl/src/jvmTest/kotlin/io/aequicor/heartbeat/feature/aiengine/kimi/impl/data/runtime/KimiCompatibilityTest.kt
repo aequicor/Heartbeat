@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.assessEngineCompatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -58,6 +59,10 @@ import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 class KimiCompatibilityTest {
+
+    /** Promotion must never be reached by these cases; the request exists only to build a candidate. */
+    private suspend fun refusePromotion(executable: String?, stamp: EngineCompatibilityStamp): EngineRuntime =
+        error("promotion is not expected for $executable at $stamp")
     private val identity = RuntimeIdentity(KimiEngine.Id, AuthSourceId("synthetic"), AuthRevision.Known("1"))
 
     @Test
@@ -109,9 +114,9 @@ class KimiCompatibilityTest {
                 TestKimiDispatchers,
                 probe,
             ) { true }
-            assertNull(candidate.open(fixture.request(), deadline()) { error("unused") })
+            assertNull(candidate.open(fixture.request(), deadline(), ::refusePromotion))
             assertNull(
-                UnsupportedKimiCandidates.open(fixture.request(), deadline()) { error("unused") },
+                UnsupportedKimiCandidates.open(fixture.request(), deadline(), ::refusePromotion),
             )
             assertEquals(0, probe.calls)
         }
@@ -164,7 +169,8 @@ class KimiCompatibilityTest {
                 fixture.candidates(probe).open(
                     fixture.request(recorded = fixture.digest),
                     TimeSource.Monotonic.markNow(),
-                ) { error("unused") },
+                    ::refusePromotion,
+                ),
             )
             try {
                 assertEquals(true, candidate.evidence.isProvenanceConfirmed)
@@ -186,7 +192,7 @@ class KimiCompatibilityTest {
                 val deadline = deadline()
 
                 val matched = assertNotNull(
-                    candidates.open(fixture.request(recorded = fixture.digest), deadline) { error("unused") },
+                    candidates.open(fixture.request(recorded = fixture.digest), deadline, ::refusePromotion),
                 )
                 try {
                     assertEquals(true, matched.evidence.isProvenanceConfirmed)
@@ -202,7 +208,7 @@ class KimiCompatibilityTest {
 
                 // Only the published pin is recorded: the selected bytes are still bound to its digest.
                 val pinnedOnly = assertNotNull(
-                    candidates.open(fixture.request(recorded = null), deadline) { error("unused") },
+                    candidates.open(fixture.request(recorded = null), deadline, ::refusePromotion),
                 )
                 try {
                     assertEquals(true, pinnedOnly.evidence.isProvenanceConfirmed)
@@ -214,7 +220,7 @@ class KimiCompatibilityTest {
                 }
 
                 val mismatched = assertNotNull(
-                    candidates.open(fixture.request(recorded = "0".repeat(64)), deadline) { error("unused") },
+                    candidates.open(fixture.request(recorded = "0".repeat(64)), deadline, ::refusePromotion),
                 )
                 try {
                     assertEquals(false, mismatched.evidence.isProvenanceConfirmed)
@@ -228,7 +234,7 @@ class KimiCompatibilityTest {
 
                 val noPin = fixture.candidates(probe) { false }
                 val unpinned = assertNotNull(
-                    noPin.open(fixture.request(recorded = fixture.digest), deadline) { error("unused") },
+                    noPin.open(fixture.request(recorded = fixture.digest), deadline, ::refusePromotion),
                 )
                 try {
                     assertNull(unpinned.evidence.isProvenanceConfirmed)
@@ -255,7 +261,8 @@ class KimiCompatibilityTest {
                         LaunchContext(LaunchSettings(executable = fixture.executable.toString())),
                     ),
                     deadline,
-                ) { error("must not promote") },
+                    ::refusePromotion,
+                ),
             )
             assertUnknownWithoutProbe(custom, deadline)
 
@@ -266,7 +273,8 @@ class KimiCompatibilityTest {
                         LaunchContext(LaunchSettings(runtime = RuntimePreference.System)),
                     ),
                     deadline,
-                ) { error("must not promote") },
+                    ::refusePromotion,
+                ),
             )
             assertUnknownWithoutProbe(system, deadline)
 
@@ -286,7 +294,8 @@ class KimiCompatibilityTest {
                         ),
                     ),
                     deadline,
-                ) { error("must not promote") },
+                    ::refusePromotion,
+                ),
             )
             assertUnknownWithoutProbe(retained, deadline)
             assertEquals(0, probe.calls)
@@ -302,7 +311,7 @@ class KimiCompatibilityTest {
             val policy = assertNotNull(KimiJvmCompatibility.requirements(HostPlatform.MacOs))
             val promoted = mutableListOf<EngineCompatibilityStamp>()
             val candidate = assertNotNull(
-                candidates.open(fixture.request(recorded = fixture.digest), deadline) { stamp ->
+                candidates.open(fixture.request(recorded = fixture.digest), deadline) { executable, stamp ->
                     promoted += stamp
                     FakeRuntime(
                         identity,
@@ -339,7 +348,7 @@ class KimiCompatibilityTest {
             val policy = assertNotNull(KimiJvmCompatibility.requirements(HostPlatform.MacOs))
             val promoted = mutableListOf<EngineCompatibilityStamp>()
             val candidate = assertNotNull(
-                candidates.open(fixture.request(recorded = fixture.digest), deadline) { stamp ->
+                candidates.open(fixture.request(recorded = fixture.digest), deadline) { executable, stamp ->
                     promoted += stamp
                     FakeRuntime(
                         identity,
@@ -371,7 +380,7 @@ class KimiCompatibilityTest {
             val deadline = deadline()
             val policy = assertNotNull(KimiJvmCompatibility.requirements(HostPlatform.MacOs))
 
-            assertRejectedPromotion(fixture, candidates, policy, deadline) { stamp ->
+            assertRejectedPromotion(fixture, candidates, policy, deadline) { executable, stamp ->
                 FakeRuntime(
                     identity,
                     stamp,
@@ -380,7 +389,7 @@ class KimiCompatibilityTest {
                     fixture.executable.toString(),
                 )
             }
-            assertRejectedPromotion(fixture, candidates, policy, deadline) { stamp ->
+            assertRejectedPromotion(fixture, candidates, policy, deadline) { executable, stamp ->
                 FakeRuntime(
                     identity,
                     stamp,
@@ -389,7 +398,7 @@ class KimiCompatibilityTest {
                     fixture.executable.toString(),
                 )
             }
-            assertRejectedPromotion(fixture, candidates, policy, deadline) { stamp ->
+            assertRejectedPromotion(fixture, candidates, policy, deadline) { executable, stamp ->
                 FakeRuntime(
                     identity,
                     stamp,
@@ -401,7 +410,7 @@ class KimiCompatibilityTest {
 
             var changed: FakeRuntime? = null
             val candidate = assertNotNull(
-                candidates.open(fixture.request(recorded = fixture.digest), deadline) { stamp ->
+                candidates.open(fixture.request(recorded = fixture.digest), deadline) { executable, stamp ->
                     FakeRuntime(
                         identity,
                         stamp,
@@ -424,12 +433,12 @@ class KimiCompatibilityTest {
         candidates: JvmKimiCandidates,
         policy: EngineCompatibilityRequirements,
         deadline: TimeMark,
-        runtime: (EngineCompatibilityStamp) -> FakeRuntime,
+        runtime: (String?, EngineCompatibilityStamp) -> FakeRuntime,
     ) {
         var created: FakeRuntime? = null
         val candidate = assertNotNull(
-            candidates.open(fixture.request(recorded = fixture.digest), deadline) { stamp ->
-                runtime(stamp).also { created = it }
+            candidates.open(fixture.request(recorded = fixture.digest), deadline) { executable, stamp ->
+                runtime(executable, stamp).also { created = it }
             },
         )
         try {

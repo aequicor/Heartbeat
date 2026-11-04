@@ -65,7 +65,7 @@ internal class JvmDshCandidates internal constructor(
     override suspend fun open(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-        promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+        promote: suspend (String?, EngineCompatibilityStamp) -> EngineRuntime,
     ): EngineRuntimeCandidate? {
         currentCoroutineContext().ensureActive()
         val selected = selection(request, deadline) ?: return null
@@ -144,10 +144,11 @@ internal class JvmDshCandidates internal constructor(
 
 /**
  * One-use owner of the restricted baseline and the exact external artifact identity it checked. The inspect
- * process was already joined before this candidate was returned, so [close] releases no process of its own. After
- * the ordinary runtime starts, promotion re-observes the negotiated ACP identity and the selected launcher, reruns
- * the adapter's `--version` probe and recomputes the external fingerprint against the evidence; a mismatch closes
- * that runtime and transfers nothing. It never creates or resumes a native session.
+ * process was already joined before this candidate was returned, so [close] releases no process of its own. The
+ * promotion callback receives the fingerprinted launcher so the adapter can compare it with the startup it is
+ * about to open before that process exists; after it starts, promotion re-observes the negotiated ACP identity and
+ * the selected launcher, reruns the adapter's `--version` probe and recomputes the external fingerprint against
+ * the evidence; a mismatch closes that runtime and transfers nothing. It never creates or resumes a native session.
  */
 internal class DshRuntimeCandidate(
     override val request: EngineRuntimeCandidateRequest,
@@ -155,7 +156,7 @@ internal class DshRuntimeCandidate(
     private val selectedExecutable: String?,
     private val dispatchers: DispatcherProvider,
     private val versions: DshRuntimeVersionProbe,
-    private val promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+    private val promote: suspend (String?, EngineCompatibilityStamp) -> EngineRuntime,
 ) : EngineRuntimeCandidate {
     private val consumed = AtomicBoolean(false)
     private val log = Log.tag("DshRuntimeCandidate")
@@ -172,7 +173,7 @@ internal class DshRuntimeCandidate(
             fail(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
         }
         if (assessed != expected) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        val runtime = promote(expected)
+        val runtime = promote(selectedExecutable, expected)
         var isTransferred = false
         try {
             currentCoroutineContext().ensureActive()

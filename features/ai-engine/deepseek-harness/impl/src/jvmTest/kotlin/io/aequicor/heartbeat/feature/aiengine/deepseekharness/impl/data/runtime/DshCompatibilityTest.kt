@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.assessEngineCompatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -50,6 +51,10 @@ import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 class DshCompatibilityTest {
+
+    /** Promotion must never be reached by these cases; the request exists only to build a candidate. */
+    private suspend fun refusePromotion(executable: String?, stamp: EngineCompatibilityStamp): EngineRuntime =
+        error("promotion is not expected for $executable at $stamp")
     private val identity = RuntimeIdentity(DeepSeekEngine.Id, AuthSourceId("synthetic"), AuthRevision.Known("1"))
 
     @Test
@@ -62,8 +67,8 @@ class DshCompatibilityTest {
             }
             assertNull(UnsupportedDshCompatibility.requirements())
             val candidate = fixture.candidates(probe, platform = platform(HostPlatform.Android))
-            assertNull(candidate.open(fixture.request(), deadline()) { error("unused") })
-            assertNull(UnsupportedDshCandidates.open(fixture.request(), deadline()) { error("unused") })
+            assertNull(candidate.open(fixture.request(), deadline(), ::refusePromotion))
+            assertNull(UnsupportedDshCandidates.open(fixture.request(), deadline(), ::refusePromotion))
             assertEquals(0, probe.calls)
         }
     }
@@ -73,7 +78,7 @@ class DshCompatibilityTest {
         temporary { fixture ->
             val probe = FakeBaselineProbe()
             val candidates = fixture.candidates(probe)
-            val candidate = assertNotNull(candidates.open(fixture.request(), deadline()) { error("unused") })
+            val candidate = assertNotNull(candidates.open(fixture.request(), deadline(), ::refusePromotion))
             try {
                 assertEquals(true, candidate.evidence.isProvenanceConfirmed)
                 assertEquals(fixture.fingerprint, candidate.evidence.identity.runtimeFingerprint)
@@ -93,9 +98,7 @@ class DshCompatibilityTest {
         temporary { fixture ->
             val probe = FakeBaselineProbe()
             val candidate = assertNotNull(
-                fixture.candidates(probe).open(fixture.request(), TimeSource.Monotonic.markNow()) {
-                    error("unused")
-                },
+                fixture.candidates(probe).open(fixture.request(), TimeSource.Monotonic.markNow(), ::refusePromotion),
             )
             try {
                 assertEquals(true, candidate.evidence.isProvenanceConfirmed)
@@ -119,7 +122,7 @@ class DshCompatibilityTest {
                 configuration = DeepSeekConfiguration(executable = fixture.root.resolve("missing").toString()),
             )
             assertUnknownWithoutProbe(
-                assertNotNull(missing.open(fixture.request(), deadline) { error("must not promote") }),
+                assertNotNull(missing.open(fixture.request(), deadline, ::refusePromotion)),
                 deadline,
             )
 
@@ -129,7 +132,7 @@ class DshCompatibilityTest {
                 configuration = DeepSeekConfiguration(executable = script.toString()),
             )
             assertUnknownWithoutProbe(
-                assertNotNull(scripted.open(fixture.request(), deadline) { error("must not promote") }),
+                assertNotNull(scripted.open(fixture.request(), deadline, ::refusePromotion)),
                 deadline,
             )
             assertEquals(0, probe.calls)
@@ -144,7 +147,7 @@ class DshCompatibilityTest {
             val policy = assertNotNull(DshJvmCompatibility.requirements(HostPlatform.MacOs))
             val promoted = mutableListOf<EngineCompatibilityStamp>()
             val candidate = assertNotNull(
-                candidates.open(fixture.request(), deadline) { stamp ->
+                candidates.open(fixture.request(), deadline) { executable, stamp ->
                     promoted += stamp
                     FakeRuntime(identity, stamp, fixture.executable.toString(), observation(fixture))
                 },
@@ -173,7 +176,7 @@ class DshCompatibilityTest {
             val policy = assertNotNull(DshJvmCompatibility.requirements(HostPlatform.MacOs))
             val promoted = mutableListOf<EngineCompatibilityStamp>()
             val candidate = assertNotNull(
-                candidates.open(fixture.request(), deadline) { stamp ->
+                candidates.open(fixture.request(), deadline) { executable, stamp ->
                     promoted += stamp
                     FakeRuntime(identity, stamp, fixture.executable.toString(), observation(fixture))
                 },
@@ -198,10 +201,10 @@ class DshCompatibilityTest {
             val deadline = deadline()
             val policy = assertNotNull(DshJvmCompatibility.requirements(HostPlatform.MacOs))
 
-            assertRejectedPromotion(fixture, policy, deadline, FakeVersionProbe("9.9.9")) { stamp ->
+            assertRejectedPromotion(fixture, policy, deadline, FakeVersionProbe("9.9.9")) { executable, stamp ->
                 FakeRuntime(identity, stamp, fixture.executable.toString(), observation(fixture))
             }
-            assertRejectedPromotion(fixture, policy, deadline, FakeVersionProbe()) { stamp ->
+            assertRejectedPromotion(fixture, policy, deadline, FakeVersionProbe()) { executable, stamp ->
                 FakeRuntime(
                     identity,
                     stamp,
@@ -209,7 +212,7 @@ class DshCompatibilityTest {
                     observation(fixture).copy(protocol = EngineProtocolIdentity.Negotiated("acp", 2)),
                 )
             }
-            assertRejectedPromotion(fixture, policy, deadline, FakeVersionProbe()) { stamp ->
+            assertRejectedPromotion(fixture, policy, deadline, FakeVersionProbe()) { executable, stamp ->
                 FakeRuntime(
                     identity,
                     stamp,
@@ -220,7 +223,7 @@ class DshCompatibilityTest {
 
             var changed: FakeRuntime? = null
             val candidate = assertNotNull(
-                candidates.open(fixture.request(), deadline) { stamp ->
+                candidates.open(fixture.request(), deadline) { executable, stamp ->
                     FakeRuntime(identity, stamp, fixture.executable.toString(), observation(fixture)).also {
                         changed = it
                     }
@@ -239,12 +242,14 @@ class DshCompatibilityTest {
         policy: EngineCompatibilityRequirements,
         deadline: TimeMark,
         versions: DshRuntimeVersionProbe,
-        runtime: (EngineCompatibilityStamp) -> FakeRuntime,
+        runtime: (String?, EngineCompatibilityStamp) -> FakeRuntime,
     ) {
         val target = fixture.candidates(FakeBaselineProbe(), versions = versions)
         var created: FakeRuntime? = null
         val candidate = assertNotNull(
-            target.open(fixture.request(), deadline) { stamp -> runtime(stamp).also { created = it } },
+            target.open(fixture.request(), deadline) { executable, stamp ->
+                runtime(executable, stamp).also { created = it }
+            },
         )
         try {
             val stamp = assertNotNull(assessEngineCompatibility(policy, candidate.evidence).stamp)

@@ -63,7 +63,7 @@ internal class JvmClaudeCandidates internal constructor(
     override suspend fun open(
         request: EngineRuntimeCandidateRequest,
         deadline: TimeMark,
-        promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+        promote: suspend (String?, EngineCompatibilityStamp) -> EngineRuntime,
     ): EngineRuntimeCandidate? {
         currentCoroutineContext().ensureActive()
         val selected = desktopTarget(request)?.let { target -> selection(request, target, deadline) }
@@ -168,16 +168,18 @@ internal class JvmClaudeCandidates internal constructor(
 
 /**
  * One-use owner of the restricted baseline and the exact artifact identity it checked. The probe process was
- * already joined before this candidate was returned, so [close] releases no process of its own. After the ordinary
- * runtime starts, promotion verifies its observed version, selected executable and the still-matching executable
- * digest against the evidence; a mismatch closes that runtime and transfers nothing.
+ * already joined before this candidate was returned, so [close] releases no process of its own. The promotion
+ * callback receives the verified executable so the adapter can compare it with the transport it is about to pin
+ * before that process opens; after the runtime starts, promotion verifies its observed version, selected executable
+ * and the still-matching executable digest against the evidence; a mismatch closes that runtime and transfers
+ * nothing.
  */
 internal class ClaudeRuntimeCandidate(
     override val request: EngineRuntimeCandidateRequest,
     override val evidence: EngineCompatibilityEvidence,
     private val selectedExecutable: String?,
     private val dispatchers: DispatcherProvider,
-    private val promote: suspend (EngineCompatibilityStamp) -> EngineRuntime,
+    private val promote: suspend (String?, EngineCompatibilityStamp) -> EngineRuntime,
 ) : EngineRuntimeCandidate {
     private val consumed = AtomicBoolean(false)
     private val log = Log.tag("ClaudeRuntimeCandidate")
@@ -194,7 +196,7 @@ internal class ClaudeRuntimeCandidate(
             fail(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
         }
         if (assessed != expected) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        val runtime = promote(expected)
+        val runtime = promote(selectedExecutable, expected)
         var isTransferred = false
         try {
             currentCoroutineContext().ensureActive()

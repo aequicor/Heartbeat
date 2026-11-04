@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.assessEngineCompatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -64,6 +65,10 @@ import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 class ClaudeCompatibilityTest {
+
+    /** Promotion must never be reached by these cases; the request exists only to build a candidate. */
+    private suspend fun refusePromotion(executable: String?, stamp: EngineCompatibilityStamp): EngineRuntime =
+        error("promotion is not expected for $executable at $stamp")
     private val identity = RuntimeIdentity(ClaudeEngine.Id, AuthSourceId("synthetic"), AuthRevision.Unknown)
 
     @Test
@@ -115,7 +120,7 @@ class ClaudeCompatibilityTest {
                 probe,
             )
             val request = EngineRuntimeCandidateRequest(identity, LaunchContext())
-            assertNull(mobile.open(request, TimeSource.Monotonic.markNow() + 10.seconds) { error("unused") })
+            assertNull(mobile.open(request, TimeSource.Monotonic.markNow() + 10.seconds, ::refusePromotion))
             assertEquals(0, probe.calls)
         }
     }
@@ -172,7 +177,7 @@ class ClaudeCompatibilityTest {
             val candidates = candidates(root, probe)
             val deadline = TimeSource.Monotonic.markNow() + 10.seconds
 
-            val verified = assertNotNull(candidates.open(request(executable, digest), deadline) { error("unused") })
+            val verified = assertNotNull(candidates.open(request(executable, digest), deadline, ::refusePromotion))
             try {
                 assertEquals(true, verified.evidence.isProvenanceConfirmed)
                 assertEquals(true, verified.evidence.isBaselineConfirmed)
@@ -186,7 +191,7 @@ class ClaudeCompatibilityTest {
             }
 
             val mismatched = assertNotNull(
-                candidates.open(request(executable, "0".repeat(64)), deadline) { error("unused") },
+                candidates.open(request(executable, "0".repeat(64)), deadline, ::refusePromotion),
             )
             try {
                 assertEquals(false, mismatched.evidence.isProvenanceConfirmed)
@@ -199,9 +204,7 @@ class ClaudeCompatibilityTest {
             }
 
             val unrecorded = assertNotNull(
-                candidates.open(request(executable, digest = null), deadline) {
-                    error("unused")
-                },
+                candidates.open(request(executable, digest = null), deadline, ::refusePromotion),
             )
             try {
                 assertNull(unrecorded.evidence.isProvenanceConfirmed)
@@ -214,9 +217,11 @@ class ClaudeCompatibilityTest {
 
             // The release archive digest, even when it equals the file's digest, is never executable provenance.
             val archiveOnly = assertNotNull(
-                candidates.open(request(executable, digest = null, archiveDigest = digest), deadline) {
-                    error("unused")
-                },
+                candidates.open(
+                    request(executable, digest = null, archiveDigest = digest),
+                    deadline,
+                    ::refusePromotion,
+                ),
             )
             try {
                 assertNull(archiveOnly.evidence.isProvenanceConfirmed)
@@ -242,7 +247,7 @@ class ClaudeCompatibilityTest {
             )
             val promoted = mutableListOf<EngineCompatibilityStamp>()
             val candidate = assertNotNull(
-                candidates.open(request(executable, digest), deadline) { stamp ->
+                candidates.open(request(executable, digest), deadline) { executable, stamp ->
                     promoted += stamp
                     FakeRuntime(identity, stamp, "2.1.285", executable.toString())
                 },
@@ -277,7 +282,7 @@ class ClaudeCompatibilityTest {
             )
             val promoted = mutableListOf<EngineCompatibilityStamp>()
             val candidate = assertNotNull(
-                candidates.open(request(executable, digest), deadline) { stamp ->
+                candidates.open(request(executable, digest), deadline) { executable, stamp ->
                     promoted += stamp
                     FakeRuntime(identity, stamp, "2.1.285", executable.toString())
                 },
@@ -308,7 +313,7 @@ class ClaudeCompatibilityTest {
 
             var changedVersion: FakeRuntime? = null
             val versionCandidate = assertNotNull(
-                candidates.open(request(executable, digest), deadline) { stamp ->
+                candidates.open(request(executable, digest), deadline) { executable, stamp ->
                     FakeRuntime(identity, stamp, "2.1.286", executable.toString()).also { changedVersion = it }
                 },
             )
@@ -324,7 +329,7 @@ class ClaudeCompatibilityTest {
 
             var changedDigest: FakeRuntime? = null
             val digestCandidate = assertNotNull(
-                candidates.open(request(executable, digest), deadline) { stamp ->
+                candidates.open(request(executable, digest), deadline) { executable, stamp ->
                     FakeRuntime(identity, stamp, "2.1.285", executable.toString()).also { changedDigest = it }
                 },
             )
@@ -354,7 +359,8 @@ class ClaudeCompatibilityTest {
                         LaunchContext(LaunchSettings(executable = executable.toString())),
                     ),
                     deadline,
-                ) { error("must not promote") },
+                    ::refusePromotion,
+                ),
             )
             assertUnknownWithoutProbe(customCandidate, probe, deadline)
 
@@ -373,7 +379,8 @@ class ClaudeCompatibilityTest {
                         LaunchContext(LaunchSettings(runtime = RuntimePreference.System)),
                     ),
                     deadline,
-                ) { error("must not promote") },
+                    ::refusePromotion,
+                ),
             )
             assertUnknownWithoutProbe(systemCandidate, probe, deadline)
 
@@ -395,7 +402,8 @@ class ClaudeCompatibilityTest {
                         ),
                     ),
                     deadline,
-                ) { error("must not promote") },
+                    ::refusePromotion,
+                ),
             )
             assertUnknownWithoutProbe(hostAppCandidate, probe, deadline)
         }

@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.assessEngineCompatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -58,6 +59,10 @@ import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 class CodexCompatibilityTest {
+
+    /** Promotion must never be reached by these cases; the request exists only to build a candidate. */
+    private suspend fun refusePromotion(executable: String?, stamp: EngineCompatibilityStamp): EngineRuntime =
+        error("promotion is not expected for $executable at $stamp")
     private val identity = RuntimeIdentity(CodexEngine.Id, AuthSourceId("synthetic"), AuthRevision.Unknown)
 
     @Test
@@ -163,7 +168,7 @@ class CodexCompatibilityTest {
             val deadline = TimeSource.Monotonic.markNow() + 10.seconds
 
             val verified = assertNotNull(
-                candidates.open(request(executable, digest, RuntimePreference.Managed), deadline) { error("unused") },
+                candidates.open(request(executable, digest, RuntimePreference.Managed), deadline, ::refusePromotion),
             )
             try {
                 assertEquals(true, verified.evidence.isProvenanceConfirmed)
@@ -178,9 +183,11 @@ class CodexCompatibilityTest {
             }
 
             val mismatched = assertNotNull(
-                candidates.open(request(executable, "0".repeat(64), RuntimePreference.Managed), deadline) {
-                    error("unused")
-                },
+                candidates.open(
+                    request(executable, "0".repeat(64), RuntimePreference.Managed),
+                    deadline,
+                    ::refusePromotion,
+                ),
             )
             try {
                 assertEquals(false, mismatched.evidence.isProvenanceConfirmed)
@@ -193,7 +200,7 @@ class CodexCompatibilityTest {
             }
 
             val unrecorded = assertNotNull(
-                candidates.open(request(executable, null, RuntimePreference.Managed), deadline) { error("unused") },
+                candidates.open(request(executable, null, RuntimePreference.Managed), deadline, ::refusePromotion),
             )
             try {
                 assertNull(unrecorded.evidence.isProvenanceConfirmed)
@@ -231,7 +238,8 @@ class CodexCompatibilityTest {
                         ),
                     ),
                     deadline,
-                ) { error("unused") },
+                    ::refusePromotion,
+                ),
             )
             try {
                 assertNull(archiveOnly.evidence.isProvenanceConfirmed)
@@ -252,7 +260,7 @@ class CodexCompatibilityTest {
             val deadline = TimeSource.Monotonic.markNow() + 10.seconds
             val custom = candidates(root, probe)
             val customCandidate = assertNotNull(
-                custom.open(customRequest(executable), deadline) { error("must not promote") },
+                custom.open(customRequest(executable), deadline, ::refusePromotion),
             )
             assertUnknownWithoutProbe(customCandidate, probe)
             assertPromotionRefused(customCandidate, deadline)
@@ -272,7 +280,8 @@ class CodexCompatibilityTest {
                         LaunchContext(LaunchSettings(runtime = RuntimePreference.System)),
                     ),
                     deadline,
-                ) { error("must not promote") },
+                    ::refusePromotion,
+                ),
             )
             assertUnknownWithoutProbe(systemCandidate, probe)
             assertPromotionRefused(systemCandidate, deadline)
@@ -295,9 +304,7 @@ class CodexCompatibilityTest {
             )
 
             val foreign = assertNotNull(
-                candidates.open(request(executable, digest, RuntimePreference.Managed), deadline) {
-                    error("must not transfer")
-                },
+                candidates.open(request(executable, digest, RuntimePreference.Managed), deadline, ::refusePromotion),
             )
             try {
                 val decision = assessEngineCompatibility(policy, foreign.evidence)
@@ -311,7 +318,7 @@ class CodexCompatibilityTest {
 
             val promoted = mutableListOf<EngineCompatibilityStamp>()
             val candidate = assertNotNull(
-                candidates.open(request(executable, digest, RuntimePreference.Managed), deadline) { stamp ->
+                candidates.open(request(executable, digest, RuntimePreference.Managed), deadline) { executable, stamp ->
                     promoted += stamp
                     FakeRuntime(identity, stamp, "0.170.0", executable.toString())
                 },
@@ -350,7 +357,7 @@ class CodexCompatibilityTest {
 
             var changedVersion: FakeRuntime? = null
             val versionCandidate = assertNotNull(
-                candidates.open(request(executable, digest, RuntimePreference.Managed), deadline) { stamp ->
+                candidates.open(request(executable, digest, RuntimePreference.Managed), deadline) { executable, stamp ->
                     FakeRuntime(identity, stamp, "0.171.0", executable.toString()).also { changedVersion = it }
                 },
             )
@@ -366,7 +373,7 @@ class CodexCompatibilityTest {
 
             var changedDigest: FakeRuntime? = null
             val digestCandidate = assertNotNull(
-                candidates.open(request(executable, digest, RuntimePreference.Managed), deadline) { stamp ->
+                candidates.open(request(executable, digest, RuntimePreference.Managed), deadline) { executable, stamp ->
                     FakeRuntime(identity, stamp, "0.170.0", executable.toString()).also { changedDigest = it }
                 },
             )
