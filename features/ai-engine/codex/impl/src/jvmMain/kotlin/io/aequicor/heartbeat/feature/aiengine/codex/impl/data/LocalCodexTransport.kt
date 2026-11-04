@@ -73,6 +73,7 @@ internal class LocalCodexTransport(
             val environment = capturedCodexEnvironment(resolved)
             object : PreparedCodexLaunch {
                 override val isMcpEnabled = context.settings.isMcpEnabled
+                override val executable: String = resolved.executable
                 private val versionLock = Mutex()
                 private var observedVersion: String? = null
 

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -25,6 +26,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class CodexIntegrationTest {
@@ -59,6 +61,21 @@ class CodexIntegrationTest {
             EngineAvailability.Unavailable(EngineFailure.Access(AccessFailureReason.OperationNotAllowed)),
             registration.factory.value.checkRequirements(),
         )
+    }
+
+    @Test
+    fun `profile publishes the desktop Codex admission policy without starting a process`() = runTest {
+        val profile = app.profileSessions.open(ProfileId("codex-policy"))
+        val registration = (profile.graph as CodexTestAccessors).registeredEngines.all
+            .single { it.descriptor.id == CodexEngine.Id }
+        val policy = assertNotNull(registration.factory.value.runtimeRequirements)
+        assertEquals(CodexEngine.Id, policy.engine)
+        assertEquals("0.160.0", policy.minimumRuntime)
+        assertEquals(setOf(EngineProtocolIdentity.ProbedSchema("codex-app-server", "1")), policy.protocols)
+        assertEquals(setOf(0), policy.configurationSchemas)
+        assertEquals(setOf(0), policy.historySchemas)
+        assertTrue(policy.verified.isEmpty())
+        assertTrue(policy.nativeTargets?.isNotEmpty() == true)
     }
 }
 

@@ -14,27 +14,38 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
+import io.aequicor.heartbeat.feature.aiengine.codex.impl.data.runtime.CodexCandidates
+import io.aequicor.heartbeat.feature.aiengine.codex.impl.data.runtime.CodexCompatibility
+import io.aequicor.heartbeat.feature.aiengine.codex.impl.data.runtime.UnsupportedCodexCandidates
+import io.aequicor.heartbeat.feature.aiengine.codex.impl.data.runtime.UnsupportedCodexCompatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.time.TimeMark
 
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
-internal class CodexFactory(private val environment: CodexRuntimeEnvironment, private val transport: CodexTransport) :
-    CodexEngineFactory {
+internal class CodexFactory(
+    private val environment: CodexRuntimeEnvironment,
+    private val transport: CodexTransport,
+    private val compatibility: CodexCompatibility = UnsupportedCodexCompatibility,
+    private val candidates: CodexCandidates = UnsupportedCodexCandidates,
+) : CodexEngineFactory {
     private val config get() = environment.config
     private val toggles get() = environment.toggles
     private val dispatchers get() = environment.dispatchers
@@ -46,6 +57,16 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
     private val log = Log.tag("CodexFactory")
     private val lock = Mutex()
     private var runtime: CodexRuntime? = null
+
+    /** Researched policy of this connector build; a target without generated facts has no admission. */
+    override val runtimeRequirements: EngineCompatibilityRequirements? get() = compatibility.requirements()
+
+    override suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { stamp ->
+        obtainRuntime(request.identity, stamp)
+    }
 
     override suspend fun checkRequirements(): EngineAvailability = withContext(dispatchers.main) {
         // The probe starts a CLI process, so a disabled integration must never reach it.
@@ -93,43 +114,70 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
 
     private var isSearchToolsChangeLogged = false
 
-    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = withContext(dispatchers.main) {
+    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = obtainRuntime(identity, null)
+
+    /**
+     * Starts the ordinary metadata process for [identity]. Admission passes the assessed [compatibilityStamp]; the
+     * runtime reports it and keeps the handshake version and selected executable the candidate verifies before the
+     * facade accepts the transfer. An unadmitted creation keeps its stamped runtime rather than starting a second
+     * process for the same identity.
+     */
+    private suspend fun obtainRuntime(
+        identity: RuntimeIdentity,
+        compatibilityStamp: EngineCompatibilityStamp?,
+    ): EngineRuntime = withContext(dispatchers.main) {
         lock.withLock {
             gate(identity)
             val isSearchToolsEnabled = toggles.get(SearchEngineTools)
-            // The toggle never closes a live runtime: its value is captured at creation and applies to later ones.
-            runtime?.takeIf { !it.isClosed && it.identity == identity }?.let { live ->
-                if (live.isSearchToolsEnabled != isSearchToolsEnabled && !isSearchToolsChangeLogged) {
-                    isSearchToolsChangeLogged = true
-                    log.i { "Search tools toggle changed; applies after runtime restart" }
-                }
-                return@withLock live
-            }
+            reusableRuntime(identity, compatibilityStamp, isSearchToolsEnabled)?.let { return@withLock it }
             isSearchToolsChangeLogged = false
             runtime?.close()
             runtime = null
-            val launch = transport.prepare()
-            val rpc = CodexRpc(launch.open(), profile.coroutineScope)
-            val startup = profile.onClose(rpc::close)
-            try {
-                // Hosted coding tools also require experimental negotiation, independently of web search.
-                rpc.initialize(experimentalApi = true)
-                // The captured launch learns the version of the process it already holds, never by probing the file.
-                launch.observeVersion(rpc.engineVersion)
-                val owner = CodexRuntime(identity, rpc, environment, isSearchToolsEnabled, launch)
-                owner.checkAccount()
-                runtime = owner
-                log.i { "Codex runtime ready" }
-                owner
-            } catch (e: CancellationException) {
-                rpc.close()
-                throw e
-            } catch (e: EngineException) {
-                rpc.close()
-                throw e
-            } finally {
-                startup.dispose()
-            }
+            startRuntime(identity, compatibilityStamp, isSearchToolsEnabled)
+        }
+    }
+
+    /** A live runtime is reused only when it already proves exactly the requested contract. */
+    private fun reusableRuntime(
+        identity: RuntimeIdentity,
+        compatibilityStamp: EngineCompatibilityStamp?,
+        isSearchToolsEnabled: Boolean,
+    ): CodexRuntime? {
+        // The toggle never closes a live runtime: its value is captured at creation and applies to later ones.
+        val live = runtime?.takeIf {
+            !it.isClosed && it.identity == identity &&
+                (compatibilityStamp == null || it.compatibilityStamp == compatibilityStamp)
+        } ?: return null
+        if (live.isSearchToolsEnabled != isSearchToolsEnabled && !isSearchToolsChangeLogged) {
+            isSearchToolsChangeLogged = true
+            log.i { "Search tools toggle changed; applies after runtime restart" }
+        }
+        return live
+    }
+
+    private suspend fun startRuntime(
+        identity: RuntimeIdentity,
+        compatibilityStamp: EngineCompatibilityStamp?,
+        isSearchToolsEnabled: Boolean,
+    ): CodexRuntime {
+        val launch = transport.prepare()
+        val rpc = CodexRpc(launch.open(), profile.coroutineScope)
+        val startup = profile.onClose(rpc::close)
+        var isStarted = false
+        try {
+            // Hosted coding tools also require experimental negotiation, independently of web search.
+            rpc.initialize(experimentalApi = true)
+            // The captured launch learns the version of the process it already holds, never by probing the file.
+            launch.observeVersion(rpc.engineVersion)
+            val owner = CodexRuntime(identity, rpc, environment, isSearchToolsEnabled, launch, compatibilityStamp)
+            owner.checkAccount()
+            runtime = owner
+            isStarted = true
+            log.i { "Codex runtime ready" }
+            return owner
+        } finally {
+            if (!isStarted) rpc.close()
+            startup.dispose()
         }
     }
 

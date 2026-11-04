@@ -49,10 +49,20 @@ Android/iOS политики не имеют и сохраняют явный Un
 Codex (`3b12b8f03`, `e92ce307b`): версия берётся из `initialize`-handshake уже удерживаемого metadata-процесса того
 же зафиксированного launch, а не пробой `--version`; legacy restricted launch восстановлен для наблюдённой версии
 ≥ 0.160.0, неизвестная/некорректная версия по-прежнему отказывает до старта второго app-server. Кандидат панели и
-мастера проверяется metadata-only, без процесса и без заявления совместимости. Допуска Codex пока нет: нужна
-проверка выбранного исполняемого файла по сохранённому digest (`ManagedInstall.sha256` с `f3311a27e` содержит digest
-проверенного архива, но сам запуск им ещё не сверяется), объявленные ревизии app-server protocol и
-конфигурации/истории, а также кандидат, удерживающий процесс до promotion.
+мастера проверяется metadata-only, без процесса и без заявления совместимости.
+
+2026-11-04: Codex получил тот же путь «политика → baseline → допуск», что и Koog/Pi.
+`CodexJvmCompatibility` объявляет heartbeat/connector из generated `CodexBuildContract`, protocol
+`ProbedSchema("codex-app-server", "1")`, floor app-server `0.160.0` (как в `CodexNativeOff.requireVersion`),
+ревизии конфигурации `0` (типизированные `-c`-переопределения Heartbeat) и истории `0` (`CodexTurnSnapshot` в
+`ai_codex_turns`), native target — точный `codexReleaseTarget()` хоста; `verified` пуст, решение — **Unverified**.
+Кандидат не подменяет источник: Custom/System без pin остаются Unknown, managed-копия сверяется с
+`ManagedInstall.executableSha256`, а не с digest архива. Чистый `CODEX_HOME` запускает app-server: `initialize`
+даёт версию, `config/read` — capabilities; conclusive failure отклоняет baseline, unobserved остаётся
+inconclusive. Promotion отдаёт обычный `CodexRuntime` за точный stamp один раз и после старта metadata-процесса
+сверяет handshake-версию и digest файла; при расхождении рантайм закрывается. Android/iOS политики не имеют и
+сохраняют Unsupported-путь. Этим **не** доказаны: живой ход на реальном app-server, Windows/Linux lifecycle,
+retained resume и полный §9.
 
 Предпосылки допуска по коннекторам (без переноса доказательств между ними):
 
@@ -60,7 +70,7 @@ Codex (`3b12b8f03`, `e92ce307b`): версия берётся из `initialize`-
 |---|---|---|
 | Koog | политика из build facts, offline baseline, promotion (`81374f004`) | живой сетевой ход и loaded-classpath proof; platform privacy на Native/Android |
 | Pi | pinned distribution и SHA-256 архива, RPC-сессии, конфигуратор, сверка Managed-копии с digest в candidate inspection (`4d4ae3942`) | сверка при самом запуске, привязка процесса к проверенному артефакту; ревизии протокола/конфигурации/истории |
-| Codex | наблюдённая версия процесса, protected inventory probe, metadata inspect, digest Managed-копии | сверка файла с digest, ревизии app-server protocol и config/history, кандидат, удерживающий процесс |
+| Codex | политика из build facts, clean-home `initialize`/`config/read` baseline, digest-проверка и promotion | живой ход на реальном app-server; Windows/Linux lifecycle; retained resume и полный §9 |
 | Claude | выбор источника без подмены, CLI-вход, наблюдённая история | стабильный runtime pin/newest-compatible, ревизии протокола и конфигурации, кандидат с собственным процессом |
 | Kimi | pin `2.4.0-hb7`, ACP v1 negotiation, restricted Inspect, `session/delete` | behavioral baseline на допущенном процессе, точный идентификатор владения сессией, очистка при неизвестном исходе |
 | DSH | проверяемая линия `0.2.1-rc.5`, ACP v1, scoped MCP | единая compatibility-политика и stamp сессии; live-проверка нативных сессий |
@@ -90,7 +100,7 @@ Codex (`3b12b8f03`, `e92ce307b`): версия берётся из `initialize`-
 |---|---|---|
 | Koog | `KoogBindings`, `DefaultKoogEngineAdapter`: multi-provider binding/discovery, session/history, cancel, trust, usage, compact, runtime configuration | Provider/model MIME/effort и isolated tool-deny доказать по точному маршруту; diagnostics M18, effective provenance; отсутствие отдельного бинаря не отменяет auth/студийные сценарии |
 | Pi | `PiBindings`, `DesktopPiManager`, `DesktopPiConfigurator`: pinned distribution, checksum, profile/project config, MCP/resources с trust и bounds, RPC sessions | Версия Bundled сравнивается в `piCompatibility`; нет полной связки/решения, newest-compatible вместо latest и session stamp; native MCP и hooks требуют регресса |
-| Codex | `CodexBindings`, `CodexManagement`, `LocalCodexTransport`: app-server, session trees, native gate, CLI login/install, read-only project assists | `EngineManager.compatibility` остаётся Unknown по умолчанию; offline safety probe не заменяет полный compatibility stamp; внешнее изменение файла и retained resume требуют интеграции |
+| Codex | `CodexBindings`, `CodexManagement`, `LocalCodexTransport`: app-server, session trees, native gate, CLI login/install, read-only project assists; admission policy, clean-home baseline, digest-checked promotion | `EngineManager.compatibility` остаётся Unknown (metadata inspect — не допуск); живой регресс, Windows/Linux и retained resume требуют проверки |
 | Claude | `ClaudeBindings`, `JvmClaudeManager`: source selection без fallback, HostApp discovery, login, observed history/trees, tools bridge, project assists | Нет compatibility override/pin; stable manifest не доказывает newest-compatible; полный native planning и resume/history должны быть подтверждены отдельно |
 | Kimi | `KimiRuntimeRelease`, `KimiRuntimeSetup`, `JvmKimiBackend`: manifest/source/hash/native target, pinned/retained runtime, ACP capability negotiation | Точное равенство pin даёт Verified без общей связки; связать negotiation/admission/session stamp и проверить retained history после отката |
 | DeepSeek Harness | `JvmDeepSeekManager`, `DeepSeekRuntime`, `DeepSeekHosted`: bounded version probe, ACP, scoped hosted attachment, one-shot correlation | Общая compatibility пока Unknown; fixed supported line не оформлена единым compatibility decision; сохранение native session stamp, capabilities и External fingerprint |

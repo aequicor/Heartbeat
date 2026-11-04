@@ -41,6 +41,9 @@ internal interface PreparedCodexLaunch {
     /** Profile opt-in captured together with this executable and configuration directory. */
     val isMcpEnabled: Boolean get() = false
 
+    /** Absolute executable this captured launch starts, or null when no external artifact is selected. */
+    val executable: String? get() = null
+
     /** Starts the captured executable with the captured home, arguments and environment. */
     suspend fun open(): CodexWire
 

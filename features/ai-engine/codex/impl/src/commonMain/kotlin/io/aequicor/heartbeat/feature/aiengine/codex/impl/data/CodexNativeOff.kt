@@ -9,6 +9,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+/** Documented app-server floor shared by the restricted launch policy and compatibility admission. */
+internal const val CODEX_APP_SERVER_FLOOR: String = "0.160.0"
+
 /**
  * The only native execution overrides supported by this adapter. An absent restriction preserves the captured
  * launch configuration; it never writes an On value. Both process flags and cold-resume config carry restrictions.
