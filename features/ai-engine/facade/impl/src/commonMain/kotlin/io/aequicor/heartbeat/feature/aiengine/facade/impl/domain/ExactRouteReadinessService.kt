@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -36,7 +37,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * [ExactRouteReadiness] over the profile's cached catalogs and runtime pool. Readiness is derived only from
  * observed state; the single IO is [refresh], which probes the engine installation and never starts a runtime.
  * An owner refresh is serialized, cancellable and commits its result only after the probe and a second check of
- * the exact route, so cancellation or a concurrent removal leaves the previous readiness untouched.
+ * the exact route, so cancellation or a concurrent removal leaves the previous readiness untouched. A refusal
+ * recorded while a probe is in flight is merged at commit and keeps the route unavailable: a concurrent refresh
+ * never erases it. Local state is changed only by atomic updates and published from the latest snapshot, so a
+ * stale availability snapshot cannot overwrite a newer refusal either.
  *
  * Losing the binding, source revision, source or a pooled runtime invalidates the confirmation. The route becomes
  * [RouteAvailability.Unknown] (or a typed [RouteAvailability.Unavailable]) and is never offered as available;
@@ -75,11 +79,12 @@ internal class ExactRouteReadinessService(
     override fun recordFailure(target: EngineTarget, failure: EngineFailure) {
         val reason = failure.readinessReason() ?: return
         val key = target.routeKey()
-        val previous = local.value
-        local.value = previous.copy(
-            refused = previous.refused + (key to reason),
-            attempted = previous.attempted - key,
-        )
+        mutate { current ->
+            current.copy(
+                refused = current.refused + (key to Refusal(reason, current.epoch)),
+                attempted = current.attempted - key,
+            )
+        }
         log.v { "route readiness refused reason=$reason" }
         publish()
     }
@@ -91,11 +96,13 @@ internal class ExactRouteReadinessService(
             !inputs.isResolvable(it)
         }
         if (invalid.isNotEmpty() || lost.isNotEmpty()) {
-            local.value = current.copy(
-                invalidated = current.invalidated + invalid,
-                attempted = current.attempted - invalid - lost,
-                refused = current.refused - invalid - lost,
-            )
+            mutate { state ->
+                state.copy(
+                    invalidated = state.invalidated + invalid,
+                    attempted = state.attempted - invalid - lost,
+                    refused = state.refused - invalid - lost,
+                )
+            }
             log.v { "route readiness invalidated count=${invalid.size} lost=${lost.size}" }
         }
         publish()
@@ -128,7 +135,7 @@ internal class ExactRouteReadinessService(
             if (!inputs.canProbe(key, binding)) return@forEach
             val signature = inputs.signature(key) ?: return@forEach
             if (current.attempted[key] == signature) return@forEach
-            local.value = current.copy(attempted = current.attempted + (key to signature))
+            mutate { state -> state.copy(attempted = state.attempted + (key to signature)) }
             log.v { "route readiness refresh scheduled engine=${key.engine.value}" }
             launchAutoRefresh(key)
         }
@@ -159,6 +166,8 @@ internal class ExactRouteReadinessService(
             publish()
             return@withLock RouteAvailability.Unavailable(reason)
         }
+        // Refusals known when the probe starts are the ones a successful probe may clear.
+        val started = local.value
         try {
             probeEngine(key.engine)
         } catch (e: CancellationException) {
@@ -183,16 +192,30 @@ internal class ExactRouteReadinessService(
             publish()
             return@withLock availability(key, after)
         }
-        val previous = local.value
-        local.value = previous.copy(
-            confirmed = previous.confirmed + (key to Confirmation(source.info.id, source.info.revision)),
-            invalidated = previous.invalidated - key,
-            refused = previous.refused - key,
-            attempted = previous.attempted - key,
-        )
+        commitConfirmation(key, source, started)
         log.i { "route readiness confirmed engine=${key.engine.value}" }
         publish()
         availability(key, after)
+    }
+
+    /** Commits a successful probe without erasing a refusal recorded while that probe was in flight. */
+    private fun commitConfirmation(key: RouteKey, source: AuthSource, started: LocalState) {
+        val confirmation = Confirmation(source.info.id, source.info.revision)
+        mutate { current ->
+            // A refusal recorded while the probe ran is newer than the probe: keep it instead of publishing Available.
+            val refusal = current.refused[key]
+            val keptRefusals = if (refusal != null && refusal == started.refused[key]) {
+                current.refused - key
+            } else {
+                current.refused
+            }
+            current.copy(
+                confirmed = current.confirmed + (key to confirmation),
+                invalidated = current.invalidated - key,
+                refused = keptRefusals,
+                attempted = current.attempted - key,
+            )
+        }
     }
 
     /** Structural reasons of the exact route; engine installation readiness is reported separately. */
@@ -229,33 +252,49 @@ internal class ExactRouteReadinessService(
         val binding = inputs.binding(key) ?: return RouteAvailability.Unknown
         val source = inputs.source(binding) ?: return RouteAvailability.Unknown
         val engine = inputs.engine(key.engine) ?: return RouteAvailability.Unknown
-        val confirmed = local.value.confirmed[key]
+        val state = local.value
+        val confirmed = state.confirmed[key]
+        val refusal = state.refused[key]
         return when {
-            local.value.refused[key] != null -> RouteAvailability.Unavailable(
-                checkNotNull(local.value.refused[key]),
-            )
-
+            refusal != null -> RouteAvailability.Unavailable(refusal.reason)
             engine.availability != EngineAvailability.Available -> RouteAvailability.Unknown
-
             confirmed == null -> RouteAvailability.Unknown
-
             !confirmed.matches(source) -> RouteAvailability.Unavailable(RouteUnavailableReason.SourceRevisionChanged)
-
-            key in local.value.invalidated -> RouteAvailability.Unknown
-
+            key in state.invalidated -> RouteAvailability.Unknown
             else -> RouteAvailability.Available
         }
     }
 
+    /**
+     * Publishes readiness derived from the latest local snapshot. Every local change is an atomic update that
+     * advances [LocalState.epoch]; republishing after a racing update prevents an older snapshot from remaining
+     * visible after a newer refusal or confirmation.
+     */
     private fun publish() {
-        val inputs = inputs()
-        val next = inputs.bindings.associate { binding ->
-            val key = RouteKey(binding.engine, binding.id)
-            key to availability(key, inputs)
+        while (true) {
+            val snapshot = local.value
+            val inputs = inputs()
+            val next = inputs.bindings.associate { binding ->
+                val key = RouteKey(binding.engine, binding.id)
+                key to availability(key, inputs)
+            }
+            if (next != published.value) {
+                published.value = next
+            }
+            if (local.value.epoch == snapshot.epoch) {
+                val available = next.values.count { it == RouteAvailability.Available }
+                log.v { "route readiness published available=$available" }
+                return
+            }
         }
-        if (next != published.value) {
-            published.value = next
-            log.v { "route readiness published available=${next.values.count { it == RouteAvailability.Available }}" }
+    }
+
+    /** Atomically applies [transform] to the latest local state and advances its epoch. */
+    private fun mutate(transform: (LocalState) -> LocalState) {
+        local.update { current ->
+            val next = transform(current).copy(epoch = current.epoch + 1)
+            log.v { "route readiness state epoch=${current.epoch}->${next.epoch} refused=${next.refused.size}" }
+            next
         }
     }
 
@@ -265,11 +304,15 @@ internal class ExactRouteReadinessService(
         fun matches(source: AuthSource): Boolean = this.source == source.info.id && revision == source.info.revision
     }
 
+    /** One recorded refusal; [epoch] distinguishes a refusal that survived a refresh from the cleared one. */
+    private data class Refusal(val reason: RouteUnavailableReason, val epoch: Long)
+
     private data class LocalState(
         val confirmed: Map<RouteKey, Confirmation> = emptyMap(),
         val invalidated: Set<RouteKey> = emptySet(),
-        val refused: Map<RouteKey, RouteUnavailableReason> = emptyMap(),
+        val refused: Map<RouteKey, Refusal> = emptyMap(),
         val attempted: Map<RouteKey, Signature> = emptyMap(),
+        val epoch: Long = 0,
     )
 
     private data class Signature(

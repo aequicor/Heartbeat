@@ -37,7 +37,9 @@ import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.piArchive
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.piDispatchers
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.piTemporary
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.probeCommand
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
@@ -288,6 +290,46 @@ class PiCompatibilityTest {
             assertEquals(request.launch.managed, admission.managed)
             assertEquals(executable, probe.lastExecutable)
             assertEquals(1, probe.calls)
+            candidate.close()
+        }
+    }
+
+    @Test
+    fun `cancellation after promotion returns closes the created runtime before the candidate returns`() = runTest {
+        piTemporary { root ->
+            val cache = PiArtifactFixture(piArchive(root))
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
+            val policy = assertNotNull(JvmPiCompatibility(distribution, platform(HostPlatform.MacOs)).requirements())
+            val probe = FakeBaselineProbe()
+            val candidates = JvmPiCandidates(distribution, platform(HostPlatform.MacOs), piDispatchers(), probe)
+            val deadline = TimeSource.Monotonic.markNow() + 10.seconds
+            val request = EngineRuntimeCandidateRequest(
+                identity,
+                LaunchContext(LaunchSettings(runtime = RuntimePreference.Bundled)),
+            )
+            lateinit var promotionJob: Job
+            var created: TestRuntime? = null
+            val candidate = assertNotNull(
+                candidates.open(request, deadline) { admission, stamp ->
+                    TestRuntime(identity, stamp, admission).also {
+                        created = it
+                        // The caller is cancelled after the ordinary process exists but before it is transferred.
+                        promotionJob.cancel()
+                    }
+                },
+            )
+            val stamp = assertNotNull(assessEngineCompatibility(policy, candidate.evidence).stamp)
+            promotionJob = launch { candidate.promote(stamp, deadline) }
+            promotionJob.join()
+
+            assertTrue(promotionJob.isCancelled)
+            assertTrue(assertNotNull(created).isClosed)
+            // A consumed candidate cannot promote again, so the orphan runtime is never handed over later.
+            val repeated = assertFailsWith<EngineException> { candidate.promote(stamp, deadline) }
+            assertEquals(
+                AccessFailureReason.OperationNotAllowed,
+                assertIs<EngineFailure.Access>(repeated.failure).reason,
+            )
             candidate.close()
         }
     }

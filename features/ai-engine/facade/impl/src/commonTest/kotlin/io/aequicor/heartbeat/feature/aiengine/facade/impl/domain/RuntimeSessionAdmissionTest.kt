@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
@@ -11,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import kotlinx.coroutines.CompletableDeferred
@@ -206,6 +208,34 @@ class RuntimeSessionAdmissionTest {
         assertEquals(1, f.factory.candidates)
         first.cancel()
         first.join()
+    }
+
+    @Test
+    fun `a promoted process that reports another identity or stamp is refused and closed`() = runTest {
+        val identityMismatch = Fixture(this)
+        identityMismatch.factory.runtime = { identity ->
+            FakeRuntime(identity.copy(source = AuthSourceId("foreign"))).also { identityMismatch.runtimes += it }
+        }
+        assertEquals(
+            EngineFailure.Transport(TransportFailureReason.ProtocolViolation),
+            assertFailsWith<EngineException> { identityMismatch.acquire() }.failure,
+        )
+        assertTrue(identityMismatch.runtimes.single().isClosed)
+        assertTrue(identityMismatch.pool.entries.value.isEmpty())
+
+        val stampMismatch = Fixture(this)
+        stampMismatch.factory.runtime = { identity ->
+            FakeRuntime(identity).also {
+                it.compatibilityStamp = testRuntimeStamp().copy(runtime = "0.0.0")
+                stampMismatch.runtimes += it
+            }
+        }
+        assertEquals(
+            EngineFailure.Transport(TransportFailureReason.ProtocolViolation),
+            assertFailsWith<EngineException> { stampMismatch.acquire() }.failure,
+        )
+        assertTrue(stampMismatch.runtimes.single().isClosed)
+        assertTrue(stampMismatch.pool.entries.value.isEmpty())
     }
 
     @Test

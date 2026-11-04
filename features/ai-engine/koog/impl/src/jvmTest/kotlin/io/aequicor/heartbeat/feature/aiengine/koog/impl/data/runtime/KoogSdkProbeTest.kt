@@ -28,8 +28,10 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogHistoryFormat
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -333,6 +335,71 @@ class KoogSdkProbeTest {
     }
 
     @Test
+    fun `a promotion that reports another identity or version fails closed`() = runTest {
+        val http = SdkProbeHttpFixture()
+        val factory = JvmKoogCandidates(http, TestKoogPlatform, http.dispatchers)
+        val identity = RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1"))
+        val request = EngineRuntimeCandidateRequest(identity, LaunchContext(), KoogProvider.OpenAI.id)
+        val deadline = TimeSource.Monotonic.markNow() + 10.seconds
+
+        val foreign = TrackedRuntime(identity.copy(source = AuthSourceId("foreign")))
+        val identityCandidate = assertNotNull(factory.open(request, deadline) { stamp -> foreign.at(stamp) })
+        val identityStamp = assertNotNull(
+            assessEngineCompatibility(KoogJvmCompatibility.requirements, identityCandidate.evidence).stamp,
+        )
+        val identityFailure = assertFailsWith<EngineException> {
+            identityCandidate.promote(identityStamp, deadline)
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), identityFailure.failure)
+        assertTrue(foreign.isClosed)
+        identityCandidate.close()
+
+        val otherVersion = TrackedRuntime(identity)
+        val versionCandidate = assertNotNull(
+            factory.open(request, deadline) { stamp ->
+                otherVersion.at(stamp.copy(runtime = "0.0.0"))
+            },
+        )
+        val versionStamp = assertNotNull(
+            assessEngineCompatibility(KoogJvmCompatibility.requirements, versionCandidate.evidence).stamp,
+        )
+        val versionFailure = assertFailsWith<EngineException> { versionCandidate.promote(versionStamp, deadline) }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), versionFailure.failure)
+        assertTrue(otherVersion.isClosed)
+        versionCandidate.close()
+    }
+
+    @Test
+    fun `cancellation after promotion returns closes the created runtime before the candidate returns`() = runTest {
+        val http = SdkProbeHttpFixture()
+        val factory = JvmKoogCandidates(http, TestKoogPlatform, http.dispatchers)
+        val identity = RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1"))
+        val request = EngineRuntimeCandidateRequest(identity, LaunchContext(), KoogProvider.OpenAI.id)
+        val deadline = TimeSource.Monotonic.markNow() + 10.seconds
+        lateinit var promotionJob: Job
+        var created: TrackedRuntime? = null
+
+        val candidate = assertNotNull(
+            factory.open(request, deadline) { stamp ->
+                TrackedRuntime(identity).at(stamp).also {
+                    created = it
+                    // The caller is cancelled after the ordinary runtime exists but before it is transferred.
+                    promotionJob.cancel()
+                }
+            },
+        )
+        val stamp = assertNotNull(
+            assessEngineCompatibility(KoogJvmCompatibility.requirements, candidate.evidence).stamp,
+        )
+        promotionJob = launch { candidate.promote(stamp, deadline) }
+        promotionJob.join()
+
+        assertTrue(promotionJob.isCancelled)
+        assertTrue(assertNotNull(created).isClosed)
+        candidate.close()
+    }
+
+    @Test
     fun `inconclusive and rejected baselines transfer no runtime`() = runTest {
         val request = EngineRuntimeCandidateRequest(
             RuntimeIdentity(KoogEngineId, AuthSourceId("synthetic"), AuthRevision.Known("1")),
@@ -382,6 +449,23 @@ class KoogSdkProbeTest {
         TestKoogPlatform.host.name,
         "dependencies",
     )
+
+    private class TrackedRuntime(override val identity: RuntimeIdentity) : EngineRuntime {
+        override var compatibilityStamp: EngineCompatibilityStamp? = null
+            private set
+        override var isClosed = false
+            private set
+        override val features = object : EngineFeatures {
+            override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
+                FeatureAccess.Unsupported
+        }
+
+        fun at(stamp: EngineCompatibilityStamp): TrackedRuntime = also { it.compatibilityStamp = stamp }
+
+        override suspend fun close() {
+            isClosed = true
+        }
+    }
 
     private fun stubRuntime(identity: RuntimeIdentity, stamp: EngineCompatibilityStamp): EngineRuntime =
         object : EngineRuntime {

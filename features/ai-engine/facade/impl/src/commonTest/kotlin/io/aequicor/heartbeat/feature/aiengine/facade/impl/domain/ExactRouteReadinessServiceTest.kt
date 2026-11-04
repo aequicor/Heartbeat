@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteUnavailableReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.routeKey
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -118,6 +119,40 @@ class ExactRouteReadinessServiceTest {
         )
 
         assertEquals(RouteAvailability.Available, fixture.service.refresh(target))
+    }
+
+    @Test
+    fun `a refusal recorded while a probe is in flight survives its confirmation`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        var isBlocked = false
+        val fixture = fixture(EngineAvailability.Available) {
+            if (isBlocked) gate.await()
+        }
+        assertEquals(RouteAvailability.Available, fixture.service.refresh(target))
+        isBlocked = true
+
+        val refresh = async { fixture.service.refresh(target) }
+        runCurrent()
+        fixture.service.recordFailure(target, EngineFailure.Engine(EngineFailureReason.Incompatible))
+        assertEquals(
+            RouteAvailability.Unavailable(RouteUnavailableReason.AdmissionRefused),
+            fixture.service.availability(target),
+        )
+        gate.complete(Unit)
+
+        assertEquals(
+            RouteAvailability.Unavailable(RouteUnavailableReason.AdmissionRefused),
+            refresh.await(),
+        )
+        assertEquals(
+            RouteAvailability.Unavailable(RouteUnavailableReason.AdmissionRefused),
+            fixture.service.availability(target),
+        )
+        assertEquals(
+            RouteAvailability.Unavailable(RouteUnavailableReason.AdmissionRefused),
+            fixture.service.routes.value[target.routeKey()],
+        )
+        assertEquals(2, fixture.probes)
     }
 
     @Test

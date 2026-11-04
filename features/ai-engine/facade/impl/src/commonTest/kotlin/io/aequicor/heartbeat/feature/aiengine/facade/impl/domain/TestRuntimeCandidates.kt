@@ -45,15 +45,53 @@ internal class TestRuntimeCandidate(
         factory.prepareRuntime()
         // Simulate the legacy factory's accepted native acquisition, including cancellation-orphan tests.
         val runtime = withContext(NonCancellable) { factory.createRuntime(request.identity) }
-        val admitted = if (runtime is FakeRuntime) {
-            runtime.compatibilityStamp = expected
+        // The ordinary process reports what it was built to start, not the promotion argument: a fake that
+        // already reports its own identity/stamp is handed over unchanged, so a candidate/process mismatch stays
+        // visible to the facade instead of being overwritten here.
+        val admitted = if (runtime.compatibilityStamp != null) {
             runtime
         } else {
-            object : EngineRuntime by runtime {
-                override val compatibilityStamp = expected
-            }
+            runtime.reporting(assessedStamp() ?: expected)
         }
         return EngineRuntimePromotion(admitted, expected)
+    }
+
+    /** The record the facade assessed from this evidence, or null while an identity dimension is unknown. */
+    private fun assessedStamp(): EngineCompatibilityStamp? {
+        val facts = evidence.identity
+        val values = listOf(
+            facts.engine,
+            facts.heartbeat,
+            facts.connector,
+            facts.runtime,
+            facts.protocol,
+            facts.configurationSchema,
+            facts.historySchema,
+            facts.nativeTarget,
+            facts.runtimeFingerprint,
+        )
+        if (values.any { it == null }) return null
+        return EngineCompatibilityStamp(
+            engine = requireNotNull(facts.engine),
+            heartbeat = requireNotNull(facts.heartbeat),
+            connector = requireNotNull(facts.connector),
+            runtime = requireNotNull(facts.runtime),
+            protocol = requireNotNull(facts.protocol),
+            configurationSchema = requireNotNull(facts.configurationSchema),
+            historySchema = requireNotNull(facts.historySchema),
+            nativeTarget = requireNotNull(facts.nativeTarget),
+            runtimeFingerprint = requireNotNull(facts.runtimeFingerprint),
+        )
+    }
+
+    private fun EngineRuntime.reporting(stamp: EngineCompatibilityStamp): EngineRuntime {
+        if (this is FakeRuntime) {
+            compatibilityStamp = stamp
+            return this
+        }
+        return object : EngineRuntime by this {
+            override val compatibilityStamp = stamp
+        }
     }
 
     override suspend fun close() {

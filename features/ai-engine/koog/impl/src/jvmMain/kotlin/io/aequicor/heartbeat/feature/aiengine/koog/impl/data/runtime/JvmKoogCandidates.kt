@@ -94,11 +94,21 @@ internal class KoogRuntimeCandidate(
         var isTransferred = false
         try {
             currentCoroutineContext().ensureActive()
+            verifyPromoted(runtime, expected)
             isTransferred = true
             return EngineRuntimePromotion(runtime, expected)
         } finally {
-            // A runtime created by the callback must not be abandoned when cancellation lands before the transfer.
+            // A runtime that does not prove the admitted contract never becomes the facade's runtime.
             if (!isTransferred) withContext(NonCancellable) { closeTransferred(runtime) }
+        }
+    }
+
+    /** The ordinary runtime must report the identity and assessed stamp the facade is about to admit. */
+    private fun verifyPromoted(runtime: EngineRuntime, expected: EngineCompatibilityStamp) {
+        val isSameRuntime = runtime.identity == request.identity && runtime.compatibilityStamp == expected
+        if (!isSameRuntime || runtime.isClosed) {
+            log.w { "Koog promotion no longer matches the assessed runtime" }
+            fail(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
         }
     }
 
