@@ -124,7 +124,7 @@ class LocalCodexTransportTest {
     }
 
     @Test
-    fun `prepared execution processes and version retain original executable home flags and environment`() = runTest {
+    fun `prepared execution retains original executable home flags and environment`() = runTest {
         assumeFalse(System.getProperty("os.name").startsWith("Windows"))
         val first = executable("first", "0.160.0")
         val second = executable("second", "0.161.0")
@@ -165,18 +165,14 @@ class LocalCodexTransportTest {
         val prepared = transport.prepare()
         overrides.clear()
         context = LaunchContext(LaunchSettings(executable = second.absolutePath))
-        assertEquals("0.160.0", prepared.version())
-        val policies = listOf(
-            CodexNativeOff(isShellDisabled = true, isSearchDisabled = true),
-            CodexNativeOff(isShellDisabled = true),
-            CodexNativeOff(),
-        )
+        assertNull(prepared.version())
+        val policies = listOf(CodexNativeOff())
         for (off in policies) {
             assertCapturedProcess(prepared, off, home, args)
         }
         assertEquals(1, lookups)
         assertFalse(prepared.toString().contains(home))
-        assertEquals("0.161.0", transport.prepare().version())
+        assertNull(transport.prepare().version())
         assertEquals(2, lookups)
     }
 
@@ -318,7 +314,7 @@ class LocalCodexTransportTest {
     }
 
     @Test
-    fun `desktop prerelease restrictions reuse one version probe of the captured executable`() = runTest {
+    fun `unknown version never executes selected file even for restricted launch`() = runTest {
         assumeFalse(System.getProperty("os.name").startsWith("Windows"))
         val dispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
@@ -343,9 +339,10 @@ class LocalCodexTransportTest {
             dispatchers,
             FakeScope(backgroundScope),
         ).prepare()
-        repeat(2) { launch.open(CodexNativeOff(isShellDisabled = true)).close() }
-        assertEquals("0.163.0-alpha.10.2", launch.version())
-        assertEquals(1, probes.readLines().size)
+        assertNull(launch.version())
+        repeat(2) { assertFailsWith<EngineException> { launch.open(CodexNativeOff(isShellDisabled = true)) } }
+        assertEquals("", probes.readText())
+        assertEquals("", arguments.readText())
     }
 
     /** Cancels after IO has created the process but before the awaiting coroutine resumes on main. */

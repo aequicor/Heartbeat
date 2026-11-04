@@ -64,7 +64,7 @@ internal interface PreparedCodexLaunch {
         record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
     ): Boolean = false
 
-    /** Reads the version of that same executable; used for display and diagnostics only. */
+    /** Version only when established without executing an unadmitted file; unknown by default. */
     suspend fun version(): String? = null
 }
 
