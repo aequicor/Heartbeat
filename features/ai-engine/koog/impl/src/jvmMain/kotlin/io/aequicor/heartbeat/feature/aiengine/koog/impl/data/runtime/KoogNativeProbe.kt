@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
@@ -51,6 +52,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
@@ -82,6 +84,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.TimeMark
 
 /** Partial native-session evidence, separate from SDK codecs, actual loaded artifacts and full baseline admission. */
@@ -91,6 +94,7 @@ internal data class KoogNativeReceipt(
     val isCancellationConfirmed: Boolean,
     val isRecoveryConfirmed: Boolean,
     val isToolRoundConfirmed: Boolean,
+    val isModelChangeConfirmed: Boolean,
 )
 
 /** Exercises production session code against synthetic in-memory ports without a user profile or network. */
@@ -235,7 +239,35 @@ private class ProbeEnvironment(dispatchers: DispatcherProvider, provider: KoogPr
             recoveredPage.items == interrupted.items &&
             records.values[ref]?.lastTurn?.outcome == TurnOutcome.Unknown
         recovered.close()
-        return KoogNativeReceipt(isSent && isTranscript, isResumed, isCancelled, isRecovered, exerciseToolRound())
+        return KoogNativeReceipt(
+            isSent && isTranscript,
+            isResumed,
+            isCancelled,
+            isRecovered,
+            exerciseToolRound(),
+            exerciseModelChange(),
+        )
+    }
+
+    private suspend fun exerciseModelChange(): Boolean {
+        toggles.areToolsEnabled = false
+        transport.isToolRound = false
+        val session = runtime.create(CreateSessionRequest(target))
+        val configuration = session.features.require(ChangesSessionConfiguration)
+        val nextModel = ModelId("probe-next-model")
+        val applied = configuration.apply("synthetic-model", SessionConfigurationChange.Model(nextModel))
+        val turn = session.features.require(SendsPrompts).send(request("changed-model"))
+        val state = session.state.first { it is ActiveSessionState.Ready && it.lastTurn?.id == turn }
+        val usedModel = transport.lastModel.get()
+        val ref = session.ref
+        session.close()
+        runtime.close()
+        runtime = newRuntime()
+        val resumed = runtime.attach(ref, ResumeSessionRequest(target.copy(model = nextModel)))
+        val restored = resumed.features.require(ChangesSessionConfiguration).configuration.value.model
+        resumed.close()
+        return applied.model == nextModel && usedModel == nextModel.value && restored == nextModel &&
+            (state as ActiveSessionState.Ready).lastTurn?.outcome == TurnOutcome.Completed
     }
 
     private suspend fun exerciseToolRound(): Boolean {
@@ -417,6 +449,7 @@ private class ProbeTransport(private val expected: KoogProvider) : KoogTransport
     var isWaiting = false
     var isToolRound = false
     val toolRequests = AtomicInteger()
+    val lastModel = AtomicReference<String>()
     val started = CompletableDeferred<Unit>()
     val openExecutors = AtomicInteger()
     override suspend fun open(
@@ -430,8 +463,13 @@ private class ProbeTransport(private val expected: KoogProvider) : KoogTransport
         check(provider == expected && key == expectedKey && origin == expected.origin && basePath == null)
         val isWaiting = this.isWaiting
         openExecutors.incrementAndGet()
-        val executor = ProbeExecutor(isWaiting, started, openExecutors, isToolRound, toolRequests)
-        return KoogClient(executor) { listOf(provider.textModel("probe-model", tools = isToolRound)) }
+        val executor = ProbeExecutor(isWaiting, started, openExecutors, isToolRound, toolRequests, lastModel)
+        return KoogClient(executor) {
+            listOf(
+                provider.textModel("probe-model", tools = isToolRound),
+                provider.textModel("probe-next-model", tools = isToolRound),
+            )
+        }
     }
 }
 
@@ -441,9 +479,11 @@ private class ProbeExecutor(
     private val openExecutors: AtomicInteger,
     private val isToolRound: Boolean,
     private val toolRequests: AtomicInteger,
+    private val lastModel: AtomicReference<String>,
 ) : PromptExecutor() {
     override fun executeStreaming(prompt: Prompt, model: LLModel, tools: List<ToolDescriptor>): Flow<StreamFrame> =
         flow {
+            lastModel.set(model.id)
             if (isToolRound) {
                 check(tools.any { it.name == "web_search" })
                 if (toolRequests.incrementAndGet() == 1) {

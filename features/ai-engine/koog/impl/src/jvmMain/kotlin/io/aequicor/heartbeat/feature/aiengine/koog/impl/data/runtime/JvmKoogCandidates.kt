@@ -66,7 +66,8 @@ internal class PartialKoogCandidate(
     private val hasRejectedNativeChecks = native != null &&
         (
             !native.isCreateAndSendConfirmed || !native.isHistoryAndResumeConfirmed ||
-                !native.isCancellationConfirmed || !native.isRecoveryConfirmed || !native.isToolRoundConfirmed
+                !native.isCancellationConfirmed || !native.isRecoveryConfirmed ||
+                !native.isToolRoundConfirmed || !native.isModelChangeConfirmed
         )
     override val evidence = EngineCompatibilityEvidence(
         identity = EngineCompatibilityIdentity(engine = KoogEngineId),
