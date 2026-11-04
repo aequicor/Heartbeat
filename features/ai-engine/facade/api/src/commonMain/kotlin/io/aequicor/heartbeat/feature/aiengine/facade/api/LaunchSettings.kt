@@ -73,6 +73,9 @@ public enum class RuntimePreference {
 
     /** An installation found on the system (PATH, the native installer, a package manager). */
     System,
+
+    /** The exact runtime distributed with this Heartbeat build, without selecting an updated managed copy. */
+    Bundled,
 }
 
 /** Launch settings an engine accepts. */

@@ -160,13 +160,14 @@ class ShrinkTrainJarTest {
         val output = File(work, outputName)
         val rules = File(work, "keep.pro").apply { writeText("-keep class io.aequicor.heartbeat.buildlogic.sdkfixture.Api { public *; }\n") }
         val stdlib = File(Unit::class.java.protectionDomain.codeSource.location.toURI())
+        val annotations = annotationLibrary(work)
         val jmods = File(System.getProperty("java.home"), "jmods").listFiles().orEmpty().filter { it.extension == "jmod" }
         val lines = trainProguardConfiguration(
             input = input,
             output = output,
             keptInputs = emptyList(),
             scratchDirectory = work,
-            libraryJars = listOf(stdlib),
+            libraryJars = listOf(stdlib, annotations),
             jmods = jmods.sortedBy { it.name },
             rules = listOf(rules),
             keptPackages = emptyList(),
@@ -176,7 +177,19 @@ class ShrinkTrainJarTest {
         val parsed = Configuration()
         ConfigurationParser(arrayOf("@${configuration.absolutePath}"), Properties()).use { it.parse(parsed) }
         ProGuard(parsed).execute()
-        return output
+        return File(work, "normalized-$outputName").also { normalizeJar(output, it) }
+    }
+
+    /** Gradle may supply annotations from its merged API jar; do not add that entire implementation to ProGuard. */
+    private fun annotationLibrary(directory: File): File = File(directory, "annotations.jar").also { jar ->
+        JarOutputStream(jar.outputStream()).use { output ->
+            for (name in listOf("NotNull", "Nullable")) {
+                val path = "org/jetbrains/annotations/$name.class"
+                output.putNextEntry(ZipEntry(path).apply { time = 0 })
+                output.write(checkNotNull(javaClass.classLoader.getResourceAsStream(path)).use { it.readBytes() })
+                output.closeEntry()
+            }
+        }
     }
 
     private fun fixtureJar(directory: File, name: String): File {

@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.BindingCheck
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
@@ -15,6 +17,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.edit
+import io.aequicor.heartbeat.feature.aiengine.facade.api.scopeFor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -102,6 +106,10 @@ class EngineBindingsService(
             log.i { "source revision refreshed engine=${engine.value} source=${source.value}" }
         }
         return mutex.withLock {
+            // The adapter revision probe runs outside this lock; reject a snapshot already changed during it.
+            if (requireSource(source) != authSource) {
+                fail(authFailure(AuthFailureReason.SourceChanged, source))
+            }
             val saved = store.load()
             requireUniqueLogin(engine, authSource, saved)
             val existing = saved.firstOrNull { it.engine == engine && it.authSource == source }
@@ -125,6 +133,37 @@ class EngineBindingsService(
             log.w { "connect rejected: login already bound engine=${engine.value} source=${source.info.id.value}" }
             fail(OperationNotAllowed)
         }
+    }
+
+    override suspend fun edit(edit: ConnectionEdit, onSaved: (AuthSource) -> Unit): Unit = mutex.withLock {
+        val saved = store.load()
+        val binding = saved.firstOrNull { it.id == edit.binding } ?: fail(OperationNotAllowed)
+        if (binding.authSource != edit.expected.info.id) fail(OperationNotAllowed)
+        val registration = gate.requireEnabled(binding.engine)
+        // Bindings do not persist method identities. Two methods with the same provider and source kind are
+        // ambiguous: one may permit forwarding a key where the other fixes its endpoint.
+        val method = registration.descriptor.connectionMethods.singleOrNull { method ->
+            method.provider.id == edit.expected.scope.provider && when (edit.expected) {
+                is AuthSource.ManagedKey -> method is ConnectionMethod.ApiKey
+                is AuthSource.NoAuth -> method is ConnectionMethod.NoAuth
+                is AuthSource.CliLogin, is AuthSource.ExternalKey, is AuthSource.CredentialHelper -> false
+            }
+        } ?: fail(OperationNotAllowed)
+        if (method.id != edit.method) fail(OperationNotAllowed)
+        val scope = method.scopeFor(edit.origin, edit.basePath)
+        val proposed = when (val source = edit.expected) {
+            is AuthSource.ManagedKey -> source.copy(scope = scope)
+
+            is AuthSource.NoAuth -> source.copy(scope = scope)
+
+            is AuthSource.CliLogin, is AuthSource.ExternalKey, is AuthSource.CredentialHelper ->
+                fail(OperationNotAllowed)
+        }
+        saved.filter { it.authSource == binding.authSource }.forEach { related ->
+            val owner = gate.registry.find(related.engine) ?: fail(EngineUnavailable)
+            requireAccepted(owner, proposed, EngineContext(related.engine, related.id))
+        }
+        sources.edit(method, edit.expected, edit.label, edit.origin, edit.key, edit.basePath, onSaved)
     }
 
     override suspend fun setEnabled(binding: EngineBindingId, enabled: Boolean): Unit = mutex.withLock {

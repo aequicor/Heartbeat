@@ -63,6 +63,48 @@ class ConnectionMethodTest {
     }
 
     @Test
+    fun `edit enforces provider source kind and fixed endpoint before storage`() = runTest {
+        val sources = RecordingSources()
+        val managed = Secret("key".toCharArray()).use { sources.addManagedKey("Work", apiKey.scopeFor(), it) }
+        assertFailsWith<IllegalArgumentException> {
+            sources.edit(apiKey, managed, "Work", origin = EndpointOrigin("https://proxy.example.com")) {}
+        }
+        assertFailsWith<IllegalArgumentException> { sources.edit(local, managed, "Work") {} }
+        assertFailsWith<IllegalStateException> { sources.edit(cli, managed, "Work") {} }
+        assertEquals(0, sources.edits)
+
+        sources.edit(apiKey, managed, "Renamed") {}
+        assertEquals(1, sources.edits)
+        assertEquals(apiKey.scopeFor(), sources.editScope)
+    }
+
+    @Test
+    fun `editing a label preserves an existing custom endpoint and path`() = runTest {
+        val sources = RecordingSources()
+        val method = apiKey.copy(isOriginEditable = true, isPathEditable = true)
+        val custom = method.scopeFor(EndpointOrigin("https://proxy.example.com"), "/v1")
+        val managed = Secret("key".toCharArray()).use { sources.addManagedKey("Work", custom, it) }
+
+        sources.edit(method, managed, "Renamed") {}
+
+        assertEquals(custom, sources.editScope)
+    }
+
+    @Test
+    fun `editing no-auth does not accept a key or a managed source`() = runTest {
+        val sources = RecordingSources()
+        val noAuth = sources.register(AuthSourceDraft.NoAuth("Local", local.scopeFor()))
+        val managed = Secret("key".toCharArray()).use { sources.addManagedKey("Local", local.scopeFor(), it) }
+        Secret("key".toCharArray()).use { key ->
+            assertFailsWith<IllegalArgumentException> { sources.edit(local, noAuth, "Local", key = key) {} }
+        }
+        assertFailsWith<IllegalArgumentException> { sources.edit(local, managed, "Local") {} }
+        assertEquals(0, sources.edits)
+        sources.edit(local, noAuth, "Local") {}
+        assertEquals(1, sources.edits)
+    }
+
+    @Test
     fun `descriptor rejects duplicate methods and foreign CLI owners`() {
         assertFailsWith<IllegalArgumentException> { descriptor(listOf(apiKey, apiKey)) }
         assertFailsWith<IllegalArgumentException> { ProviderInfo(ProviderId("x"), "X", "http://keys.example.com") }
@@ -85,6 +127,8 @@ class ConnectionMethodTest {
 
 private class RecordingSources : AuthSources {
     val drafts = mutableListOf<AuthSourceDraft>()
+    var edits = 0
+    var editScope: AuthScope? = null
     override val state: StateFlow<List<AuthSource>> = MutableStateFlow(emptyList())
     private val info = AuthSourceInfo(AuthSourceId("s"), "label", AuthRevision.Unknown)
 
@@ -103,4 +147,16 @@ private class RecordingSources : AuthSources {
     override suspend fun updateRevision(id: AuthSourceId, revision: AuthRevision): AuthSource = error("unused")
 
     override suspend fun forget(id: AuthSourceId): Unit = error("unused")
+
+    override suspend fun editIfUnchanged(
+        expected: AuthSource,
+        label: String,
+        scope: AuthScope,
+        key: Secret?,
+        onSaved: (AuthSource) -> Unit,
+    ) {
+        edits++
+        editScope = scope
+        onSaved(expected)
+    }
 }

@@ -38,6 +38,16 @@ import kotlin.test.assertNotSame
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class KoogRuntimeTest {
     @Test
+    fun `new native session checkpoints declare the current history revision`() = runTest {
+        val f = KoogTestFixture(this)
+        val session = f.session()
+        assertEquals(
+            io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogHistoryFormat.CURRENT_REVISION,
+            f.records.get(session.ref)?.schemaRevision,
+        )
+    }
+
+    @Test
     fun searchToolCallContinuesGenerationAndIsRecorded() = runTest {
         val f = KoogTestFixture(this)
         f.searchResults = listOf(SearchResult("https://example.com", "Example", "Snippet"))

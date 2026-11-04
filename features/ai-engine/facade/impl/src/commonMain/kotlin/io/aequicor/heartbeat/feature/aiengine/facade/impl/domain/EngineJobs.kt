@@ -2,20 +2,26 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginCode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.assessEngineCompatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -24,6 +30,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.PackageOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
@@ -40,8 +48,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Long management operations of the profile, one job per engine, running in the profile scope so they outlive the
  * screen that started them. Progress and the outcome are published in [jobs] until dismissed. Installing checks the
- * staged copy (it must start and report the release's version) before activating it; nothing half-installed ever
- * becomes active. Signing in shows the CLI's prompts and forwards pasted codes; it ends after [loginTimeoutMillis].
+ * staged copy with a restricted, verified compatibility probe before activating it; unknown or incompatible
+ * candidates never replace an installation. Signing in shows the CLI's prompts and forwards pasted codes; it ends
+ * after [loginTimeoutMillis].
  * Package jobs run the engine configurator's package command for the configured packages.
  */
 @Suppress("LongParameterList") // A job spans the engine subsystems; each one is a separate port.
@@ -66,15 +75,36 @@ class EngineJobs(
     val jobs: StateFlow<Map<EngineId, EngineJob>> = published.asStateFlow()
 
     /** Starts [action] for [engine]; Busy while another job of the engine runs. */
-    suspend fun start(engine: EngineId, action: EngineAction) = guard.withLock {
-        if (running[engine]?.isActive == true) {
+    suspend fun start(
+        engine: EngineId,
+        action: EngineAction,
+        loginLaunch: LaunchContext? = null,
+        onStarted: (EngineOwnedJob) -> Unit = {},
+    ) = guard.withLock {
+        require(loginLaunch == null || action is EngineAction.Login)
+        if (running.containsKey(engine)) {
             log.w { "job refused, another one runs engine=${engine.value}" }
             throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
         }
         log.i { "job started engine=${engine.value} action=${action::class.simpleName.orEmpty()}" }
-        published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now())) }
         if (action is EngineAction.Login) codes[engine] = Channel(Channel.CONFLATED)
-        running[engine] = context.scope.launch { run(engine, action) }
+        val start = CompletableDeferred<Unit>()
+        val outcome = CompletableDeferred<JobPhase>()
+        val job = context.scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            run(engine, action, start, outcome, loginLaunch)
+        }
+        running[engine] = job
+        val handle = OwnedJob(this, engine, job, outcome) { owner -> dismissOwned(engine, owner) }
+        published.update { it + (engine to EngineJob(action, JobPhase.Preparing, context.clock.now(), handle)) }
+        var isDelivered = false
+        try {
+            onStarted(handle)
+            isDelivered = true
+        } finally {
+            if (!isDelivered) job.cancel()
+            start.complete(Unit)
+        }
+        Unit
     }
 
     /** Cancels the running job of [engine]; its cleanup still runs. */
@@ -84,6 +114,20 @@ class EngineJobs(
         job.cancel()
     }
 
+    /** Acts only on a handle issued for this engine by this owner, including an older completed job. */
+    suspend fun cancelOwned(engine: EngineId, handle: EngineOwnedJob) {
+        val job = (handle as? OwnedJob)?.takeIf { it.belongsTo(this, engine) }
+            ?: refuse("foreign job handle engine=${engine.value}")
+        job.cancel()
+    }
+
+    /** Dismisses only the captured outcome; an older handle cannot clear the next job. */
+    suspend fun dismissCaptured(engine: EngineId, handle: EngineOwnedJob) {
+        val job = (handle as? OwnedJob)?.takeIf { it.belongsTo(this, engine) }
+            ?: refuse("foreign job handle engine=${engine.value}")
+        job.dismiss()
+    }
+
     /** Clears the outcome of the finished job of [engine]. */
     suspend fun dismiss(engine: EngineId) = guard.withLock {
         if (published.value[engine]?.phase?.isFinished != true) refuse("no finished job engine=${engine.value}")
@@ -91,24 +135,42 @@ class EngineJobs(
         log.i { "job outcome dismissed engine=${engine.value}" }
     }
 
-    /** Passes [code] to the sign-in of [engine] that waits for it. */
-    suspend fun answer(engine: EngineId, code: LoginCode) {
-        val channel =
-            guard.withLock { codes[engine] }?.takeIf { published.value[engine]?.phase is JobPhase.AwaitingCode }
-                ?: refuse("no sign-in waits for a code engine=${engine.value}")
-        log.i { "sign-in code passed engine=${engine.value}" }
-        channel.trySend(code)
+    private suspend fun dismissOwned(engine: EngineId, owner: EngineOwnedJob): Boolean = guard.withLock {
+        val current = published.value[engine]
+        if (current?.handle !== owner || !current.phase.isFinished) return@withLock false
+        published.update { it - engine }
+        log.i { "owned job outcome dismissed engine=${engine.value}" }
+        true
     }
 
-    private suspend fun run(engine: EngineId, action: EngineAction) {
+    /** Passes [code] to the sign-in of [engine] that waits for it. */
+    suspend fun answer(engine: EngineId, code: LoginCode) = guard.withLock {
+        val channel = codes[engine]?.takeIf { published.value[engine]?.phase is JobPhase.AwaitingCode }
+            ?: refuse("no sign-in waits for a code engine=${engine.value}")
+        log.i { "sign-in code passed engine=${engine.value}" }
+        if (channel.trySend(code).isFailure) refuse("sign-in stopped waiting for a code engine=${engine.value}")
+    }
+
+    private suspend fun run(
+        engine: EngineId,
+        action: EngineAction,
+        start: CompletableDeferred<Unit>,
+        completion: CompletableDeferred<JobPhase>,
+        loginLaunch: LaunchContext?,
+    ) {
         // Stays Cancelled unless the job completes; the outcome is published even when the job is cancelled.
         var outcome: JobPhase = JobPhase.Cancelled
         try {
-            outcome = perform(engine, action)
+            start.await()
+            outcome = perform(engine, action, loginLaunch)
         } finally {
             withContext(NonCancellable) {
-                finish(engine, outcome)
-                inspectAfterJob(engine)
+                try {
+                    finish(engine, outcome)
+                    inspectAfterJob(engine)
+                } finally {
+                    completion.complete(outcome)
+                }
             }
         }
     }
@@ -123,11 +185,11 @@ class EngineJobs(
         }
     }
 
-    private suspend fun perform(engine: EngineId, action: EngineAction): JobPhase = try {
+    private suspend fun perform(engine: EngineId, action: EngineAction, loginLaunch: LaunchContext?): JobPhase = try {
         when (action) {
             EngineAction.Install, EngineAction.Update -> install(engine, action)
             EngineAction.Uninstall -> uninstall(engine)
-            is EngineAction.Login -> login(engine, action)
+            is EngineAction.Login -> login(engine, action, loginLaunch)
             EngineAction.Logout -> logout(engine)
             EngineAction.SyncPackages -> packages(engine, PackageOperation.Sync)
             EngineAction.UpdatePackages -> packages(engine, PackageOperation.Update)
@@ -149,7 +211,6 @@ class EngineJobs(
     private suspend fun install(engine: EngineId, action: EngineAction) {
         val manager = manager(engine)
         val plan = manager.resolveRelease(feeds)
-        val settings = launch.context(engine).settings
         if (action == EngineAction.Update && installs.state.value[engine]?.version == plan.version) {
             log.i { "managed copy is already the newest engine=${engine.value} version=${plan.version}" }
             return
@@ -158,18 +219,15 @@ class EngineJobs(
         var isActivated = false
         try {
             phase(engine, JobPhase.Checking)
-            // The copy runs once before activation; a custom executable must not shadow the candidate.
-            val candidate = LaunchContext(settings.copy(executable = null), staged.candidate, isInstallCandidate = true)
-            val installation = withTimeoutOrNull(CHECK_TIMEOUT_MILLIS) {
-                withContext(context.io) { manager.inspect(candidate) }
-            }
-            if (installation?.source != InstallSource.Managed || !isSameVersion(installation.version, plan.version)) {
-                log.w { "staged copy does not report the release engine=${engine.value} expected=${plan.version}" }
+            if (!isSameVersion(staged.candidate.version, plan.version)) {
                 throw ManagementException(ManagementFailure.Install(InstallFailureReason.VersionMismatch))
             }
+            verifyCandidate(engine, manager, staged.candidate)
             phase(engine, JobPhase.Activating)
-            // Idle runtimes release the copy they run (Windows locks it); a busy one keeps it until its turn ends.
-            runtimes.retire(engine)
+            // A busy runtime still owns the old copy; leave that installation untouched until it can retire.
+            if (runtimes.retire(engine).busy > 0) {
+                throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
+            }
             // Commit the file switch and the published state together, even if Cancel arrives meanwhile.
             withContext(NonCancellable) {
                 installs.activate(staged)
@@ -178,6 +236,38 @@ class EngineJobs(
         } finally {
             if (!isActivated) withContext(NonCancellable) { installs.discard(staged) }
         }
+    }
+
+    private suspend fun verifyCandidate(engine: EngineId, manager: EngineManager, candidate: ManagedInstall) {
+        val launch = LaunchContext(managed = candidate, isInstallCandidate = true)
+        val installation = Installation(InstallSource.Managed, candidate.version, candidate.executable)
+        val report = withTimeoutOrNull(CHECK_TIMEOUT_MILLIS) {
+            withContext(context.io) { manager.inspectCompatibility(installation, launch) }
+        }
+        // The report is input, not the authority defining which runtime contracts are accepted.
+        val policy = registry.require(engine).factory.value.runtimeRequirements
+        val decision = if (policy != null && report != null) {
+            assessEngineCompatibility(policy, report.evidence)
+        } else {
+            null
+        }
+        val identity = report?.evidence?.identity
+        val failure = when {
+            policy?.engine != engine || identity?.engine != engine || identity.runtime == null ->
+                EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+
+            !isSameVersion(identity.runtime, candidate.version) ->
+                ManagementException(ManagementFailure.Install(InstallFailureReason.VersionMismatch))
+
+            decision?.status == Compatibility.Incompatible ->
+                EngineException(EngineFailure.Engine(EngineFailureReason.Incompatible))
+
+            decision?.status != Compatibility.Verified ->
+                EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+
+            else -> null
+        }
+        if (failure != null) throw failure
     }
 
     private suspend fun uninstall(engine: EngineId) {
@@ -190,22 +280,28 @@ class EngineJobs(
         withContext(NonCancellable) { installs.uninstall(engine) }
     }
 
-    private suspend fun login(engine: EngineId, action: EngineAction.Login) {
+    private suspend fun login(engine: EngineId, action: EngineAction.Login, loginLaunch: LaunchContext?) {
         val manager = manager(engine)
+        val owner = requireNotNull(published.value[engine]?.handle)
+        val codeChannel = guard.withLock { codes.getValue(engine) }
         val session = object : LoginSession {
             override fun prompt(prompt: LoginPrompt) {
-                phase(engine, prompt.toPhase())
+                published.update { all ->
+                    val current = all[engine]
+                    if (current?.handle === owner && !current.phase.isFinished) {
+                        all + (engine to current.copy(phase = prompt.toPhase()))
+                    } else {
+                        all
+                    }
+                }
             }
 
-            override suspend fun awaitCode(): LoginCode {
-                val channel = guard.withLock { codes.getValue(engine) }
-                return channel.receive()
-            }
+            override suspend fun awaitCode(): LoginCode = codeChannel.receive()
         }
         val signedIn = withTimeoutOrNull(loginTimeoutMillis) {
-            manager.login(launch.context(engine), action.method, session)
+            manager.login(loginLaunch ?: launch.context(engine), action.method, session)
         }
-        guard.withLock { codes.remove(engine) }
+        guard.withLock { codes.remove(engine)?.cancel() }
         if (signedIn == null) {
             log.w { "sign-in timed out engine=${engine.value}" }
             throw ManagementException(ManagementFailure.Login(LoginFailureReason.TimedOut))
@@ -264,10 +360,10 @@ class EngineJobs(
     private suspend fun finish(engine: EngineId, phase: JobPhase) {
         guard.withLock {
             running.remove(engine)
-            codes.remove(engine)
+            codes.remove(engine)?.cancel()
             progress.remove(engine)
+            published.update { all -> all[engine]?.let { all + (engine to it.copy(phase = phase)) } ?: all }
         }
-        published.update { all -> all[engine]?.let { all + (engine to it.copy(phase = phase)) } ?: all }
         log.i { "job finished engine=${engine.value} outcome=${phase::class.simpleName.orEmpty()}" }
     }
 
@@ -282,6 +378,25 @@ class EngineJobs(
         const val PROGRESS_INTERVAL_MILLIS = 250L
         const val PERCENT = 100L
     }
+}
+
+private class OwnedJob(
+    private val owner: EngineJobs,
+    private val engine: EngineId,
+    private val job: Job,
+    private val completion: CompletableDeferred<JobPhase>,
+    private val dismissOwned: suspend (EngineOwnedJob) -> Boolean,
+) : EngineOwnedJob {
+    fun belongsTo(owner: EngineJobs, engine: EngineId): Boolean = this.owner === owner && this.engine == engine
+
+    override suspend fun await(): JobPhase = completion.await()
+
+    override suspend fun cancel(): JobPhase = withContext(NonCancellable) {
+        job.cancel()
+        completion.await()
+    }
+
+    override suspend fun dismiss(): Boolean = dismissOwned(this)
 }
 
 /** What engine management does after a job: re-inspect the engine and refresh signed-in CLI connections. */

@@ -42,6 +42,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEffortOverride
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
@@ -315,12 +316,15 @@ class StudioEngineIntegrationTest {
             val repository = services.studioRepository
             val runtime = services.studioRuntime
             services.agentSecuritySettings.save(SecurityMode.Trust)
-            val settings = runtime.defaults().copy(approval = ApprovalMode.Ask)
+            val initialSettings = runtime.defaults().copy(approval = ApprovalMode.Ask)
             repository.observeModels().first { it.singleOrNull()?.reasoningEfforts == listOf("low", "high") }
             val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
             val efforts = requireNotNull(app.machines.find(EffortConfigurationMachineKey))
             efforts.state.first { it is EffortConfigurationState.Ready }
             app.machines.send(EffortConfigurationMachineKey, EffortConfigurationIntent.Public.Select(target, "high"))
+            val settings = runtime.defaults().copy(approval = ApprovalMode.Ask)
+            assertEquals(null, initialSettings.nativeEffort?.effort)
+            assertEquals("high", settings.nativeEffort?.effort)
             val chat = repository.createSession(null, "Selected defaults")
             assertNull(runtime.state.value.configurations[chat.id])
             val run = startAcceptedRun(runtime, chat.id, "Use the selected defaults", settings)
@@ -352,7 +356,10 @@ class StudioEngineIntegrationTest {
             app.profileSessions.close()
 
             val restored = app.profileSessions.open(ProfileId("studio")).graph as AiEngineTestAccessors
-            assertEquals(settings, restored.studioRuntime.defaults())
+            assertEquals(
+                settings.copy(nativeEffort = StudioEffortOverride(settings.modelId, "high")),
+                restored.studioRuntime.defaults(),
+            )
             assertEquals(SecurityMode.Trust, restored.agentSecuritySettings.load())
             val choices = requireNotNull(app.machines.find(EffortConfigurationMachineKey)).state.value
             assertEquals("high", assertIs<EffortConfigurationState.Ready>(choices).effortFor(target))

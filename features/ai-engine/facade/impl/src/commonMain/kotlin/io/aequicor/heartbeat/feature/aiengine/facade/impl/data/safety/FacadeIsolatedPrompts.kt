@@ -6,6 +6,7 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
@@ -29,40 +30,55 @@ internal class FacadeIsolatedPrompts(
     scope: CoroutineScope,
     slots: ServiceTurnSlots,
     settleGrace: Duration,
+    strictExecution: StrictPromptExecution? = null,
 ) : IsolatedPrompts {
     @Inject
     constructor(
         facade: Lazy<EngineFacade>,
         isolation: AgentSafetyIsolation,
         @ForScope(ProfileScope::class) scope: CoroutineScope,
+        strictExecution: StrictPromptDispatcher,
     ) : this(
         facade,
         isolation,
         scope,
         IsolatedTurnSlots(MAX_PARALLEL_PROMPTS, MAX_QUEUED_PROMPTS, QUEUE_WAIT, "Isolated prompt", LOG_TAG),
         SETTLE_GRACE,
+        strictExecution,
     )
 
     private val log = Log.tag(LOG_TAG)
     private val turns = IsolatedServiceTurns(facade, isolation, slots, scope, settleGrace, log)
 
+    private val strictTurns = StrictIsolatedTurns(
+        scope = scope,
+        slots = slots,
+        execution = strictExecution ?: StrictPromptExecution { _, _ ->
+            IsolatedAnswer.Unavailable(IsolatedPromptFailure.IsolationUnproven)
+        },
+    )
+
     override suspend fun ask(prompt: IsolatedPrompt): IsolatedAnswer = try {
-        val turn = ServiceTurn(
-            prompt.target,
-            RequestId(ISOLATED_REQUEST_PREFIX + Uuid.random()),
-            prompt.text,
-            prompt.timeout,
-            prompt.maxAnswerChars,
-        )
-        when (val outcome = turns.run(turn)) {
-            is ServiceTurnOutcome.Answered -> IsolatedAnswer.Answered(outcome.text.orEmpty())
-            is ServiceTurnOutcome.Refused -> IsolatedAnswer.Unavailable(outcome.reason.toFailure())
-        }.also { log.d { "Isolated prompt finished: ${it.summary()}" } }
+        if (prompt.constraints != null) {
+            strictTurns.run(prompt)
+        } else {
+            val turn = ServiceTurn(
+                prompt.target,
+                RequestId(ISOLATED_REQUEST_PREFIX + Uuid.random()),
+                prompt.text,
+                prompt.timeout,
+                prompt.maxAnswerChars,
+            )
+            when (val outcome = turns.run(turn)) {
+                is ServiceTurnOutcome.Answered -> IsolatedAnswer.Answered(outcome.text.orEmpty())
+                is ServiceTurnOutcome.Refused -> IsolatedAnswer.Unavailable(outcome.reason.toFailure())
+            }.also { log.d { "Isolated prompt finished: ${it.summary()}" } }
+        }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         // Provider messages may echo the prompt: only the type is logged.
-        log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "Isolated prompt failed" }
+        log.w(e.redactedFailure()) { "Isolated prompt failed" }
         IsolatedAnswer.Unavailable(IsolatedPromptFailure.Failed)
     }
 }

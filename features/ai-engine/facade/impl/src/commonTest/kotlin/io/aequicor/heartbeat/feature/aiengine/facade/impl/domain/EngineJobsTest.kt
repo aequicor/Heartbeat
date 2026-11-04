@@ -1,15 +1,23 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocumentId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityEvidence
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityObservation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigSchema
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
@@ -25,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.identity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineConfigurator
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
@@ -40,6 +49,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.PackageOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFiles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -50,15 +60,17 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class EngineJobsTest {
     private val engine = EngineId("cli")
     private val manager = JobManager()
+    private val factory = FakeEngineFactory().apply { runtimeRequirements = jobPolicy() }
     private val registry = EngineRegistry(
         listOf(
-            registration(id = engine, owner = AuthOwnerId("cli")).let {
+            registration(factory = factory, id = engine, owner = AuthOwnerId("cli")).let {
                 EngineRegistration(
                     it.descriptor,
                     it.authOwner,
@@ -74,6 +86,18 @@ class EngineJobsTest {
     private val runtimes = JobRuntimes()
     private val hooks = RecordingHooks()
     private val settings = LaunchSettings(executable = "/custom/cli", homeDirectory = "/home/cli")
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `login job uses its captured launch context`() = runTest {
+        val jobs = jobs()
+        val selected = LaunchContext(LaunchSettings(executable = "/selected/cli"))
+        jobs.start(engine, EngineAction.Login(), loginLaunch = selected)
+        runCurrent()
+        assertEquals(selected, manager.loginLaunch)
+        jobs.cancel(engine)
+        runCurrent()
+    }
 
     @Test
     fun `a sign-out that leaves the account signed in fails without retiring runtimes`() = runTest {
@@ -135,9 +159,10 @@ class EngineJobsTest {
         assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
         assertEquals(listOf("2.0.0"), installs.activated)
         val checked = manager.inspected.single()
-        assertEquals(null, checked.settings.executable)
-        assertEquals("/home/cli", checked.settings.homeDirectory)
+        assertEquals(LaunchSettings(), checked.settings)
+        assertTrue(checked.isInstallCandidate)
         assertEquals("/staged/cli", checked.managed?.executable)
+        assertEquals(Installation(InstallSource.Managed, "2.0.0", "/staged/cli"), manager.candidates.single())
         assertEquals(listOf(engine), runtimes.retired)
         assertEquals(listOf(engine), hooks.changed)
     }
@@ -155,6 +180,118 @@ class EngineJobsTest {
             jobs.jobs.value.getValue(engine).phase,
         )
         assertEquals(emptyList(), installs.activated)
+        assertEquals(1, installs.discarded)
+    }
+
+    @Test
+    fun `a staged candidate that does not match the release is discarded without a probe`() = runTest {
+        installs.candidateVersion = "1.9.0"
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        assertEquals(
+            JobPhase.Failed(ManagementFailure.Install(InstallFailureReason.VersionMismatch)),
+            jobs.jobs.value.getValue(engine).phase,
+        )
+        assertTrue(manager.candidates.isEmpty())
+        assertTrue(installs.activated.isEmpty())
+        assertEquals(1, installs.discarded)
+    }
+
+    @Test
+    fun `unknown or unverified candidates never replace the existing installation`() = runTest {
+        val old = ManagedInstall("1.0.0", "/old/cli", Instant.fromEpochSeconds(1))
+        installs.state.value = mapOf(engine to old)
+        for (status in listOf(Compatibility.Unknown, Compatibility.Unverified)) {
+            manager.compatibility = status
+            val jobs = jobs()
+            jobs.start(engine, EngineAction.Update)
+            runCurrent()
+            assertEquals(
+                JobPhase.Failed(
+                    ManagementFailure.Engine(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown)),
+                ),
+                jobs.jobs.value.getValue(engine).phase,
+            )
+        }
+        assertEquals(emptyList(), installs.activated)
+        assertEquals(2, installs.discarded)
+        assertTrue(runtimes.retired.isEmpty())
+        assertEquals(old, installs.state.value.getValue(engine))
+    }
+
+    @Test
+    fun `a positively incompatible candidate is discarded before retiring the old runtime`() = runTest {
+        manager.compatibility = Compatibility.Incompatible
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        assertEquals(
+            JobPhase.Failed(ManagementFailure.Engine(EngineFailure.Engine(EngineFailureReason.Incompatible))),
+            jobs.jobs.value.getValue(engine).phase,
+        )
+        assertTrue(installs.activated.isEmpty())
+        assertEquals(1, installs.discarded)
+        assertTrue(runtimes.retired.isEmpty())
+    }
+
+    @Test
+    fun `a verified report for another engine cannot authorize activation`() = runTest {
+        manager.reportEngine = EngineId("other")
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        assertEquals(
+            JobPhase.Failed(
+                ManagementFailure.Engine(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown)),
+            ),
+            jobs.jobs.value.getValue(engine).phase,
+        )
+        assertTrue(installs.activated.isEmpty())
+        assertEquals(1, installs.discarded)
+    }
+
+    @Test
+    fun `candidate report cannot grant itself a more permissive policy`() = runTest {
+        factory.runtimeRequirements = jobPolicy().copy(verified = emptySet())
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        assertEquals(
+            JobPhase.Failed(ManagementFailure.Engine(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))),
+            jobs.jobs.value.getValue(engine).phase,
+        )
+        assertTrue(installs.activated.isEmpty())
+        assertEquals(1, installs.discarded)
+        assertTrue(runtimes.retired.isEmpty())
+    }
+
+    @Test
+    fun `candidate report cannot substitute for missing connector policy`() = runTest {
+        factory.runtimeRequirements = null
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        assertEquals(
+            JobPhase.Failed(ManagementFailure.Engine(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))),
+            jobs.jobs.value.getValue(engine).phase,
+        )
+        assertTrue(installs.activated.isEmpty())
+        assertEquals(1, installs.discarded)
+        assertTrue(runtimes.retired.isEmpty())
+    }
+
+    @Test
+    fun `a busy old runtime prevents activation of a verified candidate`() = runTest {
+        runtimes.busy = 1
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Update)
+        runCurrent()
+        assertEquals(
+            JobPhase.Failed(ManagementFailure.Engine(EngineFailure.Session(SessionFailureReason.Busy))),
+            jobs.jobs.value.getValue(engine).phase,
+        )
+        assertTrue(installs.activated.isEmpty())
         assertEquals(1, installs.discarded)
     }
 
@@ -225,6 +362,28 @@ class EngineJobsTest {
     }
 
     @Test
+    fun `late callbacks from an old sign-in cannot alter or consume a later sign-in`() = runTest {
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Login())
+        runCurrent()
+        val oldSession = requireNotNull(manager.loginSession)
+        jobs.answer(engine, LoginCode("first"))
+        runCurrent()
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+
+        jobs.start(engine, EngineAction.Login())
+        runCurrent()
+        assertEquals(JobPhase.AwaitingCode("https://claude.ai/oauth"), jobs.jobs.value.getValue(engine).phase)
+        oldSession.prompt(LoginPrompt.OpenUrl("https://stale.invalid", "OLD"))
+        assertEquals(JobPhase.AwaitingCode("https://claude.ai/oauth"), jobs.jobs.value.getValue(engine).phase)
+        assertFailsWith<kotlinx.coroutines.CancellationException> { oldSession.awaitCode() }
+        jobs.answer(engine, LoginCode("second"))
+        runCurrent()
+        assertEquals(LoginCode("second"), manager.received)
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+    }
+
+    @Test
     fun `a cancelled install discards its staged copy and a second job waits for the first`() = runTest {
         manager.isInspectHanging = true
         val jobs = jobs()
@@ -245,6 +404,97 @@ class EngineJobsTest {
         assertEquals(emptyList(), installs.activated)
         jobs.dismiss(engine)
         assertEquals(emptyMap(), jobs.jobs.value)
+    }
+
+    @Test
+    fun `cancelled job owns its slot until staged cleanup finishes`() = runTest {
+        val cleanup = CompletableDeferred<Unit>()
+        manager.isInspectHanging = true
+        installs.onDiscard = { cleanup.await() }
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        jobs.cancel(engine)
+        runCurrent()
+
+        val busy = assertFailsWith<EngineException> { jobs.start(engine, EngineAction.Uninstall) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), busy.failure)
+        assertEquals(JobPhase.Checking, jobs.jobs.value.getValue(engine).phase)
+
+        cleanup.complete(Unit)
+        runCurrent()
+        assertEquals(JobPhase.Cancelled, jobs.jobs.value.getValue(engine).phase)
+        jobs.start(engine, EngineAction.Uninstall)
+        runCurrent()
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+    }
+
+    @Test
+    fun `cancelling before dispatch still releases the job slot`() = runTest {
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        jobs.cancel(engine)
+        runCurrent()
+        assertEquals(JobPhase.Cancelled, jobs.jobs.value.getValue(engine).phase)
+        jobs.start(engine, EngineAction.Uninstall)
+        runCurrent()
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+    }
+
+    @Test
+    fun `owned cancellation waits for cleanup and cannot cancel a later job`() = runTest {
+        val cleanup = CompletableDeferred<Unit>()
+        manager.isInspectHanging = true
+        installs.onDiscard = { cleanup.await() }
+        val jobs = jobs()
+        lateinit var first: EngineOwnedJob
+        jobs.start(engine, EngineAction.Install) {
+            assertTrue(manager.candidates.isEmpty())
+            first = it
+        }
+        assertTrue(jobs.jobs.value.getValue(engine).handle === first)
+        runCurrent()
+        val cancelling = async { jobs.cancelOwned(engine, first) }
+        runCurrent()
+        assertFalse(cancelling.isCompleted)
+        cleanup.complete(Unit)
+        runCurrent()
+        cancelling.await()
+        assertEquals(JobPhase.Cancelled, first.await())
+
+        manager.isLoginHanging = true
+        lateinit var second: EngineOwnedJob
+        jobs.start(engine, EngineAction.Login()) { second = it }
+        runCurrent()
+        assertTrue(jobs.jobs.value.getValue(engine).handle === second)
+        jobs.cancelOwned(engine, first)
+        jobs.dismissCaptured(engine, first)
+        assertFalse(first.dismiss())
+        assertFalse(second.dismiss())
+        assertFailsWith<EngineException> { jobs.cancelOwned(EngineId("foreign"), second) }
+        assertFailsWith<EngineException> { jobs.dismissCaptured(EngineId("foreign"), second) }
+        val anotherOwner = jobs()
+        assertFailsWith<EngineException> { anotherOwner.cancelOwned(engine, second) }
+        assertFailsWith<EngineException> { anotherOwner.dismissCaptured(engine, second) }
+        assertFalse(jobs.jobs.value.getValue(engine).phase.isFinished)
+        assertEquals(JobPhase.Cancelled, second.cancel())
+        assertTrue(second.dismiss())
+        assertFalse(second.dismiss())
+        assertFalse(engine in jobs.jobs.value)
+    }
+
+    @Test
+    fun `failed handoff cancels the job and releases its slot`() = runTest {
+        val jobs = jobs()
+        assertFailsWith<IllegalStateException> {
+            jobs.start(engine, EngineAction.Install) { error("handoff failed") }
+        }
+        runCurrent()
+        assertEquals(JobPhase.Cancelled, jobs.jobs.value.getValue(engine).phase)
+        assertTrue(manager.candidates.isEmpty())
+        jobs.start(engine, EngineAction.Uninstall)
+        runCurrent()
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
     }
 
     @Test
@@ -323,22 +573,78 @@ class EngineJobsTest {
     )
 }
 
+private fun jobPolicy(): EngineCompatibilityRequirements {
+    val engine = EngineId("cli")
+    val protocol = EngineProtocolIdentity.Negotiated("test", 1)
+    val stamp = EngineCompatibilityStamp(
+        engine, "host", "connector", "2.0.0", protocol, 1, 1, "darwin-arm64", "digest",
+    )
+    return EngineCompatibilityRequirements(
+        engine = engine,
+        heartbeatVersions = setOf("host"),
+        connectorVersions = setOf("connector"),
+        minimumRuntime = "1.0.0",
+        protocols = setOf(protocol),
+        configurationSchemas = setOf(1),
+        historySchemas = setOf(1),
+        nativeTargets = setOf("darwin-arm64"),
+        baselineCapabilities = emptySet(),
+        verified = setOf(stamp),
+    )
+}
+
 private class JobManager : EngineManager {
+    var loginSession: LoginSession? = null
+    var loginLaunch: LaunchContext? = null
     var logoutResult: LoginState = LoginState.SignedOut
     override suspend fun logout(launch: LaunchContext): LoginState = logoutResult
     var reportedVersion = "2.0.0"
+    var reportEngine = EngineId("cli")
+    var compatibility = Compatibility.Verified
     var isInspectHanging = false
     var isLoginHanging = false
     val inspected = mutableListOf<LaunchContext>()
+    val candidates = mutableListOf<Installation>()
     val shown = mutableListOf<LoginPrompt>()
     var method: LoginMethod? = null
     var received: LoginCode? = null
     val wasLoginCancelled = CompletableDeferred<Unit>()
 
-    override suspend fun inspect(launch: LaunchContext): Installation {
+    override suspend fun inspect(launch: LaunchContext): Installation =
+        Installation(InstallSource.Managed, reportedVersion, launch.managed?.executable)
+
+    override suspend fun inspectCompatibility(
+        installation: Installation,
+        launch: LaunchContext,
+    ): EngineCompatibilityObservation? {
+        candidates += installation
         inspected += launch
         if (isInspectHanging) awaitCancellation()
-        return Installation(InstallSource.Managed, reportedVersion, launch.managed?.executable)
+        if (compatibility == Compatibility.Unknown) return null
+        val protocol = EngineProtocolIdentity.Negotiated("test", 1)
+        val stamp = EngineCompatibilityStamp(
+            reportEngine, "host", "connector", reportedVersion, protocol, 1, 1, "darwin-arm64",
+            if (compatibility == Compatibility.Unverified) "unverified-digest" else "digest",
+        )
+        val requirements = EngineCompatibilityRequirements(
+            engine = reportEngine,
+            heartbeatVersions = setOf("host"),
+            connectorVersions = setOf("connector"),
+            minimumRuntime = "1.0.0",
+            protocols = setOf(protocol),
+            configurationSchemas = setOf(1),
+            historySchemas = setOf(1),
+            nativeTargets = setOf("darwin-arm64"),
+            baselineCapabilities = emptySet(),
+            verified = if (compatibility == Compatibility.Verified) setOf(stamp) else emptySet(),
+        )
+        val evidence = EngineCompatibilityEvidence(
+            stamp.identity(),
+            compatibility != Compatibility.Incompatible,
+            true,
+            emptySet(),
+        )
+        return EngineCompatibilityObservation(requirements, evidence)
     }
 
     override suspend fun resolveRelease(feeds: ReleaseFeeds): InstallPlan = InstallPlan(
@@ -352,6 +658,8 @@ private class JobManager : EngineManager {
     )
 
     override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState {
+        loginLaunch = launch
+        loginSession = session
         this.method = method
         try {
             if (isLoginHanging) awaitCancellation()
@@ -376,7 +684,9 @@ private class JobInstalls : ManagedInstallStore {
     var staged = 0
     var discarded = 0
     var uninstalled = 0
+    var candidateVersion: String? = null
     var onActivate: suspend () -> Unit = {}
+    var onDiscard: suspend () -> Unit = {}
     override val state = MutableStateFlow(emptyMap<EngineId, ManagedInstall>())
 
     override suspend fun refresh() = Unit
@@ -393,7 +703,7 @@ private class JobInstalls : ManagedInstallStore {
         progress(InstallStep.Unpacking)
         return StagedInstall(
             engine,
-            ManagedInstall(plan.version, "/staged/cli", Instant.fromEpochSeconds(2)),
+            ManagedInstall(candidateVersion ?: plan.version, "/staged/cli", Instant.fromEpochSeconds(2)),
             "t",
             plan.sha256,
         )
@@ -407,6 +717,7 @@ private class JobInstalls : ManagedInstallStore {
     }
 
     override suspend fun discard(staged: StagedInstall) {
+        onDiscard()
         discarded++
     }
 

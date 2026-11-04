@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
@@ -88,6 +89,51 @@ class KoogConfigurationTest {
             ResumeSessionRequest(fixture.target.copy(model = ModelId("next-model"))),
         )
         assertEquals("on", resumed.features.require(ChangesSessionConfiguration).configuration.value.reasoningEffort)
+    }
+
+    @Test
+    fun `cancelled model transition closes the newly acquired transport`() = runTest {
+        val fixture = KoogTestFixture(this)
+        fixture.availableModels = listOf("test-model", "next-model")
+        var nextClosed = 0
+        val original = CancellationException("synthetic transition cancellation")
+        val closeError = IllegalStateException("synthetic next close failure")
+        fixture.openClient = { model ->
+            KoogClient(
+                fixture.executor,
+                closeOwned = {
+                    if (model == "test-model") throw original
+                    nextClosed++
+                    if (nextClosed == 2) throw closeError
+                },
+            ) { fixture.availableModels.map { KoogProvider.Ollama.textModel(it, tools = true) } }
+        }
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        fixture.beforeSearch = {
+            started.complete(Unit)
+            release.await()
+        }
+        val session = fixture.session()
+        session.features.require(SendsPrompts).send(fixture.request())
+        fixture.executor.frames.trySend(
+            StreamFrame.ToolCallComplete("search", "web_search", """{"query":"topic"}""", 0),
+        )
+        fixture.executor.frames.trySend(StreamFrame.End("tool_calls"))
+        started.await()
+        session.features.require(ChangesSessionConfiguration)
+            .apply("model", SessionConfigurationChange.Model(ModelId("next-model")))
+        assertEquals(1, nextClosed) // Validation client.
+        release.complete(Unit)
+        runCurrent()
+        assertEquals(listOf<String?>("test-model", "next-model", "next-model"), fixture.openedModels)
+        assertEquals(2, nextClosed) // The untransferred next-turn client also closed.
+        assertTrue(
+            original.suppressedExceptions.any { error ->
+                generateSequence(error) { it.cause }.take(8).any { it === closeError }
+            },
+        )
+        assertEquals(TurnOutcome.Unknown, fixture.records.values.values.single().lastTurn?.outcome)
     }
 
     @Test

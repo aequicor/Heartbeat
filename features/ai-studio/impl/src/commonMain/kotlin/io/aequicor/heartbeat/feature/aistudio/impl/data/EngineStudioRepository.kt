@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExactRouteReadiness
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -63,6 +64,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioLastStartedRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
@@ -188,6 +190,7 @@ internal class EngineStudioRepository(
     private val facade: EngineFacade,
     private val selections: ModelSelections,
     private val sources: AuthSources,
+    private val readiness: ExactRouteReadiness,
     @ForScope(ProfileScope::class) stores: DataStores,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val clock: Clock,
@@ -200,6 +203,7 @@ internal class EngineStudioRepository(
     workspaceProjection: StudioWorkspaceProjection,
     private val configurations: StudioConfigurationController,
     preferences: StudioPreferences,
+    lastStarted: StudioLastStartedRun,
     private val conversations: StudioConversationCreation,
     learning: StudioLearningPrompts,
     private val checklists: StudioChecklists,
@@ -212,7 +216,7 @@ internal class EngineStudioRepository(
     private val switchHelpers: StudioEngineSwitchHelpers,
     tools: Lazy<ProfileAgentTools>,
     private val messageQueue: StudioQueuePort = NoStudioQueue,
-) : NativeStudioRepository(preferences, selections, efforts),
+) : NativeStudioRepository(preferences, selections, efforts, lastStarted),
     StudioQueueAccess,
     StudioTurnHost,
     StudioRunHost,
@@ -337,7 +341,7 @@ internal class EngineStudioRepository(
         usage.refresh(modelId)
     }
 
-    private val offeredModels = facade.observeStudioModels(selections, sources)
+    private val offeredModels = facade.observeStudioModels(selections, sources, readiness)
         .stateIn(profile.coroutineScope, SharingStarted.WhileSubscribed(), emptyList())
 
     /** All subscribers share the same sidebar projection and native-resume probes. */
@@ -606,6 +610,7 @@ internal class EngineStudioRepository(
         record(id),
         state.value.configurations[id]?.applied,
         settings,
+        readiness,
     )
 
     override suspend fun move(id: String, change: StudioChatRecord.() -> StudioChatRecord) {
@@ -728,7 +733,13 @@ internal class EngineStudioRepository(
     private suspend fun openCurrent(id: String, target: EngineTarget, chosen: ToolChoices) = conversationLocks.withLock(
         id,
     ) {
-        sessionOpening.open(id, target, chosen)
+        try {
+            sessionOpening.open(id, target, chosen)
+        } catch (e: EngineException) {
+            // The exact route failed admission or launch: stop offering it until an explicit owner refresh.
+            readiness.recordFailure(target, e.failure)
+            throw e
+        }
     }
 
     private suspend fun forgetHandle(id: String, active: ActiveSession) = handlesLock.withLock {

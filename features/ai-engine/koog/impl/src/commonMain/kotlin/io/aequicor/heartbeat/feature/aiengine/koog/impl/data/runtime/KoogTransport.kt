@@ -4,18 +4,29 @@ import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 internal interface KoogTransport {
     /** [origin] and [basePath] differ from the defaults only for editable routes; the caller validated the scope. */
-    fun open(
+    suspend fun open(
         provider: KoogProvider,
         key: String?,
         model: String? = null,
         origin: EndpointOrigin = provider.origin,
         basePath: String? = null,
     ): KoogClient
+
+    /** Strict opt-in; null means isolation or transport budgets are unproven, before any model request. */
+    suspend fun openIsolated(
+        key: String?,
+        origin: EndpointOrigin,
+        basePath: String?,
+        request: IsolatedKoogRequest,
+    ): KoogClient? = null
 }
 
 /**
@@ -26,9 +37,25 @@ internal class KoogClient(
     val executor: PromptExecutor,
     val reasoning: suspend (models: List<String>) -> Map<String, List<String>>? = { null },
     val usage: KoogUsageCapture = KoogUsageCapture(),
+    private val closeOwned: () -> Unit = {},
+    private val awaitClosed: suspend () -> Unit = {},
+    val observedFinishReason: () -> String? = { null },
     val models: suspend () -> List<LLModel>,
 ) : AutoCloseable {
-    override fun close() = executor.close()
+    private val log = Log.tag("KoogClient")
+
+    override fun close() {
+        // These are synchronous close attempts; collect cancellation until both owners have been visited.
+        val executorResult = runCatching { executor.close() }
+        val ownedResult = runCatching { closeOwned() }
+        rethrowKoogCleanupFailures(listOfNotNull(executorResult.exceptionOrNull(), ownedResult.exceptionOrNull()))
+    }
+
+    /** Joins owned HTTP jobs after close; callers must retain capacity during this cleanup. */
+    suspend fun closeAndAwait() {
+        log.v { "Awaiting owned SDK client closure" }
+        withKoogCleanup(cleanup = { withContext(NonCancellable) { awaitClosed() } }) { close() }
+    }
 }
 
 /**
@@ -54,3 +81,7 @@ internal fun KoogProvider.textModel(id: String, tools: Boolean = false, attachme
             }
         },
     )
+
+/** Keeps the owned transport alive through the operation and awaits local HTTP teardown on every exit. */
+internal suspend fun <T> KoogClient.useAndAwait(block: suspend (KoogClient) -> T): T =
+    withKoogCleanup(cleanup = { withContext(NonCancellable) { closeAndAwait() } }) { block(this) }

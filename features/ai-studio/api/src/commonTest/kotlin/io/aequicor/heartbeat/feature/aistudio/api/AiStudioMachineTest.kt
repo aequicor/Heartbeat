@@ -36,11 +36,15 @@ class AiStudioMachineTest {
         AiStudioMachineSpec.assertTransition(
             from = AiStudioState.Loading,
             intent = AiStudioIntent.Internal.Loaded(isEnabled = true, defaults = defaults),
-            to = home,
+            to = home.copy(
+                panes = listOf(StudioPane(0, projectId = "heartbeat", settings = settings)),
+                nextSessionSettings = settings,
+            ),
             effects = listOf(
                 AiStudioEffect.ObserveAvailability,
                 AiStudioEffect.ObserveRuntime,
                 AiStudioEffect.ObserveModels,
+                AiStudioEffect.ObserveDefaults,
                 AiStudioEffect.ObserveProjects,
                 AiStudioEffect.ObservePlanning,
             ),
@@ -203,7 +207,7 @@ class AiStudioMachineTest {
         AiStudioMachineSpec.assertTransition(
             from = session,
             intent = AiStudioIntent.Public.NewSession(projectId = null),
-            to = home.copy(panes = listOf(StudioPane(0))),
+            to = home.copy(panes = listOf(StudioPane(0, settings = settings, pageId = 1)), nextPageId = 2),
         )
         AiStudioMachineSpec.assertTransition(
             from = home,
@@ -225,8 +229,12 @@ class AiStudioMachineTest {
             from = split,
             intent = AiStudioIntent.Public.OpenBeside(null),
             to = split.copy(
-                panes = listOf(StudioPane(0, projectId = "heartbeat"), StudioPane(1, sessionId = "s2")),
+                panes = listOf(
+                    StudioPane(0, projectId = "heartbeat", settings = settings, pageId = 1),
+                    StudioPane(1, sessionId = "s2"),
+                ),
                 focusedPaneId = 0,
+                nextPageId = 2,
             ),
         )
     }
@@ -507,7 +515,13 @@ class AiStudioMachineTest {
         val resolution = AiStudioMachineSpec.assertTransition(
             from = split,
             intent = AiStudioIntent.Public.Edit("s2", SessionEdit.SetArchived(true)),
-            to = split.copy(panes = listOf(StudioPane(0, sessionId = "s1"), StudioPane(1, projectId = "heartbeat"))),
+            to = split.copy(
+                panes = listOf(
+                    StudioPane(0, sessionId = "s1"),
+                    StudioPane(1, projectId = "heartbeat", settings = settings, pageId = 1),
+                ),
+                nextPageId = 2,
+            ),
             effects = listOf(AiStudioEffect.Apply("s2", SessionEdit.SetArchived(true))),
         )
         assertEquals(1, (resolution.to as AiStudioState.Ready).focusedPaneId)

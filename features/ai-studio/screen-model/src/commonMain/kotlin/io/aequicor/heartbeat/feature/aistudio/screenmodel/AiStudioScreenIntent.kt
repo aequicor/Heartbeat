@@ -459,7 +459,13 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Selects an advertised native effort for an exact model route; null restores the engine default. */
     @Serializable
     @SerialName("AiStudioScreenIntent.SelectEngineEffort")
-    data class SelectEngineEffort(val modelId: String, val effort: String?, val paneId: Int? = null) : Composer
+    data class SelectEngineEffort(
+        val modelId: String,
+        val effort: String?,
+        val paneId: Int? = null,
+        val pageId: Long? = null,
+        val expectedSessionId: String? = null,
+    ) : Composer
 
     /** Chooses how the agent treats actions with side effects. */
     @Serializable

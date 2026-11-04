@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.authenticator.impl.data
 
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.jsonKey
@@ -15,8 +16,10 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReaso
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSecretId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.spi.AuthCredentials
+import io.aequicor.heartbeat.feature.aiengine.authenticator.impl.domain.AuthSourceEditJournal
 import io.aequicor.heartbeat.feature.aiengine.authenticator.impl.domain.AuthSourceStore
 import io.aequicor.heartbeat.feature.aiengine.authenticator.impl.domain.ManagedKeyVault
+import io.aequicor.heartbeat.feature.aiengine.authenticator.impl.domain.PendingAuthSourceEdit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
@@ -24,7 +27,29 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /** Profile key-value store of source metadata; labels may contain PII, so values are not logged. */
 internal val AuthSourcesSpec = KeyValueSpec("aiengine_auth_sources")
+internal val AuthSourceEditsSpec = KeyValueSpec("aiengine_auth_edits", readPolicy = KeyValueReadPolicy.Strict)
 private val SourcesKey = jsonKey("sources", ListSerializer(AuthSource.serializer()))
+private val PendingEditKey = jsonKey("pending", PendingAuthSourceEdit.serializer())
+
+/** Source edit recovery must never interpret unreadable journal data as an empty journal. */
+class AuthSourceEditStorage(private val store: KeyValueStore) : AuthSourceEditJournal {
+    private val log = Log.tag("AuthSourceEditStorage")
+
+    override suspend fun load(): PendingAuthSourceEdit? {
+        log.d { "load pending source edit" }
+        return store.get(PendingEditKey)
+    }
+
+    override suspend fun save(edit: PendingAuthSourceEdit) {
+        log.d { "save pending source edit" }
+        store.set(PendingEditKey, edit)
+    }
+
+    override suspend fun clear() {
+        log.d { "clear pending source edit" }
+        store.remove(PendingEditKey)
+    }
+}
 
 /** [AuthSourceStore] in the profile key-value store. */
 class AuthSourceStorage(private val store: KeyValueStore) : AuthSourceStore {

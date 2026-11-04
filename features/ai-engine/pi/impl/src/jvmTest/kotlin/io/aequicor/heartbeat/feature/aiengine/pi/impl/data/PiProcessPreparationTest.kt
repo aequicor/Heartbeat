@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.secretReference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
@@ -39,6 +40,55 @@ import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class PiProcessPreparationTest {
+    @Test
+    fun `inspecting a custom runtime does not execute it to read its version`() = runTest {
+        if (System.getProperty("os.name").startsWith("Windows")) return@runTest
+        withLauncher({ root ->
+            val executable = root.resolve("custom-pi")
+            val marker = root.resolve("executed")
+            Files.writeString(executable, "#!/bin/sh\ntouch '$marker'\necho 0.87.1\n")
+            check(executable.toFile().setExecutable(true, false))
+            LaunchContext(settings = LaunchSettings(executable = executable.toString()))
+        }) { launcher, _, cache, launch ->
+            val installation = DesktopPiManager(launcher, piDispatchers()).inspect(launch)
+
+            assertEquals(InstallSource.Custom, installation.source)
+            assertNull(installation.version)
+            assertFalse(Files.exists(Path.of(checkNotNull(launch.settings.executable)).parent.resolve("executed")))
+            assertEquals(0, cache.calls)
+        }
+    }
+
+    @Test
+    fun `missing explicit runtime never downloads or substitutes the bundled runtime`() = runTest {
+        for (preference in listOf(RuntimePreference.Managed, RuntimePreference.System)) {
+            val context: (Path) -> LaunchContext = { LaunchContext(settings = LaunchSettings(runtime = preference)) }
+            withLauncher(context) { launcher, distribution, cache, _ ->
+                assertFalse(launcher.canPrepare())
+                assertFailsWith<EngineException> { launcher.prepare() }
+                assertEquals(0, cache.calls)
+                assertNull(distribution.executable())
+                assertTrue(launcher.preparation.value is EnginePreparation.Failed)
+            }
+        }
+    }
+
+    @Test
+    fun `preparability follows the inspected launch rather than the saved choice`() = runTest {
+        val managed: (Path) -> LaunchContext = {
+            LaunchContext(settings = LaunchSettings(runtime = RuntimePreference.Managed))
+        }
+        withLauncher(managed) { launcher, _, cache, _ ->
+            val bundled = LaunchContext(settings = LaunchSettings(runtime = RuntimePreference.Bundled))
+            assertFalse(launcher.canPrepare())
+            assertTrue(launcher.canPrepare(bundled))
+            val inspection = DesktopPiManager(launcher, piDispatchers()).inspect(bundled)
+            assertEquals(InstallSource.Bundled, inspection.source)
+            assertTrue(inspection.isRunnable)
+            assertEquals(0, cache.calls)
+        }
+    }
+
     @Test
     fun `first use installs a known baseline instead of an older or equal managed Pi`() = runTest {
         for (version in listOf("0.86.0", "0.87.1")) {
@@ -196,7 +246,7 @@ class PiProcessPreparationTest {
     ) = piTemporary { root ->
         val dispatchers = piDispatchers()
         val cache = PiArtifactFixture(piArchive(root))
-        val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, dispatchers)
+        val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, dispatchers)
         val launch = context(root)
         val client = HttpClient(MockEngine { error("Preparation must not use provider APIs") })
         val oldResources = System.getProperty(RESOURCES_PROPERTY)

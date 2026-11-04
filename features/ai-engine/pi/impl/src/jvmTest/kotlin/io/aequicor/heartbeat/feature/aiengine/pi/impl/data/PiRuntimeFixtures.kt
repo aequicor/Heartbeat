@@ -39,6 +39,7 @@ internal suspend fun runtimeFixture(
     test: TestScope,
     turns: PiTurnRecords = MemoryPiTurnRecords(),
     drains: PiHostedDrains = PiHostedDrains(),
+    admission: PiRuntimeAdmission? = null,
 ): RuntimeFixture {
     val settings = PiSettings(RuntimeStores())
     settings.bind(RuntimeTarget.binding, RuntimeSource)
@@ -52,6 +53,7 @@ internal suspend fun runtimeFixture(
         ),
         piTestEnvironment(test, areEnginesEnabled = true, turns = turns).copy(hostedDrains = drains),
         services,
+        admission = admission,
     )
     return RuntimeFixture(runtime, settings, processes)
 }
@@ -90,6 +92,14 @@ internal class RuntimeProcesses : PiProcesses {
     var transcriptReads = 0
     val connections = mutableListOf<FakeConnection>()
 
+    var admissionResults = ArrayDeque<Boolean>()
+    var admissionChecks = 0
+
+    override suspend fun verifyAdmission(admission: PiRuntimeAdmission): Boolean {
+        admissionChecks++
+        return admissionResults.removeFirstOrNull() ?: true
+    }
+
     override suspend fun credentialFingerprint(source: AuthSource.ManagedKey): String = fingerprint
     override suspend fun transcript(nativeId: String): String? {
         transcriptReads++
@@ -101,6 +111,7 @@ internal class RuntimeProcesses : PiProcesses {
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
         plan: PiLaunchPlan?,
+        admission: PiRuntimeAdmission?,
     ): PiConnection {
         beforeStart()
         return FakeConnection().also {

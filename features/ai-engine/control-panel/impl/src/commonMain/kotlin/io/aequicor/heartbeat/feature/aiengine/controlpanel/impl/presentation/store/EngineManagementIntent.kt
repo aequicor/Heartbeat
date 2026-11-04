@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginCode
 
 /** Management of the panel's engine: requests the machine executes and edits of local input. */
@@ -37,10 +38,10 @@ sealed interface EngineManagementIntent : EngineControlPanelIntent {
     data object DismissEngineAction : EngineInput
 
     /** Cancels the running job. */
-    data object CancelEngineJob : EngineRequest
+    data class CancelEngineJob(val handle: EngineOwnedJob) : EngineRequest
 
     /** Hides the outcome of the last job. */
-    data object DismissEngineJob : EngineRequest
+    data class DismissEngineJob(val handle: EngineOwnedJob) : EngineRequest
 
     /** Replaces the launch settings draft. */
     data class EditLaunch(val draft: LaunchDraftUi) : EngineInput
@@ -103,8 +104,8 @@ internal fun EngineControlPanelState.sent(intent: EngineManagementIntent.EngineR
     is EngineManagementIntent.SetEngineEnabled, is EngineManagementIntent.SetMcpEnabled,
     EngineManagementIntent.InspectEngine,
     EngineManagementIntent.CheckUpdates, EngineManagementIntent.RestartEngine,
-    is EngineManagementIntent.RequestEngineAction, EngineManagementIntent.CancelEngineJob,
-    EngineManagementIntent.DismissEngineJob, EngineManagementIntent.OpenHostApp,
+    is EngineManagementIntent.RequestEngineAction, is EngineManagementIntent.CancelEngineJob,
+    is EngineManagementIntent.DismissEngineJob, EngineManagementIntent.OpenHostApp,
     -> this
 }
 
@@ -122,9 +123,9 @@ internal fun EngineControlPanelState.commandFor(intent: EngineManagementIntent.E
 
         EngineManagementIntent.RestartEngine -> EngineCommand.Restart
 
-        EngineManagementIntent.CancelEngineJob -> EngineCommand.Cancel
+        is EngineManagementIntent.CancelEngineJob -> EngineCommand.CancelOwned(intent.handle)
 
-        EngineManagementIntent.DismissEngineJob -> EngineCommand.Dismiss
+        is EngineManagementIntent.DismissEngineJob -> EngineCommand.DismissOwned(intent.handle)
 
         is EngineManagementIntent.RequestEngineAction -> requestedCommand(intent)
 
@@ -153,20 +154,33 @@ private fun EngineControlPanelState.launchCommand(): EngineCommand? = panel?.lau
 private fun EngineControlPanelState.codeCommand(): EngineCommand? =
     loginCode.trim().takeIf { it.isNotEmpty() }?.let { EngineCommand.AnswerLogin(LoginCode(it)) }
 
+/** Checks the latest panel snapshot before opening a confirmation or dispatching an action. */
+internal fun EngineControlPanelState.canRequest(
+    action: EngineActionUi,
+    method: LoginMethodUi = LoginMethodUi.Browser,
+): Boolean {
+    val current = panel ?: return false
+    if (isSaving || current.job?.isRunning == true) return false
+    val kind = when (action) {
+        EngineActionUi.Install -> EngineActionKindUi.Install
+        EngineActionUi.Update -> EngineActionKindUi.Update
+        EngineActionUi.Uninstall -> EngineActionKindUi.Uninstall
+        EngineActionUi.Login -> EngineActionKindUi.Login
+        EngineActionUi.Logout -> EngineActionKindUi.Logout
+        EngineActionUi.SyncPackages, EngineActionUi.UpdatePackages -> EngineActionKindUi.Packages
+    }
+    if (kind !in current.actions) return false
+    if (action == EngineActionUi.Uninstall && !current.isUninstallAllowed) return false
+    return action != EngineActionUi.Login || method in current.loginMethods
+}
+
 /** Starts a requested action only while its safety preconditions still hold. */
 private fun EngineControlPanelState.requestedCommand(
     intent: EngineManagementIntent.RequestEngineAction,
-): EngineCommand? {
-    val current = panel ?: return null
-    if (intent.action == EngineActionUi.Uninstall && !current.isUninstallAllowed) return null
-    return EngineCommand.Start(intent.action.toAction(intent.method))
-}
+): EngineCommand? = EngineCommand.Start(intent.action.toAction(intent.method))
+    .takeIf { canRequest(intent.action, intent.method) }
 
 /** Starts the previously confirmed action after rechecking it against the latest snapshot. */
-private fun EngineControlPanelState.confirmedCommand(): EngineCommand? = confirmAction?.let { action ->
-    if (action == EngineActionUi.Uninstall && panel?.isUninstallAllowed != true) {
-        null
-    } else {
-        EngineCommand.Start(action.toAction())
-    }
-}
+private fun EngineControlPanelState.confirmedCommand(): EngineCommand? = confirmAction
+    ?.takeIf { canRequest(it) }
+    ?.let { EngineCommand.Start(it.toAction()) }

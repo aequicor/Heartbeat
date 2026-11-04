@@ -5,12 +5,14 @@ import io.aequicor.heartbeat.core.common.WindowFocus
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.RecordRetentions
 import io.aequicor.heartbeat.core.datastore.StorageRoot
+import io.aequicor.heartbeat.core.desktopdialogs.DesktopFileDialogs
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggleControl
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.navigation.NavHostFactory
+import io.aequicor.heartbeat.core.network.OfflineHttpClients
 import io.aequicor.heartbeat.core.network.release.ReleaseSource
 import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
 import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
@@ -69,6 +71,12 @@ public interface FoundationAppBindings {
 
     /** HTTP client of the application. */
     public val httpClient: HttpClient
+
+    /** Socket-free transports for restricted SDK checks; never a fallback to the application client. */
+    public val offlineHttpClients: OfflineHttpClients
+
+    /** Native dialogs are shared so modal requests are serialized across bundles. */
+    public val desktopFileDialogs: DesktopFileDialogs
 
     /** Where and how the secrets are kept (the connection wizard tells it to the user). */
     public val secretStorage: SecretStorageInfo

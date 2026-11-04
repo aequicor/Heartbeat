@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
@@ -135,8 +136,31 @@ class CodexInventoryProbeTest {
         try {
             Files.writeString(executable, "first")
             val before = codexExecutableIdentity(executable.toString())
-            Files.writeString(executable, "replacement")
+            val modified = Files.getLastModifiedTime(executable)
+            Files.writeString(executable, "other")
+            Files.setLastModifiedTime(executable, modified)
+            assertEquals(5, Files.size(executable))
+            assertEquals(modified, Files.getLastModifiedTime(executable))
             assertNotEquals(before, codexExecutableIdentity(executable.toString()))
+        } finally {
+            Files.delete(executable)
+        }
+    }
+
+    @Test
+    fun `cancellation interrupts executable hashing without becoming an inventory failure`() {
+        val executable = Files.createTempFile("codex-cancel-hash", ".bin")
+        try {
+            Files.write(executable, ByteArray(256 * 1024))
+            var checks = 0
+            val cancellation = CancellationException("synthetic cancellation")
+            val actual = assertFailsWith<CancellationException> {
+                codexExecutableIdentity(executable.toString()) {
+                    if (++checks == 3) throw cancellation
+                }
+            }
+            assertTrue(actual === cancellation)
+            assertEquals(3, checks)
         } finally {
             Files.delete(executable)
         }

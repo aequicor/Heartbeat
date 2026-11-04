@@ -19,12 +19,38 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class PiRuntimeDistributionTest {
     @Test
+    fun `archive snapshot remains pinned when the source file changes`() = runTest {
+        piTemporary { root ->
+            val archive = piArchive(root)
+            val release = piRelease(archive)
+            val snapshot = piArchiveSnapshot(archive, release.artifact.download.sha256)
+            Files.writeString(archive, "replacement")
+            val inventory = PiRuntimeArchive().inventory(snapshot, root, isZip = false)
+            assertTrue("pi" in inventory)
+            assertFailsWith<IllegalArgumentException> {
+                piArchiveSnapshot(archive, release.artifact.download.sha256)
+            }
+        }
+    }
+
+    @Test
+    fun `a replaced archive returned by the cache is rejected before installation`() = runTest {
+        piTemporary { root ->
+            val cache = PiArtifactFixture(piArchive(root))
+            Files.writeString(cache.archive, "replacement")
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
+            assertFailsWith<IllegalArgumentException> { distribution.prepare {} }
+            assertNull(distribution.executable())
+        }
+    }
+
+    @Test
     fun `inspection never downloads and first use publishes all runtime assets`() = runTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(
                 piArchive(root, listOf(PiArchiveEntry("pi/pi", "exe"), PiArchiveEntry("pi/helper.wasm", "wasm"))),
             )
-            val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, piDispatchers())
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
             assertNull(distribution.executable())
             assertEquals(0, cache.calls)
             val progress = mutableListOf<EnginePreparation>()
@@ -45,7 +71,7 @@ class PiRuntimeDistributionTest {
     fun `repeated launches verify the installed runtime without publishing preparation progress`() = runTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(piArchive(root))
-            val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, piDispatchers())
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
             val installed = distribution.prepare {}
             val progress = mutableListOf<EnginePreparation>()
 
@@ -63,20 +89,47 @@ class PiRuntimeDistributionTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(piArchive(root))
             val storage = root.resolve("cache")
-            val first = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
-            cache.before = { error("offline cache reuse must not download") }
+            val first = PiRuntimeDistribution(storage, cache.release, cache, piDispatchers()).prepare {}
             val progress = mutableListOf<EnginePreparation>()
-            val offline = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare { progress += it }
+            val offline = PiRuntimeDistribution(storage, cache.release, cache, piDispatchers()).prepare {
+                progress += it
+            }
             assertEquals(first, offline)
-            assertEquals(1, cache.calls)
-            assertEquals(emptyList(), progress)
+            assertEquals(2, cache.calls)
 
             Files.writeString(first, "changed")
             cache.before = {}
-            val repaired = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
+            val repaired = PiRuntimeDistribution(storage, cache.release, cache, piDispatchers()).prepare {}
             assertEquals("executable", Files.readString(repaired))
             assertTrue(first != repaired)
-            assertEquals(2, cache.calls)
+            assertEquals(3, cache.calls)
+        }
+    }
+
+    @Test
+    fun `modified runtime files and matching local inventory are repaired from the pinned archive`() = runTest {
+        piTemporary { root ->
+            val cache = PiArtifactFixture(
+                piArchive(
+                    root,
+                    listOf(PiArchiveEntry("pi/pi", "executable"), PiArchiveEntry("pi/theme/dark.json", "{}")),
+                ),
+            )
+            val storage = root.resolve("cache")
+            val first = PiRuntimeDistribution(storage, cache.release, cache, piDispatchers()).prepare {}
+            val marker = first.resolveSibling(".heartbeat-runtime.json")
+            for (file in listOf(first, first.resolveSibling("theme/dark.json"))) {
+                val originalDigest = piRuntimeDigest(file)
+                Files.writeString(file, "modified")
+                val replacementDigest = piRuntimeDigest(file)
+                Files.writeString(marker, Files.readString(marker).replace(originalDigest, replacementDigest))
+            }
+
+            val repaired = PiRuntimeDistribution(storage, cache.release, cache, piDispatchers()).prepare {}
+
+            assertTrue(first != repaired)
+            assertEquals("executable", Files.readString(repaired))
+            assertEquals("{}", Files.readString(repaired.resolveSibling("theme/dark.json")))
         }
     }
 
@@ -86,7 +139,7 @@ class PiRuntimeDistributionTest {
             val cache = PiArtifactFixture(piArchive(root))
             val gate = CompletableDeferred<Unit>()
             cache.before = { gate.await() }
-            val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, piDispatchers())
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
             val downloading = launch { distribution.prepare {} }
             runCurrent()
             assertEquals(1, cache.calls)
@@ -94,7 +147,7 @@ class PiRuntimeDistributionTest {
             downloading.join()
             assertNull(distribution.executable())
             assertFalse(
-                Files.exists(root.resolve("cache").resolve(piRelease().artifact.download.sha256).resolve("active")),
+                Files.exists(root.resolve("cache").resolve(cache.release.artifact.download.sha256).resolve("active")),
             )
 
             gate.complete(Unit)
@@ -108,7 +161,7 @@ class PiRuntimeDistributionTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(piArchive(root))
             cache.before = { throw IOException("offline") }
-            val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, piDispatchers())
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
             assertFailsWith<IOException> { distribution.prepare {} }
             assertNull(distribution.executable())
             cache.before = {}
@@ -125,7 +178,7 @@ class PiRuntimeDistributionTest {
             val cache = PiArtifactFixture(piArchive(root))
             val gate = CompletableDeferred<Unit>()
             cache.before = { gate.await() }
-            val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, piDispatchers())
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
             val installingProgress = mutableListOf<EnginePreparation>()
             val waitingProgress = mutableListOf<EnginePreparation>()
             val installing = async { distribution.prepare { installingProgress += it } }
@@ -149,12 +202,12 @@ class PiRuntimeDistributionTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(piArchive(root))
             val storage = root.resolve("cache")
-            val first = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
+            val first = PiRuntimeDistribution(storage, cache.release, cache, piDispatchers()).prepare {}
             val outside = Files.writeString(root.resolve("outside"), "outside")
             Files.delete(first)
             piTestSymbolicLink(first, outside)
 
-            val repaired = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
+            val repaired = PiRuntimeDistribution(storage, cache.release, cache, piDispatchers()).prepare {}
 
             assertEquals("executable", Files.readString(repaired))
             assertEquals("outside", Files.readString(outside))
@@ -166,7 +219,7 @@ class PiRuntimeDistributionTest {
     fun `the same process repairs removed or modified runtime files before another launch`() = runTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(piArchive(root))
-            val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, piDispatchers())
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), cache.release, cache, piDispatchers())
             val first = distribution.prepare {}
             Files.writeString(first, "changed")
             val progress = mutableListOf<EnginePreparation>()
@@ -191,12 +244,12 @@ class PiRuntimeDistributionTest {
             val outside = Files.createDirectory(root.resolve("outside"))
             val linkedRoot = piTestDirectoryLink(root.resolve("linked"), outside)
             assertFailsWith<IllegalArgumentException> {
-                PiRuntimeDistribution(linkedRoot, piRelease(), cache, piDispatchers()).prepare {}
+                PiRuntimeDistribution(linkedRoot, cache.release, cache, piDispatchers()).prepare {}
             }
             val storage = Files.createDirectory(root.resolve("cache"))
-            piTestDirectoryLink(storage.resolve(piRelease().artifact.download.sha256), outside)
+            piTestDirectoryLink(storage.resolve(cache.release.artifact.download.sha256), outside)
             assertFailsWith<IllegalArgumentException> {
-                PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
+                PiRuntimeDistribution(storage, cache.release, cache, piDispatchers()).prepare {}
             }
             Files.list(outside).use { assertEquals(0L, it.count()) }
         }
@@ -207,9 +260,9 @@ class PiRuntimeDistributionTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(piArchive(root))
             val storage = root.resolve("cache")
-            PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
-            Files.write(storage.resolve(piRelease().artifact.download.sha256).resolve("active"), byteArrayOf(-1))
-            val restarted = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers())
+            PiRuntimeDistribution(storage, cache.release, cache, piDispatchers()).prepare {}
+            Files.write(storage.resolve(cache.release.artifact.download.sha256).resolve("active"), byteArrayOf(-1))
+            val restarted = PiRuntimeDistribution(storage, cache.release, cache, piDispatchers())
             assertNull(restarted.executable())
             assertEquals("executable", Files.readString(restarted.prepare {}))
             assertEquals(2, cache.calls)

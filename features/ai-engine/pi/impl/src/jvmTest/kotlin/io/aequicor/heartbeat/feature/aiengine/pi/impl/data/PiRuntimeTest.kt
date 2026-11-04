@@ -2,21 +2,26 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -41,6 +46,42 @@ class PiRuntimeTest {
         assertEquals(0, fixture.processes.transcriptReads)
         assertEquals(emptyList(), fixture.processes.connections)
         fixture.runtime.close()
+    }
+
+    @Test
+    fun `an admitted runtime refuses to start when the artifact no longer verifies`() = runTest {
+        val fixture = runtimeFixture(this, admission = admittedArtifact())
+        fixture.processes.admissionResults.addLast(false)
+        val error = assertFailsWith<EngineException> {
+            fixture.runtime.create(CreateSessionRequest(RuntimeTarget))
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), error.failure)
+        assertTrue(fixture.runtime.isClosed)
+        assertEquals(0, fixture.processes.connections.size)
+        assertEquals(1, fixture.processes.admissionChecks)
+    }
+
+    @Test
+    fun `a mismatch after the process starts closes the admitted runtime`() = runTest {
+        val fixture = runtimeFixture(this, admission = admittedArtifact())
+        fixture.processes.admissionResults.addLast(true)
+        fixture.processes.admissionResults.addLast(false)
+        val error = assertFailsWith<EngineException> {
+            fixture.runtime.create(CreateSessionRequest(RuntimeTarget))
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), error.failure)
+        assertTrue(fixture.runtime.isClosed)
+        assertEquals(1, fixture.processes.connections.size)
+        assertEquals(2, fixture.processes.admissionChecks)
+    }
+
+    private fun admittedArtifact(): PiRuntimeAdmission {
+        val executable = Path.of("pi")
+        return PiRuntimeAdmission(
+            pinnedPiStartup(LaunchContext(), executable, InstallSource.Bundled, "0.87.1"),
+            executable,
+            managed = null,
+        )
     }
 
     @Test

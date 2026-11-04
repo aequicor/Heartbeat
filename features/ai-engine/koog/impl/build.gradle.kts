@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.heartbeat.kmp.library)
     alias(libs.plugins.heartbeat.metro)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.heartbeat.embedded.engine.contract)
 }
 kotlin {
     sourceSets {
@@ -25,4 +26,9 @@ kotlin {
             implementation(libs.ktor.client.mock)
         }
     }
+}
+
+embeddedEngineContract {
+    runtimeGroup.set(libs.koog.executor.get().module.group)
+    runtimeVersion.set(libs.versions.koog)
 }

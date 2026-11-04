@@ -25,6 +25,7 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
         }
         commonTest.dependencies { implementation(libs.flowmvi.test) }
+        jvmMain.dependencies { implementation(projects.core.desktopDialogs) }
         jvmTest.dependencies {
             implementation(libs.compose.uiTest)
             implementation(compose.desktop.currentOs)

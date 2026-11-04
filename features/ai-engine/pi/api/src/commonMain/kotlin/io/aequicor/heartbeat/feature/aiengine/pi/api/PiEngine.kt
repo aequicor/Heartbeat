@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionAccessGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -34,8 +35,8 @@ public val PiEngineId: EngineId = EngineId("pi")
 /** Exclusive namespace; a foreign CLI login is never accepted. */
 public val PiAuthOwner: AuthOwnerId = AuthOwnerId("pi")
 
-/** Enabled by default because the desktop distribution contains the engine. */
-public val PiEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.pi", "Встроенный движок Pi", default = true)
+/** Enabled by default because the desktop distribution supplies the external engine. */
+public val PiEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.pi", "Движок Pi", default = true)
 
 /**
  * Static metadata; installation and credentials are checked separately.
@@ -50,7 +51,7 @@ public val PiEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.pi", "Встр
 public val PiDescriptor: EngineDescriptor = EngineDescriptor(
     id = PiEngineId,
     title = "Pi",
-    family = EngineFamily.BuiltIn,
+    family = EngineFamily.MultiProvider,
     platforms = setOf(EnginePlatform.DesktopWindows, EnginePlatform.DesktopMacOs, EnginePlatform.DesktopLinux),
     toggle = PiEnabled,
     declaredFeatures = setOf(
@@ -89,21 +90,25 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
             ConnectionMethodId("zai"),
             ProviderInfo(ProviderId("zai"), "Z.ai Coding Plan"),
             EndpointOrigin("https://api.z.ai"),
+            accessGroup = ConnectionAccessGroup.Subscription,
         ),
         ConnectionMethod.ApiKey(
             ConnectionMethodId("qwen-token-plan"),
             ProviderInfo(ProviderId("qwen-token-plan"), "Qwen Token Plan"),
             EndpointOrigin("https://token-plan.ap-southeast-1.maas.aliyuncs.com"),
+            accessGroup = ConnectionAccessGroup.Subscription,
         ),
         ConnectionMethod.ApiKey(
             ConnectionMethodId("qwen-token-plan-individual"),
             ProviderInfo(ProviderId("qwen-token-plan-individual"), "Qwen Token Plan Individual"),
             EndpointOrigin("https://token-plan.ap-southeast-1.maas.aliyuncs.com"),
+            accessGroup = ConnectionAccessGroup.Subscription,
         ),
         ConnectionMethod.ApiKey(
             ConnectionMethodId("qwen-token-plan-cn"),
             ProviderInfo(ProviderId("qwen-token-plan-cn"), "Qwen Token Plan China"),
             EndpointOrigin("https://token-plan.cn-beijing.maas.aliyuncs.com"),
+            accessGroup = ConnectionAccessGroup.Subscription,
         ),
         CompatibleProtocol.OpenAI.method,
         CompatibleProtocol.Anthropic.method,

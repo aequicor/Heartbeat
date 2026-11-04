@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import java.io.File
 
@@ -54,7 +55,13 @@ internal fun resolveCodexLaunch(
     val (executable, source, isRunnable) = when {
         custom != null -> Triple(custom, InstallSource.Custom, !custom.isScriptWrapper())
 
-        managed != null -> Triple(managed, InstallSource.Managed, true)
+        settings.runtime == RuntimePreference.Managed -> managed?.let { Triple(it, InstallSource.Managed, true) }
+            ?: Triple(DEFAULT_COMMAND, InstallSource.Missing, false)
+
+        settings.runtime !in setOf(RuntimePreference.Auto, RuntimePreference.System) ->
+            Triple(DEFAULT_COMMAND, InstallSource.Missing, false)
+
+        settings.runtime == RuntimePreference.Auto && managed != null -> Triple(managed, InstallSource.Managed, true)
 
         config.executable != DEFAULT_COMMAND ->
             Triple(config.executable, InstallSource.System, !config.executable.isScriptWrapper())

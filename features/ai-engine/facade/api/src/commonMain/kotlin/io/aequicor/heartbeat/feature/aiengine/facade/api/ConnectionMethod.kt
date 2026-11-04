@@ -28,6 +28,21 @@ public data class ProviderInfo(val id: ProviderId, val title: String, val creden
     }
 }
 
+/** User-facing access categories declared by a connector, not inferred from provider names or credentials. */
+public enum class ConnectionAccessGroup {
+    /** A subscription or plan, including CLI sign-in and plan-specific keys. */
+    Subscription,
+
+    /** A provider preset or local endpoint. */
+    Provider,
+
+    /** A user-supplied server using the OpenAI protocol. */
+    OpenAiCompatible,
+
+    /** A user-supplied server using the Anthropic protocol. */
+    AnthropicCompatible,
+}
+
 /**
  * A way to create a credential source for an engine, declared statically in [EngineDescriptor.connectionMethods].
  * Reading a method performs no IO. It only describes what the connection UI may offer: the adapter factory's
@@ -46,6 +61,9 @@ public sealed interface ConnectionMethod {
     /** Whether the user may enter another origin (self-hosted server, proxy); fixed origins prevent key forwarding. */
     public val isOriginEditable: Boolean
 
+    /** Category presented by the connection wizard. */
+    public val accessGroup: ConnectionAccessGroup
+
     /** Whether the user may add an API base path on the origin (`https://host/api/v1`); implies [isOriginEditable]. */
     public val isPathEditable: Boolean get() = false
 
@@ -56,6 +74,7 @@ public sealed interface ConnectionMethod {
         override val origin: EndpointOrigin,
         override val isOriginEditable: Boolean = false,
         override val isPathEditable: Boolean = false,
+        override val accessGroup: ConnectionAccessGroup = ConnectionAccessGroup.Provider,
     ) : ConnectionMethod {
         init {
             require(!isPathEditable || isOriginEditable) { "An editable path requires an editable origin" }
@@ -79,6 +98,7 @@ public sealed interface ConnectionMethod {
         val location: AuthLocationId,
         /** Host application whose runtime the connection uses; null keeps the engine's own choice. */
         val hostApp: HostAppSpec? = null,
+        override val accessGroup: ConnectionAccessGroup = ConnectionAccessGroup.Subscription,
     ) : ConnectionMethod {
         override val isOriginEditable: Boolean get() = false
     }
@@ -89,6 +109,7 @@ public sealed interface ConnectionMethod {
         override val provider: ProviderInfo,
         override val origin: EndpointOrigin,
         override val isOriginEditable: Boolean = true,
+        override val accessGroup: ConnectionAccessGroup = ConnectionAccessGroup.Provider,
     ) : ConnectionMethod
 }
 
@@ -120,4 +141,34 @@ public suspend fun AuthSources.create(
 
         is ConnectionMethod.NoAuth -> register(AuthSourceDraft.NoAuth(label, scope))
     }
+}
+
+/**
+ * Edits an existing source using this method's endpoint policy. The caller must first establish that the method
+ * belongs to the source's engine and that every binding using the source can accept the changed scope. [key] is
+ * optional for an API-key source and retains its existing value when absent. The caller retains ownership of it.
+ * [onSaved] has the same receipt and cancellation contract as [AuthSources.editIfUnchanged].
+ */
+public suspend fun AuthSources.edit(
+    method: ConnectionMethod,
+    expected: AuthSource,
+    label: String,
+    origin: EndpointOrigin = expected.scope.origin,
+    key: Secret? = null,
+    basePath: String? = expected.scope.basePath,
+    onSaved: (AuthSource) -> Unit,
+) {
+    val scope = method.scopeFor(origin, basePath)
+    require(expected.scope.provider == method.provider.id) { "Source belongs to another provider" }
+    when (method) {
+        is ConnectionMethod.ApiKey -> require(expected is AuthSource.ManagedKey) { "Expected a managed key" }
+
+        is ConnectionMethod.NoAuth -> {
+            require(expected is AuthSource.NoAuth) { "Expected a no-auth source" }
+            require(key == null) { "A no-auth source cannot receive a key" }
+        }
+
+        is ConnectionMethod.CliLogin -> error("CLI login sources cannot be edited")
+    }
+    editIfUnchanged(expected, label, scope, key, onSaved)
 }

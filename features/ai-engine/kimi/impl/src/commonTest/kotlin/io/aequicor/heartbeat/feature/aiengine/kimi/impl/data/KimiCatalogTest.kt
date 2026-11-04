@@ -46,4 +46,14 @@ class KimiCatalogTest {
         assertEquals("kimi-code/kimi-for-coding", nativeKimiModel(ModelId("kimi-for-coding")))
         assertEquals("kimi-code/k3", nativeKimiModel(ModelId("kimi-code/k3")))
     }
+
+    @Test
+    fun `missing empty and blank native model options never invent models`() {
+        val empty = kotlinx.serialization.json.JsonObject(emptyMap())
+        val metadata = Json.parseToJsonElement(
+            """{"configOptions":[{"category":"model","options":[{"value":""},{"value":"  "}]}]}""",
+        ).jsonObject
+        assertTrue(kimiNativeCatalog(empty, empty).models.isEmpty())
+        assertTrue(kimiNativeCatalog(metadata, empty).models.isEmpty())
+    }
 }

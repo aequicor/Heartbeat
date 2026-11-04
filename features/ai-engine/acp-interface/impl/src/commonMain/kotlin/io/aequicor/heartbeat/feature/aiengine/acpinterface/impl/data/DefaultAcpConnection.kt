@@ -20,6 +20,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -185,8 +186,9 @@ internal class DefaultAcpConnection(
                     ?: throw AcpException.Protocol()
                 AcpSession(id, obj)
             }
-            val next = result["nextCursor"]?.let { cursorElement ->
-                (cursorElement as? JsonPrimitive)?.contentOrNull ?: throw AcpException.Protocol()
+            val next = result["nextCursor"]?.takeUnless { it is JsonNull }?.let { cursorElement ->
+                (cursorElement as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                    ?: throw AcpException.Protocol()
             }
             AcpSessionList(listed, next)
         }
@@ -199,6 +201,20 @@ internal class DefaultAcpConnection(
                 lock.withLock { check(sessionId !in busySessions) { "Session is busy" } }
                 log.i { "ACP close session" }
                 peer.request("session/close", fields(sessionId(sessionId)))
+                lock.withLock { sessions.remove(sessionId) }
+            }
+        }
+    }
+
+    override suspend fun deleteSession(sessionId: String) {
+        owned {
+            admissions.withLock {
+                val capabilities = ready().agentCapabilities["sessionCapabilities"] as? JsonObject
+                check(capabilities?.get("delete") is JsonObject) { "ACP session delete was not advertised" }
+                requireSession(sessionId)
+                lock.withLock { check(sessionId !in busySessions) { "Session is busy" } }
+                log.i { "ACP delete session" }
+                peer.request("session/delete", fields(sessionId(sessionId)))
                 lock.withLock { sessions.remove(sessionId) }
             }
         }
@@ -251,6 +267,10 @@ internal class DefaultAcpConnection(
     }
 
     override suspend fun setConfigOption(sessionId: String, optionId: String, value: String) {
+        setConfigOptionObserved(sessionId, optionId, value)
+    }
+
+    override suspend fun setConfigOptionObserved(sessionId: String, optionId: String, value: String): JsonObject =
         owned {
             val response = admissions.withLock {
                 requireSession(sessionId)
@@ -267,7 +287,6 @@ internal class DefaultAcpConnection(
             }
             response.await()
         }
-    }
 
     private fun promptParams(sessionId: String, content: List<JsonObject>, metadata: JsonObject): JsonObject {
         require(content.isNotEmpty()) { "ACP prompt requires at least one content block" }

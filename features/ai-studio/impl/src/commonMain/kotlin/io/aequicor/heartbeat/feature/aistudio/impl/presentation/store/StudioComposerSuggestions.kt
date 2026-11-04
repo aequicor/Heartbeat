@@ -33,7 +33,7 @@ internal fun AiStudioScreenState.composerScope(paneId: Int): ComposerScope {
     val pane = panes.firstOrNull { it.id == paneId }
     val sessionId = pane?.sessionId
     val modelId = organisms[sessionId]?.modelId ?: configurations[sessionId]?.modelId
-        ?: session(sessionId)?.modelId?.takeIf(String::isNotBlank) ?: settings.modelId
+        ?: session(sessionId)?.modelId?.takeIf(String::isNotBlank) ?: pane?.settings?.modelId ?: settings.modelId
     val project = (pane?.projectId ?: session(sessionId)?.projectId)?.takeIf(String::isNotEmpty)?.let(::WorkspaceRef)
     val execution = session(sessionId)?.executionWorkspace?.let(::WorkspaceRef)
     val isWorktree = pane?.isWorktree == true || session(sessionId)?.isWorktree == true

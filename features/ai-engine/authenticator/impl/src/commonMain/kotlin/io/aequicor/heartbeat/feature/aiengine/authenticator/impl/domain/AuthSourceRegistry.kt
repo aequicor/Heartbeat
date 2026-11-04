@@ -14,12 +14,17 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -33,6 +38,7 @@ class AuthSourceRegistry(
     private val store: AuthSourceStore,
     private val vault: ManagedKeyVault,
     scope: CoroutineScope,
+    private val edits: AuthSourceEditJournal,
     private val newToken: () -> String,
 ) : AuthSources {
     private val log = Log.tag("AuthSources")
@@ -45,10 +51,23 @@ class AuthSourceRegistry(
             }
             .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    init {
+        scope.launch {
+            try {
+                mutex.withLock { recoverPendingEdit() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e) { "source edit recovery deferred" }
+            }
+        }
+    }
+
     override suspend fun get(id: AuthSourceId): AuthSource? = store.load().firstOrNull { it.info.id == id }
 
     override suspend fun addManagedKey(label: String, scope: AuthScope, key: Secret): AuthSource.ManagedKey =
         mutex.withLock {
+            recoverPendingEdit()
             require(label.isNotBlank()) { "Blank source label" }
             val token = newToken()
             val source = AuthSource.ManagedKey(
@@ -78,6 +97,7 @@ class AuthSourceRegistry(
         }
 
     override suspend fun replaceManagedKey(id: AuthSourceId, key: Secret): AuthSource.ManagedKey = mutex.withLock {
+        recoverPendingEdit()
         val sources = store.load()
         val current = sources.firstOrNull { it.info.id == id } as? AuthSource.ManagedKey ?: throw unavailable(id)
         val updated = current.copy(info = current.info.copy(revision = newRevision()))
@@ -90,6 +110,7 @@ class AuthSourceRegistry(
     }
 
     override suspend fun register(draft: AuthSourceDraft): AuthSource = mutex.withLock {
+        recoverPendingEdit()
         require(draft.label.isNotBlank()) { "Blank source label" }
         val source = draft.toSource(AuthSourceId("$SOURCE_PREFIX${newToken()}"))
         log.i { "register ${source.kind} source=${source.info.id.value}" }
@@ -98,6 +119,7 @@ class AuthSourceRegistry(
     }
 
     override suspend fun updateRevision(id: AuthSourceId, revision: AuthRevision): AuthSource = mutex.withLock {
+        recoverPendingEdit()
         val sources = store.load()
         val current = sources.firstOrNull { it.info.id == id } ?: throw unavailable(id)
         require(current !is AuthSource.ManagedKey) { "Managed keys change revision only by replacement" }
@@ -110,11 +132,107 @@ class AuthSourceRegistry(
     }
 
     override suspend fun forget(id: AuthSourceId): Unit = mutex.withLock {
+        recoverPendingEdit()
         val sources = store.load()
         val current = sources.firstOrNull { it.info.id == id } ?: return@withLock
         log.i { "forget source=${id.value}" }
         if (current is AuthSource.ManagedKey) vault.remove(current.secret)
         store.save(sources - current)
+    }
+
+    override suspend fun editIfUnchanged(
+        expected: AuthSource,
+        label: String,
+        scope: AuthScope,
+        key: Secret?,
+        onSaved: (AuthSource) -> Unit,
+    ): Unit = mutex.withLock {
+        recoverPendingEdit()
+        validateEdit(expected, label, scope, key)
+        val sources = store.load()
+        val current = sources.firstOrNull { it.info.id == expected.info.id } ?: throw unavailable(expected.info.id)
+        if (current != expected) throw AuthException(AuthFailure(AuthFailureReason.SourceChanged, expected.info.id))
+        val revision = newRevision()
+        check(revision != current.info.revision) { "Source revision was reused" }
+        val updated = editedSource(current, current.info.copy(label = label, revision = revision), scope, key, sources)
+        currentCoroutineContext().ensureActive()
+        withContext(NonCancellable) {
+            if (current is AuthSource.ManagedKey && updated is AuthSource.ManagedKey && key != null) {
+                edits.save(PendingAuthSourceEdit(current, updated))
+                vault.store(updated.secret, key)
+            }
+            store.save(sources.map { if (it.info.id == current.info.id) updated else it })
+            onSaved(updated)
+            if (key != null) cleanupAfterSavedEdit()
+        }
+    }
+
+    private fun validateEdit(expected: AuthSource, label: String, scope: AuthScope, key: Secret?) {
+        require(label.isNotBlank()) { "Blank source label" }
+        require(scope.provider == expected.scope.provider) { "Cannot change provider type" }
+        require(expected is AuthSource.ManagedKey || expected is AuthSource.NoAuth) { "Source is not editable" }
+        require(expected is AuthSource.ManagedKey || key == null) { "No-auth source cannot receive a key" }
+    }
+
+    private suspend fun editedSource(
+        current: AuthSource,
+        info: AuthSourceInfo,
+        scope: AuthScope,
+        key: Secret?,
+        sources: List<AuthSource>,
+    ): AuthSource = when (current) {
+        is AuthSource.ManagedKey -> current.copy(
+            info = info,
+            scope = scope,
+            secret = if (key == null) current.secret else freshSecret(sources),
+        )
+
+        is AuthSource.NoAuth -> current.copy(info = info, scope = scope)
+
+        is AuthSource.ExternalKey, is AuthSource.CliLogin, is AuthSource.CredentialHelper ->
+            error("Source type changed after validation")
+    }
+
+    private suspend fun freshSecret(sources: List<AuthSource>): AuthSecretId {
+        val occupied = sources.filterIsInstance<AuthSource.ManagedKey>().map { it.secret }.toSet()
+        repeat(SECRET_ID_ATTEMPTS) {
+            val candidate = AuthSecretId("$SECRET_PREFIX${newToken()}")
+            if (candidate !in occupied && !vault.contains(candidate)) return candidate
+        }
+        error("Cannot allocate a unique managed-key slot")
+    }
+
+    /** Keep the confirmed edit successful; a durable journal makes failed cleanup retryable. */
+    private suspend fun cleanupAfterSavedEdit() {
+        try {
+            recoverPendingEdit()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "source edit saved; old key cleanup deferred" }
+        }
+    }
+
+    /** Never delete either key when metadata cannot establish which one is current. */
+    private suspend fun recoverPendingEdit() {
+        val pending = edits.load() ?: return
+        check(pending.before.info.id == pending.after.info.id && pending.before.secret != pending.after.secret) {
+            "Invalid source edit journal"
+        }
+        val sources = store.load()
+        val current = sources.firstOrNull { it.info.id == pending.before.info.id }
+        val retired = if (current == pending.before) {
+            pending.after.secret
+        } else if (current == pending.after) {
+            pending.before.secret
+        } else {
+            error("Cannot reconcile source edit with saved metadata")
+        }
+        check(sources.filterIsInstance<AuthSource.ManagedKey>().none { it.secret == retired }) {
+            "Retired key is still referenced by source metadata"
+        }
+        vault.remove(retired)
+        edits.clear()
     }
 
     private fun newRevision(): AuthRevision = AuthRevision.Known(newToken())
@@ -124,6 +242,7 @@ class AuthSourceRegistry(
     private companion object {
         const val SOURCE_PREFIX = "src_"
         const val SECRET_PREFIX = "aiengine_auth_"
+        const val SECRET_ID_ATTEMPTS = 8
     }
 }
 

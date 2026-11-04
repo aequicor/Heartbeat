@@ -14,8 +14,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 
 /** Credential typed on the method step. [label] names the connection for the user and may contain PII. */
 public sealed interface CredentialInput {
@@ -54,6 +60,7 @@ public fun ConnectionMethod.accepts(credential: CredentialInput): Boolean = cred
  * together with its source and model selection. [initialModels] initializes the model step from the saved choice.
  * [isInitiallyEnabled] records the original state of a reused route temporarily enabled by the wizard; rollback
  * restores it.
+ * [launchRollback] is a temporary owner-scoped receipt, retained only until the wizard finishes or rolls back.
  * Newly created connections belong to the wizard until completion.
  */
 public data class NewConnection(
@@ -62,6 +69,14 @@ public data class NewConnection(
     val isCreated: Boolean = true,
     val initialModels: Set<ModelId> = emptySet(),
     val isInitiallyEnabled: Boolean = true,
+    val launchRollback: WizardLaunchRollback? = null,
+)
+
+/** An uncommitted wizard choice that can be restored only while [receipt] remains current. */
+public data class WizardLaunchRollback(
+    val engine: EngineId,
+    val previous: LaunchSettings,
+    val receipt: LaunchSettingsSnapshot,
 )
 
 /** Result of an explicit connection check on the method step. */
@@ -91,6 +106,25 @@ public sealed interface ConnectWizardState : MachineState {
         val failure: EngineFailure? = null,
     ) : ConnectWizardState
 
+    /** Resolves the chosen engine's installation capabilities without starting a runtime. */
+    public data class PreparingRuntime(val engine: EngineInfo, val failure: EngineFailure? = null) : ConnectWizardState
+
+    /** Installation choice before the access method; no launch setting has been written. */
+    public data class ChoosingRuntime(
+        val engine: EngineInfo,
+        val options: WizardRuntimeOptions,
+        val choice: WizardRuntimeChoice? = null,
+        val isPicking: Boolean = false,
+        val failure: EngineFailure? = null,
+        val hasCheckedLocal: Boolean = false,
+        val isCheckingLocal: Boolean = false,
+        val isInstalling: Boolean = false,
+        val isInstallationStarted: Boolean = false,
+        val installationHandle: EngineOwnedJob? = null,
+        val isCancellingInstallation: Boolean = false,
+        val runtimeJob: EngineJob? = options.initialJob,
+    ) : ConnectWizardState
+
     /**
      * Step 2: provider and authentication method of [engine]; [failure] explains a rejected connection attempt,
      * [check] is the last explicit connection check.
@@ -99,10 +133,30 @@ public sealed interface ConnectWizardState : MachineState {
         val engine: EngineInfo,
         val failure: EngineFailure? = null,
         val check: ConnectionCheck? = null,
+        val runtimeChoice: WizardRuntimeChoice? = null,
+        val isPickingRuntime: Boolean = false,
+        val runtimeOptions: WizardRuntimeOptions? = null,
     ) : ConnectWizardState
 
     /** Creating the source and the binding. */
-    public data class Connecting(val engine: EngineInfo, val method: ConnectionMethodId) : ConnectWizardState
+    public data class Connecting(
+        val engine: EngineInfo,
+        val method: ConnectionMethodId,
+        val runtimeChoice: WizardRuntimeChoice? = null,
+        val runtimeOptions: WizardRuntimeOptions? = null,
+    ) : ConnectWizardState
+
+    /**
+     * The connection exists, so its exact saved route can be assessed. No models are discovered until the
+     * connector proves the route; a refused or unknown decision never advances and can only be cancelled.
+     * [failure] reports a probe that did not produce a decision; it is not a refusal.
+     */
+    public data class CheckingAdmission(
+        val engine: EngineId,
+        val connection: NewConnection,
+        val admission: WizardAdmission = WizardAdmission.Checking,
+        val failure: EngineFailure? = null,
+    ) : ConnectWizardState
 
     /**
      * Step 3: models discovered through the new connection; [models] is null while discovering.
@@ -114,21 +168,24 @@ public sealed interface ConnectWizardState : MachineState {
         val models: List<ModelInfo>? = null,
         val selected: Set<ModelId> = emptySet(),
         val failure: EngineFailure? = null,
+        val operationSequence: Long = 0,
     ) : ConnectWizardState
 
-    /** Persisting the model choice. */
+    /** One bounded save/check operation. Phase updates stay in this state and do not cancel its effect. */
     public data class Saving(
         val engine: EngineId,
         val connection: NewConnection,
         val models: List<ModelInfo>?,
         val selected: Set<ModelId>,
+        val operation: ConnectionOperationId = ConnectionOperationId(1),
+        val phase: ModelSavePhase = ModelSavePhase.Saving,
     ) : ConnectWizardState
 
-    /** Removing the connection created by an abandoned wizard. */
+    /** Removing the abandoned connection and conditionally restoring the wizard's runtime choice. */
     public data class RollingBack(val connection: NewConnection) : ConnectWizardState
 
-    /** The connection is saved. */
-    public data class Finished(val binding: EngineBindingId) : ConnectWizardState
+    /** The accepted operation ended its UI wait; [isSavePending] explicitly preserves a still unknown write outcome. */
+    public data class Finished(val binding: EngineBindingId, val isSavePending: Boolean = false) : ConnectWizardState
 
     /** Closed without a connection. */
     public data object Cancelled : ConnectWizardState
@@ -143,6 +200,27 @@ public sealed interface ConnectWizardIntent : MachineIntent {
 
         /** Picks a connectable engine. */
         public data class ChooseEngine(val engine: EngineId) : Public
+
+        /** Opens the system executable picker and inspects the chosen candidate without writing settings. */
+        public data object PickRuntimeFile : Public
+
+        /** Explicitly inspects the local installation before offering alternatives. */
+        public data object CheckLocalRuntime : Public
+
+        /** Discards an uncommitted file choice. */
+        public data object ClearRuntimeChoice : Public
+
+        /** Accepts the explicitly checked installation and proceeds to access selection. */
+        public data object UseRuntimeChoice : Public
+
+        /** Inspects one declared installation source without changing saved launch settings. */
+        public data class InspectRuntimeSource(val source: RuntimePreference) : Public
+
+        /** Installs the declared managed runtime in a job owned by this wizard. */
+        public data object InstallManagedRuntime : Public
+
+        /** Cancels the installation started by this wizard, without affecting another owner's job. */
+        public data class CancelRuntimeInstallation(val handle: EngineOwnedJob) : Public
 
         /** Creates the connection. An ignored request leaves the key with the sender, who closes it. */
         public data class Connect(val method: ConnectionMethodId, val credential: CredentialInput) : Public
@@ -160,7 +238,7 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** Enables or disables one discovered model. */
         public data class ToggleModel(val model: ModelId) : Public
 
-        /** Selects every discovered model, or none. */
+        /** Selects or deselects every discovered model, leaving unavailable saved choices unchanged. */
         public data class SelectAllModels(val isSelected: Boolean) : Public
 
         /** Repeats the failed step: catalog observation, model discovery or saving the model choice. */
@@ -187,11 +265,44 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** The catalog could not be observed. */
         public data class EnginesFailed(val failure: EngineFailure) : Internal
 
+        /** Null means the engine has no installation choice on this platform. */
+        public data class RuntimeOptionsLoaded(val options: WizardRuntimeOptions?) : Internal
+
+        /** Capability resolution failed. */
+        public data class RuntimeOptionsFailed(val failure: EngineFailure) : Internal
+
+        /** Current profile management job and installation action for this engine. */
+        public data class RuntimeJobChanged(val job: EngineJob?, val isManagedInstallAvailable: Boolean) : Internal
+
+        /** The picker returned; null means cancellation or an unavailable platform picker. */
+        public data class RuntimeFilePicked(val choice: WizardRuntimeChoice?) : Internal
+
+        /** Picking or restricted inspection failed. */
+        public data class RuntimeFilePickFailed(val failure: EngineFailure) : Internal
+
+        /** The owned installation handle is available for explicit cancellation. */
+        public data class RuntimeInstallationStarted(val handle: EngineOwnedJob) : Internal
+
+        /** The requested installation cancellation and its cleanup completed. */
+        public data object RuntimeInstallationCancelled : Internal
+
+        /** The selected installation already finished before cancellation. */
+        public data object RuntimeInstallationAlreadyFinished : Internal
+
+        /** Cancellation could not be confirmed. */
+        public data class RuntimeInstallationCancelFailed(val failure: EngineFailure) : Internal
+
         /** Source and binding exist. */
         public data class Connected(val connection: NewConnection) : Internal
 
         /** Nothing was created. */
         public data class ConnectFailed(val failure: EngineFailure) : Internal
+
+        /** Result of the restricted admission probe of the connection's exact saved route. */
+        public data class AdmissionAssessed(val admission: WizardAdmission) : Internal
+
+        /** The admission probe could not produce a decision; nothing is admitted. */
+        public data class AdmissionFailed(val failure: EngineFailure) : Internal
 
         /** Result of [Public.CheckConnection]; never [ConnectionCheck.Running]. */
         public data class ConnectionChecked(val result: ConnectionCheck) : Internal
@@ -202,11 +313,14 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** Discovery failed; the connection is kept. */
         public data class ModelsFailed(val failure: EngineFailure) : Internal
 
-        /** The model choice is stored. */
-        public data object Saved : Internal
+        /** The bounded operation reached model checks, without leaving/cancelling the saving state. */
+        public data class Checking(val operation: ConnectionOperationId) : Internal
+
+        /** The bounded wait ended; pending means an accepted save may still commit, not that it was rolled back. */
+        public data class Saved(val operation: ConnectionOperationId, val isSavePending: Boolean = false) : Internal
 
         /** The model choice could not be stored. */
-        public data class SaveFailed(val failure: EngineFailure) : Internal
+        public data class SaveFailed(val failure: EngineFailure, val operation: ConnectionOperationId) : Internal
 
         /** The abandoned connection is removed (or its removal failed and was logged). */
         public data object RolledBack : Internal
@@ -218,9 +332,34 @@ public sealed interface ConnectWizardEffect : MachineEffect {
     /** Observes the engine catalog while choosing an engine. */
     public data object ObserveEngines : ConnectWizardEffect
 
+    /** Reads the selected engine's declared management capabilities without probing the runtime. */
+    public data class LoadRuntimeOptions(val engine: EngineId) : ConnectWizardEffect
+
+    /** Selects and inspects a runtime file without changing saved launch settings. */
+    public data class PickRuntimeFile(val engine: EngineId) : ConnectWizardEffect
+
+    /** Inspects a specific declared source, without automatic fallback or writes. */
+    public data class InspectRuntimeSource(val engine: EngineId, val source: RuntimePreference) : ConnectWizardEffect
+
+    /** Runs the first local inspection, or reports no local source when none is declared. */
+    public data class CheckLocalRuntime(val engine: EngineId, val source: RuntimePreference?) : ConnectWizardEffect
+
+    /** Observes profile management progress for the selected engine while the step is open. */
+    public data class ObserveRuntimeJob(val engine: EngineId) : ConnectWizardEffect
+
+    /** Installs a managed runtime and inspects the resulting selected source. */
+    public data class InstallManagedRuntime(val engine: EngineId) : ConnectWizardEffect
+
+    /** Cancels the handle published by this wizard's installation effect. */
+    public data class CancelRuntimeInstallation(val handle: EngineOwnedJob) : ConnectWizardEffect
+
     /** Probes installation, creates the source and binds it; removes the source again if binding fails. */
-    public data class Connect(val engine: EngineId, val method: ConnectionMethod, val credential: CredentialInput) :
-        ConnectWizardEffect
+    public data class Connect(
+        val engine: EngineId,
+        val method: ConnectionMethod,
+        val credential: CredentialInput,
+        val runtimeChoice: WizardRuntimeChoice? = null,
+    ) : ConnectWizardEffect
 
     /**
      * Probes installation, connects temporarily, discovers models and always removes the temporary connection.
@@ -232,20 +371,38 @@ public sealed interface ConnectWizardEffect : MachineEffect {
         val credential: CredentialInput,
     ) : ConnectWizardEffect
 
+    /**
+     * Runs one restricted admission assessment of the exact saved route [binding], without discovering models,
+     * starting an ordinary runtime or changing any saved choice. The handler reports its typed result.
+     */
+    public data class AssessAdmission(val engine: EngineId, val binding: EngineBindingId) : ConnectWizardEffect
+
     /** Explicit model discovery through the new binding. */
     public data class DiscoverModels(val engine: EngineId, val binding: EngineBindingId) : ConnectWizardEffect
 
-    /** Stores the enabled models of the new binding. */
-    public data class SaveModels(val binding: EngineBindingId, val models: Set<ModelId>) : ConnectWizardEffect
+    /**
+     * Saves the user's delta from [previous] onto the latest durable choices, preserving concurrent unrelated edits.
+     * Checks only [checkTargets] and revokes [removedTargets] before saving, all within one bounded UI wait.
+     */
+    public data class SaveModels(
+        val binding: EngineBindingId,
+        val models: Set<ModelId>,
+        val operation: ConnectionOperationId = ConnectionOperationId(1),
+        val previous: Set<ModelId> = emptySet(),
+        val checkTargets: Set<EngineTarget> = emptySet(),
+        val removedTargets: Set<EngineTarget> = emptySet(),
+    ) : ConnectWizardEffect
 
-    /** Disconnects a newly created binding and forgets its source; preserves an existing CLI connection. */
+    /**
+     * Disconnects a newly created binding, preserves an existing CLI connection and restores an owned runtime choice.
+     */
     public data class Rollback(val connection: NewConnection) : ConnectWizardEffect
 }
 
 /** One-off wizard results. */
 public sealed interface ConnectWizardOutput : MachineOutput {
-    /** The connection is ready. */
-    public data class Completed(val binding: EngineBindingId) : ConnectWizardOutput
+    /** The accepted operation ended; this is neither a model-check success nor proof of a pending save committing. */
+    public data class Completed(val binding: EngineBindingId, val isSavePending: Boolean = false) : ConnectWizardOutput
 
     /** The wizard closed without a connection. */
     public data object Cancelled : ConnectWizardOutput

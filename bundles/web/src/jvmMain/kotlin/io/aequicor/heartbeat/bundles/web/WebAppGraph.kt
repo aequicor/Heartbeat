@@ -5,6 +5,7 @@ import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Includes
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.datastore.ProfileStorageCleaner
+import io.aequicor.heartbeat.core.desktopdialogs.NativeDesktopFileDialogs
 import io.aequicor.heartbeat.core.di.AppShutdownParticipant
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
@@ -29,7 +30,7 @@ public interface WebAppExports {
  * App-level graph of the `web` bundle: the contributions of its member features, compiled statically. The profile
  * graph of the foundation (`ProfileGraph`) is not part of it: the bundle has [WebProfileGraph] of its own.
  */
-@DependencyGraph(AppScope::class, excludes = [ProfileGraph.Factory::class])
+@DependencyGraph(AppScope::class, excludes = [ProfileGraph.Factory::class, NativeDesktopFileDialogs::class])
 internal interface WebAppGraph : WebAppExports {
     /** Creates the profile graph of the bundle for one profile. */
     val profileGraphs: WebProfileGraph.Factory

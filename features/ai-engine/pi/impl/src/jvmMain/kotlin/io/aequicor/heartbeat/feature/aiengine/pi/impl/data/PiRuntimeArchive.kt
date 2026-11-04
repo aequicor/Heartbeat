@@ -5,6 +5,8 @@ import kotlinx.coroutines.ensureActive
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.archivers.tar.TarConstants
 import org.apache.commons.compress.archivers.zip.ZipFile
+import org.apache.commons.compress.utils.SeekableInMemoryByteChannel
+import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -16,13 +18,41 @@ import java.util.zip.GZIPInputStream
 /** Bounded extraction of the pinned Pi archive into a new directory; links and non-portable paths are refused. */
 internal class PiRuntimeArchive(private val maxBytes: Long = MAX_BYTES, private val maxEntries: Int = MAX_ENTRIES) {
     suspend fun extract(archive: Path, root: Path, isZip: Boolean): Map<String, String> {
-        val extraction = Extraction(root, isZip)
+        val extraction = Extraction(root, isZip, isWritingFiles = true)
         if (isZip) extractZip(archive, extraction) else extractTar(archive, extraction)
         return extraction.inventory
     }
 
+    suspend fun extract(archive: ByteArray, root: Path, isZip: Boolean): Map<String, String> {
+        val extraction = Extraction(root, isZip, isWritingFiles = true)
+        if (isZip) extractZip(archive, extraction) else extractTar(ByteArrayInputStream(archive), extraction)
+        return extraction.inventory
+    }
+
+    /** Computes the archive inventory without trusting or writing the installed runtime. */
+    suspend fun inventory(archive: Path, root: Path, isZip: Boolean): Map<String, String> {
+        val extraction = Extraction(root, isZip, isWritingFiles = false)
+        if (isZip) extractZip(archive, extraction) else extractTar(archive, extraction)
+        return extraction.inventory
+    }
+
+    suspend fun inventory(archive: ByteArray, root: Path, isZip: Boolean): Map<String, String> {
+        val extraction = Extraction(root, isZip, isWritingFiles = false)
+        if (isZip) extractZip(archive, extraction) else extractTar(ByteArrayInputStream(archive), extraction)
+        return extraction.inventory
+    }
+
     private suspend fun extractZip(archive: Path, extraction: Extraction) {
-        ZipFile.builder().setPath(archive).get().use { zip ->
+        extractZip(ZipFile.builder().setPath(archive).get(), extraction)
+    }
+
+    private suspend fun extractZip(archive: ByteArray, extraction: Extraction) {
+        val channel = SeekableInMemoryByteChannel(archive)
+        extractZip(ZipFile.builder().setSeekableByteChannel(channel).get(), extraction)
+    }
+
+    private suspend fun extractZip(file: ZipFile, extraction: Extraction) {
+        file.use { zip ->
             val entries = zip.entries
             while (entries.hasMoreElements()) {
                 val item = entries.nextElement()
@@ -38,7 +68,11 @@ internal class PiRuntimeArchive(private val maxBytes: Long = MAX_BYTES, private 
     }
 
     private suspend fun extractTar(archive: Path, extraction: Extraction) {
-        Files.newInputStream(archive).use { input ->
+        extractTar(Files.newInputStream(archive), extraction)
+    }
+
+    private suspend fun extractTar(source: InputStream, extraction: Extraction) {
+        source.use { input ->
             TarArchiveInputStream(GZIPInputStream(input)).use { tar ->
                 var item = tar.nextEntry
                 while (item != null) {
@@ -56,7 +90,11 @@ internal class PiRuntimeArchive(private val maxBytes: Long = MAX_BYTES, private 
         }
     }
 
-    private inner class Extraction(private val root: Path, private val isZip: Boolean) {
+    private inner class Extraction(
+        private val root: Path,
+        private val isZip: Boolean,
+        private val isWritingFiles: Boolean,
+    ) {
         val inventory = linkedMapOf<String, String>()
         private val seen = mutableSetOf<String>()
         private var bytes = 0L
@@ -75,27 +113,30 @@ internal class PiRuntimeArchive(private val maxBytes: Long = MAX_BYTES, private 
             val target = piRuntimeTarget(root, relative)
             if (directory) {
                 require(size == 0L) { "Pi archive directory has payload" }
-                Files.createDirectories(target)
+                if (isWritingFiles) Files.createDirectories(target)
             } else {
-                inventory[relative] = copyEntry(input, target, size)
+                inventory[relative] = copyEntry(input, target.takeIf { isWritingFiles }, size)
                 bytes += size
-                if (executable) check(target.toFile().setExecutable(true, false)) { "Pi file is not executable" }
+                if (isWritingFiles && executable) {
+                    check(target.toFile().setExecutable(true, false)) { "Pi file is not executable" }
+                }
             }
         }
     }
 
-    private suspend fun copyEntry(input: InputStream, target: Path, size: Long): String {
-        Files.createDirectories(target.parent)
+    private suspend fun copyEntry(input: InputStream, target: Path?, size: Long): String {
+        if (target != null) Files.createDirectories(target.parent)
         val digest = MessageDigest.getInstance("SHA-256")
         var count = 0L
-        Files.newOutputStream(target, CREATE_NEW).use { output ->
+        val output = target?.let { Files.newOutputStream(it, CREATE_NEW) }
+        output.use {
             val buffer = ByteArray(BUFFER_BYTES)
             var read = input.read(buffer)
             while (read >= 0) {
                 currentCoroutineContext().ensureActive()
                 count += read
                 require(count <= size) { "Pi archive entry exceeds declared size" }
-                output.write(buffer, 0, read)
+                output?.write(buffer, 0, read)
                 digest.update(buffer, 0, read)
                 read = input.read(buffer)
             }

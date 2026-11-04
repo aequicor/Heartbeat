@@ -6,9 +6,13 @@ import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.secrets.SecretStore
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EffectiveSettingsProvenance
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.VaultConfigSecrets
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EffectiveSettingsProvenanceService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineConfigurationService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineFlags
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnginePreferences
@@ -41,4 +45,21 @@ object AiEngineConfigurationBindings {
     /** Public configuration contract. */
     @Provides
     fun configuration(service: EngineConfigurationService): EngineConfiguration = service
+
+    /** Observed settings layers of an exact route and its trusted project; pure reads, explicit bounded refresh. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    fun effectiveSettings(
+        configuration: EngineConfiguration,
+        registry: EngineRegistry,
+        bindings: EngineBindings,
+        sources: AuthSources,
+        context: FacadeContext,
+    ): EffectiveSettingsProvenance = EffectiveSettingsProvenanceService(
+        configuration,
+        registry,
+        bindings.state,
+        sources.state,
+        context,
+    )
 }

@@ -2,10 +2,13 @@ package io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.sto
 
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.DescribedModel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -28,7 +31,27 @@ data class ConnectionRowUi(
     val origin: String,
     val isEnabled: Boolean,
     val enabledModels: Int,
+    val isEditable: Boolean = false,
 )
+
+/** Local edit draft; key material is cleared when submitted and never included in diagnostic text. */
+@Immutable
+data class ConnectionEditDraft(
+    val binding: String,
+    val source: AuthSource,
+    val method: ConnectionMethod,
+    val form: CredentialForm,
+    val submittedSequence: Long? = null,
+    val formError: FormError? = null,
+) {
+    /** Whether this source has a managed API key. */
+    val hasKey: Boolean get() = method is ConnectionMethod.ApiKey
+
+    /** Whether the declared method permits an alternate origin. */
+    val isOriginEditable: Boolean get() = method.isOriginEditable
+
+    override fun toString(): String = "ConnectionEditDraft(***)"
+}
 
 /** Cached models of the selected connection; [isStale] and [isNeverSynced] explain an empty or old list. */
 @Immutable
@@ -39,6 +62,8 @@ data class ModelsPaneUi(val models: ImmutableList<ModelRowUi>, val isStale: Bool
 data class EngineConnectionsScreenState(
     val engines: ImmutableList<EngineRowUi> = persistentListOf(),
     val selectedEngine: String? = null,
+    /** Immutable route constraint; unavailable fixed engines never fall back to another engine. */
+    val fixedEngine: String? = null,
     val connections: ImmutableList<ConnectionRowUi> = persistentListOf(),
     val selectedConnection: String? = null,
     val models: ModelsPaneUi? = null,
@@ -50,6 +75,9 @@ data class EngineConnectionsScreenState(
     val modelDraftBaseline: ImmutableSet<String>? = null,
     val modelQuery: String = "",
     val confirmDisconnect: String? = null,
+    val editDraft: ConnectionEditDraft? = null,
+    val isEditOutcomePending: Boolean = false,
+    val isEditFailure: Boolean = false,
     /** Engine management is on: the selected engine is switched on and installed in its engine control panel. */
     val isManaged: Boolean = false,
     val isLoading: Boolean = true,
@@ -57,6 +85,7 @@ data class EngineConnectionsScreenState(
     val isModelSavePending: Boolean = false,
     val loadFailure: FailureUi? = null,
     val failure: FailureUi? = null,
+    val checkDetails: ModelCheckDetailsUi? = null,
     /** Models described for adaptive subagents; null while that feature is off. */
     val descriptions: ImmutableSet<DescribedModel>? = null,
 ) : MVIState {
@@ -66,16 +95,25 @@ data class EngineConnectionsScreenState(
 /** Rebuilds the three levels, keeping focus and an unsaved model draft while their connection remains selected. */
 internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState): EngineConnectionsScreenState =
     when (state) {
-        EngineConnectionsState.Idle -> copy(isLoading = true, isModelSavePending = false, loadFailure = null)
+        EngineConnectionsState.Idle -> copy(
+            isLoading = true,
+            isModelSavePending = false,
+            loadFailure = null,
+            checkDetails = null,
+        )
 
         is EngineConnectionsState.Active -> {
+            val edit = editDraft
+            val isEditCompleted = edit?.submittedSequence == state.operationSequence && state.pending == null
             val base = copy(
                 isLoading = state.snapshot == null && state.loadFailure == null,
                 isSaving = state.pending != null,
-                isModelSavePending = state.pending is ConnectionOperation.SetModelsEnabled ||
-                    (isModelSavePending && state.failed?.operation !is ConnectionOperation.SetModelsEnabled),
+                isModelSavePending = state.pending is ConnectionOperation.SetModelsEnabled,
                 loadFailure = state.loadFailure?.toUi(),
                 failure = state.failed?.failure?.toUi(),
+                isEditFailure = state.failed?.operation is ConnectionOperation.Edit,
+                editDraft = if (isEditCompleted && state.failed?.operation !is ConnectionOperation.Edit) null else edit,
+                isEditOutcomePending = if (isEditCompleted) state.isSavePending else isEditOutcomePending,
             )
             val snapshot = state.snapshot
             when {
@@ -88,6 +126,7 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
                     models = null,
                     confirmDisconnect = null,
                     isManaged = false,
+                    checkDetails = null,
                 )
 
                 else -> base
@@ -101,7 +140,7 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
  */
 private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnapshot): EngineConnectionsScreenState {
     val management = snapshot.management.takeIf { it.isEnabled }
-    val engineRows = management?.engines?.map { managed ->
+    val availableRows = management?.engines?.map { managed ->
         val info = snapshot.engines.firstOrNull { it.descriptor.id == managed.descriptor.id }
         info?.toRow()?.copy(isEnabled = managed.enablement.isEnabled) ?: EngineRowUi(
             id = managed.descriptor.id.value,
@@ -112,21 +151,13 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
             isEnabled = false,
         )
     } ?: snapshot.engines.map { it.toRow() }
-    val engineId = selectedEngine?.takeIf { id -> engineRows.any { it.id == id } } ?: engineRows.firstOrNull()?.id
+    val engineRows = availableRows.filter { fixedEngine == null || it.id == fixedEngine }
+    val engineId = fixedEngine ?: selectedEngine?.takeIf { id -> engineRows.any { it.id == id } }
+        ?: engineRows.firstOrNull()?.id
     val engine = snapshot.engines.firstOrNull { it.descriptor.id.value == engineId }
     val providers = engine?.descriptor?.connectionMethods.orEmpty().associate { it.provider.id to it.provider.title }
-    val connectionRows = engine?.bindings.orEmpty().map { binding ->
-        val source = snapshot.sources.firstOrNull { it.info.id == binding.authSource }
-        ConnectionRowUi(
-            id = binding.id.value,
-            label = source?.info?.label ?: binding.authSource.value,
-            provider = source?.let { providers[it.scope.provider] ?: it.scope.provider.value }.orEmpty(),
-            kind = source?.kind(),
-            origin = source?.scope?.let { it.origin.value + it.basePath.orEmpty() }.orEmpty(),
-            isEnabled = binding.isEnabled,
-            enabledModels = snapshot.selection.enabled(binding.id).size,
-        )
-    }
+    val methods = engine?.descriptor?.connectionMethods.orEmpty()
+    val connectionRows = engine?.bindings.orEmpty().map { it.toConnectionRow(snapshot, providers, methods) }
     val connectionId = selectedConnection?.takeIf { id -> connectionRows.any { it.id == id } }
         ?: connectionRows.firstOrNull()?.id
     val binding = connectionId?.let(::EngineBindingId)
@@ -138,15 +169,48 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
         selectedEngine = engineId,
         connections = connectionRows.toImmutableList(),
         selectedConnection = connectionId,
+        editDraft = editDraft?.takeIf { it.binding == connectionId },
         models = models,
         selectedModels = enabled.toImmutableSet(),
         modelDraft = draft,
         modelDraftBinding = connectionId.takeIf { draft != null },
         modelDraftBaseline = enabled.toImmutableSet().takeIf { draft != null },
-        isModelSavePending = isModelSavePending && draft != null,
         confirmDisconnect = confirmDisconnect?.takeIf { id -> connectionRows.any { it.id == id } },
         isManaged = management != null,
+    ).refreshCheckDetails()
+}
+
+private fun EngineBinding.toConnectionRow(
+    snapshot: ConnectionsSnapshot,
+    providers: Map<ProviderId, String>,
+    methods: List<ConnectionMethod>,
+): ConnectionRowUi {
+    val source = snapshot.sources.firstOrNull { it.info.id == authSource }
+    return ConnectionRowUi(
+        id = id.value,
+        label = source?.info?.label ?: authSource.value,
+        provider = source?.let { providers[it.scope.provider] ?: it.scope.provider.value }.orEmpty(),
+        kind = source?.kind(),
+        origin = source?.scope?.let { it.origin.value + it.basePath.orEmpty() }.orEmpty(),
+        isEnabled = isEnabled,
+        enabledModels = snapshot.selection.enabled(id).size,
+        isEditable = source?.let { methods.editMethod(it) != null } == true,
     )
+}
+
+/** A stored binding has no method ID, so ambiguous same-provider methods are intentionally not editable. */
+internal fun List<ConnectionMethod>.editMethod(source: AuthSource): ConnectionMethod? {
+    val method = singleOrNull { method ->
+        method.provider.id == source.scope.provider && when (source) {
+            is AuthSource.ManagedKey -> method is ConnectionMethod.ApiKey
+            is AuthSource.NoAuth -> method is ConnectionMethod.NoAuth
+            is AuthSource.CliLogin, is AuthSource.ExternalKey, is AuthSource.CredentialHelper -> false
+        }
+    }
+    return method?.takeIf {
+        (it.isOriginEditable || source.scope.origin == it.origin) &&
+            (it.isPathEditable || source.scope.basePath == null)
+    }
 }
 
 private fun EngineConnectionsScreenState.modelsPane(
@@ -160,7 +224,7 @@ private fun EngineConnectionsScreenState.modelsPane(
             model.toRow(
                 model.target.model.value in enabled,
                 model.target == snapshot.selection.defaultTarget,
-            ).copy(description = descriptionOf(model.target))
+            ).copy(description = descriptionOf(model.target), check = snapshot.modelCheck(model.target))
         }.toImmutableList(),
         isStale = cached?.observation?.isStale ?: true,
         isNeverSynced = cached?.observation?.checkedAt == null,

@@ -30,24 +30,32 @@ class EngineConnectionsMachineTest {
         spec.assertTransition(
             Active(snapshot),
             Public.Apply(disconnect),
-            Active(snapshot, pending = disconnect),
+            Active(snapshot, pending = disconnect, operationSequence = 1),
             effects = listOf(EngineConnectionsEffect.Execute(disconnect)),
         )
-        spec.assertIgnored(Active(snapshot, pending = disconnect), Public.Apply(disconnect))
-        spec.assertTransition(Active(snapshot, pending = disconnect), Internal.Applied, Active(snapshot))
+        spec.assertIgnored(Active(snapshot, pending = disconnect, operationSequence = 1), Public.Apply(disconnect))
+        spec.assertTransition(
+            Active(snapshot, pending = disconnect, operationSequence = 1),
+            Internal.Applied(ConnectionOperationId(1)),
+            Active(snapshot, operationSequence = 1),
+        )
     }
 
     @Test
     fun `failed change is kept until retried or dismissed`() {
-        val failed = Active(snapshot, failed = FailedOperation(disconnect, failure))
-        spec.assertTransition(Active(snapshot, pending = disconnect), Internal.ApplyFailed(failure), failed)
+        val failed = Active(snapshot, failed = FailedOperation(disconnect, failure), operationSequence = 1)
+        spec.assertTransition(
+            Active(snapshot, pending = disconnect, operationSequence = 1),
+            Internal.ApplyFailed(failure, ConnectionOperationId(1)),
+            failed,
+        )
         spec.assertTransition(
             failed,
             Public.RetryFailed,
-            Active(snapshot, pending = disconnect),
-            effects = listOf(EngineConnectionsEffect.Execute(disconnect)),
+            Active(snapshot, pending = disconnect, operationSequence = 2),
+            effects = listOf(EngineConnectionsEffect.Execute(disconnect, ConnectionOperationId(2))),
         )
-        spec.assertTransition(failed, Public.DismissError, Active(snapshot))
+        spec.assertTransition(failed, Public.DismissError, Active(snapshot, operationSequence = 1))
         spec.assertIgnored(Active(snapshot), Public.RetryFailed)
     }
 
@@ -63,17 +71,21 @@ class EngineConnectionsMachineTest {
 
     @Test
     fun `observation failure keeps a running change and its outcome`() {
-        val running = Active(snapshot, pending = disconnect)
-        val broken = Active(pending = disconnect, loadFailure = failure)
+        val running = Active(snapshot, pending = disconnect, operationSequence = 1)
+        val broken = Active(pending = disconnect, loadFailure = failure, operationSequence = 1)
         spec.assertTransition(running, Internal.ObserveFailed(failure), broken)
         spec.assertTransition(
             broken,
-            Internal.ApplyFailed(failure),
-            Active(failed = FailedOperation(disconnect, failure), loadFailure = failure),
+            Internal.ApplyFailed(failure, ConnectionOperationId(1)),
+            Active(failed = FailedOperation(disconnect, failure), loadFailure = failure, operationSequence = 1),
         )
-        spec.assertTransition(broken, Internal.Applied, Active(loadFailure = failure))
+        spec.assertTransition(
+            broken,
+            Internal.Applied(ConnectionOperationId(1)),
+            Active(loadFailure = failure, operationSequence = 1),
+        )
         spec.assertIgnored(
-            Active(failed = FailedOperation(disconnect, failure), loadFailure = failure),
+            Active(failed = FailedOperation(disconnect, failure), loadFailure = failure, operationSequence = 1),
             Public.RetryFailed,
         )
     }

@@ -31,8 +31,10 @@ internal fun EngineEffortMenu(
     modifier: Modifier = Modifier,
     paneId: Int? = null,
     enabled: Boolean = true,
+    pageId: Long? = null,
+    expectedSessionId: String? = null,
 ) {
-    var isOpen by remember(model.id) { mutableStateOf(false) }
+    var isOpen by remember(model.id, pageId, expectedSessionId) { mutableStateOf(false) }
     val automatic = stringResource(Res.string.effort_default)
     val actions = listOf(HbComposerAction(DEFAULT_EFFORT, automatic, isSelected = selected == null)) +
         model.reasoningEfforts.map {
@@ -45,7 +47,7 @@ internal fun EngineEffortMenu(
         onExpandedChange = { isOpen = it },
         onAction = {
             val effort = if (it == DEFAULT_EFFORT) null else it.removePrefix(EFFORT_PREFIX)
-            onIntent(StudioIntent.SelectEngineEffort(model.id, effort, paneId))
+            onIntent(StudioIntent.SelectEngineEffort(model.id, effort, paneId, pageId, expectedSessionId))
         },
         modifier = modifier.testTag("effort-chip"),
         accessibleLabel = stringResource(Res.string.composer_effort_menu),

@@ -45,6 +45,8 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 /**
  * Creates and resumes sessions through explicit routes and the pooled runtime. Heartbeat provenance and the last
@@ -63,10 +65,15 @@ class SessionLauncher(
     suspend fun create(request: CreateSessionRequest): ActiveSession = context.observeAuthentication {
         val target = request.target
         log.i { "create session engine=${target.engine.value} binding=${target.binding.value}" }
-        val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
-        val creator = pool.runtime(resolved).features.resolve(CreatesSessions).orFail()
+        val resolved = routes.resolveSession(target.engine, target.binding, request.workspace, target.model)
+        val creator = pool.sessionRuntime(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = { routes.recheckSession(resolved) },
+            prepare = { routes.bindAdmitted(resolved) },
+        ).features.resolve(CreatesSessions).orFail()
         val native = adapterCall(log, "create") { creator.create(request) }
-        open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
+        open(native, resolved.route, target.model, request.areSessionHooksEnabled, request.isTextOnlyService) {
             if (native.ref.engine != target.engine) fail(EngineFailure.Unknown())
             val now = context.clock.now()
             record(
@@ -86,8 +93,13 @@ class SessionLauncher(
         val target = request.target
         log.i { "resume session engine=${ref.engine.value} binding=${target.binding.value}" }
         if (target.engine != ref.engine) fail(InvalidRequest)
-        val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
-        val attacher = pool.runtime(resolved).features.resolve(AttachesSessions).orFail()
+        val resolved = routes.resolveSession(target.engine, target.binding, request.workspace, target.model)
+        val attacher = pool.sessionRuntime(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = { routes.recheckSession(resolved) },
+            prepare = { routes.bindAdmitted(resolved) },
+        ).features.resolve(AttachesSessions).orFail()
         val native = adapterCall(log, "attach") { attacher.attach(ref, request) }
         open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
             if (native.ref != ref) fail(EngineFailure.Unknown())
@@ -100,8 +112,15 @@ class SessionLauncher(
     suspend fun trees(root: SessionRef, access: SessionTreeAccess): SessionTrees {
         val target = access.target
         if (root.engine != target.engine) fail(InvalidRequest)
-        val resolved = routes.resolve(target.engine, target.binding, access.workspace, target.model)
-        return pool.runtime(resolved).features.resolve(SessionTrees).orFail()
+        val resolved = routes.resolveSession(target.engine, target.binding, access.workspace, target.model)
+        val trees = resolved.registration.fileSessionTrees?.value ?: pool.sessionRuntime(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = { routes.recheckSession(resolved) },
+            prepare = { routes.bindAdmitted(resolved) },
+        ).features.resolve(SessionTrees).orFail()
+        routes.recheckSession(resolved)
+        return CheckedSessionTrees(trees, root, access) { routes.recheckSession(resolved) }
     }
 
     /** Cancels stored work through its explicit route without opening a session or recording provenance. */
@@ -110,10 +129,15 @@ class SessionLauncher(
         if (ref.engine != target.engine) fail(InvalidRequest)
         // Helpers poll stops until confirmed: only a confirmed stop is a significant transition.
         log.v { "stop owned turn engine=${ref.engine.value} binding=${target.binding.value}" }
-        val resolved = routes.resolve(target.engine, target.binding, access.workspace)
-        val stopper = pool.runtime(resolved).features.resolve(StopsOwnedTurns).orFail()
-        // Starting a metadata runtime may suspend while a binding is disabled or its source changes.
-        routes.recheck(resolved.route, null)
+        val resolved = routes.resolveSession(target.engine, target.binding, access.workspace)
+        val stopper = pool.runtimeForStop(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = { routes.recheckSession(resolved) },
+            prepare = { routes.bindAdmitted(resolved) },
+        ).features.resolve(StopsOwnedTurns).orFail()
+        // Runtime acquisition may suspend while a binding is disabled or its source changes.
+        routes.recheckSession(resolved)
         val result = adapterCall(log, "stop owned turn") { stopper.stop(ref, request, access) }
         if (result is OwnedTurnStop.Confirmed) {
             val isExpectedTurn = access.expectedTurn == null || result.turn.id == access.expectedTurn
@@ -134,11 +158,16 @@ class SessionLauncher(
 
     /** Native composer assists of the engine's runtime; never creates or attaches a session. */
     suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> {
-        val resolved = routes.resolve(target.engine, target.binding, workspace, target.model)
+        val resolved = routes.resolveSession(target.engine, target.binding, workspace, target.model)
         val feature = resolved.registration.composerAssists?.value
-            ?: pool.runtime(resolved).features.resolve(ListsComposerAssists).orFail()
+            ?: pool.sessionRuntime(
+                resolved,
+                TimeSource.Monotonic.markNow() + 30.seconds,
+                recheck = { routes.recheckSession(resolved) },
+                prepare = { routes.bindAdmitted(resolved) },
+            ).features.resolve(ListsComposerAssists).orFail()
         val items = feature.assists(target, workspace)
-        routes.recheck(resolved.route, target.model)
+        routes.recheckSession(resolved)
         return items
     }
 
@@ -147,6 +176,7 @@ class SessionLauncher(
         route: ExecutionRoute,
         model: ModelId,
         areSessionHooksEnabled: Boolean,
+        isTextOnlyService: Boolean = false,
         prepare: suspend () -> Unit,
     ): ActiveSession {
         var isOpened = false
@@ -154,7 +184,7 @@ class SessionLauncher(
         try {
             routes.recheck(route, model)
             prepare()
-            val handle = host.open(native, route, model, areSessionHooksEnabled).also { opened = it }
+            val handle = host.open(native, route, model, areSessionHooksEnabled, isTextOnlyService).also { opened = it }
             // Register before the recheck: a concurrent removal either closes this handle or is observed here.
             routes.recheck(route, model)
             isOpened = true

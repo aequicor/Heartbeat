@@ -29,7 +29,9 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.EngineConnectionsScope
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineConnectionsEffects
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineServices
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ModelChecksCoordinator
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.component.EngineConnectionsComponent
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsTarget
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ui.EngineConnectionsUiComponent
 
 /** Settings space graph retained by its navigation entry. */
@@ -44,6 +46,7 @@ interface EngineConnectionsGraph {
         /** Creates a settings space owned by [scope]. */
         fun createEngineConnections(
             @Provides @ForScope(EngineConnectionsScope::class) scope: ScopeHandle,
+            @Provides target: EngineConnectionsTarget,
         ): EngineConnectionsGraph
     }
 }
@@ -55,13 +58,19 @@ object EngineConnectionsBindings {
     /** Launches the machine for the lifetime of the settings space. */
     @Provides
     @SingleIn(EngineConnectionsScope::class)
-    fun machine(
+    internal fun machine(
         launcher: MachineLauncher,
         @ForScope(EngineConnectionsScope::class) scope: ScopeHandle,
         services: EngineServices,
         selections: ModelSelections,
-    ): Machine<EngineConnectionsState, EngineConnectionsIntent, EngineConnectionsOutput> =
-        launcher.launch(EngineConnectionsMachineSpec, scope, EngineConnectionsEffects(services, selections))
+        checks: ModelChecksCoordinator,
+        target: EngineConnectionsTarget,
+    ): Machine<EngineConnectionsState, EngineConnectionsIntent, EngineConnectionsOutput> = launcher.launch(
+        EngineConnectionsMachineSpec,
+        scope,
+        EngineConnectionsEffects(services, selections, checks),
+        isAddressable = target.engine == null,
+    )
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())
@@ -72,6 +81,8 @@ internal class EngineConnectionsRouteEntry(
     private val graphs: EngineConnectionsGraph.Factory,
 ) : RouteEntry<EngineConnectionsRoute>(EngineConnectionsRoute::class, EngineConnectionsRoute.serializer()) {
     override fun create(route: EngineConnectionsRoute, context: ComponentContext, navigator: Navigator): NavComponent =
-        context.retainedGraph(scopes, profile, name = "engineconnections") { graphs.createEngineConnections(it) }
+        context.retainedGraph(scopes, profile, name = "engineconnections") {
+            graphs.createEngineConnections(it, EngineConnectionsTarget(route.engine))
+        }
             .factory.create(context, navigator, route).let { EngineConnectionsUiComponent(it) }
 }

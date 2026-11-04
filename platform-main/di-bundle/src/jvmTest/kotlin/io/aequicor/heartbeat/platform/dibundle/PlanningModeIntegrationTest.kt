@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.platform.dibundle
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.planningmode.api.PlanAuthor
@@ -26,6 +27,8 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.File
+import java.io.FileNotFoundException
+import java.nio.file.NoSuchFileException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -40,6 +43,7 @@ class PlanningModeIntegrationTest {
     private val persisted = PersistedProfile()
     private val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)
     private val toggles = app as TestToggleAccessors
+    private val log = Log.tag("PlanningModeIntegrationTest")
 
     @BeforeTest
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -75,7 +79,7 @@ class PlanningModeIntegrationTest {
                 machine.send(
                     PlanningIntent.Public.Write(Chat, PlanEdit.Replace("# Plan\n\nSteps"), 0, PlanAuthor.User, At),
                 )
-                while (planFiles().none { it.readText() == "# Plan\n\nSteps" }) delay(10.milliseconds)
+                while (planTexts().none { it == "# Plan\n\nSteps" }) delay(10.milliseconds)
             }
         }
         app.profileSessions.close()
@@ -95,6 +99,24 @@ class PlanningModeIntegrationTest {
 
     private fun planFiles(): List<File> =
         File(persisted.storageRoot).walk().filter { it.name == "plan.md" && it.parentFile.name == Chat.value }.toList()
+
+    /**
+     * Texts of the plan files of [Chat]. The studio writes a plan through a temporary file and an atomic move, and this
+     * reader lists the directory and then opens the file in two separate operations: on Windows an open that lands in
+     * the middle of the replacement fails with [FileNotFoundException]. Such a file is polled again, and the caller's
+     * timeout still bounds the wait, so a plan that is never written fails the test instead of passing as empty.
+     */
+    private fun planTexts(): List<String> = planFiles().mapNotNull { it.readPlanText() }
+
+    private fun File.readPlanText(): String? = try {
+        readText()
+    } catch (e: FileNotFoundException) {
+        log.w(e) { "plan file replaced between the listing and the read: chat=${Chat.value}" }
+        null
+    } catch (e: NoSuchFileException) {
+        log.w(e) { "plan file replaced between the listing and the read: chat=${Chat.value}" }
+        null
+    }
 
     private companion object {
         val Chat = PlanChat("chat-1")

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -25,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
+import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogHistoryFormat
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -52,6 +54,8 @@ internal class KoogRuntime(
     private val cache: KoogSessionCache,
     private val search: SearchEngine,
     private val workspaces: KoogWorkspaces,
+    /** Identity of the admitted build contract; null until this runtime was admitted for an exact stamp. */
+    override val compatibilityStamp: EngineCompatibilityStamp? = null,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -90,6 +94,7 @@ internal class KoogRuntime(
                     features = setOf(SessionHistory.id, ResumesSessions.id),
                 ),
                 request.target.model,
+                schemaRevision = KoogHistoryFormat.CURRENT_REVISION,
             )
             koogCall { records.save(record) }
             checkOpen()

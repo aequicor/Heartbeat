@@ -19,6 +19,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -31,9 +33,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.runtime.PiCandidates
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.runtime.PiCompatibility
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.runtime.UnsupportedPiCandidates
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.runtime.UnsupportedPiCompatibility
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -43,6 +51,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import kotlin.time.TimeMark
 
 @Inject
 @SingleIn(ProfileScope::class)
@@ -56,12 +65,24 @@ internal class DesktopPiEngine(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val workspaces: LocalWorkspaces,
     private val nativeWeb: PiNativeWeb,
+    private val compatibility: PiCompatibility = UnsupportedPiCompatibility,
+    private val candidates: PiCandidates = UnsupportedPiCandidates,
 ) : PiAdapter {
     private val log = Log.tag("DesktopPiEngine")
     private val mutex = Mutex()
     private val runtimes = mutableMapOf<AuthSourceId, PiRuntime>()
 
     override val preparation = processes.preparation
+
+    /** Researched policy of this build; a target without generated facts reports null and keeps no admission. */
+    override val runtimeRequirements: EngineCompatibilityRequirements? get() = compatibility.requirements()
+
+    override suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { admission, stamp ->
+        promoteRuntime(request.identity, stamp, admission)
+    }
 
     override suspend fun prepareRuntime() {
         ensureEnabled()
@@ -164,23 +185,74 @@ internal class DesktopPiEngine(
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
         ensureEnabled()
         require(identity.engine == PiEngineId) { "Foreign engine" }
-        val source = settings.source(identity.source)
-        if (source.info.revision != identity.revision || identity.revision is AuthRevision.Unknown) {
-            authenticationFailure(AuthFailureReason.SourceChanged, identity.source)
-        }
+        val source = resolvedSource(identity)
         val existing = runtimes[identity.source]
         if (existing != null && existing.identity == identity && !existing.isClosed) {
             existing.validate()
             return@withLock existing
         }
         existing?.close()
-        // Runtime/session/transport objects carry request-specific state and are owned by this profile service.
-        PiRuntime(
-            PiRuntimeCredentials(identity, source, processes.credentialFingerprint(source)),
-            environment,
-            PiRuntimeServices(settings, processes, workspaces, nativeWeb),
-        ).also { runtimes[identity.source] = it }
+        newRuntime(identity, source).also { runtimes[identity.source] = it }
     }
+
+    /**
+     * Creates and registers the ordinary runtime for one exact admitted stamp and artifact. Only a candidate
+     * promotion of the assessed artifact calls this; a runtime with another stamp is retired instead of reused.
+     * The admitted executable is compared with the launch that would start now and re-verified before any runtime
+     * exists, then pinned: later session starts do not re-resolve the profile's current launch.
+     */
+    private suspend fun promoteRuntime(
+        identity: RuntimeIdentity,
+        stamp: EngineCompatibilityStamp,
+        admission: PiRuntimeAdmission?,
+    ): EngineRuntime = mutex.withLock {
+        ensureEnabled()
+        require(identity.engine == PiEngineId) { "Foreign engine" }
+        val source = resolvedSource(identity)
+        // A promotion without a verified artifact cannot be bound to the process that will run.
+        val pinned = admission ?: rejectPromotion()
+        if (!pinned.matches(processes.startup()) || !processes.verifyAdmission(pinned)) rejectPromotion()
+        val existing = runtimes[identity.source]
+        val reusable = existing?.takeIf {
+            it.identity == identity && !it.isClosed && it.compatibilityStamp == stamp &&
+                it.selectedExecutable == pinned.executable &&
+                it.admittedVersion == pinned.startup.runtimeVersion
+        }
+        if (reusable != null) {
+            reusable.validate()
+            return@withLock reusable
+        }
+        existing?.close()
+        log.i { "Creating admitted Pi profile runtime" }
+        newRuntime(identity, source, stamp, pinned).also { runtimes[identity.source] = it }
+    }
+
+    private fun rejectPromotion(): Nothing {
+        log.w { "Pi promotion no longer matches the admitted artifact" }
+        piFailure(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+    }
+
+    private suspend fun resolvedSource(identity: RuntimeIdentity): AuthSource.ManagedKey {
+        val source = settings.source(identity.source)
+        if (source.info.revision != identity.revision || identity.revision is AuthRevision.Unknown) {
+            authenticationFailure(AuthFailureReason.SourceChanged, identity.source)
+        }
+        return source
+    }
+
+    /** Runtime/session/transport objects carry request-specific state and are owned by this profile service. */
+    private suspend fun newRuntime(
+        identity: RuntimeIdentity,
+        source: AuthSource.ManagedKey,
+        stamp: EngineCompatibilityStamp? = null,
+        admission: PiRuntimeAdmission? = null,
+    ): PiRuntime = PiRuntime(
+        PiRuntimeCredentials(identity, source, processes.credentialFingerprint(source)),
+        environment,
+        PiRuntimeServices(settings, processes, workspaces, nativeWeb),
+        stamp,
+        admission,
+    )
 
     private suspend fun ensureEnabled() {
         if (profile.isClosed) piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))

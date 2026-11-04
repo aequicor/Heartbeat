@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.isVisibleTo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigSchema
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -18,14 +20,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlin.time.TimeMark
 
 /** Engine-specific authentication context. Only the factory decides which parts contribute to its context key. */
 public data class EngineContext(
@@ -62,6 +69,8 @@ public class EngineRegistration(
     public val configurator: Lazy<EngineConfigurator>? = null,
     /** File-only composer discovery, available without constructing an engine runtime or starting a process. */
     public val composerAssists: Lazy<ListsComposerAssists>? = null,
+    /** Read-only session trees that never bind an account, start a process, or construct an engine runtime. */
+    public val fileSessionTrees: Lazy<SessionTrees?>? = null,
 ) {
     init {
         require((configuration == null) == (configurator == null)) { "A configuration schema needs a configurator" }
@@ -82,6 +91,26 @@ public class EngineRegistration(
 
 /** Adapter factory. Facade applies ownership/toggle gates before delegating. No method silently changes sources. */
 public interface EngineFactory {
+    /** Discovery creates a native session and must run on the exact runtime admitted for the route. */
+    public val isAdmittedRuntimeRequiredForModels: Boolean get() = false
+
+    /**
+     * Researched launch policy of this connector build. Static and IO-free; null means unestablished policy,
+     * never legacy version approval. The facade assesses candidate evidence against this policy itself.
+     */
+    public val runtimeRequirements: EngineCompatibilityRequirements? get() = null
+
+    /**
+     * Acquires only a restricted candidate for the exact [request]. No ordinary runtime preparation, real
+     * credentials or user/project configuration may be accessed here. The same absolute [deadline] also covers
+     * promotion; cancellation must propagate and release resources acquired before the candidate is returned.
+     * Null refuses admission without falling back to [prepareRuntime] or [createRuntime].
+     */
+    public suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? = null
+
     /** Current first-use preparation, emitted immediately; observing never starts preparation or a process. */
     public val preparation: Flow<EnginePreparation> get() = flowOf(EnginePreparation.Ready)
 
@@ -126,6 +155,25 @@ public interface EngineFactory {
     public suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo>
 
     /**
+     * Optional strict execution of [IsolatedPrompt.constraints]. Must not bind, prepare a regular runtime, discover
+     * models, resolve workspace instructions, run hooks/tools or persist session/configuration/history. A fresh
+     * context and explicit provider token cap, one round and no transport retries are mandatory. Unsupported
+     * implementations refuse before model IO. Cancellation must cancel the request and finish owned cleanup
+     * before returning; facade retains capacity until then. Recheck [deadline] immediately before provider dispatch
+     * and after any suspending setup; it includes queueing and route validation, not a fresh timeout.
+     * Invoke [beforeDispatch] immediately before the actual request, after all suspending setup and adapter-cache
+     * checks. It revalidates canonical facade bindings/auth sources; an adapter cache is not that authority.
+     * Source material stays inside the trusted adapter.
+     */
+    public suspend fun answerIsolated(
+        prompt: IsolatedPrompt,
+        source: AuthSource,
+        context: EngineContext,
+        deadline: TimeMark,
+        beforeDispatch: suspend () -> Unit,
+    ): IsolatedAnswer = IsolatedAnswer.Unavailable(IsolatedPromptFailure.IsolationUnproven)
+
+    /**
      * Creates a runtime after route checks. Pool by engine/source within a profile, across all workspaces.
      * A revision change retires the old runtime before replacement, never starts two credential rotators.
      */
@@ -140,6 +188,14 @@ public interface EngineFactory {
 public interface EngineRuntime {
     /** Fixed credential identity; workspace and model belong to individual sessions. */
     public val identity: RuntimeIdentity
+
+    /**
+     * Actual admitted process/client contract. Null means this runtime has not been admitted. A restart or any
+     * artifact/configuration/history contract change invalidates the stamp before operations can continue;
+     * adapters must mark the runtime closed and obtain new admission instead of retaining an obsolete stamp.
+     * This getter is IO-free, never an inspection of a different executable selected for a future launch.
+     */
+    public val compatibilityStamp: EngineCompatibilityStamp? get() = null
 
     /** Runtime operations use the same capability contracts as facade handles. */
     public val features: EngineFeatures

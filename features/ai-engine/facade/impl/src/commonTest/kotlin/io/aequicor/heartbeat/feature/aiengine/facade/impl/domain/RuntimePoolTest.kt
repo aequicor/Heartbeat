@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -38,6 +39,26 @@ class RuntimePoolTest {
 
     private var launch = LaunchContext()
 
+    @Test
+    fun `metadata runtime is replaced when source scope changes at the same revision`() = runTest {
+        val pool = pool()
+        val source = managedKey()
+        val first = pool.runtime(route(source))
+        val renamed = source.copy(info = source.info.copy(label = "new label"))
+        assertSame(first, pool.runtime(route(renamed)))
+
+        val changed = source.copy(scope = source.scope.copy(origin = EndpointOrigin("https://other.example.com")))
+        busy += source.info.id
+        assertEquals(
+            EngineFailure.Session(SessionFailureReason.Busy),
+            assertFailsWith<EngineException> { pool.runtime(route(changed)) }.failure,
+        )
+        assertFalse(first.isClosed)
+        busy.clear()
+        assertNotSame(first, pool.runtime(route(changed)))
+        assertTrue(first.isClosed)
+    }
+
     private fun TestScope.pool(clock: FixedClock = FixedClock()): RuntimePool {
         factory.runtime = { identity -> FakeRuntime(identity).also { runtimes += it } }
         otherFactory.runtime = factory.runtime
@@ -47,6 +68,90 @@ class RuntimePoolTest {
             { engine, source -> retiredHandles += engine to source },
             { launch },
         )
+    }
+
+    @Test
+    fun `failed orphan close prevents a new rotator until retry confirms cleanup`() = runTest {
+        val pool = pool()
+        val gate = CompletableDeferred<Unit>().also { factory.createGate = it }
+        factory.runtime = { identity ->
+            FakeRuntime(identity).also {
+                it.closeFailure = IllegalStateException("test close failure")
+                runtimes += it
+            }
+        }
+        val creation = launch { pool.runtime(route(managedKey())) }
+        runCurrent()
+        creation.cancel()
+        gate.complete(Unit)
+        creation.join()
+        assertEquals(1, runtimes.size)
+        assertTrue(pool.entries.value.isEmpty())
+        assertFailsWith<IllegalStateException> { pool.runtime(route(managedKey())) }
+        assertEquals(1, runtimes.size)
+        runtimes.single().closeFailure = null
+        factory.runtime = { identity -> FakeRuntime(identity).also { runtimes += it } }
+        pool.runtime(route(managedKey()))
+        assertEquals(2, runtimes.size)
+        assertTrue(runtimes.first().isClosed)
+    }
+
+    @Test
+    fun `failed retirement is reported and its orphan blocks replacement until cleanup succeeds`() = runTest {
+        val pool = pool()
+        val first = route(managedKey(revision = AuthRevision.Known("r1")))
+        pool.runtime(first)
+        runtimes.single().closeFailure = IllegalStateException("test retirement failure")
+        assertFailsWith<IllegalStateException> { pool.retire(TestEngine) }
+        val next = route(managedKey(revision = AuthRevision.Known("r2")))
+        assertFailsWith<IllegalStateException> { pool.runtime(next) }
+        assertEquals(1, runtimes.size)
+        runtimes.single().closeFailure = null
+        pool.runtime(next)
+        assertEquals(2, runtimes.size)
+        assertTrue(runtimes.first().isClosed)
+    }
+
+    @Test
+    fun `foreign reported identity cannot bypass original source orphan barrier`() = runTest {
+        val pool = pool()
+        factory.runtime = { identity ->
+            FakeRuntime(identity.copy(source = AuthSourceId("foreign"))).also {
+                it.closeFailure = IllegalStateException("test close failure")
+                runtimes += it
+            }
+        }
+        assertFailsWith<EngineException> { pool.runtime(route(managedKey())) }
+        assertFailsWith<IllegalStateException> { pool.runtime(route(managedKey())) }
+        assertEquals(1, runtimes.size)
+        runtimes.single().closeFailure = null
+        factory.runtime = { identity -> FakeRuntime(identity).also { runtimes += it } }
+        pool.runtime(route(managedKey()))
+        assertEquals(2, runtimes.size)
+        assertTrue(runtimes.first().isClosed)
+    }
+
+    @Test
+    fun `profile shutdown retains and retries an orphan outside pool entries`() = runTest {
+        val pool = pool()
+        val gate = CompletableDeferred<Unit>().also { factory.createGate = it }
+        factory.runtime = { identity ->
+            FakeRuntime(identity).also {
+                it.closeFailure = IllegalStateException("test close failure")
+                runtimes += it
+            }
+        }
+        val creation = launch { pool.runtime(route(managedKey())) }
+        runCurrent()
+        creation.cancel()
+        gate.complete(Unit)
+        creation.join()
+        assertTrue(pool.entries.value.isEmpty())
+        assertFailsWith<IllegalStateException> { pool.closeAll() }
+        runtimes.single().closeFailure = null
+        pool.closeAll()
+        assertEquals(3, runtimes.single().closes)
+        assertTrue(runtimes.single().isClosed)
     }
 
     @Test

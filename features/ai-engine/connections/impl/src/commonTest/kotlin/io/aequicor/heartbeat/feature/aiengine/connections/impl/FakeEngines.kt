@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.BindingCheck
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
@@ -38,15 +39,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsToken
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
@@ -60,16 +65,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.time.Instant
 
 internal val OpenAi = ProviderInfo(ProviderId("openai"), "OpenAI", "https://platform.openai.com/api-keys")
@@ -120,6 +129,7 @@ internal class FakeEngineFacade : EngineFacade {
     var discoverGate: CompletableDeferred<Unit>? = null
     var disconnectFailure: Exception? = null
     var disconnectCleanupFailure: Exception? = null
+    var editSource: (suspend (ConnectionEdit, (AuthSource) -> Unit) -> Unit)? = null
     val calls = mutableListOf<String>()
 
     override val engines: EngineCatalog = object : EngineCatalog {
@@ -136,6 +146,11 @@ internal class FakeEngineFacade : EngineFacade {
 
     override val bindings: EngineBindings = object : EngineBindings {
         override val state: StateFlow<List<EngineBinding>> = bindingsState
+
+        override suspend fun edit(edit: ConnectionEdit, onSaved: (AuthSource) -> Unit) {
+            calls += "edit"
+            requireNotNull(editSource)(edit, onSaved)
+        }
 
         override suspend fun connect(engine: EngineId, source: AuthSourceId, priority: Int): EngineBinding {
             calls += "connect"
@@ -184,8 +199,13 @@ internal class FakeEngineFacade : EngineFacade {
 internal class FakeAuthSources : AuthSources {
     override val state = MutableStateFlow(emptyList<AuthSource>())
     val forgotten = mutableListOf<AuthSourceId>()
+    var currentOverride: AuthSource? = null
+    var failingSource: AuthSourceId? = null
 
-    override suspend fun get(id: AuthSourceId): AuthSource? = state.value.firstOrNull { it.info.id == id }
+    override suspend fun get(id: AuthSourceId): AuthSource? {
+        check(id != failingSource) { "source unavailable" }
+        return currentOverride?.takeIf { it.info.id == id } ?: state.value.firstOrNull { it.info.id == id }
+    }
 
     override suspend fun addManagedKey(label: String, scope: AuthScope, key: Secret): AuthSource.ManagedKey {
         key.reveal { check(it.isNotEmpty()) }
@@ -234,12 +254,27 @@ internal class FakeModelSelections : ModelSelections {
     }
 }
 
+/** In-memory admission contract; records exact routes and never touches a runtime. */
+internal class FakeEngineRouteAdmission : EngineRouteAdmission {
+    val calls = mutableListOf<Pair<EngineId, EngineBindingId>>()
+    var result: RouteAdmission = RouteAdmission.Unavailable
+    var failure: Exception? = null
+
+    override suspend fun assess(engine: EngineId, binding: EngineBindingId): RouteAdmission {
+        calls += engine to binding
+        failure?.let { throw it }
+        return result
+    }
+}
+
 /** Collects intents sent by an effect. */
 internal class RecordingScope<I : MachineIntent> : EffectScope<I> {
     val intents = mutableListOf<I>()
     var result: SendResult = SendResult.Accepted
+    var beforeSend: suspend () -> Unit = {}
 
     override suspend fun send(intent: I): SendResult {
+        beforeSend()
         intents += intent
         return result
     }
@@ -253,37 +288,102 @@ internal class FakeEngineManagement : EngineManagement {
     override val state = MutableStateFlow(EngineManagementState.Off)
     val commands = mutableListOf<EngineCommand>()
     var inspectedHostApp: HostAppState? = null
+    var inspectedLaunch: LaunchState? = null
     var configureFailure: EngineException? = null
+    var afterConfigure: suspend () -> Unit = {}
+    private class Token : LaunchSettingsToken
+    private var token = Token()
 
     /** The phase a started sign-in reaches; AwaitingCode stays until cancelled. */
     var loginPhase: JobPhase = JobPhase.Succeeded
     var startFailure: EngineException? = null
+    var beforeConditionalLogin: suspend () -> Unit = {}
+    var afterLoginStarted: suspend () -> Unit = {}
     private var logins = 0L
 
     /** Publishes inspections later in this scope, like the real service's state flow; null publishes at once. */
     var publisher: CoroutineScope? = null
+    var suppressInspections: Boolean = false
     private var inspections = 0L
 
-    override suspend fun execute(engine: EngineId, command: EngineCommand) {
-        commands += command
-        when (command) {
-            EngineCommand.Inspect -> {
-                val checkedAt = Instant.fromEpochSeconds(++inspections)
-                val publish = {
-                    change(engine) {
-                        it.copy(
-                            hostApp = inspectedHostApp,
-                            installation = it.installation.copy(checkedAt = checkedAt),
-                        )
-                    }
+    override suspend fun inspect(engine: EngineId): EngineInspection {
+        commands += EngineCommand.Inspect
+        if (suppressInspections) kotlinx.coroutines.awaitCancellation()
+        val checkedAt = Instant.fromEpochSeconds(++inspections)
+        val current = state.value.engines.single { it.descriptor.id == engine }
+        val result = EngineInspection(
+            engine,
+            current.installation.copy(checkedAt = checkedAt),
+            current.login,
+            inspectedLaunch ?: current.launch,
+            inspectedHostApp,
+            LaunchSettingsSnapshot((inspectedLaunch ?: current.launch).settings, token),
+        )
+        val publish = {
+            change(engine) { it.copy(hostApp = result.hostApp, installation = result.installation) }
+        }
+        publisher?.launch {
+            delay(PUBLISH_DELAY_MILLIS)
+            publish()
+        } ?: publish()
+        return result
+    }
+
+    override suspend fun configureIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        settings: LaunchSettings,
+        onSaved: (LaunchSettingsSnapshot) -> Unit,
+    ) {
+        if (expected.token !== token) throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        execute(engine, EngineCommand.Configure(settings))
+        withContext(NonCancellable) {
+            onSaved(LaunchSettingsSnapshot(settings, token))
+            afterConfigure()
+        }
+    }
+
+    override suspend fun startLoginIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        method: io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod,
+        onStarted: (io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob) -> Unit,
+    ) {
+        beforeConditionalLogin()
+        if (expected.token !== token) throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        execute(engine, EngineCommand.Start(EngineAction.Login(method)))
+        val handle = object : io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob {
+            override suspend fun await(): JobPhase =
+                if (loginPhase.isFinished) loginPhase else kotlinx.coroutines.awaitCancellation()
+
+            override suspend fun cancel(): JobPhase {
+                if (state.value.engines.single { it.descriptor.id == engine }.job?.handle === this) {
+                    execute(engine, EngineCommand.Cancel)
                 }
-                publisher?.launch {
-                    delay(PUBLISH_DELAY_MILLIS)
-                    publish()
-                } ?: publish()
+                return JobPhase.Cancelled
             }
 
+            override suspend fun dismiss(): Boolean {
+                val job = state.value.engines.single { it.descriptor.id == engine }.job
+                if (job?.handle !== this || !job.phase.isFinished) return false
+                execute(engine, EngineCommand.Dismiss)
+                return true
+            }
+        }
+        change(engine) { current -> current.copy(job = current.job?.copy(handle = handle)) }
+        onStarted(handle)
+        afterLoginStarted()
+    }
+
+    override suspend fun execute(engine: EngineId, command: EngineCommand) {
+        if (command == EngineCommand.Inspect) {
+            inspect(engine)
+            return
+        }
+        commands += command
+        when (command) {
             is EngineCommand.Configure -> {
+                token = Token()
                 configureFailure?.let { throw it }
                 change(engine) { it.copy(launch = LaunchState(command.settings)) }
             }

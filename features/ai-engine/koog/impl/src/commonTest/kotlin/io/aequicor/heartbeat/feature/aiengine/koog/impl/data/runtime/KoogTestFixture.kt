@@ -58,16 +58,25 @@ import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
+import io.ktor.client.HttpClient
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 
 internal class KoogTestFixture(test: TestScope) {
@@ -101,6 +110,7 @@ internal class KoogTestFixture(test: TestScope) {
     var toolsByModel = emptyMap<String, Boolean>()
     val openedModels = mutableListOf<String?>()
     var opens = 0
+    var openClient: ((String?) -> KoogClient)? = null
     var beforeModels: suspend () -> Unit = {}
     val secrets = FakeSecrets()
     private val toggles = object : FeatureToggles {
@@ -132,13 +142,24 @@ internal class KoogTestFixture(test: TestScope) {
         },
         toggles,
     )
+    var isolatedTransport: KoogTransport? = null
+    var isolatedOpen: ((IsolatedKoogRequest) -> KoogClient?)? = null
     val access = KoogAccess(
         connections,
         secrets,
         toggles,
         profile,
         object : KoogTransport {
-            override fun open(
+            override suspend fun openIsolated(
+                key: String?,
+                origin: EndpointOrigin,
+                basePath: String?,
+                request: IsolatedKoogRequest,
+            ): KoogClient? = isolatedOpen?.invoke(
+                request,
+            ) ?: isolatedTransport?.openIsolated(key, origin, basePath, request)
+
+            override suspend fun open(
                 provider: KoogProvider,
                 key: String?,
                 model: String?,
@@ -147,6 +168,7 @@ internal class KoogTestFixture(test: TestScope) {
             ): KoogClient {
                 opens++
                 openedModels += model
+                openClient?.let { return it(model) }
                 return KoogClient(executor) {
                     beforeModels()
                     availableModels.map { id ->
@@ -260,13 +282,19 @@ internal class FakeExecutor : PromptExecutor() {
     val tools = mutableListOf<List<ToolDescriptor>>()
     val models = mutableListOf<LLModel>()
     var closed = 0
+    var closeFailure: Exception? = null
     var failure: Exception? = null
     var nextFailure: Exception? = null
+    var streamOverride: Flow<StreamFrame>? = null
     override fun executeStreaming(prompt: Prompt, model: LLModel, tools: List<ToolDescriptor>): Flow<StreamFrame> =
         flow {
             prompts += prompt
             models += model
             this@FakeExecutor.tools += tools
+            streamOverride?.let {
+                emitAll(it)
+                return@flow
+            }
             failure?.let { throw it }
             nextFailure?.let {
                 nextFailure = null
@@ -282,6 +310,7 @@ internal class FakeExecutor : PromptExecutor() {
     override suspend fun moderate(prompt: Prompt, model: LLModel): ModerationResult = error("Not supported")
     override fun close() {
         closed++
+        closeFailure?.let { throw it }
     }
     fun complete(text: String = "answer") {
         frames.trySend(StreamFrame.TextDelta(text)).getOrThrow()
@@ -324,3 +353,18 @@ internal class FakeSecrets : SecretStore {
 
 internal fun <F : EngineFeature> EngineFeatures.require(key: EngineFeatureKey<F>): F =
     (resolve(key) as FeatureAccess.Available).feature
+
+/** A real child cleanup, which remains owned after cancellation until the test releases its resource. */
+@OptIn(ExperimentalCoroutinesApi::class)
+internal fun TestScope.holdHttpCleanup(client: HttpClient): CompletableDeferred<Unit> {
+    val release = CompletableDeferred<Unit>()
+    CoroutineScope(coroutineContext + client.coroutineContext.job).launch {
+        try {
+            awaitCancellation()
+        } finally {
+            withContext(NonCancellable) { release.await() }
+        }
+    }
+    runCurrent()
+    return release
+}

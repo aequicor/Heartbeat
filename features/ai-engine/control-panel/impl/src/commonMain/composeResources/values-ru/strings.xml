@@ -278,7 +278,7 @@
     <string name="control_leave_discard">Не сохранять</string>
     <string name="control_editor_keys">Tab — отступ. Ctrl+Tab — к следующему полю, Ctrl+Shift+Tab — к предыдущему.</string>
     <string name="control_resources_title">Файлы ресурсов</string>
-    <string name="control_resources_note">Выбор по сохранённым настройкам. Чтобы изменить его, отредактируйте пути и маски ресурсов выше.</string>
+    <string name="control_resources_note">Выбор по сохранённым настройкам. Пути и маски ресурсов изменяются в настройках движка.</string>
     <string name="control_resources_refresh">Обновить список</string>
     <string name="control_resources_unloaded">Загрузите список, чтобы увидеть источник и состояние ресурсов.</string>
     <string name="control_resources_empty">В этих папках файлы ресурсов не найдены.</string>
@@ -318,6 +318,7 @@
     <string name="engine_launch_runtime">Runtime</string>
     <string name="engine_launch_runtime_custom">Вместо него используется свой исполняемый файл выше.</string>
     <string name="engine_runtime_auto">Автоматически</string>
+    <string name="engine_runtime_bundled">Поставляется с Heartbeat</string>
     <string name="engine_runtime_managed">Копия Heartbeat</string>
     <string name="engine_runtime_host_app">Приложение %1$s</string>
     <string name="engine_runtime_system">Установленный в системе</string>
@@ -333,4 +334,8 @@
     <string name="control_engine_select">Выберите движок в списке слева.</string>
     <string name="engine_mcp_pi_requirement">Для MCP требуется Pi 1.0.4 или новее.</string>
     <string name="engine_mcp_claude_scope">Поддерживаются MCP пользовательской и локальной конфигурации Claude; проектный .mcp.json не загружается.</string>
+    <string name="control_panel_tab_connections">Подключения</string>
+    <string name="control_panel_tab_resources">Ресурсы</string>
+    <string name="control_panel_resources_unsupported">Коннектор не объявляет инвентарь ресурсов.</string>
+    <string name="control_panel_connections_off">Подключения выключены.</string>
 </resources>

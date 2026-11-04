@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionLifecycle
@@ -36,6 +37,31 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 internal class NativeToolGateTest {
+    @Test
+    fun `service native tools are refused before policy or hooks even in profile full trust`() = runTest {
+        val hook = Hook()
+        val hooks = testSessionHooks(hook)
+        val service = HOOK_CONTEXT.copy(workspace = null, isTextOnlyService = true)
+        hooks.observe(SessionLifecycle.Opened(service))
+        hooks.bindTurn(service)
+        var isPolicyRead = false
+        val tools = DefaultAgentTools(
+            emptySet(),
+            hooks,
+            ToolPolicyResolver { _, _, _ ->
+                isPolicyRead = true
+                ENABLED
+            },
+            settings = TestSecuritySettings(SecurityMode.Trust),
+        )
+        tools.bindTurn(SESSION, REQUEST, TURN)
+        val context = CONTEXT.copy(workspace = null)
+        assertIs<NativeVerdict.Deny>(tools.authorizeNative(context, call()))
+        assertIs<NativePreparation.Deny>(tools.prepareNative(context, call()))
+        assertTrue(hook.calls.isEmpty())
+        assertEquals(false, isPolicyRead)
+    }
+
     @Test
     fun `virtual workspaces deny native tools even when full trust policy and hooks would allow them`() = runTest {
         val hook = Hook()

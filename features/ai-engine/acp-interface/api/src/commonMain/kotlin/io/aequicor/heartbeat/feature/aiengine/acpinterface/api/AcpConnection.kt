@@ -79,6 +79,10 @@ public interface AcpConnection {
     public suspend fun closeSession(sessionId: String): Unit =
         throw UnsupportedOperationException("ACP session close unavailable")
 
+    /** Deletes an idle session, including persistent history, when `sessionCapabilities.delete` was advertised. */
+    public suspend fun deleteSession(sessionId: String): Unit =
+        throw UnsupportedOperationException("ACP session delete unavailable")
+
     /** Lists native sessions, optionally filtered by an absolute cwd; [cursor] continues a previous page. */
     public suspend fun listSessions(cwd: String? = null, cursor: String? = null): AcpSessionList =
         throw UnsupportedOperationException("ACP session listing unavailable")
@@ -121,6 +125,10 @@ public interface AcpConnection {
      */
     public suspend fun setConfigOption(sessionId: String, optionId: String, value: String): Unit =
         throw UnsupportedOperationException("ACP session configuration is unavailable")
+
+    /** Changes an option and returns the agent's complete response for callers that must verify effective values. */
+    public suspend fun setConfigOptionObserved(sessionId: String, optionId: String, value: String): JsonObject =
+        throw UnsupportedOperationException("ACP session configuration observation is unavailable")
 
     /** Sends a notification and cancels pending permission decisions; completion still comes from prompt. */
     public suspend fun cancel(sessionId: String)
@@ -167,6 +175,16 @@ public interface AcpTransport {
 
     /** Releases resources and unblocks outstanding IO without waiting on the calling thread. */
     public fun close()
+
+    /**
+     * Closes and waits for owned IO and the process plus descendants observed at close to stop, with a bounded,
+     * main-safe implementation. A successful return permits deletion of temporary process data. Cancellation
+     * abandons the wait, not the close. Transports without this guarantee close and explicitly reject the call.
+     */
+    public suspend fun closeAndAwait() {
+        close()
+        throw UnsupportedOperationException("ACP transport termination wait unavailable")
+    }
 }
 
 /** Starts desktop processes explicitly. Mobile platforms expose isSupported=false and reject open. */

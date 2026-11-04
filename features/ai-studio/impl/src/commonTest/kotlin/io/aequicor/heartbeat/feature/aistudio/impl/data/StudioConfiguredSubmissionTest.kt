@@ -31,10 +31,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
+import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEffortOverride
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioLastStartedRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
@@ -172,6 +176,7 @@ class StudioConfiguredSubmissionTest {
             assertEquals(1, fixture.session.requests.size)
             assertEquals("boundary", fixture.access.records.getValue("chat").pendingEngineContext)
             assertEquals(0, fixture.access.consumedSeeds)
+            assertTrue(fixture.started.isEmpty())
             assertTrue(fixture.session.requests.single().text().contains(fixture.engineContext.orEmpty()))
             assertTrue(fixture.preparedPrompt.orEmpty().contains("Hello"))
         }
@@ -467,6 +472,73 @@ class StudioConfiguredSubmissionTest {
         override suspend fun write(chatId: String, text: String, base: Long) = false
     }
 
+    @Test
+    fun `accepted ordinary run captures actual native effort and policy instead of legacy defaults`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.native.configuration.value = fixture.native.configuration.value.copy(reasoningEffort = "native-high")
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+            configuration = fixture.native.configuration.value.studio(fixture.configuration.target),
+        )
+        fixture.submit("human")
+        val saved = fixture.started.single()
+        assertEquals(fixture.configuration.target.studioModelId(), saved.modelId)
+        assertEquals("native-high", saved.reasoningEffort)
+        assertEquals(ApprovalMode.AutoEdits, saved.approval)
+        fixture.security.value = StudioSecurityLevel.Ask
+        fixture.submit("next")
+        assertEquals(TrustLevel.Ask, fixture.session.requests.last().trust)
+    }
+
+    @Test
+    fun `host turns compaction handoff and refused sends do not change last ordinary defaults`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.submit("automatic", isUserPrompt = false)
+        fixture.submit("compaction", compaction = ContextCompaction())
+        fixture.submit(HANDOFF_REQUEST_PREFIX + "handoff")
+        assertTrue(fixture.started.isEmpty())
+        fixture.session.failure = EngineException(EngineFailure.Request(RequestFailureReason.Invalid))
+        assertFailsWith<EngineException> { fixture.submit("refused") }
+        assertTrue(fixture.started.isEmpty())
+    }
+
+    @Test
+    fun `manual helper and organism turns do not replace ordinary chat defaults`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+            helper = StudioHelperIdentity(ActionId("owner"), null, null, TrustLevel.Ask),
+        )
+        fixture.submit("manual-helper")
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+            helper = null,
+            organismId = "organism",
+        )
+        fixture.submit("manual-organism")
+        assertTrue(fixture.started.isEmpty())
+    }
+
+    @Test
+    fun `acceptance is captured before a failed post acceptance checkpoint`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.access.beforeSave = { error("checkpoint unavailable") }
+        fixture.submit("human")
+        assertEquals(1, fixture.started.size)
+        assertEquals(1, fixture.session.requests.size)
+    }
+
+    @Test
+    fun `first ordinary run uses route bound native default while existing chat keeps its own effort`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(configuration = null)
+        fixture.submit(
+            "first",
+            settings = DefaultRunSettings.copy(
+                modelId = fixture.configuration.target.studioModelId(),
+                nativeEffort = StudioEffortOverride(fixture.configuration.target.studioModelId(), null),
+            ),
+        )
+        assertEquals(null, fixture.session.requests.last().reasoningEffort)
+    }
+
     private fun PromptRequest.text(): String = parts.filterIsInstance<ContentPart.Text>().joinToString { it.text }
 }
 
@@ -502,6 +574,7 @@ private class SubmissionFixture(
     val session = SubmissionSession(target, native, isTrustSupported)
     val security = MutableStateFlow(StudioSecurityLevel.Automatic)
     var securityReads = 0
+    val started = mutableListOf<StudioSessionSettings>()
     private val submission = StudioConfiguredSubmission(
         configuration.controller,
         StudioLearningPrompts(LearningOff, UnconfinedDispatchers),
@@ -529,6 +602,12 @@ private class SubmissionFixture(
                 hostCommands: List<HostCommand>,
             ): List<ComposerSuggestion> = emptyList()
         },
+        lastStarted = object : StudioLastStartedRun {
+            override fun observe() = kotlinx.coroutines.flow.flowOf<StudioSessionSettings?>(null)
+            override fun capture(settings: StudioSessionSettings) {
+                started += settings
+            }
+        },
         planning = planning,
     )
 
@@ -549,6 +628,7 @@ private class SubmissionFixture(
         isUserPrompt: Boolean = true,
         userInstruction: String? = null,
         environment: StudioChatEnvironment? = null,
+        settings: RunSettings = DefaultRunSettings,
     ): TurnId = submission.submit(
         submissionAccess,
         session,
@@ -556,7 +636,7 @@ private class SubmissionFixture(
         StudioTurnRequest(
             "chat",
             prompt = if (compaction == null) userInstruction ?: "Hello" else "",
-            settings = DefaultRunSettings,
+            settings = settings,
             kind = WorktreeRunKind.Coding,
             request = RequestId(request),
             compaction = compaction,

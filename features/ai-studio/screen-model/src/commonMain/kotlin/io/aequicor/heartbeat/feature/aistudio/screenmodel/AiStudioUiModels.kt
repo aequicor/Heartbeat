@@ -28,6 +28,10 @@ data class PaneUi(
     val isSandbox: Boolean = false,
     /** Planning mode selected for a new pane. */
     val isPlanning: Boolean = false,
+    /** Parameters captured for this new page; confirmed chat settings remain separate. */
+    val settings: SettingsUi? = null,
+    /** Identity of this new page, used to reject delayed composer actions. */
+    val pageId: Long = 0,
 )
 
 /** Where a project's agent runs. */

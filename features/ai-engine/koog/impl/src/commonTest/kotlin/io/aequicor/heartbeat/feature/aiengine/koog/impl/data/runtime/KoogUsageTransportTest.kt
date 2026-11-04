@@ -34,7 +34,10 @@ class KoogUsageTransportTest {
         }
         HttpClient(engine).use { http ->
             for (enabled in listOf(false, true)) {
-                SdkKoogTransport(http).open(KoogProvider.Anthropic, "test-key", "test").use { client ->
+                SdkKoogTransport(
+                    http,
+                    TestKoogPlatform,
+                ).open(KoogProvider.Anthropic, "test-key", "test").use { client ->
                     client.usage.enable(enabled)
                     val frames = client.executor.executeStreaming(
                         prompt("usage") { user("hello") },

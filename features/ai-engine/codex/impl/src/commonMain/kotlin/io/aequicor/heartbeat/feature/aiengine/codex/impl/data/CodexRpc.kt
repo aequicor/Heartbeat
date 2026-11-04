@@ -25,6 +25,10 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
     private val log = Log.tag("CodexRpc")
     var home: String? = null
         private set
+
+    /** Version this held process reports about its own build; unknown when the handshake omits it. */
+    var engineVersion: String? = null
+        private set
     private var nextId = 0L
     private val pending = mutableMapOf<String, CompletableDeferred<JsonObject>>()
 
@@ -63,6 +67,12 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
         home = response["codexHome"]?.let { value ->
             (value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: protocolFailure()
         }
+        // The process names its own build; an absent payload stays unknown instead of becoming a guess.
+        engineVersion = codexEngineVersion(
+            response["userAgent"]?.let { value ->
+                (value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: protocolFailure()
+            },
+        )
         wire.write(json("method" to "initialized".json()))
     }
 

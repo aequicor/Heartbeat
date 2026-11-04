@@ -29,6 +29,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.ConnectWizardScope
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ConnectWizardEffects
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineServices
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ModelChecksCoordinator
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.RuntimeFilePicker
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.component.ConnectWizardComponent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ui.ConnectWizardUiComponent
 
@@ -56,13 +58,18 @@ object ConnectWizardBindings {
     /** Launches the machine for the lifetime of the wizard. */
     @Provides
     @SingleIn(ConnectWizardScope::class)
-    fun machine(
+    internal fun machine(
         launcher: MachineLauncher,
         @ForScope(ConnectWizardScope::class) scope: ScopeHandle,
         services: EngineServices,
         selections: ModelSelections,
-    ): Machine<ConnectWizardState, ConnectWizardIntent, ConnectWizardOutput> =
-        launcher.launch(ConnectWizardMachineSpec, scope, ConnectWizardEffects(services, selections))
+        checks: ModelChecksCoordinator,
+        runtimePicker: RuntimeFilePicker,
+    ): Machine<ConnectWizardState, ConnectWizardIntent, ConnectWizardOutput> = launcher.launch(
+        ConnectWizardMachineSpec,
+        scope,
+        ConnectWizardEffects(services, selections, checks, runtimePicker),
+    )
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

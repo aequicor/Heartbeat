@@ -278,7 +278,7 @@
     <string name="control_leave_discard">Discard</string>
     <string name="control_editor_keys">Tab indents. Ctrl+Tab moves to the next field, Ctrl+Shift+Tab to the previous one.</string>
     <string name="control_resources_title">Resource files</string>
-    <string name="control_resources_note">Selection by saved settings. Edit resource paths and masks above to change it.</string>
+    <string name="control_resources_note">Selection by saved settings. Change resource paths and masks in engine settings.</string>
     <string name="control_resources_refresh">Refresh files</string>
     <string name="control_resources_unloaded">Read resource files to see their origin and selection.</string>
     <string name="control_resources_empty">No resource files found in these folders.</string>
@@ -316,6 +316,7 @@
     <string name="engine_launch_runtime">Runtime</string>
     <string name="engine_launch_runtime_custom">The custom executable above is used instead.</string>
     <string name="engine_runtime_auto">Automatic</string>
+    <string name="engine_runtime_bundled">Included with Heartbeat</string>
     <string name="engine_runtime_managed">Heartbeat\'s copy</string>
     <string name="engine_runtime_host_app">%1$s app</string>
     <string name="engine_runtime_system">Installed on this computer</string>
@@ -331,4 +332,8 @@
     <string name="control_engine_select">Select an engine from the list.</string>
     <string name="engine_mcp_pi_requirement">Pi 1.0.4 or newer is required for MCP.</string>
     <string name="engine_mcp_claude_scope">MCP servers from Claude user and local configuration are supported; project .mcp.json is not loaded.</string>
+    <string name="control_panel_tab_connections">Connections</string>
+    <string name="control_panel_tab_resources">Resources</string>
+    <string name="control_panel_resources_unsupported">This connector does not declare resource inventory.</string>
+    <string name="control_panel_connections_off">Connections are turned off.</string>
 </resources>

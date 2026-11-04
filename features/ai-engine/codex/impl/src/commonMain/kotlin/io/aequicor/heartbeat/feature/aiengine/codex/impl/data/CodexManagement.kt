@@ -3,8 +3,11 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCandidateInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
@@ -18,7 +21,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineCandidateInspector
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubDownloadHosts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubRelease
@@ -42,7 +47,8 @@ internal val CodexManagementSpec = ManagementSpec(
     install = InstallSupport.Managed,
     login = LoginSupport.CliWithDeviceCode,
     launch = LaunchSpec(
-        options = LaunchOption.entries.toSet() - LaunchOption.Runtime,
+        options = LaunchOption.entries.toSet(),
+        runtimes = setOf(RuntimePreference.Managed, RuntimePreference.System),
         homeVariable = "CODEX_HOME",
         reservedEnvironment = setOf("CODEX_HOME"),
         reservedConfigKeys = setOf(
@@ -59,12 +65,21 @@ internal data class CodexTarget(val triple: String, val executable: String)
 /** [CodexEngineManager] over the transport, which knows how this host finds and starts Codex. */
 @Inject
 @SingleIn(ProfileScope::class)
-@ContributesBinding(ProfileScope::class)
+@ContributesBinding(ProfileScope::class, binding = binding<CodexEngineManager>())
 internal class CodexManager(private val transport: CodexTransport, private val logins: CodexLogin) :
-    CodexEngineManager {
+    CodexEngineManager,
+    EngineCandidateInspector {
     private val log = Log.tag("CodexManager")
 
     override suspend fun inspect(launch: LaunchContext): Installation = transport.locate(launch)
+
+    /**
+     * Metadata of exactly the selected candidate through the same location path as [inspect]: the chosen
+     * executable and source, without a process, user home, configuration, login or model request. Nothing about
+     * compatibility is claimed here, so a later launch still needs its own admission.
+     */
+    override suspend fun inspectCandidate(launch: LaunchContext): EngineCandidateInspection =
+        EngineCandidateInspection(CodexEngine.Id, transport.locate(launch), compatibility = null)
 
     override suspend fun loginStatus(launch: LaunchContext): LoginState = logins.status(launch)
 

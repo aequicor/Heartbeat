@@ -52,8 +52,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -188,7 +190,15 @@ private class FakeConnection : AcpConnection {
 
     override suspend fun initialize(client: AcpImplementation) = AcpInitialization(1)
     override suspend fun authenticate(methodId: String) = Unit
-    override suspend fun newSession(cwd: String) = AcpSession("native", JsonObject(emptyMap()))
+    override suspend fun newSession(cwd: String) = AcpSession(
+        "native",
+        Json.parseToJsonElement(
+            """{"configOptions":[{"id":"model","category":"model","options":[""" +
+                """{"value":"kimi-code/kimi-for-coding"}]}]}""",
+        ).jsonObject,
+    )
+    override suspend fun setConfigOptionObserved(sessionId: String, optionId: String, value: String): JsonObject =
+        Json.parseToJsonElement("""{"configOptions":[{"id":"model","currentValue":"$value"}]}""").jsonObject
     override suspend fun loadSession(sessionId: String, cwd: String) = AcpSession(sessionId, JsonObject(emptyMap()))
     override suspend fun prompt(sessionId: String, content: List<JsonObject>) = prompt.await()
     override suspend fun prompt(sessionId: String, content: List<JsonObject>, metadata: JsonObject): AcpPromptResult {

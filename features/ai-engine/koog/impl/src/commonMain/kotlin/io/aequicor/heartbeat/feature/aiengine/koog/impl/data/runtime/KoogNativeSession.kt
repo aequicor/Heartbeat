@@ -4,6 +4,7 @@ import ai.koog.agents.core.tools.ToolDescriptor
 import ai.koog.prompt.Prompt
 import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.llm.LLMCapability
+import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.message.ResponseMetaInfo
 import ai.koog.prompt.params.LLMParams
@@ -71,6 +72,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -283,7 +286,7 @@ internal class KoogNativeSession(
             records.save(record.copy(items = history.items + user, lastTurn = turn, reasoningEffort = effort))
             isSaved = true
         } finally {
-            if (!isSaved) closeClient(client)
+            if (!isSaved) withContext(NonCancellable) { closeClient(client) }
         }
         if (isClosed) {
             // Durable acceptance already exists and is recovered as Unknown, so a plain refusal would be false.
@@ -429,7 +432,7 @@ internal class KoogNativeSession(
             outcome = TurnOutcome.Failed(safe.failure)
         } finally {
             try {
-                closeClient(client)
+                withContext(NonCancellable) { closeClient(client) }
             } finally {
                 withContext(NonCancellable) { finish(turn, outcome) }
             }
@@ -450,7 +453,7 @@ internal class KoogNativeSession(
             }
         } finally {
             try {
-                closeClient(client)
+                withContext(NonCancellable) { closeClient(client) }
             } finally {
                 withContext(NonCancellable) { finish(turn, outcome) }
             }
@@ -461,13 +464,20 @@ internal class KoogNativeSession(
     private suspend fun reopenClient(model: String, client: KoogClient): KoogClient {
         val connection = access.route(route.binding, identity)
         val next = koogCall { access.open(connection, model) }
-        closeClient(client)
-        return next
+        var isTransferred = false
+        return withKoogCleanup(cleanup = {
+            if (!isTransferred) withContext(NonCancellable) { next.closeAndAwait() }
+        }) {
+            closeClient(client)
+            currentCoroutineContext().ensureActive()
+            isTransferred = true
+            next
+        }
     }
 
-    private fun closeClient(client: KoogClient) {
+    private suspend fun closeClient(client: KoogClient) {
         try {
-            client.close()
+            client.closeAndAwait()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -643,7 +653,8 @@ internal class KoogNativeSession(
                 is StreamFrame.ToolCallDelta, is StreamFrame.ToolCallComplete -> calls.append(frame)
 
                 is StreamFrame.End -> {
-                    isEnded = true
+                    // Some SDK decoders emit End at EOF even when the provider never confirmed completion.
+                    isEnded = frame.finishReason in setOf("stop", "end_turn", "stop_sequence", "tool_calls", "tool_use")
                     recordUsage(client, model, frame.metaInfo)
                 }
 
@@ -663,7 +674,9 @@ internal class KoogNativeSession(
                 history.append { SessionEvent.ItemUpserted(it, message) }
             }
         }
-        if (!isEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+        // Koog's Ollama decoder emits no End frame. Only the validated transport's terminal receipt can replace it.
+        val isOllamaComplete = model.provider == LLMProvider.Ollama && client.observedFinishReason() == "stop"
+        if (!isEnded && !isOllamaComplete) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
         return ToolRound(content.text, calls.complete())
     }
 

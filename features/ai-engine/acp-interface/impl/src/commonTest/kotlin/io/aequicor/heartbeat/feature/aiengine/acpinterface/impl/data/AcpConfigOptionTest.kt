@@ -11,6 +11,20 @@ import kotlin.test.assertFailsWith
 
 class AcpConfigOptionTest {
     @Test
+    fun `observed configuration returns the agent response`() = runTest {
+        val h = AcpTestHarness(this)
+        h.initialize()
+        h.session()
+        val task = backgroundScope.async { h.client.setConfigOptionObserved("session", "model", "chosen") }
+        val request = h.outgoing("session/set_config_option")
+        h.reply(request, """{"configOptions":[{"id":"model","currentValue":"other"}]}""")
+        val result = task.await()
+        val option = result.getValue("configOptions").jsonArray.single() as JsonObject
+        assertEquals("other", option.string("currentValue"))
+        h.client.close()
+    }
+
+    @Test
     fun `set config option sends wire frame between turns`() = runTest {
         val h = AcpTestHarness(this)
         h.initialize()

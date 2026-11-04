@@ -10,9 +10,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.isNewerVersion
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
@@ -39,6 +41,8 @@ internal data class PiStartup(
     /** Engine configuration is on: an untrusted project loads only its content. */
     val isConfigured: Boolean = false,
     val isMcpEnabled: Boolean = false,
+    /** Only Auto may prepare a missing bundled runtime as a fallback. */
+    val isBundledPreparationAllowed: Boolean = true,
     /** Version of this exact selected executable; custom paths are probed before launch. */
     val runtimeVersion: String? = null,
 ) {
@@ -46,7 +50,7 @@ internal data class PiStartup(
 }
 
 /**
- * The custom executable of [context]'s settings, else Heartbeat's strictly newer managed copy, else the baseline.
+ * An explicit custom or managed choice never falls back. Auto uses a strictly newer managed copy or the baseline.
  * A known [bundledVersion] selects the baseline even before [bundled] exists; first use prepares its pinned bytes.
  * Without a known baseline version, a managed copy retains priority. A custom path the file system cannot name
  * (Windows reserved characters) is a custom Pi that cannot start.
@@ -57,6 +61,22 @@ internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVer
     val environment = context.settings.environment
     val selected = when {
         custom != null -> PiStartup(pathOrNull(custom), InstallSource.Custom, environment)
+
+        context.settings.runtime == RuntimePreference.Managed -> PiStartup(
+            managed?.let(::pathOrNull),
+            InstallSource.Managed,
+            environment,
+            runtimeVersion = context.managed?.version,
+        )
+
+        context.settings.runtime == RuntimePreference.Bundled -> PiStartup(
+            bundled,
+            InstallSource.Bundled,
+            environment,
+            runtimeVersion = bundledVersion,
+        )
+
+        context.settings.runtime != RuntimePreference.Auto -> PiStartup(null, InstallSource.Missing, environment)
 
         managed != null && (
             bundledVersion == null || isNewerVersion(checkNotNull(context.managed).version, bundledVersion)
@@ -82,8 +102,37 @@ internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVer
         trust = context.trust,
         isConfigured = context.isConfigured,
         isMcpEnabled = context.settings.isMcpEnabled,
+        isBundledPreparationAllowed = custom == null &&
+            context.settings.runtime in setOf(RuntimePreference.Auto, RuntimePreference.Bundled),
     )
 }
+
+/**
+ * A startup pinned to the exact [executable] and [source] an admission verified. It never falls back to another
+ * installation: the runtime that starts it must run these bytes or refuse, not silently re-resolve the launch.
+ */
+internal fun pinnedPiStartup(
+    context: LaunchContext,
+    executable: Path?,
+    source: InstallSource,
+    runtimeVersion: String?,
+): PiStartup = PiStartup(
+    executable = executable,
+    source = source,
+    environment = context.settings.environment,
+    config = context.config,
+    trust = context.trust,
+    isConfigured = context.isConfigured,
+    isMcpEnabled = context.settings.isMcpEnabled,
+    isBundledPreparationAllowed = false,
+    runtimeVersion = runtimeVersion,
+)
+
+/** A startup pinned to one recorded managed copy; null when its executable path cannot be named. */
+internal fun managedPiStartup(context: LaunchContext, managed: ManagedInstall): PiStartup? =
+    pathOrNull(managed.executable)?.let {
+        pinnedPiStartup(context, it, InstallSource.Managed, managed.version)
+    }
 
 /** The user's entries on top of the retained host environment; Heartbeat's own variables are set after them. */
 internal fun applyPiEnvironment(environment: MutableMap<String, String>, startup: PiStartup) {

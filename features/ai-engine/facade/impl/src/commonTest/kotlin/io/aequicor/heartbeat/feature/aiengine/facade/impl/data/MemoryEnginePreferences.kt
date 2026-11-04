@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 internal class MemoryEnginePreferences(initial: ProfileEnginePreferences = ProfileEnginePreferences()) :
     EnginePreferences {
     val current = MutableStateFlow(initial)
+    var beforeSave: suspend () -> Unit = {}
+    var afterSave: suspend () -> Unit = {}
 
     override fun observe(): Flow<ProfileEnginePreferences> = current
 
@@ -16,5 +18,11 @@ internal class MemoryEnginePreferences(initial: ProfileEnginePreferences = Profi
 
     override suspend fun update(
         change: (ProfileEnginePreferences) -> ProfileEnginePreferences,
-    ): ProfileEnginePreferences = change(current.value).also { current.value = it }
+    ): ProfileEnginePreferences {
+        val updated = change(current.value)
+        beforeSave()
+        current.value = updated
+        afterSave()
+        return updated
+    }
 }

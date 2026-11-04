@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
@@ -47,13 +49,17 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.contro
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_title
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_loading
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_configuration_off
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_connections_off
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_files
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_files_description
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_missing
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_no_settings
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_overview
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_resources_unsupported
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_settings
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_settings_description
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_tab_connections
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_tab_resources
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_tab_settings
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
@@ -65,20 +71,31 @@ internal fun EngineControlPanelScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     isEmbedded: Boolean = false,
+    connections: (@Composable () -> Unit)? = null,
+    onShowConnections: () -> Unit = {},
 ) {
     val leave by rememberUpdatedState(onBack)
+    val showConnections by rememberUpdatedState(onShowConnections)
     val state by produceState(EngineControlPanelState(""), model) {
         model.store.collect {
-            launch { actions.collect { if (it == EngineControlPanelAction.Leave) leave() } }
+            launch {
+                actions.collect {
+                    when (it) {
+                        EngineControlPanelAction.Leave -> leave()
+                        EngineControlPanelAction.ShowConnections -> showConnections()
+                    }
+                }
+            }
             states.collect { value = it }
         }
     }
-    EngineControlPanelContent(state, { model.store.intent(it) }, modifier, isEmbedded)
+    EngineControlPanelContent(state, { model.store.intent(it) }, modifier, isEmbedded, connections)
 }
 
 /**
- * One engine: management in the overview and declared configuration in settings. An open page, file or saved project
- * replaces the tabs; back returns to them and then leaves the panel, asking about unsaved changes.
+ * One engine: management, retained connections, profile resources and declared settings in four tabs.
+ * The connections child owns a bounded scroll area; other tabs share the panel's scrolling column.
+ * An open page, file or saved project replaces the tabs; back respects unsaved configuration guards.
  */
 @Composable
 internal fun EngineControlPanelContent(
@@ -86,6 +103,7 @@ internal fun EngineControlPanelContent(
     onIntent: (EngineControlPanelIntent) -> Unit,
     modifier: Modifier = Modifier,
     isEmbedded: Boolean = false,
+    connections: (@Composable () -> Unit)? = null,
 ) {
     // The tab column keeps its place while a page, a file or a saved project is open; drafts stay in the store.
     val overview = rememberScrollState()
@@ -108,6 +126,7 @@ internal fun EngineControlPanelContent(
         back.takeUnless { isEmbedded },
         modifier.testTag("engine-control-panel"),
         overview,
+        isContentScrollable = state.openTab != EnginePanelTabUi.Connections,
         headerActions = state.panel?.let { panel ->
             {
                 EngineSwitchHeader(
@@ -128,14 +147,35 @@ internal fun EngineControlPanelContent(
 
             else -> {
                 PanelTabs(state.openTab, onIntent)
-                when (state.openTab) {
-                    EnginePanelTabUi.Overview -> Overview(state, onIntent, isSavingVisible)
-                    EnginePanelTabUi.Settings -> SettingsContent(state, onIntent)
-                }
+                PanelTabContent(state, onIntent, isSavingVisible, connections)
             }
         }
     }
     OverviewDialogs(state, onIntent)
+}
+
+@Composable
+private fun ColumnScope.PanelTabContent(
+    state: EngineControlPanelState,
+    onIntent: (EngineControlPanelIntent) -> Unit,
+    isSavingVisible: Boolean,
+    connections: (@Composable () -> Unit)?,
+) {
+    when (state.openTab) {
+        EnginePanelTabUi.Overview -> Overview(state, onIntent, isSavingVisible)
+
+        EnginePanelTabUi.Connections -> Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (state.isConnectionsEnabled) {
+                connections?.invoke()
+            } else {
+                HbEmptyState(stringResource(Res.string.control_panel_connections_off))
+            }
+        }
+
+        EnginePanelTabUi.Resources -> ResourcesContent(state, onIntent)
+
+        EnginePanelTabUi.Settings -> SettingsContent(state, onIntent)
+    }
 }
 
 @Composable
@@ -145,6 +185,8 @@ private fun PanelTabs(selected: EnginePanelTabUi, onIntent: (EngineControlPanelI
             val label = stringResource(
                 when (tab) {
                     EnginePanelTabUi.Overview -> Res.string.control_panel_overview
+                    EnginePanelTabUi.Connections -> Res.string.control_panel_tab_connections
+                    EnginePanelTabUi.Resources -> Res.string.control_panel_tab_resources
                     EnginePanelTabUi.Settings -> Res.string.control_panel_tab_settings
                 },
             )
@@ -154,6 +196,8 @@ private fun PanelTabs(selected: EnginePanelTabUi, onIntent: (EngineControlPanelI
                 Modifier.weight(1f).testTag(
                     when (tab) {
                         EnginePanelTabUi.Overview -> "engine-tab-overview"
+                        EnginePanelTabUi.Connections -> "engine-tab-connections"
+                        EnginePanelTabUi.Resources -> "engine-tab-resources"
                         EnginePanelTabUi.Settings -> "engine-tab-settings"
                     },
                 ),
@@ -189,6 +233,22 @@ private fun SettingsContent(state: EngineControlPanelState, onIntent: (EngineCon
     SettingsPages(state, onIntent)
     state.config?.takeIf { it.files.isNotEmpty() }?.let { ConfigFiles(it, onIntent) }
     if (state.isImportable) ImportSection(isEnabled = !state.isBusy, onIntent)
+}
+
+/** Aggregated profile resources are read only through the control machine's ListResources operation. */
+@Composable
+private fun ResourcesContent(state: EngineControlPanelState, onIntent: (EngineControlPanelIntent) -> Unit) {
+    state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
+    if (state.hasResourceInventory) {
+        ResourceContent(
+            state.resources,
+            state.isReadingResources,
+            !state.isBusy,
+            { onIntent(EngineControlPanelIntent.RefreshResources) },
+        )
+    } else {
+        HbEmptyState(stringResource(Res.string.control_panel_resources_unsupported))
+    }
 }
 
 /** A confirmation of an engine action, an import being chosen and the report of a finished one. */

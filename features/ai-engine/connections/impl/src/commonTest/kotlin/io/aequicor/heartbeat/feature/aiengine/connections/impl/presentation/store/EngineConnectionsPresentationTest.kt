@@ -75,6 +75,35 @@ internal fun managedSettingsSnapshot(): ConnectionsSnapshot {
 }
 
 class EngineConnectionsPresentationTest {
+    @Test
+    fun `a missing fixed engine never exposes a neighbouring engine`() {
+        val snapshot = settingsSnapshot()
+        val state = EngineConnectionsScreenState(fixedEngine = "absent").reflect(
+            EngineConnectionsState.Active(snapshot),
+        )
+        assertEquals("absent", state.selectedEngine)
+        assertTrue(state.engines.isEmpty())
+        assertTrue(state.connections.isEmpty())
+        assertNull(state.models)
+    }
+
+    @Test
+    fun `removing a fixed engine keeps its identity without showing another connection`() {
+        val snapshot = settingsSnapshot()
+        val state = EngineConnectionsScreenState(fixedEngine = "koog").reflect(
+            EngineConnectionsState.Active(snapshot),
+        ).editModel("qwen", true)
+        val other = snapshot.engines.single().let {
+            it.copy(descriptor = it.descriptor.copy(id = EngineId("other")), bindings = emptyList())
+        }
+        val removed = state.reflect(EngineConnectionsState.Active(snapshot.copy(engines = listOf(other))))
+        assertEquals("koog", removed.selectedEngine)
+        assertTrue(removed.engines.isEmpty())
+        assertTrue(removed.connections.isEmpty())
+        assertNull(removed.models)
+        assertNull(removed.modelDraft)
+    }
+
     private val loaded = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(settingsSnapshot()))
 
     @Test
@@ -83,7 +112,16 @@ class EngineConnectionsPresentationTest {
         assertEquals("home", loaded.selectedConnection)
         val home = loaded.connections.first()
         assertEquals(
-            ConnectionRowUi("home", "Home server", "Ollama", MethodKindUi.NoAuth, OllamaMethod.origin.value, true, 1),
+            ConnectionRowUi(
+                "home",
+                "Home server",
+                "Ollama",
+                MethodKindUi.NoAuth,
+                OllamaMethod.origin.value,
+                true,
+                1,
+                true,
+            ),
             home,
         )
         assertEquals("work-source", loaded.connections[1].label)
@@ -153,6 +191,34 @@ class EngineConnectionsPresentationTest {
         val saved = pending.reflect(EngineConnectionsState.Active(savedSnapshot))
         assertNull(saved.modelDraft)
         assertFalse(saved.isModelSavePending)
+    }
+
+    @Test
+    fun `bounded wait ends the pending label while an unconfirmed draft and actual choices stay separate`() {
+        val edited = loaded.editModel("qwen", true)
+        val operation = requireNotNull(edited.operationFor(EngineConnectionsScreenIntent.SaveModels))
+        val waiting = edited.reflect(EngineConnectionsState.Active(settingsSnapshot(), pending = operation))
+        val ended = waiting.reflect(EngineConnectionsState.Active(settingsSnapshot(), isSavePending = true))
+        assertFalse(ended.isSaving)
+        assertFalse(ended.isModelSavePending)
+        assertEquals<Set<String>?>(setOf("llama", "qwen"), ended.modelDraft)
+        assertEquals(setOf("llama"), ended.selectedModels)
+    }
+
+    @Test
+    fun `pending label remains while checks run even after the saved choices clear the draft`() {
+        val edited = loaded.editModel("qwen", true)
+        val operation = requireNotNull(edited.operationFor(EngineConnectionsScreenIntent.SaveModels))
+        val saved = settingsSnapshot().let { snapshot ->
+            snapshot.copy(
+                selection = snapshot.selection.withModel(modelInfo(EngineBindingId("home"), "qwen").target, true),
+            )
+        }
+        val checking = edited.reflect(EngineConnectionsState.Active(saved, pending = operation))
+        assertNull(checking.modelDraft)
+        assertTrue(checking.isSaving)
+        assertTrue(checking.isModelSavePending)
+        assertFalse(checking.reflect(EngineConnectionsState.Active(saved)).isModelSavePending)
     }
 
     @Test

@@ -10,16 +10,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineActionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCandidateInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityObservation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineEnablement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
@@ -28,6 +32,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettingsToken
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
@@ -37,10 +43,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimeSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.actions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineCandidateInspector
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -49,6 +57,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import io.aequicor.heartbeat.feature.aiengine.facade.api.validateLaunchSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -61,6 +72,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -86,7 +99,7 @@ data class DeveloperFlags(val isCatalogOn: Boolean, val isEngineOn: Boolean, val
  * sessions run with the current settings; a turn in flight is never interrupted.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-@Suppress("LongParameterList") // Coordinates every engine subsystem the panel manages; each one is a separate port.
+@Suppress("LongParameterList", "LargeClass") // Coordinates the engine subsystems and their conditional operations.
 class EngineManagementService(
     private val registry: EngineRegistry,
     private val flags: EngineFlags,
@@ -102,6 +115,13 @@ class EngineManagementService(
 ) : EngineManagement {
     private val log = Log.tag("EngineManagement")
     private val inspections = MutableStateFlow(emptyMap<EngineId, Inspection>())
+
+    // Inspect and a launch change must never publish snapshots across each other; coordination is scoped per engine.
+    private val inspectionLocks = registry.all.associate { it.descriptor.id to Mutex() }
+
+    // Accessed only under the corresponding inspection lock. Identity prevents ABA and cross-owner reuse.
+    private val launchTokens = registry.all.associate { it.descriptor.id to LaunchTokenSlot() }
+
     private val jobs = EngineJobs(
         registry,
         installs,
@@ -140,9 +160,43 @@ class EngineManagementService(
             EngineCommand.Restart -> restart(current.requireRestartable().descriptor.id)
             is EngineCommand.Start -> jobs.start(engine, current.requireStart(command.action))
             EngineCommand.Cancel -> jobs.cancel(engine)
+            is EngineCommand.CancelOwned -> jobs.cancelOwned(engine, command.handle)
             EngineCommand.Dismiss -> jobs.dismiss(engine)
+            is EngineCommand.DismissOwned -> jobs.dismissCaptured(engine, command.handle)
             is EngineCommand.AnswerLogin -> jobs.answer(engine, command.code)
             EngineCommand.OpenHostApp -> openHostApp(current.requireAction(EngineActionKind.OpenHostApp))
+        }
+    }
+
+    override suspend fun startOwned(engine: EngineId, action: EngineAction, onStarted: (EngineOwnedJob) -> Unit) {
+        val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+            ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+        jobs.start(engine, current.requireStart(action), onStarted = onStarted)
+    }
+
+    override suspend fun startLoginIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        method: LoginMethod,
+        onStarted: (EngineOwnedJob) -> Unit,
+    ) {
+        val lock = inspectionLocks[engine] ?: refuse("unknown engine=${engine.value}")
+        lock.withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            val saved = expected.settings.detached()
+            checkCandidateSnapshot(engine, expected, saved)
+            val captured = launch.context(engine)
+            if (captured.settings != saved) changedLaunch()
+            val frozen = captured.copy(
+                settings = saved,
+                config = captured.config.copy(
+                    documents = captured.config.documents.toMap(),
+                    secrets = captured.config.secrets.toMap(),
+                ),
+                trust = captured.trust.toMap(),
+            )
+            jobs.start(engine, current.requireStart(EngineAction.Login(method)), frozen, onStarted)
         }
     }
 
@@ -168,14 +222,114 @@ class EngineManagementService(
         if (!isEnabled) runtimes.retire(engine)
     }
 
-    private suspend fun inspect(engine: ManagedEngine) {
+    override suspend fun inspect(engine: EngineId): EngineInspection {
+        val lock = inspectionLocks[engine] ?: refuse("unknown engine=${engine.value}")
+        return lock.withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            inspectCurrent(current.requireAction(EngineActionKind.Inspect))
+        }
+    }
+
+    override suspend fun snapshotLaunchSettings(engine: EngineId): LaunchSettingsSnapshot {
+        val lock = inspectionLocks[engine] ?: refuse("unknown engine=${engine.value}")
+        return lock.withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            current.requireAction(EngineActionKind.Configure)
+            val settings = preferences.load().launchOf(engine).detached()
+            LaunchSettingsSnapshot(settings, launchTokens.getValue(engine).forSettings(settings))
+        }
+    }
+
+    override suspend fun inspectCandidate(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        candidate: LaunchSettings,
+    ): EngineCandidateInspection? {
+        val lock = inspectionLocks[engine] ?: refuse("unknown engine=${engine.value}")
+        return lock.withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            current.requireAction(EngineActionKind.Configure)
+            current.requireAction(EngineActionKind.Inspect)
+            val saved = expected.settings.detached()
+            checkCandidateSnapshot(engine, expected, saved)
+            if (candidate.copy(
+                    executable = saved.executable,
+                    runtime = saved.runtime,
+                    hostRuntimeVersion = saved.hostRuntimeVersion,
+                ) != saved || (candidate.executable.isNullOrBlank() && candidate.runtime == RuntimePreference.Auto)
+            ) {
+                throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid))
+            }
+            validateLaunchChange(current, candidate.detached(), saved)
+            val currentLaunch = launch.context(engine)
+            val isolated = LaunchContext(
+                settings = LaunchSettings(
+                    executable = candidate.executable,
+                    runtime = candidate.runtime,
+                    hostRuntimeVersion = candidate.hostRuntimeVersion,
+                ),
+                managed = currentLaunch.managed.takeIf {
+                    candidate.executable.isNullOrBlank() && candidate.runtime == RuntimePreference.Managed
+                },
+            )
+            val inspector = registry.require(engine).manager?.value as? EngineCandidateInspector
+            val observation = if (inspector == null) {
+                Bounded<EngineCandidateInspection?>()
+            } else {
+                bounded("candidate inspection") { inspector.inspectCandidate(isolated) }
+            }
+            observation.failure?.let { throw ManagementException(it) }
+            checkCandidateSnapshot(engine, expected, saved)
+            if (launch.context(engine) != currentLaunch) changedLaunch()
+            val latest = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            latest.requireAction(EngineActionKind.Configure)
+            latest.requireAction(EngineActionKind.Inspect)
+            observation.value?.let {
+                validateCandidate(engine, candidate, isolated.managed, it)
+                it.copy(compatibility = registeredCompatibility(registry, engine, it.installation, it.compatibility))
+            }
+        }
+    }
+
+    private suspend fun checkCandidateSnapshot(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        saved: LaunchSettings,
+    ) {
+        val slot = launchTokens.getValue(engine)
+        val actual = preferences.load().launchOf(engine)
+        if (slot.value !== expected.token || slot.value?.settings != saved || actual != saved) {
+            changedLaunch()
+        }
+    }
+
+    private suspend fun inspect(engine: ManagedEngine): EngineInspection = inspect(engine.descriptor.id)
+
+    private suspend fun inspectCurrent(engine: ManagedEngine): EngineInspection {
         val id = engine.descriptor.id
+        val savedLaunch = preferences.load().launchOf(id)
         runtimes.prune()
         val registration = registry.require(id)
         val manager = registration.manager?.value
         val hasHostApp = registration.management.hostApp != null
-        val inspected = if (manager == null) builtIn() else inspectWith(manager, launch.context(id), hasHostApp)
-        if (engine.enablement.isEnabled) refreshAvailability(id)
+        val inspectedLaunch = launch.context(id)
+        val inspected = if (manager == null) builtIn() else inspectWith(id, manager, inspectedLaunch, hasHostApp)
+        if (launch.context(id) != inspectedLaunch || preferences.load().launchOf(id) != savedLaunch) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        }
+        val isProbeAllowed = manager == null ||
+            (
+                inspected.installation.compatibilityObservation?.decision?.isBaselineAllowed == true &&
+                    !inspected.isCompatibilityProbeFailed
+            )
+        if (engine.enablement.isEnabled && isProbeAllowed) refreshAvailability(id)
+        if (launch.context(id) != inspectedLaunch || preferences.load().launchOf(id) != savedLaunch) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        }
         inspections.update { all ->
             val previous = all[id]
             val installation = inspected.installation.copy(
@@ -185,22 +339,44 @@ class EngineManagementService(
             all + (id to inspected.copy(installation = installation))
         }
         log.i { "engine inspected engine=${id.value} source=${inspected.installation.current?.source ?: "unknown"}" }
+        val tokenSlot = launchTokens.getValue(id)
+        val token = tokenSlot.forSettings(savedLaunch.detached())
+        return EngineInspection(
+            id,
+            inspected.installation.copy(managed = inspectedLaunch.managed),
+            inspected.login ?: LoginState.Unknown,
+            LaunchState(inspectedLaunch.settings, inspected.warnings),
+            inspected.hostApp,
+            LaunchSettingsSnapshot(savedLaunch.detached(), token),
+        )
     }
 
     /** Inspects again after a job; the finished job may still be shown, so the action check is skipped. */
     private suspend fun reinspect(engine: EngineId) {
-        val current = state.value.engines.firstOrNull { it.descriptor.id == engine } ?: return
-        if (current.enablement.reasons.all { it == DisabledReason.DisabledByUser }) inspect(current)
+        inspectionLocks.getValue(engine).withLock {
+            val current = state.value.engines.firstOrNull { it.descriptor.id == engine } ?: return@withLock
+            if (current.enablement.reasons.all { it == DisabledReason.DisabledByUser }) inspectCurrent(current)
+        }
     }
 
     private suspend fun inspectWith(
+        engine: EngineId,
         manager: EngineManager,
         launchContext: LaunchContext,
         hasHostApp: Boolean,
     ): Inspection {
         val now = context.clock.now()
         val installation = bounded("inspect") { manager.inspect(launchContext) }
-        val login = bounded("login status") { manager.loginStatus(launchContext) }
+        val current = installation.value
+        val observed = current?.let { inspectCompatibility(engine, manager, it, launchContext) }
+        val compatibility = compatibilityOf(observed)
+        val isRuntimeLocated = hasRunnableInstallation(current)
+        val isLoginAllowed = isRuntimeLocated && permitsFollowingInspection(observed)
+        val login = if (isLoginAllowed) {
+            bounded("login status") { manager.loginStatus(launchContext) }
+        } else {
+            Bounded<LoginState>(LoginState.Unknown)
+        }
         val warnings = bounded("launch check") { manager.check(launchContext.settings) }
         val bundled = bounded("bundled version") { manager.bundledVersion() }
         val hostApp = if (hasHostApp) {
@@ -210,20 +386,38 @@ class EngineManagementService(
         } else {
             null
         }
-        val current = installation.value
-        val compatibility = current?.version?.let(manager::compatibility)
         return Inspection(
             InstallationState(
                 current = current,
                 bundledVersion = bundled.value,
-                compatibility = compatibility ?: Compatibility.Unknown,
+                compatibility = compatibility,
                 checkedAt = now,
-                failure = installation.failure ?: login.failure,
+                failure = installation.failure ?: observed?.failure ?: login.failure,
+                compatibilityObservation = observed?.value,
             ),
             login.value ?: LoginState.Unknown,
             warnings.value.orEmpty(),
             hostApp,
+            isCompatibilityProbeFailed = !isRuntimeLocated || observed?.failure != null,
         )
+    }
+
+    private fun compatibilityOf(observed: Bounded<EngineCompatibilityObservation?>?): Compatibility = when {
+        observed?.failure != null -> Compatibility.Unknown
+        observed?.value != null -> observed.value.decision.status
+        else -> Compatibility.Unknown
+    }
+
+    private fun permitsFollowingInspection(observed: Bounded<EngineCompatibilityObservation?>?): Boolean =
+        observed?.value?.decision?.isBaselineAllowed == true && observed.failure == null
+
+    private suspend fun inspectCompatibility(
+        engine: EngineId,
+        manager: EngineManager,
+        installation: Installation,
+        launch: LaunchContext,
+    ): Bounded<EngineCompatibilityObservation?> = bounded("compatibility probe") {
+        registeredCompatibility(registry, engine, installation, manager.inspectCompatibility(installation, launch))
     }
 
     private fun builtIn() = Inspection(
@@ -251,27 +445,131 @@ class EngineManagementService(
 
     private suspend fun configure(engine: ManagedEngine, settings: LaunchSettings) {
         val id = engine.descriptor.id
-        val problems = validateLaunchSettings(settings, engine.spec.launch, registry.platform)
+        inspectionLocks.getValue(id).withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == id }
+                ?: refuse("engine management is off or the engine is unknown engine=${id.value}")
+            configureCurrent(current.requireAction(EngineActionKind.Configure), settings)
+        }
+    }
+
+    override suspend fun configureIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        settings: LaunchSettings,
+        onSaved: (LaunchSettingsSnapshot) -> Unit,
+    ) {
+        val lock = inspectionLocks[engine] ?: refuse("unknown engine=${engine.value}")
+        lock.withLock {
+            val current = state.value.takeIf { it.isEnabled }?.engines?.firstOrNull { it.descriptor.id == engine }
+                ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
+            configureCurrent(current.requireAction(EngineActionKind.Configure), settings, expected, onSaved)
+        }
+    }
+
+    private suspend fun configureCurrent(
+        engine: ManagedEngine,
+        settings: LaunchSettings,
+        expected: LaunchSettingsSnapshot? = null,
+        onSaved: (LaunchSettingsSnapshot) -> Unit = {},
+    ) {
+        val id = engine.descriptor.id
+        val desired = settings.detached()
+        val expectedSettings = expected?.settings?.detached()
+        val slot = launchTokens.getValue(id)
+        if (expected != null && (expected.token !== slot.value || slot.value?.settings != expectedSettings)) {
+            changedLaunch()
+        }
+        // Invalidate even an identical write or a storage failure with an indeterminate outcome.
+        slot.invalidate()
+        val (checkedSettings, isMcpPreserved) = validateLaunchChange(engine, desired, expectedSettings)
+        currentCoroutineContext().ensureActive()
+        val isChanged = persistLaunch(id, desired, expectedSettings, isMcpPreserved, onSaved)
+        if (!isChanged) return
+        val manager = registry.require(id).manager?.value
+        val warnings = if (manager == null) {
+            emptyList()
+        } else {
+            bounded("launch check") { manager.check(checkedSettings) }.value
+        }
+        log.i { "launch check finished engine=${id.value} warnings=${warnings?.size ?: 0}" }
+        inspections.update { all -> all + (id to (all[id] ?: Inspection()).copy(warnings = warnings.orEmpty())) }
+        runtimes.retire(id)
+    }
+
+    private fun validateLaunchChange(
+        engine: ManagedEngine,
+        desired: LaunchSettings,
+        expected: LaunchSettings?,
+    ): Pair<LaunchSettings, Boolean> {
+        val id = engine.descriptor.id
+        val isMcpPreserved = LaunchOption.Mcp !in engine.spec.launch.options &&
+            LaunchOption.Mcp in registry.require(id).management.launch.options
+        val checkedSettings = if (isMcpPreserved) desired.copy(isMcpEnabled = false) else desired
+        val validationSettings = if (isMcpPreserved && expected?.isMcpEnabled == true) {
+            checkedSettings
+        } else {
+            desired
+        }
+        val problems = validateLaunchSettings(validationSettings, engine.spec.launch, registry.platform)
         if (problems.isNotEmpty()) {
             log.w { "launch settings rejected engine=${id.value} problems=${problems.size}" }
             throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid))
         }
-        // A hidden rollout control must not erase the saved opt-in while another launch field is edited.
-        val isMcpPreserved = LaunchOption.Mcp !in engine.spec.launch.options &&
-            LaunchOption.Mcp in registry.require(id).management.launch.options
-        val saved = preferences.update { chosen ->
-            val updated = if (isMcpPreserved) {
-                settings.copy(isMcpEnabled = chosen.launchOf(id).isMcpEnabled)
-            } else {
-                settings
-            }
-            chosen.copy(launch = chosen.launch + (id to updated))
-        }.launchOf(id)
+        return checkedSettings to isMcpPreserved
+    }
+
+    private suspend fun persistLaunch(
+        id: EngineId,
+        desired: LaunchSettings,
+        expected: LaunchSettings?,
+        isMcpPreserved: Boolean,
+        onSaved: (LaunchSettingsSnapshot) -> Unit,
+    ): Boolean {
+        val slot = launchTokens.getValue(id)
+        var isChanged = false
+        val saved = withContext(NonCancellable) {
+            val persisted = preferences.update { chosen ->
+                if (expected != null && chosen.launchOf(id) != expected) changedLaunch()
+                val updated = if (isMcpPreserved) {
+                    desired.copy(isMcpEnabled = chosen.launchOf(id).isMcpEnabled)
+                } else {
+                    desired
+                }
+                isChanged = updated != chosen.launchOf(id)
+                chosen.copy(launch = chosen.launch + (id to updated))
+            }.launchOf(id)
+            if (isChanged) invalidateInspection(id)
+            val nextToken = slot.forSettings(persisted.detached())
+            onSaved(LaunchSettingsSnapshot(persisted.detached(), nextToken))
+            persisted
+        }
         log.i { "launch settings saved engine=${id.value} isDefault=${saved.isDefault}" }
-        val manager = registry.require(id).manager?.value
-        val warnings = if (manager == null) emptyList() else bounded("launch check") { manager.check(settings) }.value
-        inspections.update { all -> all + (id to (all[id] ?: Inspection()).copy(warnings = warnings.orEmpty())) }
-        runtimes.retire(id)
+        return isChanged
+    }
+
+    private fun invalidateInspection(id: EngineId) {
+        log.i { "launch inspection invalidated engine=${id.value}" }
+        inspections.update { all ->
+            val previous = all[id]
+            if (previous == null) {
+                all
+            } else {
+                val installation = previous.installation.copy(
+                    current = null,
+                    compatibility = Compatibility.Unknown,
+                    compatibilityObservation = null,
+                    checkedAt = null,
+                    failure = null,
+                )
+                all + (
+                    id to previous.copy(
+                        installation = installation,
+                        login = LoginState.Unknown,
+                        isCompatibilityProbeFailed = false,
+                    )
+                )
+            }
+        }
     }
 
     private suspend fun restart(engine: EngineId) {
@@ -283,13 +581,7 @@ class EngineManagementService(
     }
 
     private suspend fun refreshAvailability(engine: EngineId) {
-        try {
-            catalog.refresh(engine)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: EngineException) {
-            log.w(e) { "availability probe failed engine=${engine.value}" }
-        }
+        bounded("availability probe") { catalog.refresh(engine) }
     }
 
     /** Reads Heartbeat's copies once engine management is on; while it is off, their files are left untouched. */
@@ -431,11 +723,6 @@ class EngineManagementService(
         )
     }
 
-    private fun defaultLogin(registration: EngineRegistration): LoginState = when (registration.management.login) {
-        LoginSupport.Cli, LoginSupport.CliWithDeviceCode -> LoginState.Unknown
-        LoginSupport.None, LoginSupport.Connections -> LoginState.NotApplicable
-    }
-
     /** Runs one adapter call off the main thread within a time limit; failures become recorded failures. */
     private suspend fun <T> bounded(what: String, block: suspend () -> T): Bounded<T> = try {
         withTimeoutOrNull(ADAPTER_TIMEOUT_MILLIS) { Bounded<T>(withContext(context.io) { block() }) }
@@ -494,6 +781,7 @@ class EngineManagementService(
         val login: LoginState? = null,
         val warnings: List<LaunchProblem> = emptyList(),
         val hostApp: HostAppState? = null,
+        val isCompatibilityProbeFailed: Boolean = false,
     )
 
     private data class Inputs(
@@ -526,6 +814,35 @@ class EngineManagementService(
     private companion object {
         const val ADAPTER_TIMEOUT_MILLIS = 15_000L
     }
+}
+
+private fun hasRunnableInstallation(installation: Installation?): Boolean =
+    installation != null && installation.source != InstallSource.Missing && installation.isRunnable
+
+private fun changedLaunch(): Nothing = throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+
+private fun LaunchSettings.detached(): LaunchSettings = copy(
+    configOverrides = configOverrides.toList(),
+    environment = environment.toList(),
+)
+
+private fun defaultLogin(registration: EngineRegistration): LoginState = when (registration.management.login) {
+    LoginSupport.Cli, LoginSupport.CliWithDeviceCode -> LoginState.Unknown
+    LoginSupport.None, LoginSupport.Connections -> LoginState.NotApplicable
+}
+
+private class LaunchToken(val settings: LaunchSettings) : LaunchSettingsToken
+
+private class LaunchTokenSlot {
+    var value: LaunchToken? = null
+        private set
+
+    fun invalidate() {
+        value = null
+    }
+
+    fun forSettings(settings: LaunchSettings): LaunchToken = value?.takeIf { it.settings == settings }
+        ?: LaunchToken(settings).also { value = it }
 }
 
 /** Connections that use an engine's CLI login; after a sign-in they refresh their source revision. */

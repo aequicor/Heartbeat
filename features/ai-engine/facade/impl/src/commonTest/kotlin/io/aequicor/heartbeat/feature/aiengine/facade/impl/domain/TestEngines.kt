@@ -6,6 +6,9 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthCheck
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthCheckBasis
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthChecks
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthContextKey
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthException
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthLocationId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
@@ -20,9 +23,11 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthenticatorId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId
@@ -34,6 +39,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CompletableDeferred
@@ -46,6 +53,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlin.time.Clock
 import kotlin.time.Instant
+import kotlin.time.TimeMark
 
 internal val TestEngine = EngineId("test")
 internal val TestOwner = AuthOwnerId("test-cli")
@@ -63,6 +71,27 @@ internal class FixedClock(var now: Instant = Instant.fromEpochSeconds(1_000)) : 
 
 /** Adapter factory whose answers are set by the test. */
 internal class FakeEngineFactory : EngineFactory {
+    override var isAdmittedRuntimeRequiredForModels: Boolean = false
+    override var runtimeRequirements: EngineCompatibilityRequirements? = testRuntimePolicy()
+    var runtimeEvidence = testRuntimeEvidence()
+    var isCandidateAvailable = true
+    var candidates = 0
+    var lastCandidateRequest: EngineRuntimeCandidateRequest? = null
+    var promotions = 0
+    var candidateCloses = 0
+    var beforeCandidate: suspend () -> Unit = {}
+    var closeCandidate: suspend () -> Unit = {}
+
+    override suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? {
+        candidates++
+        lastCandidateRequest = request
+        beforeCandidate()
+        return if (isCandidateAvailable) TestRuntimeCandidate(this, request, runtimeEvidence) else null
+    }
+
     override val preparation = MutableStateFlow<EnginePreparation>(EnginePreparation.Ready)
     var prepare: suspend () -> Unit = {}
     var preparations = 0
@@ -76,6 +105,8 @@ internal class FakeEngineFactory : EngineFactory {
     var runtime: (RuntimeIdentity) -> EngineRuntime = { error("no runtime in this test") }
     val createdRuntimes = mutableListOf<RuntimeIdentity>()
     var revision: ((AuthSource) -> AuthRevision)? = null
+    var revisionGate: CompletableDeferred<Unit>? = null
+    var revisionStarted: CompletableDeferred<Unit>? = null
     var createGate: CompletableDeferred<Unit>? = null
     val routes = mutableMapOf<EngineBindingId, AuthSource>()
 
@@ -84,8 +115,11 @@ internal class FakeEngineFactory : EngineFactory {
         prepare()
     }
 
-    override suspend fun sourceRevision(source: AuthSource): AuthRevision =
-        revision?.invoke(source) ?: source.info.revision
+    override suspend fun sourceRevision(source: AuthSource): AuthRevision {
+        revisionStarted?.complete(Unit)
+        revisionGate?.await()
+        return revision?.invoke(source) ?: source.info.revision
+    }
 
     override suspend fun checkRequirements(): EngineAvailability {
         probes++
@@ -133,6 +167,9 @@ internal fun registration(
     features: Set<EngineFeatureId> = emptySet(),
     owner: AuthOwnerId = TestOwner,
     modelCatalogRevision: Int = 0,
+    composerAssists: io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists? = null,
+    fileSessionTrees: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees? = null,
+    connectionMethods: List<ConnectionMethod> = emptyList(),
 ) = EngineRegistration(
     EngineDescriptor(
         id,
@@ -141,12 +178,15 @@ internal fun registration(
         platforms,
         FeatureToggle.Flag("engine.${id.value}", "Engine ${id.value}"),
         declaredFeatures = features,
+        connectionMethods = connectionMethods,
     ),
     owner,
     lazyOf(factory),
     sources,
     setOf(AuthenticatorId("${id.value}.cli")),
     modelCatalogRevision,
+    composerAssists = composerAssists?.let { lazyOf(it) },
+    fileSessionTrees = fileSessionTrees?.let { lazyOf(it) },
 )
 
 internal class FakeEngineToggles : EngineToggles {
@@ -159,10 +199,14 @@ internal class FakeEngineToggles : EngineToggles {
 
 internal class FakeBindingStore : BindingStore {
     val bindings = MutableStateFlow(emptyList<EngineBinding>())
+    var beforeLoad: suspend () -> Unit = {}
 
     override fun observe(): Flow<List<EngineBinding>> = bindings
 
-    override suspend fun load(): List<EngineBinding> = bindings.value
+    override suspend fun load(): List<EngineBinding> {
+        beforeLoad()
+        return bindings.value
+    }
 
     var saveFailure: Exception? = null
 
@@ -199,6 +243,26 @@ internal class FakeAuthSources : AuthSources {
     }
 
     override suspend fun forget(id: AuthSourceId) = remove(id)
+
+    override suspend fun editIfUnchanged(
+        expected: AuthSource,
+        label: String,
+        scope: AuthScope,
+        key: Secret?,
+        onSaved: (AuthSource) -> Unit,
+    ) {
+        if (get(expected.info.id) != expected) {
+            throw AuthException(AuthFailure(AuthFailureReason.SourceChanged, expected.info.id))
+        }
+        val info = expected.info.copy(label = label, revision = AuthRevision.Known("edited"))
+        val changed = when (expected) {
+            is AuthSource.ManagedKey -> expected.copy(info = info, scope = scope)
+            is AuthSource.NoAuth -> expected.copy(info = info, scope = scope)
+            is AuthSource.CliLogin, is AuthSource.ExternalKey, is AuthSource.CredentialHelper -> error("not editable")
+        }
+        sources.value = sources.value.map { if (it.info.id == info.id) changed else it }
+        onSaved(changed)
+    }
 }
 
 internal class FakeAuthChecks(private val clock: Clock) : AuthChecks {

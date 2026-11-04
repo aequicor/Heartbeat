@@ -10,7 +10,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
@@ -48,6 +50,7 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -69,10 +72,17 @@ internal class PiRuntime(
     private val credentials: PiRuntimeCredentials,
     internal val environment: PiSessionEnvironment,
     private val services: PiRuntimeServices,
+    /** Admitted artifact/contract; null for a runtime created outside admission. */
+    override val compatibilityStamp: EngineCompatibilityStamp? = null,
+    /** Exact executable and launch an admission verified; every process of this runtime starts it. */
+    private val admission: PiRuntimeAdmission? = null,
 ) : EngineRuntime,
-    PiSessions {
+    PiSessions,
+    PiAdmittedRuntime {
     private val log = Log.tag("PiRuntime")
     override val identity get() = credentials.identity
+    override val selectedExecutable: Path? get() = admission?.executable
+    override val admittedVersion: String? get() = admission?.startup?.runtimeVersion
     private val source get() = credentials.source
     internal val credential get() = credentials.fingerprint
     private val profile get() = environment.profile
@@ -249,12 +259,17 @@ internal class PiRuntime(
         val session = prepare(request, transcript)
         var isRegistered = false
         try {
+            val pinned = admission
+            // The admitted bytes are checked immediately before the process and any configuration/home read.
+            if (pinned != null && !processes.verifyAdmission(pinned)) refuseAdmission()
             // Startup stays outside the lock so close() and unrelated creations can proceed.
             session.first.start(
-                { plan, event, failed -> processes.start(source, session.second, event, failed, plan) },
+                { plan, event, failed -> processes.start(source, session.second, event, failed, plan, pinned) },
                 transcript,
                 processes::transcript,
             )
+            // And immediately after it starts, before the session is registered or used.
+            if (pinned != null && !processes.verifyAdmission(pinned)) refuseAdmission()
             // A started process must be registered or shut down even when its caller is cancelled.
             withContext(NonCancellable) {
                 mutex.withLock {
@@ -275,6 +290,16 @@ internal class PiRuntime(
                 }
             }
         }
+    }
+
+    /**
+     * The admitted artifact no longer hashes to the bytes the candidate verified: this runtime must never start
+     * another process and cannot be the runtime the facade keeps. The just-started session is reaped by [launch].
+     */
+    private suspend fun refuseAdmission(): Nothing {
+        log.w { "Admitted Pi artifact changed; the runtime stops instead of running unadmitted bytes" }
+        withContext(NonCancellable) { mutex.withLock { isClosed = true } }
+        piFailure(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
     }
 
     /** Ends one borrowed handle; the process is closed when its last consumer is gone. */

@@ -1,22 +1,27 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigOverride
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubAsset
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubRelease
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import io.aequicor.heartbeat.feature.aiengine.facade.api.validateLaunchSettings
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class CodexManagementTest {
     private val target = CodexTarget("aarch64-apple-darwin", "bin/codex")
@@ -121,6 +126,18 @@ class CodexManagementTest {
         assertEquals(listOf(0, 1), problems.map { it.index })
     }
 
+    @Test
+    fun `candidate inspection reports the selected file without opening or executing it`() = runTest {
+        val installation = Installation(InstallSource.Custom, version = null, path = "/opt/codex", isRunnable = true)
+        val transport = CandidateTransport(installation)
+        val manager = CodexManager(transport, CodexLogin(transport, Dispatchers))
+        val inspection = manager.inspectCandidate(LaunchContext(LaunchSettings(executable = "/opt/codex")))
+        assertEquals(CodexEngine.Id, inspection.engine)
+        assertEquals(installation, inspection.installation)
+        assertNull(inspection.compatibility)
+        assertEquals(0, transport.opens)
+    }
+
     private fun release(vararg assets: GitHubAsset) = GitHubRelease("rust-v0.160.0", assets = assets.toList())
 
     private suspend fun assertInstall(reason: InstallFailureReason, block: suspend () -> Unit) {
@@ -142,5 +159,16 @@ class CodexManagementTest {
     private object NoTargetTransport : CodexTransport {
         override suspend fun open(): CodexWire = error("unused")
         override suspend fun available(): EngineAvailability = error("unused")
+    }
+
+    private class CandidateTransport(private val installation: Installation) : CodexTransport {
+        var opens = 0
+        override suspend fun open(): CodexWire {
+            opens++
+            error("unused")
+        }
+
+        override suspend fun available(): EngineAvailability = error("unused")
+        override suspend fun locate(launch: LaunchContext): Installation = installation
     }
 }

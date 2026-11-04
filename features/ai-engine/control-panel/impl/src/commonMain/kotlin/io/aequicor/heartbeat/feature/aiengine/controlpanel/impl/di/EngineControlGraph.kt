@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ext.retainedGraph
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
@@ -22,6 +23,7 @@ import io.aequicor.heartbeat.core.navigation.routeEntry
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
+import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlMachineSpec
@@ -38,6 +40,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.com
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.component.EngineControlListComponent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.component.EngineControlPanelComponent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlTarget
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EnginePanelFeatures
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui.EngineControlBlankUiComponent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui.EngineControlListUiComponent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui.EngineControlPanelUiComponent
@@ -69,6 +72,11 @@ interface EngineControlGraph {
 @ContributesTo(EngineControlScope::class)
 @BindingContainer
 object EngineControlBindings {
+    /** Reads the existing connections toggle; the UI does not query storage or toggles during composition. */
+    @Provides
+    fun features(toggles: FeatureToggles): EnginePanelFeatures =
+        EnginePanelFeatures(toggles.observe(EngineConnectionsEnabled))
+
     /**
      * Launches the machine for the lifetime of the screen. The list and each open panel own an instance; nothing
      * outside sends to them, so they are private, not registered under the key.

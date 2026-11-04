@@ -41,6 +41,12 @@ internal interface PreparedCodexLaunch {
     /** Profile opt-in captured together with this executable and configuration directory. */
     val isMcpEnabled: Boolean get() = false
 
+    /** Absolute executable this captured launch starts, or null when no external artifact is selected. */
+    val executable: String? get() = null
+
+    /** SHA-256 of the captured executable, or null when this transport cannot read it. */
+    suspend fun executableSha256(): String? = null
+
     /** Starts the captured executable with the captured home, arguments and environment. */
     suspend fun open(): CodexWire
 
@@ -64,8 +70,31 @@ internal interface PreparedCodexLaunch {
         record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
     ): Boolean = false
 
-    /** Reads the version of that same executable; used for display and diagnostics only. */
+    /**
+     * Version that the already held metadata process of this captured launch reported in its own handshake;
+     * unknown by default and never established by executing the selected file with a version probe.
+     */
     suspend fun version(): String? = null
+
+    /**
+     * Records the version [version] reported by the metadata process this captured launch already started, so a
+     * subsequent restricted launch can check its floor against that observation instead of probing the file.
+     * The observation belongs to exactly this executable, configuration and environment: never record a version
+     * obtained from another file, another captured launch or another account. Null and blank leave it unknown,
+     * which keeps a restricted launch refused.
+     */
+    suspend fun observeVersion(version: String?) {}
+}
+
+/**
+ * Version of the engine that produced [userAgent], for example `heartbeat/0.166.0-alpha.5.1 (Mac OS; arm64)…`.
+ * The process reports its own build: the leading `<originator>/<version>` token is used and anything else, or an
+ * absent payload, stays unknown. SemVer validity is checked by the caller's policy, not here.
+ */
+internal fun codexEngineVersion(userAgent: String?): String? {
+    val token = userAgent?.substringBefore(' ')?.takeIf(String::isNotBlank) ?: return null
+    val version = token.substringAfter('/', "").takeIf(String::isNotBlank) ?: return null
+    return version.takeIf { it.none(Char::isWhitespace) }
 }
 
 internal interface CodexTransport {

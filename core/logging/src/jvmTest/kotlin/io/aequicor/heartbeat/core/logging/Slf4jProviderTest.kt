@@ -52,6 +52,56 @@ class Slf4jProviderTest {
     }
 
     @Test
+    fun `Koog payloads are opaque even in trace while failure severity and stack survive`() {
+        val entries = mutableListOf<Pair<LogLevel, String>>()
+        val failures = mutableListOf<Throwable?>()
+        var isRendered = false
+        val payload = object {
+            override fun toString(): String {
+                isRendered = true
+                return "private prompt and model response"
+            }
+        }
+        val failure = IllegalStateException("private provider error body", IllegalArgumentException("private cause"))
+        Log.init(
+            isDebug = false,
+            isTrace = true,
+            sinks = listOf(
+                LogSink { level, _, error, message ->
+                    entries += level to message
+                    failures += error
+                },
+            ),
+        )
+        try {
+            val names = listOf(
+                "ai.koog.prompt.executor.llms.LLMPromptExecutor",
+                "OpenAILLMClient",
+                "AnthropicLLMClient",
+                "OllamaClient",
+            )
+            for (name in names) {
+                val logger = LoggerFactory.getLogger(name)
+                logger.debug("private interpolated prompt {}", payload)
+                logger.atWarn().addKeyValue("private field", payload).addArgument(payload).log("private response {}")
+                logger.error("private failure body", failure)
+            }
+            assertFalse(isRendered)
+            assertEquals(12, entries.size)
+            assertEquals(4, entries.count { it.first == LogLevel.VERBOSE })
+            assertEquals(4, entries.count { it.first == LogLevel.WARNING })
+            assertEquals(4, entries.count { it.first == LogLevel.ERROR })
+            assertTrue(entries.all { it.second == "SDK diagnostic; payload omitted" })
+            for (logged in failures.filterNotNull()) {
+                assertFalse(logged.stackTraceToString().contains("private"))
+                assertTrue(logged.stackTrace.contentEquals(failure.stackTrace))
+            }
+        } finally {
+            Log.init(isDebug = false)
+        }
+    }
+
+    @Test
     fun `failed ordinary and fluent argument conversion never writes raw failures to stderr`() {
         val entries = mutableListOf<String>()
         val errors = mutableListOf<Throwable?>()

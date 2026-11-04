@@ -1,16 +1,25 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.withoutLabel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RouteAdmission
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -29,8 +38,10 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Instant
+import kotlin.time.TimeMark
 
 /**
  * Profile pool of native runtimes, one per engine and source across workspaces. A changed source revision
@@ -54,6 +65,8 @@ class RuntimePool(
 ) {
     private val log = Log.tag("RuntimePool")
     private val mutex = Mutex()
+    private val cleanup = RuntimeCleanupOwner(context)
+    private val admission = RuntimeAdmission(context, cleanup)
     private val runtimes = mutableMapOf<Pair<EngineId, AuthSourceId>, Pooled>()
     private val keyLocks = mutableMapOf<Pair<EngineId, AuthSourceId>, Mutex>()
     private val disconnected = mutableSetOf<Pair<EngineId, EngineBindingId>>()
@@ -61,6 +74,9 @@ class RuntimePool(
     private val published = MutableStateFlow(emptyList<RuntimeEntry>())
     private val hasLiveRuntimes = MutableStateFlow(false)
     private var isClosed = false
+
+    /** Shared cleanup ownership for restricted acquisition and ordinary runtime orphan cleanup. */
+    internal val admissionCleanup: RuntimeAdmissionCleanup get() = cleanup
 
     /**
      * Pooled runtimes; observers receive native exit changes within one second. An exited runtime stays listed
@@ -92,6 +108,186 @@ class RuntimePool(
             keyLocks.getOrPut(key) { Mutex() }
         }
         return keyLock.withLock { replace(resolved, key) }
+    }
+
+    /**
+     * Runtime authorized to create/resume sessions. A fresh restricted candidate must prove the selected
+     * artifact and baseline; metadata runtimes do not acquire admission by sharing credential identity.
+     * [deadline] includes source-lock waiting and canonical [recheck]. Cleanup is always awaited.
+     */
+    suspend fun sessionRuntime(
+        resolved: ResolvedRoute,
+        deadline: TimeMark,
+        recheck: suspend () -> Unit,
+        prepare: suspend () -> Unit = {},
+    ): EngineRuntime {
+        if (deadline.hasPassedNow()) fail(EngineFailure.Transport(TransportFailureReason.Timeout))
+        return withContext(context.io) {
+            withTimeout(-deadline.elapsedNow()) {
+                val key = resolved.identity.engine to resolved.identity.source
+                locked(key) {
+                    mutex.withLock {
+                        ensureOpen(key.first)
+                        requireConnected(resolved)
+                    }
+                    cleanup.retryFor(key.first, key.second)
+                    acquireSession(resolved, deadline, recheck, prepare)
+                }
+            }
+        }
+    }
+
+    /**
+     * Assesses whether [resolved] could create a session without starting, reusing or transferring an ordinary
+     * runtime: one restricted candidate is acquired for the exact identity, launch context and provider, then
+     * assessed against the connector policy and closed. The source lock serializes the probe with runtime
+     * replacement, and [recheck] must still authorize the canonical route. Cleanup is always awaited.
+     */
+    suspend fun assessAdmission(
+        resolved: ResolvedRoute,
+        deadline: TimeMark,
+        recheck: suspend () -> Unit,
+    ): RouteAdmission {
+        if (deadline.hasPassedNow()) fail(EngineFailure.Transport(TransportFailureReason.Timeout))
+        return withContext(context.io) {
+            withTimeout(-deadline.elapsedNow()) {
+                val identity = resolved.identity
+                val key = identity.engine to identity.source
+                locked(key) {
+                    mutex.withLock {
+                        ensureOpen(identity.engine)
+                        requireConnected(resolved)
+                    }
+                    val launch = launchOf(identity.engine)
+                    admission.assess(
+                        resolved.registration,
+                        EngineRuntimeCandidateRequest(identity, launch, resolved.source.scope.provider),
+                        deadline,
+                        recheck = {
+                            mutex.withLock {
+                                ensureOpen(identity.engine)
+                                requireConnected(resolved)
+                            }
+                            recheck()
+                            if (launchOf(identity.engine) != launch) {
+                                fail(EngineFailure.Session(SessionFailureReason.Changed))
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Stops may reuse the already admitted runtime even when a fresh probe is unavailable: cancelling accepted
+     * work must not replace its owner. An unadmitted or differently routed runtime is never reused for this purpose.
+     */
+    suspend fun runtimeForStop(
+        resolved: ResolvedRoute,
+        deadline: TimeMark,
+        recheck: suspend () -> Unit,
+        prepare: suspend () -> Unit,
+    ): EngineRuntime {
+        if (deadline.hasPassedNow()) fail(EngineFailure.Transport(TransportFailureReason.Timeout))
+        val retained = withContext(context.io) {
+            withTimeout(-deadline.elapsedNow()) {
+                val key = resolved.identity.engine to resolved.identity.source
+                locked(key) {
+                    mutex.withLock {
+                        ensureOpen(key.first)
+                        requireConnected(resolved)
+                    }
+                    recheck()
+                    val current = mutex.withLock { runtimes[key] }
+                    if (current == null || !current.canStop(resolved)) {
+                        null
+                    } else {
+                        prepare()
+                        recheck()
+                        current.runtime
+                    }
+                }
+            }
+        }
+        return retained ?: sessionRuntime(resolved, deadline, recheck, prepare)
+    }
+
+    private suspend fun acquireSession(
+        resolved: ResolvedRoute,
+        deadline: TimeMark,
+        recheck: suspend () -> Unit,
+        prepare: suspend () -> Unit = {},
+    ): EngineRuntime {
+        val identity = resolved.identity
+        val launch = launchOf(identity.engine)
+        val result = admission.acquire(
+            resolved.registration,
+            EngineRuntimeCandidateRequest(identity, launch, resolved.source.scope.provider),
+            deadline,
+            recheck = {
+                mutex.withLock {
+                    ensureOpen(identity.engine)
+                    requireConnected(resolved)
+                }
+                recheck()
+                if (launchOf(identity.engine) != launch) fail(EngineFailure.Session(SessionFailureReason.Changed))
+            },
+            reuseOrRetire = { decision ->
+                reuseOrRetire(resolved, launch, decision).also { prepare() }
+            },
+        )
+        val accepted = when (result) {
+            RuntimeAdmissionResult.Unavailable -> fail(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+
+            is RuntimeAdmissionResult.Rejected -> fail(
+                EngineFailure.Engine(
+                    if (result.decision.status == Compatibility.Incompatible) {
+                        EngineFailureReason.Incompatible
+                    } else {
+                        EngineFailureReason.CompatibilityUnknown
+                    },
+                ),
+            )
+
+            is RuntimeAdmissionResult.Accepted -> result
+        }
+        withContext(NonCancellable) {
+            mutex.withLock {
+                // Store before any cancellable boundary: pool/shutdown now owns every transferred runtime.
+                val key = identity.engine to identity.source
+                val existing = runtimes[key]
+                val startedAt = existing?.takeIf { it.runtime === accepted.runtime }?.startedAt ?: context.clock.now()
+                runtimes[key] = Pooled(
+                    accepted.runtime,
+                    startedAt,
+                    launch,
+                    resolved.source.withoutLabel(),
+                    accepted.decision,
+                )
+                publish()
+            }
+        }
+        mutex.withLock {
+            ensureOpen(identity.engine)
+            requireConnected(resolved)
+        }
+        log.i { "Admitted session runtime engine=${identity.engine.value} reused=${!accepted.isNew}" }
+        return accepted.runtime
+    }
+
+    private suspend fun reuseOrRetire(
+        resolved: ResolvedRoute,
+        launch: LaunchContext,
+        decision: EngineCompatibilityDecision,
+    ): EngineRuntime? {
+        val key = resolved.identity.engine to resolved.identity.source
+        val current = mutex.withLock { runtimes[key] } ?: return null
+        val runtime = current.runtime
+        if (current.isReusable(resolved, launch, decision)) return runtime
+        if (runtime.isClosed) dispose(current, key) else retire(current, key)
+        cleanup.retryFor(key.first, key.second)
+        return null
     }
 
     /**
@@ -189,9 +385,12 @@ class RuntimePool(
             requireConnected(resolved)
             runtimes[key]
         }
+        cleanup.retryFor(identity.engine, identity.source)
         if (current != null && current.runtime.isClosed) {
             dispose(current, key)
-        } else if (current != null && current.runtime.identity == identity) {
+        } else if (current != null && current.runtime.identity == identity &&
+            current.source == resolved.source.withoutLabel()
+        ) {
             return current.runtime
         } else if (current != null) {
             retire(current, key)
@@ -200,17 +399,19 @@ class RuntimePool(
         log.i { "start runtime engine=${identity.engine.value} source=${identity.source.value}" }
         // Read before the adapter starts, so a change made meanwhile marks the runtime stale rather than current.
         val launch = launchOf(identity.engine)
+        // Retirement can leave an unconfirmed close: never start another credential rotator over that orphan.
+        cleanup.retryFor(identity.engine, identity.source)
         val created = create(resolved)
         if (created.identity != identity) {
             log.e { "runtime reported another identity engine=${identity.engine.value}" }
-            withContext(NonCancellable) { closeQuietly(created) }
+            withContext(NonCancellable) { closeQuietly(created, identity) }
             fail(EngineFailure.Unknown())
         }
         // Registration must not be cancelled between creation and the pool, or the runtime would leak.
         val isStored = withContext(NonCancellable) {
             mutex.withLock {
                 // Shutdown waits for this source lock and owns retries if stopping this late runtime fails.
-                runtimes[key] = Pooled(created, context.clock.now(), launch)
+                runtimes[key] = Pooled(created, context.clock.now(), launch, resolved.source.withoutLabel())
                 publish()
                 !isClosed
             }
@@ -251,7 +452,7 @@ class RuntimePool(
             val orphan = started?.takeUnless { isHandedOver }
             if (orphan != null) {
                 log.i { "runtime created for a cancelled request, closing engine=${identity.engine.value}" }
-                withContext(NonCancellable) { closeQuietly(orphan) }
+                withContext(NonCancellable) { closeQuietly(orphan, identity) }
             }
         }
     }
@@ -299,7 +500,7 @@ class RuntimePool(
                 }
             }
         }
-        if (isOwned) withContext(NonCancellable) { closeQuietly(current.runtime) }
+        if (isOwned) withContext(NonCancellable) { cleanup.close(current.runtime, current.runtime.identity) }
     }
 
     /** Called under [mutex]. */
@@ -349,7 +550,10 @@ class RuntimePool(
             val failures = supervisorScope {
                 val jobs = keys.map { key -> async { locked(key) { closeOwned(key) } } }
                 jobs.forEach { it.join() }
-                jobs.mapNotNull { it.getCompletionExceptionOrNull() }
+                // Source locks have drained, so even a late cancelled creation has registered its orphan.
+                val remaining = async { cleanup.retryAll() }
+                remaining.join()
+                (jobs + remaining).mapNotNull { it.getCompletionExceptionOrNull() }
             }
             failures.firstOrNull()?.let { first ->
                 failures.drop(1).forEach(first::addSuppressed)
@@ -370,9 +574,9 @@ class RuntimePool(
         }
     }
 
-    private suspend fun closeQuietly(runtime: EngineRuntime) {
+    private suspend fun closeQuietly(runtime: EngineRuntime, expected: RuntimeIdentity) {
         try {
-            runtime.close()
+            cleanup.close(runtime, expected)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -386,7 +590,26 @@ class RuntimePool(
 }
 
 /** One pooled runtime, when the pool started it and the launch context it started with. */
-private data class Pooled(val runtime: EngineRuntime, val startedAt: Instant, val launch: LaunchContext)
+private data class Pooled(
+    val runtime: EngineRuntime,
+    val startedAt: Instant,
+    val launch: LaunchContext,
+    val source: AuthSource,
+    val admission: EngineCompatibilityDecision? = null,
+) {
+    fun canStop(resolved: ResolvedRoute): Boolean {
+        val stamp = admission?.takeIf { it.isBaselineAllowed }?.stamp ?: return false
+        if (runtime.isClosed || runtime.identity != resolved.identity) return false
+        if (runtime.compatibilityStamp != stamp) return false
+        return source == resolved.source.withoutLabel()
+    }
+
+    fun isReusable(resolved: ResolvedRoute, launch: LaunchContext, decision: EngineCompatibilityDecision): Boolean {
+        if (runtime.isClosed || runtime.identity != resolved.identity || this.launch != launch) return false
+        if (source != resolved.source.withoutLabel()) return false
+        return admission?.stamp == decision.stamp && runtime.compatibilityStamp == decision.stamp
+    }
+}
 
 /**
  * A pooled runtime of [engine] and [source]; [isClosed] tells it shut itself down and awaits replacement, and

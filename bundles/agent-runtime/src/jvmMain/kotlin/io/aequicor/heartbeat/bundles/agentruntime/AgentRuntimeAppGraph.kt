@@ -4,6 +4,7 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Includes
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
+import io.aequicor.heartbeat.core.desktopdialogs.NativeDesktopFileDialogs
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
 
@@ -18,7 +19,7 @@ public interface AgentRuntimeAppExports {
  * profile graph of the foundation (`ProfileGraph`) is not part of it: the bundle has [AgentRuntimeProfileGraph] of
  * its own.
  */
-@DependencyGraph(AppScope::class, excludes = [ProfileGraph.Factory::class])
+@DependencyGraph(AppScope::class, excludes = [ProfileGraph.Factory::class, NativeDesktopFileDialogs::class])
 internal interface AgentRuntimeAppGraph : AgentRuntimeAppExports {
     /** Creates the profile graph of the bundle for one profile. */
     val profileGraphs: AgentRuntimeProfileGraph.Factory

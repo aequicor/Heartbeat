@@ -1,10 +1,13 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
@@ -34,6 +37,17 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProviderUsageCatalogTest {
+    @Test
+    fun `unknown compatibility cannot start or bind runtime for provider usage`() = runTest {
+        val fixture = UsageFixture(this)
+        fixture.route.factory.runtimeRequirements = null
+        val error = assertFailsWith<EngineException> { fixture.refresh() }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown), error.failure)
+        assertTrue(fixture.route.factory.createdRuntimes.isEmpty())
+        assertTrue(fixture.route.factory.routes.isEmpty())
+        assertEquals(ProviderUsageSnapshot(), fixture.catalog.observe(TestEngine, fixture.route.binding.id).first())
+    }
+
     @Test
     fun `observing and disabled usage do not start an engine`() = runTest {
         val fixture = UsageFixture(this)
@@ -171,6 +185,30 @@ class ProviderUsageCatalogTest {
         fixture.route.sources.remove(fixture.route.source.info.id)
         fixture.route.sources.add(managedKey(revision = AuthRevision.Known("r2")))
         runCurrent()
+        assertFailsWith<CancellationException> { request.await() }
+        old.state.value = usage(99.0)
+        runCurrent()
+        assertEquals(ProviderUsageSnapshot(), fixture.catalog.observe(TestEngine, fixture.route.binding.id).first())
+        assertEquals(25.0, fixture.refresh().windows.single().usedPercent)
+        assertEquals(2, fixture.route.factory.createdRuntimes.size)
+    }
+
+    @Test
+    fun `source endpoint change at the same revision invalidates observations and pending refresh`() = runTest {
+        val fixture = UsageFixture(this)
+        fixture.refresh()
+        val old = fixture.telemetry.single()
+        fixture.route.clock.now += 31.seconds
+        old.gate = CompletableDeferred()
+        val request = async { fixture.refresh() }
+        runCurrent()
+
+        val source = fixture.route.source as AuthSource.ManagedKey
+        val changed = source.copy(scope = source.scope.copy(origin = EndpointOrigin("https://other.example.com")))
+        fixture.route.sources.remove(source.info.id)
+        fixture.route.sources.add(changed)
+        runCurrent()
+
         assertFailsWith<CancellationException> { request.await() }
         old.state.value = usage(99.0)
         runCurrent()

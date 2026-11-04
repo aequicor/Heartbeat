@@ -167,6 +167,7 @@ internal class NativeToolGate(
     }
 
     private suspend fun isEnabled(context: AgentToolContext, call: NativeToolCall): Boolean {
+        if (hooks.context(context.session, context.request, context.turn)?.isTextOnlyService == true) return false
         val policy = policies.resolve(
             ToolPolicyScope(context.session.engine, context.workspace, context.session, context.target),
             hostedNames(),

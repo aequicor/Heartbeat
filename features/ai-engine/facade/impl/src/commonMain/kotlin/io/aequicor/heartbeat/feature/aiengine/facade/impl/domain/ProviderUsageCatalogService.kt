@@ -1,7 +1,9 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.withoutLabel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -30,6 +32,7 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import kotlin.time.TimeSource
 
 /** Shared usage gate, read by the catalog without depending on toggle storage. */
 interface EngineUsageGate {
@@ -42,7 +45,7 @@ interface EngineUsageGate {
 
 /**
  * Memory-only provider telemetry. Reads never start runtimes; explicit requests share one profile-owned
- * refresh per runtime identity for thirty seconds. Account changes discard old observations and collectors.
+ * refresh per runtime and source context for thirty seconds. Account changes discard old observations and collectors.
  */
 @Suppress("LongParameterList") // These profile services own distinct route, runtime and telemetry gates.
 class ProviderUsageCatalogService(
@@ -55,8 +58,8 @@ class ProviderUsageCatalogService(
 ) : ProviderUsageCatalog {
     private val log = Log.tag("ProviderUsage")
     private val mutex = Mutex()
-    private val entries = mutableMapOf<RuntimeIdentity, UsageEntry>()
-    private val snapshots = MutableStateFlow(emptyMap<RuntimeIdentity, ProviderUsageSnapshot>())
+    private val entries = mutableMapOf<UsageIdentity, UsageEntry>()
+    private val snapshots = MutableStateFlow(emptyMap<UsageIdentity, ProviderUsageSnapshot>())
     private val eligible = combine(
         enabled.state,
         routes.saved,
@@ -74,10 +77,9 @@ class ProviderUsageCatalogService(
                     enabled.registry.supportsPlatform(it) && ReportsProviderUsage.id in it.descriptor.declaredFeatures
                 } ?: false
                 if (isBound && isSupported && source != null) {
-                    (binding.engine to binding.id) to RuntimeIdentity(
-                        binding.engine,
-                        source.info.id,
-                        source.info.revision,
+                    (binding.engine to binding.id) to UsageIdentity(
+                        RuntimeIdentity(binding.engine, source.info.id, source.info.revision),
+                        source.withoutLabel(),
                     )
                 } else {
                     null
@@ -115,9 +117,10 @@ class ProviderUsageCatalogService(
         if (enabled.registry.find(engine)?.descriptor?.declaredFeatures?.contains(ReportsProviderUsage.id) != true) {
             return ProviderUsageSnapshot()
         }
-        val resolved = routes.resolve(engine, binding)
+        val resolved = routes.resolveSession(engine, binding)
+        val identity = resolved.usageIdentity()
         val request = mutex.withLock {
-            val entry = entries.getOrPut(resolved.identity) { UsageEntry() }
+            val entry = entries.getOrPut(identity) { UsageEntry() }
             val previous = entry.request
             val isRecent = entry.requestedAt?.let { context.clock.now() - it < REFRESH_INTERVAL } ?: false
             if (previous != null && (!previous.isCompleted || isRecent)) {
@@ -130,7 +133,7 @@ class ProviderUsageCatalogService(
         }
         request.start()
         request.await().getOrThrow()
-        return snapshots.value[resolved.identity] ?: ProviderUsageSnapshot()
+        return snapshots.value[identity] ?: ProviderUsageSnapshot()
     }
 
     private suspend fun refreshResult(resolved: ResolvedRoute, entry: UsageEntry): Result<ProviderUsageSnapshot> = try {
@@ -142,28 +145,38 @@ class ProviderUsageCatalogService(
     }
 
     private suspend fun refresh(resolved: ResolvedRoute, entry: UsageEntry): ProviderUsageSnapshot = try {
+        val identity = resolved.usageIdentity()
         requireCurrent(resolved)
-        val runtime = pool.runtime(resolved)
+        val runtime = pool.sessionRuntime(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = {
+                requireCurrent(resolved)
+                routes.recheckSession(resolved)
+            },
+            prepare = { routes.bindAdmitted(resolved) },
+        )
         val feature = runtime.features.resolve(ReportsProviderUsage).orFail()
-        observeRuntime(resolved.identity, runtime, feature, entry)
+        observeRuntime(identity, runtime, feature, entry)
         log.i { "Refresh provider limits engine=${resolved.identity.engine.value}" }
         val snapshot = adapterCall(log, "providerUsage") { withContext(context.io) { feature.refresh() } }
         requireCurrent(resolved)
-        publish(resolved.identity, entry, snapshot)
+        publish(identity, entry, snapshot)
         snapshot
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         log.w(e) { "Provider limits refresh failed engine=${resolved.identity.engine.value}" }
         mutex.withLock {
-            if (entries[resolved.identity] === entry) {
+            val identity = resolved.usageIdentity()
+            if (entries[identity] === entry) {
                 snapshots.update { cache ->
-                    val previous = cache[resolved.identity]
+                    val previous = cache[identity]
                     if (previous == null || (e as? EngineException)?.failure is EngineFailure.Authentication) {
-                        cache - resolved.identity
+                        cache - identity
                     } else {
                         val stale = previous.copy(observation = previous.observation.copy(isStale = true))
-                        cache + (resolved.identity to stale)
+                        cache + (identity to stale)
                     }
                 }
             }
@@ -175,14 +188,14 @@ class ProviderUsageCatalogService(
         val binding = routes.savedNow().firstOrNull { it.id == resolved.binding.id }
         val source = sources.get(resolved.identity.source)
         val isEnabled = gate.isEnabled() && resolved.identity.engine in enabled.current()
-        val isSameRoute = binding == resolved.binding && source?.info?.revision == resolved.identity.revision
+        val isSameRoute = binding == resolved.binding && source?.withoutLabel() == resolved.source.withoutLabel()
         if (!isEnabled || !isSameRoute) {
             fail(OperationNotAllowed)
         }
     }
 
     private suspend fun observeRuntime(
-        identity: RuntimeIdentity,
+        identity: UsageIdentity,
         runtime: EngineRuntime,
         feature: ReportsProviderUsage,
         entry: UsageEntry,
@@ -195,12 +208,12 @@ class ProviderUsageCatalogService(
         }
     }
 
-    private suspend fun publish(identity: RuntimeIdentity, entry: UsageEntry, snapshot: ProviderUsageSnapshot) {
+    private suspend fun publish(identity: UsageIdentity, entry: UsageEntry, snapshot: ProviderUsageSnapshot) {
         mutex.withLock {
             // Saved routes may resolve before their eager observation hydrates. Keep the first native snapshot;
             // observe() masks it until the exact identity is eligible, and invalidation retires the entry.
             if (entries[identity] === entry) {
-                log.d { "Provider limits updated engine=${identity.engine.value}" }
+                log.d { "Provider limits updated engine=${identity.runtime.engine.value}" }
                 snapshots.update { it + (identity to snapshot) }
             }
         }
@@ -212,6 +225,11 @@ class ProviderUsageCatalogService(
         var runtime: EngineRuntime? = null
         var observation: Job? = null
     }
+
+    /** Non-secret identity of the complete source context; the user-visible label is intentionally excluded. */
+    private data class UsageIdentity(val runtime: RuntimeIdentity, val source: AuthSource)
+
+    private fun ResolvedRoute.usageIdentity(): UsageIdentity = UsageIdentity(identity, source.withoutLabel())
 
     private companion object {
         val REFRESH_INTERVAL = 30.seconds

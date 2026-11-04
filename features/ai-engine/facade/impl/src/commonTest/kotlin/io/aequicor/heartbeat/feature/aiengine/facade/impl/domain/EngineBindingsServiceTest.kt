@@ -7,13 +7,20 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthenticatorId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -37,8 +44,11 @@ class EngineBindingsServiceTest {
     private var releaseFailure: Exception? = null
     private var releaseGate: CompletableDeferred<Unit>? = null
 
-    private fun TestScope.service(): EngineBindingsService {
-        val registry = EngineRegistry(listOf(registration(factory)), EnginePlatform.DesktopMacOs)
+    private fun TestScope.service(methods: List<ConnectionMethod> = emptyList()): EngineBindingsService {
+        val registry = EngineRegistry(
+            listOf(registration(factory, connectionMethods = methods)),
+            EnginePlatform.DesktopMacOs,
+        )
         return EngineBindingsService(
             EngineGate(registry, toggles),
             store,
@@ -55,6 +65,90 @@ class EngineBindingsServiceTest {
     }
 
     @Test
+    fun `editing validates the declared method and adapter before committing the source`() = runTest {
+        val method = ConnectionMethod.ApiKey(
+            ConnectionMethodId("test.key"),
+            ProviderInfo(TestAuthScope.provider, "Provider"),
+            TestAuthScope.origin,
+            isOriginEditable = true,
+        )
+        val service = service(listOf(method))
+        val source = sources.add(managedKey())
+        val binding = service.connect(TestEngine, source.info.id)
+        val origin = EndpointOrigin("https://proxy.example.com")
+        val edit = ConnectionEdit(binding.id, method.id, source, "new", origin)
+
+        factory.accepts = { candidate, _ -> candidate.scope.origin != origin }
+        assertFailsWith<EngineException> { service.edit(edit) {} }
+        assertEquals(source, sources.get(source.info.id))
+        factory.accepts = { _, _ -> true }
+        assertFailsWith<EngineException> { service.edit(edit.copy(method = ConnectionMethodId("foreign"))) {} }
+        var receipt: io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource? = null
+        service.edit(edit) { receipt = it }
+        assertEquals(origin, receipt?.scope?.origin)
+        assertEquals(receipt, sources.get(source.info.id))
+        assertFailsWith<io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthException> {
+            service.edit(edit) {}
+        }
+    }
+
+    @Test
+    fun `editing a shared source rejects an endpoint unsupported by another binding`() = runTest {
+        val method = ConnectionMethod.ApiKey(
+            ConnectionMethodId("test.key"),
+            ProviderInfo(TestAuthScope.provider, "Provider"),
+            TestAuthScope.origin,
+            isOriginEditable = true,
+        )
+        val secondEngine = EngineId("second")
+        val otherFactory = FakeEngineFactory()
+        val registry = EngineRegistry(
+            listOf(
+                registration(factory, connectionMethods = listOf(method)),
+                registration(otherFactory, id = secondEngine, owner = AuthOwnerId("second-cli")),
+            ),
+            EnginePlatform.DesktopMacOs,
+        )
+        val service = EngineBindingsService(
+            EngineGate(registry, toggles),
+            store,
+            sources,
+            checks,
+            {},
+            facadeContext(clock),
+        )
+        val source = sources.add(managedKey())
+        val binding = service.connect(TestEngine, source.info.id)
+        service.connect(secondEngine, source.info.id)
+        val origin = EndpointOrigin("https://proxy.example.com")
+        otherFactory.accepts = { candidate, _ -> candidate.scope.origin != origin }
+
+        assertFailsWith<EngineException> {
+            service.edit(ConnectionEdit(binding.id, method.id, source, "new", origin)) {}
+        }
+        assertEquals(source, sources.get(source.info.id))
+    }
+
+    @Test
+    fun `ambiguous methods cannot turn a fixed provider endpoint into a key forwarding route`() = runTest {
+        val fixed = ConnectionMethod.ApiKey(
+            ConnectionMethodId("fixed"),
+            ProviderInfo(TestAuthScope.provider, "Provider"),
+            TestAuthScope.origin,
+        )
+        val proxy = fixed.copy(id = ConnectionMethodId("proxy"), isOriginEditable = true)
+        val service = service(listOf(fixed, proxy))
+        val source = sources.add(managedKey())
+        val binding = service.connect(TestEngine, source.info.id)
+
+        val edit = ConnectionEdit(binding.id, proxy.id, source, "key", EndpointOrigin("https://proxy.example.com"))
+        assertFailsWith<EngineException> {
+            service.edit(edit) {}
+        }
+        assertEquals(source, sources.get(source.info.id))
+    }
+
+    @Test
     fun `connecting refreshes the source revision reported by the adapter before binding`() = runTest {
         val service = service()
         val source = sources.add(cliLogin())
@@ -64,6 +158,29 @@ class EngineBindingsServiceTest {
 
         assertEquals(AuthRevision.Known("login-2"), sources.get(source.info.id)?.info?.revision)
         assertEquals(AuthRevision.Known("login-2"), factory.routes.getValue(binding.id).info.revision)
+    }
+
+    @Test
+    fun `connecting does not bind a source changed while the adapter revision probe was running`() = runTest {
+        val service = service()
+        val source = sources.add(managedKey())
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        factory.revisionStarted = entered
+        factory.revisionGate = release
+
+        val attempt = async {
+            assertFailsWith<EngineException> { service.connect(TestEngine, source.info.id) }
+        }
+        entered.await()
+        sources.remove(source.info.id)
+        sources.add(managedKey(revision = AuthRevision.Known("r2")))
+        release.complete(Unit)
+
+        val failure = attempt.await()
+        assertEquals(authFailure(AuthFailureReason.SourceChanged, source.info.id), failure.failure)
+        assertTrue(store.bindings.value.isEmpty())
+        assertTrue(factory.routes.isEmpty())
     }
 
     @Test

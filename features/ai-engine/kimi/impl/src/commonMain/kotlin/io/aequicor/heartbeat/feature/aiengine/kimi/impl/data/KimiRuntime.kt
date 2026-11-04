@@ -27,9 +27,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
@@ -43,6 +45,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
@@ -58,6 +61,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
@@ -79,12 +83,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeModelDiscovery
 import io.aequicor.heartbeat.feature.aiengine.kimi.api.KimiEngine
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -96,6 +101,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -123,19 +130,28 @@ internal class KimiRuntime(
     fetchProviderUsage: (suspend () -> ProviderUsageSnapshot?)? = null,
     private val bridge: AgentToolBridge = UnavailableAgentToolBridge,
     private val ownedScope: Job? = null,
-) : EngineRuntime,
+    /** Artifact/contract the facade admitted; null for a runtime created outside admission. */
+    override val compatibilityStamp: EngineCompatibilityStamp? = null,
+    /** Executable this process was started from; null when the launch has no external artifact. */
+    override val selectedExecutable: String? = null,
+) : KimiAdmittedRuntime,
     CreatesSessions,
     AttachesSessions,
+    RuntimeModelDiscovery,
     AcpClientHandler {
     private val providerUsage = KimiProviderUsage(fetchProviderUsage) { toggles.get(EngineUsageEnabled) }
     override val features = KimiFeatures(
         CreatesSessions to this,
         AttachesSessions to this,
         ReportsProviderUsage to providerUsage,
+        RuntimeModelDiscovery to this,
     )
     private val sessions = MutableStateFlow<Map<String, KimiSession>>(emptyMap())
     private val mutex = Mutex()
+    private val configuring = mutableMapOf<String, PendingKimiModel>()
     private val loading = Mutex()
+    private val catalogLock = Mutex()
+    private val pendingCatalogs = mutableMapOf<Pair<EngineBindingId, String>, Deferred<Result<KimiModelCatalog>>>()
     private val log = Log.tag("KimiRuntime")
 
     @Volatile
@@ -145,6 +161,15 @@ internal class KimiRuntime(
     private var isDisconnected = false
     override val isClosed: Boolean
         get() = isShutdown || isDisconnected || scope.coroutineContext[Job]?.isActive == false
+
+    /** Runtime version the already held process reported in its own ACP `initialize` answer. */
+    override val observedRuntimeVersion: String? get() = initialization.agentInfo?.version
+
+    /** Negotiated ACP identity of this process; null when the handshake never reported a positive version. */
+    override val observedProtocol: EngineProtocolIdentity?
+        get() = initialization.protocolVersion
+            .takeIf { it > 0 }
+            ?.let { EngineProtocolIdentity.Negotiated("acp", it) }
 
     private val usageToggleObserver = scope.launch {
         try {
@@ -167,30 +192,149 @@ internal class KimiRuntime(
             request.preselected,
         )
         var isTransferred = false
+        var isNewSessionStarted = false
+        var nativeId: String? = null
+        var pending: PendingKimiModel? = null
         try {
-            val native = connection.newSession(cwd, hosted.servers)
+            // The server can persist a session before replying. Retain ownership after caller cancellation
+            // long enough to receive its ID and clean it up; a lost response still has an unknown outcome.
+            val native = withContext(NonCancellable) {
+                isNewSessionStarted = true
+                withTimeout(CATALOG_OWNER_TIMEOUT_MS) {
+                    connection.newSession(cwd, hosted.servers).also {
+                        nativeId = it.sessionId
+                        pending = beginConfiguration(it.sessionId, request.target)
+                    }
+                }
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             configureCatching(native.sessionId, native.metadata, request.target)
-            val session = session(native.sessionId, request.target, request.workspace, native.metadata, cwd, hosted)
-            hosted.session.value = session
+            val lease = session(
+                native.sessionId,
+                request.target,
+                request.workspace,
+                native.metadata,
+                cwd,
+                hosted,
+                checkNotNull(pending),
+                request.areDetachedToolsEnabled,
+            )
             isTransferred = true
-            return session.lease(request.areDetachedToolsEnabled)
+            return lease
         } finally {
-            if (!isTransferred) hosted.close()
+            if (!isTransferred) {
+                hosted.close()
+                withContext(NonCancellable) {
+                    val id = nativeId
+                    val owner = pending
+                    if (id != null && owner != null) {
+                        endConfiguration(id, owner)
+                        discardSession(id, delete = true)
+                    } else if (id != null) {
+                        close()
+                    } else if (isNewSessionStarted) {
+                        close()
+                    }
+                }
+            }
         }
     }
 
-    suspend fun discoverCatalog(binding: EngineBindingId): KimiModelCatalog {
+    private suspend fun discardSession(sessionId: String, delete: Boolean) = withContext(NonCancellable) {
+        val capabilities = initialization.agentCapabilities["sessionCapabilities"] as? JsonObject
+        var isReleased = false
+        try {
+            if (capabilities?.get(if (delete) "delete" else "close") is JsonObject) {
+                isReleased = withTimeoutOrNull(CATALOG_TIMEOUT_MS) {
+                    releaseSession(sessionId, delete)
+                    true
+                } == true
+            }
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.engineFailure().let { EngineException(it) }) { "Kimi failed to release a session" }
+        } finally {
+            if (!isReleased) withContext(NonCancellable) { close() }
+        }
+    }
+
+    private suspend fun releaseSession(sessionId: String, delete: Boolean) {
+        if (delete) connection.deleteSession(sessionId) else connection.closeSession(sessionId)
+    }
+
+    override suspend fun discover(binding: EngineBindingId): List<ModelInfo> =
+        discoverCatalog(binding).modelInfo(identity.engine, binding)
+
+    private suspend fun discoverCatalog(binding: EngineBindingId): KimiModelCatalog {
+        checkActive()
+        val sessionCapabilities = initialization.agentCapabilities["sessionCapabilities"] as? JsonObject
+        if (sessionCapabilities?.get("delete") !is JsonObject) {
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
         val target = EngineTarget(identity.engine, binding, ModelId("catalog"))
-        val native = connection.newSession(directory(CreateSessionRequest(target)))
-        return kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
+        val cwd = directory(CreateSessionRequest(target))
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        // The runtime owns the operation, so a timed-out caller does not abandon a late session ID.
+        val owned = ownedCatalog(binding, cwd)
+        return withTimeout(CATALOG_TIMEOUT_MS) { owned.await().getOrThrow() }
+    }
+
+    private suspend fun ownedCatalog(binding: EngineBindingId, cwd: String): Deferred<Result<KimiModelCatalog>> =
+        catalogLock.withLock {
+            val key = binding to cwd
+            pendingCatalogs[key]?.takeUnless { it.isCompleted } ?: scope.async(start = CoroutineStart.LAZY) {
+                try {
+                    Result.success(discoverOwnedCatalog(cwd))
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Result.failure(error)
+                }
+            }.also { operation ->
+                pendingCatalogs[key] = operation
+                operation.invokeOnCompletion {
+                    scope.launch {
+                        catalogLock.withLock {
+                            if (pendingCatalogs[key] === operation) pendingCatalogs.remove(key)
+                        }
+                    }
+                }
+                operation.start()
+            }
+        }
+
+    private suspend fun discoverOwnedCatalog(cwd: String): KimiModelCatalog = withContext(NonCancellable) {
+        var isClosed = false
+        try {
+            withTimeout(CATALOG_OWNER_TIMEOUT_MS) {
+                val native = connection.newSession(cwd)
+                try {
+                    kimiNativeCatalog(native.metadata, initialization.agentCapabilities)
+                } finally {
+                    withContext(NonCancellable) {
+                        withTimeout(CATALOG_OWNER_TIMEOUT_MS) {
+                            connection.deleteSession(native.sessionId)
+                            isClosed = true
+                        }
+                    }
+                }
+            }
+        } finally {
+            // An unconfirmed session must not survive on a pooled connection.
+            if (!isClosed) withContext(NonCancellable) { close() }
+        }
     }
 
     private suspend fun configure(sessionId: String, metadata: JsonObject, target: EngineTarget) {
-        if (metadata.hasConfigOption("model")) {
-            connection.setConfigOption(sessionId, "model", nativeKimiModel(target.model))
+        val selected = nativeKimiModel(target.model)
+        val models = kimiNativeCatalog(metadata, initialization.agentCapabilities).models
+        if (!metadata.hasConfigOption("model") || models.none { it.id == selected }) {
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
+        connection.setConfigOptionObserved(sessionId, "model", selected).requireModel(selected)
         if (metadata.hasConfigOption("mode")) {
-            connection.setConfigOption(sessionId, "mode", "default")
+            connection.setConfigOptionObserved(sessionId, "mode", "default").requireModel(selected)
         }
     }
 
@@ -236,16 +380,55 @@ internal class KimiRuntime(
         val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, nativeId)
         val hosted = hosted(request.target, request.workspace, ref, request.areDetachedToolsEnabled, emptyMap())
         var isTransferred = false
+        var pending: PendingKimiModel? = null
         try {
-            val native = connection.loadSession(nativeId, cwd, hosted.servers)
+            // A cancelled caller must not abandon a successful load on the pooled connection.
+            // The known native identity lets cleanup close it without deleting the user's history.
+            val native = withContext(NonCancellable) {
+                withTimeout(CATALOG_OWNER_TIMEOUT_MS) {
+                    connection.loadSession(nativeId, cwd, hosted.servers).also {
+                        pending = beginConfiguration(nativeId, request.target)
+                    }
+                }
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             configureCatching(nativeId, native.metadata, request.target)
-            val session = session(nativeId, request.target, request.workspace, native.metadata, cwd, hosted)
-            hosted.session.value = session
+            val lease = session(
+                nativeId,
+                request.target,
+                request.workspace,
+                native.metadata,
+                cwd,
+                hosted,
+                checkNotNull(pending),
+                request.areDetachedToolsEnabled,
+            )
             isTransferred = true
-            session.lease(request.areDetachedToolsEnabled)
+            lease
         } finally {
-            if (!isTransferred) hosted.close()
+            if (!isTransferred) {
+                hosted.close()
+                withContext(NonCancellable) { cleanupFailedResume(nativeId, pending) }
+            }
         }
+    }
+
+    private suspend fun cleanupFailedResume(nativeId: String, owner: PendingKimiModel?) {
+        if (owner == null) {
+            close()
+        } else {
+            endConfiguration(nativeId, owner)
+            discardSession(nativeId, delete = false)
+        }
+    }
+
+    private suspend fun beginConfiguration(nativeId: String, target: EngineTarget): PendingKimiModel = mutex.withLock {
+        check(nativeId !in sessions.value && nativeId !in configuring) { "Kimi session identity already owned" }
+        PendingKimiModel(nativeKimiModel(target.model)).also { configuring[nativeId] = it }
+    }
+
+    private suspend fun endConfiguration(nativeId: String, owner: PendingKimiModel) = mutex.withLock {
+        if (configuring[nativeId] === owner) configuring.remove(nativeId)
     }
 
     @Suppress("LongParameterList") // A session is bound to its native identity, route and capability.
@@ -256,9 +439,15 @@ internal class KimiRuntime(
         metadata: JsonObject,
         workingDirectory: String,
         hosted: KimiHosted,
-    ): KimiSession = mutex.withLock {
+        pending: PendingKimiModel,
+        areDetachedToolsEnabled: Boolean,
+    ): ActiveSession = mutex.withLock {
         checkActive()
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         check(nativeId !in sessions.value) { "Kimi session identity already registered" }
+        if (configuring[nativeId] !== pending || pending.isInvalid) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        }
         run {
             val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, nativeId)
             val route = ExecutionRoute(
@@ -278,8 +467,21 @@ internal class KimiRuntime(
                 workingDirectory,
                 hosted,
             )
+            // Do not publish a session until its first lease has been acquired: another attach must
+            // never observe an unowned session if creation is cancelled during handoff.
+            var isAcquired = false
+            val lease = try {
+                val result = created.lease(areDetachedToolsEnabled)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                isAcquired = true
+                result
+            } finally {
+                if (!isAcquired) created.revokeHosted()
+            }
+            configuring.remove(nativeId)
+            hosted.session.value = created
             sessions.value = sessions.value + (nativeId to created)
-            created
+            lease
         }
     }
 
@@ -317,7 +519,17 @@ internal class KimiRuntime(
 
     @HighFrequency
     override suspend fun onSessionUpdate(update: AcpSessionUpdate) {
-        mutex.withLock { sessions.value[update.sessionId] }?.update(update.update)
+        val session = mutex.withLock {
+            val pending = configuring[update.sessionId]
+            if (pending != null &&
+                update.update["sessionUpdate"]?.jsonPrimitive?.contentOrNull == "config_option_update" &&
+                update.update.currentOption("model") != pending.expected
+            ) {
+                pending.invalidate()
+            }
+            sessions.value[update.sessionId]
+        }
+        session?.update(update.update)
     }
 
     internal suspend fun receiveUsage(session: KimiSession, update: JsonObject) {
@@ -389,6 +601,8 @@ internal class KimiRuntime(
             resources: ResourceResolver = ResourceResolver { null },
             fetchProviderUsage: (suspend () -> ProviderUsageSnapshot?)? = null,
             bridge: AgentToolBridge = UnavailableAgentToolBridge,
+            compatibilityStamp: EngineCompatibilityStamp? = null,
+            selectedExecutable: String? = null,
         ): KimiRuntime {
             val runtime = MutableStateFlow<KimiRuntime?>(null)
             val disconnected = MutableStateFlow(false)
@@ -449,6 +663,8 @@ internal class KimiRuntime(
                     fetchProviderUsage,
                     bridge,
                     runtimeScope.coroutineContext[Job],
+                    compatibilityStamp,
+                    selectedExecutable,
                 ).also { created ->
                     runtime.value = created
                     if (disconnected.value) {
@@ -469,6 +685,18 @@ internal class KimiRuntime(
                 }
             }
         }
+    }
+}
+
+private const val CATALOG_TIMEOUT_MS = 10_000L
+private const val CATALOG_OWNER_TIMEOUT_MS = 60_000L
+
+private class PendingKimiModel(val expected: String) {
+    var isInvalid: Boolean = false
+        private set
+
+    fun invalidate() {
+        isInvalid = true
     }
 }
 
@@ -512,6 +740,7 @@ internal class KimiSession(
     private val submission = MutableStateFlow<CompletableDeferred<Unit>?>(null)
     private var isCancelPending = false
     private var isInterrupting = false
+    private var isModelConfirmed = true
     private val log = Log.tag("KimiSession")
 
     suspend fun lease(areDetachedToolsEnabled: Boolean): ActiveSession = mutex.withLock {
@@ -549,6 +778,9 @@ internal class KimiSession(
 
     private fun checkReadyToSend(lease: KimiLease) {
         checkLease(lease)
+        if (!isModelConfirmed) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.Changed))
+        }
         if (isCancelPending || (currentTurn != null && currentTurn?.outcome == null)) busy()
     }
 
@@ -598,12 +830,18 @@ internal class KimiSession(
     @Suppress("SwallowedException") // Mapped to the domain failure; the turn failure path logs the original.
     private suspend fun applyEffort(request: PromptRequest) {
         val effort = request.reasoningEffort ?: return
+        var isConfirmed = false
         try {
-            runtime.connection.setConfigOption(ref.nativeId, "thinking", effort)
+            val applied = runtime.connection.setConfigOptionObserved(ref.nativeId, "thinking", effort)
+            applied.requireModel(nativeKimiModel(target.model))
+            applied.requireEffort(effort, request.id)
+            isConfirmed = true
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
             throw EngineException(error.engineFailure())
+        } finally {
+            if (!isConfirmed) withContext(NonCancellable) { runtime.close() }
         }
     }
 
@@ -836,6 +1074,14 @@ internal class KimiSession(
 
             "heartbeat_hosted_revoked" -> revokeCall(update)
 
+            "config_option_update" -> {
+                if (update.currentOption("model") != nativeKimiModel(target.model)) {
+                    isModelConfirmed = false
+                    revokeHosted()
+                    runtime.scope.launch { runtime.close() }
+                }
+            }
+
             "plan" -> updatePlan(update)
 
             "usage_update" -> runtime.receiveUsage(this, update)
@@ -1064,6 +1310,23 @@ private fun kotlinx.serialization.json.JsonElement?.supportsLoad(): Boolean =
 
 private fun JsonObject.hasConfigOption(id: String): Boolean = this["configOptions"]?.jsonArray.orEmpty().any {
     (it as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull == id
+}
+
+private fun JsonObject.currentOption(id: String): String? = (this["configOptions"] as? JsonArray).orEmpty()
+    .mapNotNull { it as? JsonObject }
+    .singleOrNull { (it["id"] as? JsonPrimitive)?.contentOrNull == id }
+    ?.get("currentValue")?.let { it as? JsonPrimitive }?.takeIf { it.isString }?.contentOrNull
+
+private fun JsonObject.requireModel(expected: String) {
+    if (currentOption("model") != expected) {
+        throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+    }
+}
+
+private fun JsonObject.requireEffort(expected: String, request: RequestId) {
+    if (currentOption("thinking") != expected) {
+        throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid, request))
+    }
 }
 
 private fun Throwable.engineFailure(): EngineFailure = when (this) {

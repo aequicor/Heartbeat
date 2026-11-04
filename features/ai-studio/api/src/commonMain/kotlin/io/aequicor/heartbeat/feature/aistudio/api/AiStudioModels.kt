@@ -21,7 +21,17 @@ public enum class ApprovalMode {
 
 /** New-conversation preferences; existing engine chats keep their own settings. [modelId] is a studio route. */
 @Serializable
-public data class RunSettings(val modelId: String, val effort: ReasoningEffort, val approval: ApprovalMode)
+public data class RunSettings(
+    val modelId: String,
+    val effort: ReasoningEffort,
+    val approval: ApprovalMode,
+    /** Route-bound first-turn choice; a null wrapper uses profile effort, a null value chooses native default. */
+    val nativeEffort: StudioEffortOverride? = null,
+)
+
+/** A new-chat effort seed never follows a model change to another engine, connection or model. */
+@Serializable
+public data class StudioEffortOverride(val modelId: String, val effort: String?)
 
 /** Values the studio starts with, resolved from the workspace and the model catalog. */
 public data class StudioDefaults(
@@ -56,6 +66,10 @@ public data class StudioPane(
     val isOrganism: Boolean = false,
     /** The new conversation starts in planning mode: the agent develops a plan with the user and only reads. */
     val isPlanning: Boolean = false,
+    /** Local draft parameters of a new page; existing conversations use their confirmed configuration. */
+    val settings: RunSettings? = null,
+    /** Identity of this new-page instance, including across reusable pane ids. */
+    val pageId: Long = 0,
 )
 
 /** Metadata change of a session, persisted by the studio effects. */

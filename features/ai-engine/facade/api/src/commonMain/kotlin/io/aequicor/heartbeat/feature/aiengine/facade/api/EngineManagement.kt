@@ -34,6 +34,87 @@ public interface EngineManagement {
      * command does not apply to the engine (see [ManagedEngine.actions]) or management is off.
      */
     public suspend fun execute(engine: EngineId, command: EngineCommand)
+
+    /**
+     * Starts one profile-owned job and synchronously hands its exact handle to [onStarted]. The callback must not
+     * throw or block. It runs before the job can perform work, even if the caller is cancelled during handoff.
+     * The handle waits for cleanup and can cancel only this job; it cannot affect a later job of the same engine.
+     */
+    public suspend fun startOwned(engine: EngineId, action: EngineAction, onStarted: (EngineOwnedJob) -> Unit): Unit =
+        throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+
+    /**
+     * Starts CLI login using the launch context captured while [expected] is current. A stale or foreign token
+     * fails with Session.Changed before starting the job. This preserves the selected settings, but does not
+     * establish artifact identity or admit an executable; the adapter must still bind each actual launch.
+     */
+    public suspend fun startLoginIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        method: LoginMethod,
+        onStarted: (EngineOwnedJob) -> Unit,
+    ): Unit = throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+
+    /**
+     * Performs one explicit inspection and returns its own immutable result, independently of state-flow delivery.
+     * A result is evidence only for the inspected launch settings at that moment, not a promise about later changes.
+     * Implementations that cannot correlate the result refuse rather than return an unrelated state snapshot.
+     */
+    public suspend fun inspect(engine: EngineId): EngineInspection =
+        throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+
+    /**
+     * Reads a conditional-write snapshot of saved launch settings without inspecting or starting an installation.
+     * The token has the same owner, engine and invalidation rules as [EngineInspection.savedLaunch].
+     */
+    public suspend fun snapshotLaunchSettings(engine: EngineId): LaunchSettingsSnapshot =
+        throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+
+    /**
+     * Restricted inspection of an explicitly selected installation without changing saved launch settings. The
+     * [expected] snapshot must still be current. [candidate] may change only executable, runtime and host version;
+     * other launch settings are never supplied to the probe. Null means the adapter cannot safely inspect it.
+     * This report is observational: a later launch must independently bind admission to its actual artifact.
+     */
+    public suspend fun inspectCandidate(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        candidate: LaunchSettings,
+    ): EngineCandidateInspection? = throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+
+    /**
+     * Saves [settings] only while [expected] still identifies the saved settings of this owner and engine.
+     * A concurrent configure, including an identical write, rejects the operation with Session.Changed. The
+     * [onSaved] callback receives the receipt synchronously after confirmed persistence, even if the caller is
+     * cancelled or later runtime retirement fails. A storage failure without a receipt has an unknown outcome and
+     * must not be compensated blindly. The callback must not throw or perform blocking work.
+     */
+    public suspend fun configureIfUnchanged(
+        engine: EngineId,
+        expected: LaunchSettingsSnapshot,
+        settings: LaunchSettings,
+        onSaved: (LaunchSettingsSnapshot) -> Unit,
+    ): Unit = throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+}
+
+/** Owner-scoped handle to one particular management job, including its cancellation and cleanup. */
+public interface EngineOwnedJob {
+    /** Waits for the outcome and cleanup; cancelling the waiter does not cancel the job. */
+    public suspend fun await(): JobPhase
+
+    /** Cancels only this job and waits for its cleanup, even if a later job has already started. */
+    public suspend fun cancel(): JobPhase
+
+    /** Removes this job's finished outcome only if it is still displayed; never removes a newer job. */
+    public suspend fun dismiss(): Boolean = false
+}
+
+/** Opaque, profile-owner-scoped identity; it is not persisted or transferable to another owner. */
+public interface LaunchSettingsToken
+
+/** Saved settings and their opaque ownership token. Values may contain paths and must not be logged. */
+public data class LaunchSettingsSnapshot(public val settings: LaunchSettings, public val token: LaunchSettingsToken) {
+    override fun toString(): String = "LaunchSettingsSnapshot(***)"
 }
 
 /** Management of a host without the facade implementation; always [EngineManagementState.Off]. */
@@ -57,6 +138,28 @@ public data class EngineManagementState(
         /** Management switched off or unavailable. */
         public val Off: EngineManagementState = EngineManagementState()
     }
+}
+
+/** Exact result of one inspection; paths and launch settings are not suitable for logs. */
+public data class EngineInspection(
+    val engine: EngineId,
+    val installation: InstallationState,
+    val login: LoginState,
+    val launch: LaunchState,
+    val hostApp: HostAppState? = null,
+    /** A conditional-write snapshot, when the implementation supports it. */
+    val savedLaunch: LaunchSettingsSnapshot? = null,
+) {
+    override fun toString(): String = "EngineInspection(engine=${engine.value})"
+}
+
+/** Observation of a candidate selected by the user; no saved state, credentials or running process is transferred. */
+public data class EngineCandidateInspection(
+    val engine: EngineId,
+    val installation: Installation,
+    val compatibility: EngineCompatibilityObservation?,
+) {
+    override fun toString(): String = "EngineCandidateInspection(engine=${engine.value})"
 }
 
 /** One registered engine as the management panel sees it. */
@@ -231,21 +334,42 @@ public data class Installation(
         "Installation(source=$source, version=${version ?: "null"}, isRunnable=$isRunnable)"
 }
 
-/** A copy Heartbeat installed; [executable] is absolute and never logged. */
-public data class ManagedInstall(val version: String, val executable: String, val installedAt: Instant) {
+/**
+ * A copy Heartbeat installed; [executable] is absolute and never logged. [sha256] is the digest of the verified
+ * release archive that produced this copy, as recorded by the installation store: `null` for a copy Heartbeat did
+ * not install itself, and never a path, URL or other user data. It identifies the archive that was installed, never
+ * the bytes of the executable, so it must not be compared with a file digest.
+ *
+ * [executableSha256] is the digest of the installed executable as the installation store extracted and activated
+ * it: the only digest a file check may compare with. `null` for a copy whose record predates this field, which
+ * leaves its provenance unknown; never a path, URL or account.
+ */
+public data class ManagedInstall(
+    val version: String,
+    val executable: String,
+    val installedAt: Instant,
+    val sha256: String? = null,
+    val executableSha256: String? = null,
+) {
     override fun toString(): String = "ManagedInstall(version=$version, installedAt=$installedAt)"
 }
 
-/** Whether a version was verified with this Heartbeat build. */
+/**
+ * Legacy management status, also used by [EngineCompatibilityDecision]. Existing version-only manager results
+ * are display metadata, not admission evidence; only a complete decision establishes the safe baseline.
+ */
 public enum class Compatibility {
     /** The version Heartbeat ships or was tested with. */
     Verified,
 
-    /** A newer release Heartbeat was not tested with; it may be rolled back. */
+    /** Not regression-tested; only a structured decision can establish whether the baseline passed. */
     Unverified,
 
-    /** Nothing is known. */
+    /** Required identity or baseline facts are missing; only a restricted probe is allowed. */
     Unknown,
+
+    /** Hard constraints or a safety baseline positively failed; creation and resume are forbidden. */
+    Incompatible,
 }
 
 /** Installation facts of an engine; [current] stays null until an explicit inspection. */
@@ -260,6 +384,8 @@ public data class InstallationState(
     val checkedAt: Instant? = null,
     /** Why the last inspection or update check failed. */
     val failure: ManagementFailure? = null,
+    /** Actual adapter facts and policy of the last explicit inspection; absent for legacy managers. */
+    val compatibilityObservation: EngineCompatibilityObservation? = null,
 ) {
     /** A newer release than the copy Heartbeat would replace (managed, else bundled, else current) is known. */
     val isUpdateAvailable: Boolean
@@ -324,8 +450,18 @@ public sealed interface EngineCommand {
     /** Cancels the running job; partial downloads are removed. */
     public data object Cancel : EngineCommand
 
+    /** Cancels the exact job captured by the caller, even if a newer job has started. */
+    public data class CancelOwned(val handle: EngineOwnedJob) : EngineCommand {
+        override fun toString(): String = "CancelOwned"
+    }
+
     /** Clears the outcome of the last finished job. */
     public data object Dismiss : EngineCommand
+
+    /** Clears only the captured job's outcome while it is still displayed. */
+    public data class DismissOwned(val handle: EngineOwnedJob) : EngineCommand {
+        override fun toString(): String = "DismissOwned"
+    }
 
     /** Passes the code a sign-in page shows to the CLI that asked for it. */
     public data class AnswerLogin(val code: LoginCode) : EngineCommand
@@ -391,8 +527,13 @@ public enum class EngineActionKind {
     OpenHostApp,
 }
 
-/** A running or finished job. */
-public data class EngineJob(val action: EngineAction, val phase: JobPhase, val startedAt: Instant)
+/** A running or finished job; [handle] remains bound to this exact operation across progress updates. */
+public data class EngineJob(
+    val action: EngineAction,
+    val phase: JobPhase,
+    val startedAt: Instant,
+    val handle: EngineOwnedJob? = null,
+)
 
 /** Progress of a job. */
 public sealed interface JobPhase {
@@ -562,7 +703,11 @@ private fun ManagedEngine.installActions(): Set<EngineActionKind> = buildSet {
     if (spec.install == InstallSupport.BuiltIn || spec.install == InstallSupport.External) return@buildSet
     add(EngineActionKind.CheckForUpdates)
     val managed = installation.managed
-    if (spec.install == InstallSupport.Managed && managed == null) add(EngineActionKind.Install)
+    val isExplicitManagedSupported = spec.install == InstallSupport.Bundled &&
+        RuntimePreference.Managed in spec.launch.runtimes
+    if ((spec.install == InstallSupport.Managed || isExplicitManagedSupported) && managed == null) {
+        add(EngineActionKind.Install)
+    }
     val isReplaceable = spec.install == InstallSupport.Bundled || managed != null
     if (isReplaceable && installation.isUpdateAvailable) add(EngineActionKind.Update)
     if (managed != null) add(EngineActionKind.Uninstall)

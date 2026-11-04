@@ -45,7 +45,7 @@ class AiStudioEffects(
 
     override suspend fun handle(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
         when (effect) {
-            is AiStudioEffect.Usage -> Unit
+            is AiStudioEffect.Usage, AiStudioEffect.ObserveDefaults -> Unit
 
             is AiStudioEffect.Configuration, is AiStudioEffect.MessageQueue -> {
                 require(effect is AiStudioEffect.Configuration) { "Message queue is unavailable in demo" }

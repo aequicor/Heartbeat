@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.core.common.WindowFocus
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.RecordRetentions
 import io.aequicor.heartbeat.core.datastore.StorageRoot
+import io.aequicor.heartbeat.core.desktopdialogs.DesktopFileDialogs
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
@@ -33,6 +34,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggleControl
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.navigation.NavHostFactory
+import io.aequicor.heartbeat.core.network.OfflineHttpClients
 import io.aequicor.heartbeat.core.network.release.ReleaseSource
 import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
 import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
@@ -133,20 +135,20 @@ internal class DefaultFoundationProfileBindings(
     private val sources: Provider<AuthSources>,
     private val prompts: Provider<IsolatedPrompts>,
     private val agentTools: Provider<ProfileAgentTools>,
-    private val tools: Provider<Set<AgentToolContribution>>,
-    private val analyzers: Provider<Set<NativeActionAnalysis>>,
-    private val offloads: Provider<Set<ToolOutputOffload>>,
-    private val registrations: Provider<Set<EngineRegistration>>,
-    private val hooks: Provider<Set<SessionHook>>,
-    private val toolPolicies: Provider<Set<AgentToolPolicyProvider>>,
-    private val contextPolicies: Provider<Set<ContextPolicyProvider>>,
-    private val virtualWorkspaces: Provider<Set<VirtualWorkspaceProvider>>,
-    private val configs: Provider<Set<ConfigSection>>,
-    private val scheduledHosts: Provider<Set<ScheduledSessionHost>>,
-    private val wakeOwners: Provider<Set<ScheduledWakeOwner>>,
-    private val eventOwners: Provider<Set<ScheduledEventOwner>>,
-    private val recoverySources: Provider<Set<HelperCapacityRecoverySource>>,
-    private val eventSources: Provider<Set<SchedulerEventSource>>,
+    tools: Provider<Set<AgentToolContribution>>,
+    analyzers: Provider<Set<NativeActionAnalysis>>,
+    offloads: Provider<Set<ToolOutputOffload>>,
+    registrations: Provider<Set<EngineRegistration>>,
+    hooks: Provider<Set<SessionHook>>,
+    toolPolicies: Provider<Set<AgentToolPolicyProvider>>,
+    contextPolicies: Provider<Set<ContextPolicyProvider>>,
+    virtualWorkspaces: Provider<Set<VirtualWorkspaceProvider>>,
+    configs: Provider<Set<ConfigSection>>,
+    scheduledHosts: Provider<Set<ScheduledSessionHost>>,
+    wakeOwners: Provider<Set<ScheduledWakeOwner>>,
+    eventOwners: Provider<Set<ScheduledEventOwner>>,
+    recoverySources: Provider<Set<HelperCapacityRecoverySource>>,
+    eventSources: Provider<Set<SchedulerEventSource>>,
     private val bus: Provider<SchedulerBus>,
 ) : FoundationProfileBindings,
     FoundationProfileEngineBindings,
@@ -213,6 +215,8 @@ internal class DefaultFoundationBindings(
     private val launcher: Provider<MachineLauncher>,
     private val registry: Provider<MachineRegistry>,
     private val client: Provider<HttpClient>,
+    private val offlineClients: Provider<OfflineHttpClients>,
+    private val dialogs: Provider<DesktopFileDialogs>,
     private val secrets: Provider<SecretStorageInfo>,
     private val retentions: Provider<RecordRetentions>,
     private val focus: Provider<WindowFocus>,
@@ -234,4 +238,6 @@ internal class DefaultFoundationBindings(
     override val machineLauncher: MachineLauncher get() = launcher()
     override val machineRegistry: MachineRegistry get() = registry()
     override val httpClient: HttpClient get() = client()
+    override val offlineHttpClients: OfflineHttpClients get() = offlineClients()
+    override val desktopFileDialogs: DesktopFileDialogs get() = dialogs()
 }

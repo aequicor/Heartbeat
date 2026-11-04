@@ -24,8 +24,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -34,7 +35,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 @ContributesBinding(ProfileScope::class)
@@ -73,12 +73,18 @@ internal class LocalCodexTransport(
             val environment = capturedCodexEnvironment(resolved)
             object : PreparedCodexLaunch {
                 override val isMcpEnabled = context.settings.isMcpEnabled
+                override val executable: String = resolved.executable
+                override suspend fun executableSha256(): String? =
+                    codexExecutableSha256(resolved.executable, dispatchers.io)
                 private val versionLock = Mutex()
-                private var knownVersion: String? = null
+                private var observedVersion: String? = null
 
                 override suspend fun open(): CodexWire = openResolved(resolved, environment)
 
-                /** Legacy restrictions keep the 0.160.0 floor; protected launches are judged by the probe. */
+                /**
+                 * Legacy restrictions keep the 0.160.0 floor and are judged by the version the already held
+                 * metadata process of this captured launch reported; protected launches are judged by the probe.
+                 */
                 override suspend fun open(off: CodexNativeOff): CodexWire = if (off.isVerifiedInventoryRequired) {
                     openProtected(resolved, environment, off)
                 } else {
@@ -86,22 +92,19 @@ internal class LocalCodexTransport(
                     openResolved(resolved, environment, off)
                 }
 
+                /** Only the held metadata process of this captured launch may establish it, never a probe. */
+                override suspend fun observeVersion(version: String?) {
+                    if (version.isNullOrBlank()) return
+                    versionLock.withLock { observedVersion = version }
+                }
+
+                override suspend fun version(): String? = versionLock.withLock { observedVersion }
+
                 override suspend fun stop(
                     owner: CodexExecutionOwner,
                     beginInspection: suspend () -> Boolean,
                     record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
                 ): Boolean = CodexProcessStop(dispatchers).stop(owner, beginInspection, record)
-
-                /** One probe per captured executable: the legacy floor reads it; protected launches never use it. */
-                override suspend fun version(): String? = versionLock.withLock {
-                    knownVersion ?: withContext(dispatchers.io) {
-                        if (resolved.isRunnable && resolved.source != InstallSource.Missing) {
-                            version(resolved, environment)
-                        } else {
-                            null
-                        }
-                    }.also { knownVersion = it }
-                }
             }
         }
     }
@@ -112,7 +115,10 @@ internal class LocalCodexTransport(
         nativeOff: CodexNativeOff,
     ): CodexWire {
         validateLaunch(resolved)
-        val identity = withContext(dispatchers.io) { codexExecutableIdentity(resolved.executable) }
+        val identity = withContext(dispatchers.io) {
+            val context = currentCoroutineContext()
+            codexExecutableIdentity(resolved.executable) { context.ensureActive() }
+        }
         val catalog = CodexModelCatalog.create(resolved, environment, dispatchers)
         var isTransferred = false
         try {
@@ -216,11 +222,12 @@ internal class LocalCodexTransport(
 
     override suspend fun locate(launch: LaunchContext): Installation = withContext(dispatchers.io) {
         val resolved = resolveCodexLaunch(launch, config)
-        val version = if (resolved.isRunnable && resolved.source != InstallSource.Missing) version(resolved) else null
-        log.i { "Codex located source=${resolved.source} version=${version ?: "unknown"}" }
+        // Locating an executable is not permission to run it, even with --version.
+        // Version and compatibility remain unknown until a restricted probe can establish them.
+        log.i { "Codex located source=${resolved.source} version=unknown" }
         Installation(
             source = resolved.source,
-            version = version,
+            version = null,
             path = resolved.executable.takeIf { resolved.source != InstallSource.Missing },
             isRunnable = resolved.isRunnable,
         )
@@ -230,67 +237,6 @@ internal class LocalCodexTransport(
         withContext(dispatchers.io) { codexLaunchProblems(settings) }
 
     override fun releaseTarget(): CodexTarget? = codexReleaseTarget()
-
-    /** `codex --version`, bounded and cancellable; an executable that does not answer has no known version. */
-    private suspend fun version(
-        launch: CodexLaunch,
-        environment: Map<String, String> = capturedCodexEnvironment(launch),
-    ): String? = try {
-        val builder = ProcessBuilder(launch.executable, "--version").redirectErrorStream(true)
-        builder.environment().clear()
-        builder.environment().putAll(environment)
-        val process = builder.start()
-        try {
-            process.outputStream.close()
-            val isDone = runInterruptible { process.waitFor(VERSION_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
-            if (isDone) {
-                val output = probeOutput(process)
-                parseCodexVersion(output)
-            } else {
-                null
-            }
-        } finally {
-            stopProbe(process)
-        }
-    } catch (e: IOException) {
-        // The message names the executable's path; only the kind of failure is logged.
-        log.w(e.sanitized()) { "Codex version could not be read" }
-        null
-    }
-
-    /** Reads only buffered bytes; launcher children can keep stdout open after their parent exits. */
-    private suspend fun probeOutput(process: Process): String = runInterruptible {
-        process.inputStream.readNBytes(process.inputStream.available().coerceAtMost(MAX_VERSION_BYTES)).decodeToString()
-    }
-
-    private fun stopProbe(process: Process) {
-        try {
-            process.descendants().use { children -> children.forEach { it.destroyForcibly() } }
-        } catch (e: SecurityException) {
-            log.w(e.sanitized()) { "Version probe descendants unavailable" }
-        } catch (e: UnsupportedOperationException) {
-            log.w(e.sanitized()) { "Version probe descendants unsupported" }
-        } finally {
-            try {
-                process.destroyForcibly()
-            } finally {
-                closeProbeOutput(process)
-            }
-        }
-    }
-
-    private fun closeProbeOutput(process: Process) {
-        try {
-            process.inputStream.close()
-        } catch (e: IOException) {
-            log.w(e.sanitized()) { "Version probe output could not be closed" }
-        }
-    }
-
-    private companion object {
-        const val VERSION_TIMEOUT_SECONDS = 15L
-        const val MAX_VERSION_BYTES = 4096
-    }
 }
 
 internal class ProcessCodexWire(

@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EffectiveSettingsRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineEffectiveSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NativeImport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.PackageOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFile
@@ -81,6 +83,10 @@ internal class DesktopPiConfigurator(
     ): ResourceInventory = files {
         piResourceInventory(home() ?: unsupported(), profile, directory, trust)
     }
+
+    /** Without a profile home the launch directory and its anchored paths cannot be composed, so nothing is claimed. */
+    override suspend fun effectiveSettings(request: EffectiveSettingsRequest): EngineEffectiveSettings? =
+        home()?.let { piEffectiveSettings(request, it) }
 
     override suspend fun composerResources(
         profile: EngineConfigValues,

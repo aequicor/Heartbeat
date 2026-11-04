@@ -21,13 +21,18 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardOutpu
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
+import io.aequicor.heartbeat.feature.aiengine.connections.api.WizardAdmission
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.ConnectWizardScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.isCompatibleOriginAllowed
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -44,7 +49,16 @@ import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
 
 /** Wizard steps as shown to the user. */
-enum class WizardStep { Engine, Method, Models, Done }
+enum class WizardStep { Engine, Runtime, Method, Models, Done }
+
+/** User-visible installation sources. */
+enum class RuntimeSourceUi { System, Managed, Bundled }
+
+/** Source represented by the current, still uncommitted runtime choice. */
+enum class RuntimeChoiceUi { System, Managed, Bundled, Custom }
+
+/** Admission status of the connection's exact saved route, shown before model selection. */
+enum class AdmissionUi { Checking, Allowed, Unknown, Incompatible }
 
 /** Form validation problems found before the machine is asked to connect. */
 enum class FormError { MissingKey, InvalidOrigin, InsecureOrigin }
@@ -53,6 +67,18 @@ enum class FormError { MissingKey, InvalidOrigin, InsecureOrigin }
 @Immutable
 data class SecretText(val value: String = "") {
     override fun toString(): String = "SecretText(***)"
+}
+
+/** A user-selected local path; screen logging must not disclose it. */
+@Immutable
+data class RuntimePath(val value: String) {
+    override fun toString(): String = "RuntimePath(***)"
+}
+
+/** Exact profile job selected for cancellation; never rendered or logged. */
+@Immutable
+data class RuntimeJobHandle(val value: EngineOwnedJob) {
+    override fun toString(): String = "RuntimeJobHandle"
 }
 
 /** Editable credential form of the selected method. */
@@ -66,8 +92,8 @@ data class ConnectWizardScreenState(
     val engineTitle: String = "",
     val engines: ImmutableList<EngineRowUi>? = null,
     val methods: ImmutableList<MethodRowUi> = persistentListOf(),
-    val methodQuery: String = "",
     val selectedMethod: String? = null,
+    val selectedGroup: AccessGroupUi? = null,
     val form: CredentialForm = CredentialForm(),
     val formError: FormError? = null,
     val models: ImmutableList<ModelRowUi>? = null,
@@ -78,6 +104,22 @@ data class ConnectWizardScreenState(
     val isFinishing: Boolean = false,
     val failure: FailureUi? = null,
     val preparation: EnginePreparationUi? = null,
+    val runtimeJobProgress: EnginePreparationUi? = null,
+    val hasRuntimeStep: Boolean = false,
+    val isRuntimePickerAvailable: Boolean = false,
+    val isSystemRuntimeAvailable: Boolean = false,
+    val isManagedRuntimeAvailable: Boolean = false,
+    val isBundledRuntimeAvailable: Boolean = false,
+    val isManagedInstallationAvailable: Boolean = false,
+    val hasCheckedLocalRuntime: Boolean = false,
+    val runtimeCancellationTarget: RuntimeJobHandle? = null,
+    val hasRuntimeChoice: Boolean = false,
+    val selectedRuntimeChoice: RuntimeChoiceUi? = null,
+    val isRuntimeMissing: Boolean = false,
+    val runtimePath: RuntimePath? = null,
+    val isRuntimeUsable: Boolean = false,
+    /** Null outside the model step; only an allowed probe may enable finishing. */
+    val admission: AdmissionUi? = null,
 ) : MVIState
 
 /** User events of the wizard. */
@@ -85,11 +127,29 @@ sealed interface ConnectWizardScreenIntent : MVIIntent {
     /** Picks an engine on the first step. */
     data class ChooseEngine(val id: String) : ConnectWizardScreenIntent
 
-    /** Filters providers. */
-    data class SearchMethods(val query: String) : ConnectWizardScreenIntent
+    /** Opens the native executable picker. */
+    data object PickRuntime : ConnectWizardScreenIntent
+
+    /** Checks the local installation before offering other sources. */
+    data object CheckLocalRuntime : ConnectWizardScreenIntent
+
+    /** Accepts the inspected runtime choice. */
+    data object UseRuntime : ConnectWizardScreenIntent
+
+    /** Starts installation of a managed runtime. */
+    data object InstallManagedRuntime : ConnectWizardScreenIntent
+
+    /** Cancels this wizard's active installation without closing the wizard. */
+    data class CancelRuntimeInstallation(val handle: RuntimeJobHandle) : ConnectWizardScreenIntent
+
+    /** Inspects the declared runtime source. */
+    data class InspectRuntimeSource(val source: RuntimeSourceUi) : ConnectWizardScreenIntent
 
     /** Picks a provider/method; resets the form to its defaults. */
     data class SelectMethod(val id: String) : ConnectWizardScreenIntent
+
+    /** Opens a declared access category. */
+    data class SelectGroup(val group: AccessGroupUi) : ConnectWizardScreenIntent
 
     /** Edits the connection name. */
     data class EditLabel(val value: String) : ConnectWizardScreenIntent
@@ -160,7 +220,13 @@ class ConnectWizardModel(
                     val id = when (state) {
                         is ConnectWizardState.ChoosingMethod -> state.engine.descriptor.id
 
+                        is ConnectWizardState.PreparingRuntime -> state.engine.descriptor.id
+
+                        is ConnectWizardState.ChoosingRuntime -> state.engine.descriptor.id
+
                         is ConnectWizardState.Connecting -> state.engine.descriptor.id
+
+                        is ConnectWizardState.CheckingAdmission -> state.engine
 
                         is ConnectWizardState.ChoosingModels -> state.engine
 
@@ -195,9 +261,34 @@ class ConnectWizardModel(
                 is ConnectWizardScreenIntent.ChooseEngine ->
                     sendTo(machine, ConnectWizardIntent.Public.ChooseEngine(EngineId(intent.id)))
 
-                is ConnectWizardScreenIntent.SearchMethods -> updateState { copy(methodQuery = intent.query) }
+                ConnectWizardScreenIntent.PickRuntime -> sendTo(machine, ConnectWizardIntent.Public.PickRuntimeFile)
+
+                ConnectWizardScreenIntent.CheckLocalRuntime ->
+                    sendTo(machine, ConnectWizardIntent.Public.CheckLocalRuntime)
+
+                ConnectWizardScreenIntent.UseRuntime -> sendTo(machine, ConnectWizardIntent.Public.UseRuntimeChoice)
+
+                ConnectWizardScreenIntent.InstallManagedRuntime ->
+                    sendTo(machine, ConnectWizardIntent.Public.InstallManagedRuntime)
+
+                is ConnectWizardScreenIntent.CancelRuntimeInstallation ->
+                    sendTo(machine, ConnectWizardIntent.Public.CancelRuntimeInstallation(intent.handle.value))
+
+                is ConnectWizardScreenIntent.InspectRuntimeSource ->
+                    sendTo(
+                        machine,
+                        ConnectWizardIntent.Public.InspectRuntimeSource(
+                            when (intent.source) {
+                                RuntimeSourceUi.System -> RuntimePreference.System
+                                RuntimeSourceUi.Managed -> RuntimePreference.Managed
+                                RuntimeSourceUi.Bundled -> RuntimePreference.Bundled
+                            },
+                        ),
+                    )
 
                 is ConnectWizardScreenIntent.SelectMethod -> updateState { selectMethod(intent.id) }
+
+                is ConnectWizardScreenIntent.SelectGroup -> updateState { selectGroup(intent.group) }
 
                 is ConnectWizardScreenIntent.EditLabel ->
                     updateState { copy(form = form.copy(label = intent.value), formError = null) }
@@ -220,14 +311,37 @@ class ConnectWizardModel(
 
                 ConnectWizardScreenIntent.Retry -> sendTo(machine, ConnectWizardIntent.Public.Retry)
 
-                ConnectWizardScreenIntent.Back -> sendTo(machine, ConnectWizardIntent.Public.Back)
+                ConnectWizardScreenIntent.Back -> back(isSystem = false)
 
                 ConnectWizardScreenIntent.Finish -> sendTo(machine, ConnectWizardIntent.Public.Finish)
 
                 ConnectWizardScreenIntent.Cancel -> sendTo(machine, ConnectWizardIntent.Public.Cancel)
 
-                ConnectWizardScreenIntent.SystemBack -> sendTo(machine, ConnectWizardIntent.Public.Dismiss)
+                ConnectWizardScreenIntent.SystemBack -> back(isSystem = true)
             }
+        }
+    }
+
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PipelineContext<
+        ConnectWizardScreenState,
+        ConnectWizardScreenIntent,
+        ConnectWizardScreenAction,
+    >.back(
+        isSystem: Boolean,
+    ) {
+        var isHandled = false
+        updateState {
+            if (step != WizardStep.Method || selectedGroup == null || isBusy) return@updateState this
+            isHandled = true
+            if (selectedMethod != null && methods.count { it.accessGroup == selectedGroup } > 1) {
+                copy(selectedMethod = null, form = CredentialForm(), formError = null)
+            } else {
+                copy(selectedGroup = null, selectedMethod = null, form = CredentialForm(), formError = null)
+            }
+        }
+        if (!isHandled) {
+            sendTo(machine, if (isSystem) ConnectWizardIntent.Public.Dismiss else ConnectWizardIntent.Public.Back)
         }
     }
 
@@ -321,72 +435,214 @@ internal fun CredentialForm.toRequest(method: ConnectionMethod): FormCheck {
 }
 
 private fun ConnectWizardScreenState.selectMethod(id: String): ConnectWizardScreenState {
-    val row = methods.firstOrNull { it.id == id } ?: return this
+    if (isBusy) return this
+    val row = methods.firstOrNull { it.id == id && it.accessGroup == selectedGroup } ?: return this
     return copy(selectedMethod = id, form = CredentialForm(row.provider, row.origin), formError = null)
+}
+
+private fun ConnectWizardScreenState.selectGroup(group: AccessGroupUi): ConnectWizardScreenState {
+    val rows = methods.filter { it.accessGroup == group }
+    if (rows.isEmpty() || isBusy) return this
+    val base = copy(selectedGroup = group, selectedMethod = null, form = CredentialForm(), formError = null)
+    return if (rows.size == 1) base.selectMethod(rows.single().id) else base
 }
 
 internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): ConnectWizardScreenState = when (state) {
     ConnectWizardState.Idle -> ConnectWizardScreenState()
 
     // Leaving the method step drops the form, so a typed key never outlives it or reaches another engine.
-    is ConnectWizardState.ChoosingEngine -> copy(
-        step = WizardStep.Engine,
-        selectedMethod = null,
-        form = CredentialForm(),
-        formError = null,
-        engines = state.engines?.map { it.toRow() }?.toImmutableList(),
-        isBusy = state.engines == null && state.failure == null,
+    is ConnectWizardState.ChoosingEngine -> reflectEngines(state)
+
+    is ConnectWizardState.PreparingRuntime -> copy(
+        step = WizardStep.Runtime,
+        engineTitle = state.engine.descriptor.title,
+        isBusy = state.failure == null,
         isCancelAllowed = true,
-        isNewConnection = true,
-        isFinishing = false,
+        runtimeJobProgress = null,
+        admission = null,
         failure = state.failure?.toUi(),
     )
+
+    is ConnectWizardState.ChoosingRuntime -> reflectRuntime(state)
 
     is ConnectWizardState.ChoosingMethod -> withMethods(state.engine.descriptor.title, state.engine.methods())
         .copy(
             step = WizardStep.Method,
-            isBusy = state.check == ConnectionCheck.Running,
+            hasRuntimeStep = state.runtimeOptions != null,
+            isBusy = state.isPickingRuntime || state.check == ConnectionCheck.Running,
             isCancelAllowed = true,
             isNewConnection = true,
             isFinishing = false,
+            runtimeJobProgress = null,
+            admission = null,
             failure = state.failure?.toUi(),
         )
 
     is ConnectWizardState.Connecting -> withMethods(state.engine.descriptor.title, state.engine.methods())
         .copy(
             step = WizardStep.Method,
+            hasRuntimeStep = state.runtimeOptions != null,
             isBusy = true,
             isCancelAllowed = false,
             isNewConnection = true,
             isFinishing = false,
+            runtimeJobProgress = null,
+            admission = null,
             failure = null,
         )
 
-    is ConnectWizardState.ChoosingModels -> copy(
-        step = WizardStep.Models,
-        form = form.copy(key = SecretText()),
-        models = state.models?.map { it.toRow(it.target.model in state.selected) }?.toImmutableList(),
-        isBusy = state.models == null && state.failure == null,
-        isCancelAllowed = true,
-        isNewConnection = state.connection.isCreated,
-        isFinishing = false,
-        failure = state.failure?.toUi(),
-    )
+    is ConnectWizardState.CheckingAdmission -> reflectAdmission(state)
 
-    is ConnectWizardState.Saving -> copy(
-        step = WizardStep.Models,
-        isBusy = true,
-        isCancelAllowed = false,
-        isNewConnection = state.connection.isCreated,
-        isFinishing = true,
-        failure = null,
-    )
+    is ConnectWizardState.ChoosingModels -> reflectModels(state)
 
-    is ConnectWizardState.RollingBack ->
-        copy(step = WizardStep.Models, isBusy = true, isCancelAllowed = false, isFinishing = false, failure = null)
+    is ConnectWizardState.Saving -> reflectSaving(state)
+
+    is ConnectWizardState.RollingBack -> reflectRollingBack()
 
     is ConnectWizardState.Finished, ConnectWizardState.Cancelled ->
-        copy(step = WizardStep.Done, isBusy = true, isCancelAllowed = false, isFinishing = false)
+        terminal()
+}
+
+private fun ConnectWizardScreenState.reflectAdmission(
+    state: ConnectWizardState.CheckingAdmission,
+): ConnectWizardScreenState = copy(
+    step = WizardStep.Models,
+    form = form.copy(key = SecretText()),
+    models = null,
+    admission = state.admission.toUi(),
+    isBusy = state.admission == WizardAdmission.Checking,
+    isCancelAllowed = true,
+    isNewConnection = state.connection.isCreated,
+    isFinishing = false,
+    runtimeJobProgress = null,
+    failure = state.failure?.toUi(),
+)
+
+private fun ConnectWizardScreenState.reflectModels(
+    state: ConnectWizardState.ChoosingModels,
+): ConnectWizardScreenState = copy(
+    step = WizardStep.Models,
+    form = form.copy(key = SecretText()),
+    models = state.models?.map { it.toRow(it.target.model in state.selected) }?.toImmutableList(),
+    admission = AdmissionUi.Allowed,
+    isBusy = state.models == null && state.failure == null,
+    isCancelAllowed = true,
+    isNewConnection = state.connection.isCreated,
+    isFinishing = false,
+    runtimeJobProgress = null,
+    failure = state.failure?.toUi(),
+)
+
+private fun ConnectWizardScreenState.reflectSaving(state: ConnectWizardState.Saving): ConnectWizardScreenState = copy(
+    step = WizardStep.Models,
+    admission = AdmissionUi.Allowed,
+    isBusy = true,
+    isCancelAllowed = false,
+    isNewConnection = state.connection.isCreated,
+    isFinishing = true,
+    runtimeJobProgress = null,
+    failure = null,
+)
+
+private fun ConnectWizardScreenState.reflectRollingBack(): ConnectWizardScreenState = copy(
+    step = WizardStep.Models,
+    admission = null,
+    isBusy = true,
+    isCancelAllowed = false,
+    isFinishing = false,
+    failure = null,
+)
+
+private fun ConnectWizardScreenState.reflectEngines(state: ConnectWizardState.ChoosingEngine) = copy(
+    step = WizardStep.Engine,
+    selectedMethod = null,
+    selectedGroup = null,
+    form = CredentialForm(),
+    formError = null,
+    engines = state.engines?.map { it.toRow() }?.toImmutableList(),
+    isBusy = state.engines == null && state.failure == null,
+    isCancelAllowed = true,
+    isNewConnection = true,
+    isFinishing = false,
+    isRuntimePickerAvailable = false,
+    isSystemRuntimeAvailable = false,
+    isManagedRuntimeAvailable = false,
+    isBundledRuntimeAvailable = false,
+    isManagedInstallationAvailable = false,
+    hasCheckedLocalRuntime = false,
+    runtimeCancellationTarget = null,
+    runtimeJobProgress = null,
+    hasRuntimeStep = false,
+    hasRuntimeChoice = false,
+    selectedRuntimeChoice = null,
+    isRuntimeMissing = false,
+    runtimePath = null,
+    isRuntimeUsable = false,
+    admission = null,
+    failure = state.failure?.toUi(),
+)
+
+private fun ConnectWizardScreenState.reflectRuntime(state: ConnectWizardState.ChoosingRuntime) = copy(
+    step = WizardStep.Runtime,
+    hasRuntimeStep = true,
+    engineTitle = state.engine.descriptor.title,
+    isRuntimePickerAvailable = state.options.isFilePickerAvailable,
+    isSystemRuntimeAvailable = RuntimePreference.System in state.options.sources,
+    isManagedRuntimeAvailable = RuntimePreference.Managed in state.options.sources,
+    isBundledRuntimeAvailable = RuntimePreference.Bundled in state.options.sources,
+    isManagedInstallationAvailable = state.options.isManagedInstallAvailable,
+    hasCheckedLocalRuntime = state.hasCheckedLocal,
+    runtimeCancellationTarget = state.cancellationTarget()?.takeUnless { state.isCancellingInstallation }
+        ?.let(::RuntimeJobHandle),
+    runtimeJobProgress = state.runtimeJob.installationProgress(),
+    hasRuntimeChoice = state.choice != null,
+    selectedRuntimeChoice = state.choice?.let { choice ->
+        when {
+            !choice.settings.executable.isNullOrBlank() -> RuntimeChoiceUi.Custom
+            choice.settings.runtime == RuntimePreference.System -> RuntimeChoiceUi.System
+            choice.settings.runtime == RuntimePreference.Managed -> RuntimeChoiceUi.Managed
+            choice.settings.runtime == RuntimePreference.Bundled -> RuntimeChoiceUi.Bundled
+            else -> null
+        }
+    },
+    isRuntimeMissing = state.choice?.inspection?.installation?.source == InstallSource.Missing,
+    runtimePath = (state.choice?.settings?.executable ?: state.choice?.inspection?.installation?.path)
+        ?.let(::RuntimePath),
+    isRuntimeUsable = state.choice?.inspection?.let {
+        it.installation.isRunnable && it.installation.source != InstallSource.Missing &&
+            it.compatibility?.decision?.isBaselineAllowed == true
+    } == true,
+    isBusy = state.isPicking || state.runtimeJob?.phase?.isFinished == false,
+    isCancelAllowed = true,
+    admission = null,
+    failure = state.failure?.toUi(),
+)
+
+private fun ConnectWizardState.ChoosingRuntime.cancellationTarget(): EngineOwnedJob? =
+    if (isInstalling && isInstallationStarted) {
+        installationHandle
+    } else {
+        runtimeJob?.takeIf {
+            !it.phase.isFinished && (it.action == EngineAction.Install || it.action == EngineAction.Update)
+        }?.handle
+    }
+
+private fun ConnectWizardScreenState.terminal(): ConnectWizardScreenState = copy(
+    step = WizardStep.Done,
+    form = CredentialForm(),
+    selectedMethod = null,
+    selectedGroup = null,
+    admission = null,
+    isBusy = true,
+    isCancelAllowed = false,
+    isFinishing = false,
+)
+
+internal fun WizardAdmission.toUi(): AdmissionUi = when (this) {
+    WizardAdmission.Checking -> AdmissionUi.Checking
+    WizardAdmission.Allowed -> AdmissionUi.Allowed
+    is WizardAdmission.Refused -> AdmissionUi.Incompatible
+    is WizardAdmission.Unknown -> AdmissionUi.Unknown
 }
 
 private fun EngineInfo.methods(): List<MethodRowUi> = descriptor.connectionMethods.map { it.toRow() }
@@ -394,6 +650,10 @@ private fun EngineInfo.methods(): List<MethodRowUi> = descriptor.connectionMetho
 /** Keeps the selected method and its form while the method list stays the same. */
 private fun ConnectWizardScreenState.withMethods(title: String, rows: List<MethodRowUi>): ConnectWizardScreenState {
     val base = copy(engineTitle = title, methods = rows.toImmutableList())
-    val isKept = selectedMethod != null && rows.any { it.id == selectedMethod }
-    return if (isKept || rows.isEmpty()) base else base.selectMethod(rows.first().id)
+    val isKept = selectedGroup == null || rows.any { it.accessGroup == selectedGroup }
+    if (!isKept) return base.copy(selectedGroup = null, selectedMethod = null, form = CredentialForm())
+    if (selectedMethod != null && rows.none { it.id == selectedMethod && it.accessGroup == selectedGroup }) {
+        return base.copy(selectedMethod = null, form = CredentialForm())
+    }
+    return base
 }

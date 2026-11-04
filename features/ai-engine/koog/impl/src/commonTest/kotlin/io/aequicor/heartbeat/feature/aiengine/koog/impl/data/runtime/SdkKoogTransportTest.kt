@@ -42,7 +42,7 @@ class SdkKoogTransportTest {
                 respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
             }
             HttpClient(engine).use { http ->
-                SdkKoogTransport(http).open(provider, "mock-key", "test").use { client ->
+                SdkKoogTransport(http, TestKoogPlatform).open(provider, "mock-key", "test").use { client ->
                     val response = client.executor.execute(
                         prompt("resources") { user(parts.koogUserParts(provider)) },
                         provider.textModel("test", attachments = true),
@@ -65,7 +65,7 @@ class SdkKoogTransportTest {
             respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
         }
         HttpClient(engine).use { http ->
-            SdkKoogTransport(http).open(KoogProvider.Anthropic, "mock-key", "test").use { client ->
+            SdkKoogTransport(http, TestKoogPlatform).open(KoogProvider.Anthropic, "mock-key", "test").use { client ->
                 val response = client.executor.execute(
                     prompt("test") { user("hello") },
                     KoogProvider.Anthropic.textModel("test"),
@@ -86,7 +86,7 @@ class SdkKoogTransportTest {
             respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
         }
         HttpClient(engine).use { http ->
-            SdkKoogTransport(http).open(KoogProvider.OpenAI, "mock-key").use { client ->
+            SdkKoogTransport(http, TestKoogPlatform).open(KoogProvider.OpenAI, "mock-key").use { client ->
                 assertEquals(1, client.models().size)
             }
             assertTrue(http.coroutineContext[kotlinx.coroutines.Job]?.isActive == true)
@@ -103,7 +103,7 @@ class SdkKoogTransportTest {
             respond("""{"models":[]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
         }
         HttpClient(engine).use { http ->
-            SdkKoogTransport(http).open(KoogProvider.Ollama, null).use { client ->
+            SdkKoogTransport(http, TestKoogPlatform).open(KoogProvider.Ollama, null).use { client ->
                 assertEquals(0, client.models().size)
             }
         }
@@ -127,7 +127,7 @@ class SdkKoogTransportTest {
                 respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
             }
             HttpClient(engine).use { http ->
-                SdkKoogTransport(http).open(provider, "mock-key", "m", origin).use { client ->
+                SdkKoogTransport(http, TestKoogPlatform).open(provider, "mock-key", "m", origin).use { client ->
                     val response = client.executor.execute(prompt("p") { user("hi") }, provider.textModel("m"))
                     assertEquals("ok", response.textContent())
                 }
@@ -136,9 +136,9 @@ class SdkKoogTransportTest {
     }
 
     @Test
-    fun `transport refuses a foreign origin for fixed routes and plain http for remote servers`() {
+    fun `transport refuses a foreign origin for fixed routes and plain http for remote servers`() = runTest {
         HttpClient(MockEngine { error("no request expected") }).use { http ->
-            val transport = SdkKoogTransport(http)
+            val transport = SdkKoogTransport(http, TestKoogPlatform)
             assertFailsWith<IllegalArgumentException> {
                 transport.open(KoogProvider.OpenAI, "mock-key", origin = EndpointOrigin("https://llm.example"))
             }
@@ -166,7 +166,7 @@ class SdkKoogTransportTest {
                 respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
             }
             HttpClient(engine).use { http ->
-                SdkKoogTransport(http).open(provider, "mock-key", "m", origin, path).use { client ->
+                SdkKoogTransport(http, TestKoogPlatform).open(provider, "mock-key", "m", origin, path).use { client ->
                     val response = client.executor.execute(prompt("p") { user("hi") }, provider.textModel("m"))
                     assertEquals("ok", response.textContent())
                 }

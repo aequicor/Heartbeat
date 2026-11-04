@@ -82,3 +82,15 @@ public fun AuthSource.isVisibleTo(owner: AuthOwnerId): Boolean = when (this) {
     is AuthSource.CliLogin -> this.owner == owner
     is AuthSource.ManagedKey, is AuthSource.ExternalKey, is AuthSource.CredentialHelper, is AuthSource.NoAuth -> true
 }
+
+/** Exact non-secret source context without the display label; preserves credential reference and endpoint scope. */
+public fun AuthSource.withoutLabel(): AuthSource {
+    val info = info.copy(label = "")
+    return when (this) {
+        is AuthSource.ManagedKey -> copy(info = info)
+        is AuthSource.ExternalKey -> copy(info = info)
+        is AuthSource.CliLogin -> copy(info = info)
+        is AuthSource.CredentialHelper -> copy(info = info)
+        is AuthSource.NoAuth -> copy(info = info)
+    }
+}

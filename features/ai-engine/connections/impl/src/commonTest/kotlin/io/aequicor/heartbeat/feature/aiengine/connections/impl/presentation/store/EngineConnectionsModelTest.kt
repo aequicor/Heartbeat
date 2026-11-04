@@ -1,13 +1,18 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store
 
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSecretId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsOutput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
@@ -15,15 +20,156 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.scopeFor
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EngineConnectionsModelTest {
+    @Test
+    fun `editing sends a conditional source snapshot and clears the typed key`() = runTest {
+        val source = AuthSource.ManagedKey(
+            AuthSourceInfo(AuthSourceId("home-source"), "Work", AuthRevision.Known("r1")),
+            ApiKeyMethod.scopeFor(),
+            AuthSecretId("key"),
+        )
+        val snapshot = settingsSnapshot().copy(sources = listOf(source))
+        machine.state.value = EngineConnectionsState.Active(snapshot)
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.StartEdit)
+        model.store.intent(EngineConnectionsScreenIntent.EditLabel("Renamed"))
+        model.store.intent(EngineConnectionsScreenIntent.EditKey("new-secret"))
+        model.store.intent(EngineConnectionsScreenIntent.SaveEdit)
+        runCurrent()
+
+        val request = machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Edit>().single().edit
+        assertEquals(source, request.expected)
+        assertEquals("Renamed", request.label)
+        assertEquals("", assertNotNull(screen.states.value.editDraft).form.key.value)
+        assertEquals("new-secret", assertNotNull(request.key).reveal { it.concatToString() })
+        request.key?.close()
+        machine.state.value = EngineConnectionsState.Active(snapshot, operationSequence = 1)
+        runCurrent()
+        assertNull(screen.states.value.editDraft)
+    }
+
+    @Test
+    fun `a rejected edit closes its secret and retains an empty editable form`() = runTest {
+        val source = AuthSource.ManagedKey(
+            AuthSourceInfo(AuthSourceId("home-source"), "Work", AuthRevision.Known("r1")),
+            ApiKeyMethod.scopeFor(),
+            AuthSecretId("key"),
+        )
+        machine.state.value = EngineConnectionsState.Active(settingsSnapshot().copy(sources = listOf(source)))
+        val model = model()
+        val screen = subscribe(model.store)
+        machine.result = SendResult.Ignored
+        model.store.intent(EngineConnectionsScreenIntent.StartEdit)
+        model.store.intent(EngineConnectionsScreenIntent.EditKey("new-secret"))
+        model.store.intent(EngineConnectionsScreenIntent.SaveEdit)
+        runCurrent()
+
+        val key = assertNotNull(machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Edit>().single().edit.key)
+        assertFailsWith<IllegalStateException> { key.reveal {} }
+        assertEquals("", assertNotNull(screen.states.value.editDraft).form.key.value)
+        assertNull(screen.states.value.editDraft?.submittedSequence)
+    }
+
+    @Test
+    fun `an external source change never silently replaces the edit baseline`() = runTest {
+        val source = AuthSource.ManagedKey(
+            AuthSourceInfo(AuthSourceId("home-source"), "Work", AuthRevision.Known("r1")),
+            ApiKeyMethod.scopeFor(),
+            AuthSecretId("key"),
+        )
+        val original = settingsSnapshot().copy(sources = listOf(source))
+        machine.state.value = EngineConnectionsState.Active(original)
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.StartEdit)
+        runCurrent()
+        val changed = source.copy(info = source.info.copy(revision = AuthRevision.Known("r2")))
+        machine.state.value = EngineConnectionsState.Active(original.copy(sources = listOf(changed)))
+        runCurrent()
+        model.store.intent(EngineConnectionsScreenIntent.SaveEdit)
+        runCurrent()
+
+        val request = machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Edit>().single().edit
+        assertEquals(source, request.expected)
+        assertNotNull(screen.states.value.editDraft)
+    }
+
+    @Test
+    fun `opening and closing check details never sends a machine change`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(checkedSettingsSnapshot())
+        val model = model()
+        val screen = subscribe(model.store)
+        val target = assertNotNull(screen.states.value.models?.models?.first()?.check).target
+        model.store.intent(EngineConnectionsScreenIntent.ShowCheckDetails(target))
+        runCurrent()
+        assertNotNull(screen.states.value.checkDetails)
+        model.store.intent(EngineConnectionsScreenIntent.DismissCheckDetails)
+        runCurrent()
+        assertNull(screen.states.value.checkDetails)
+        assertEquals(listOf<EngineConnectionsIntent>(EngineConnectionsIntent.Public.Start), machine.sent)
+    }
+
+    @Test
+    fun `explicit detail retry sends CheckModel and does not save an unrelated draft`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(checkedSettingsSnapshot())
+        val model = model()
+        val screen = subscribe(model.store)
+        val target = assertNotNull(screen.states.value.models?.models?.first()?.check).target
+        model.store.intent(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true))
+        model.store.intent(EngineConnectionsScreenIntent.ShowCheckDetails(target))
+        model.store.intent(EngineConnectionsScreenIntent.RetryModelCheck)
+        runCurrent()
+        val route = requireNotNull(
+            (machine.state.value as EngineConnectionsState.Active).snapshot,
+        ).selection.defaultTarget
+        assertEquals(
+            listOf<EngineConnectionsIntent>(
+                EngineConnectionsIntent.Public.Apply(ConnectionOperation.CheckModel(requireNotNull(route))),
+            ),
+            machine.sent.drop(1),
+        )
+        assertEquals<Set<String>?>(setOf("llama", "qwen"), screen.states.value.modelDraft)
+    }
+
+    @Test
+    fun `scoped connections cannot switch engines or apply foreign binding changes`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(settingsSnapshot())
+        val model = EngineConnectionsModel(
+            machine,
+            testScopeHandle(),
+            testStoreFactory(),
+            EngineConnectionsTarget(KoogId),
+        ) { flowOf(null) }
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true))
+        runCurrent()
+        model.store.intent(EngineConnectionsScreenIntent.SelectEngine("codex"))
+        model.store.intent(EngineConnectionsScreenIntent.SelectConnection("foreign"))
+        model.store.intent(EngineConnectionsScreenIntent.SetConnectionEnabled("foreign", false))
+        model.store.intent(EngineConnectionsScreenIntent.RequestDisconnect("foreign"))
+        model.store.intent(EngineConnectionsScreenIntent.ConfirmDisconnect)
+        runCurrent()
+        assertEquals("koog", screen.states.value.fixedEngine)
+        assertEquals("koog", screen.states.value.selectedEngine)
+        assertEquals("home", screen.states.value.selectedConnection)
+        assertEquals<Set<String>?>(setOf("llama", "qwen"), screen.states.value.modelDraft)
+        assertNull(screen.states.value.confirmDisconnect)
+        assertTrue(machine.sent.none { it is EngineConnectionsIntent.Public.Apply })
+    }
+
     private val binding = EngineBinding(EngineBindingId("binding-1"), KoogId, AuthSourceId("source-1"))
     private val snapshot = ConnectionsSnapshot(
         listOf(engineInfo(listOf(binding))),

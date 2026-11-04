@@ -13,15 +13,22 @@ import io.aequicor.heartbeat.core.datastore.StoreValueType
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEffortOverride
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
@@ -32,6 +39,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -190,13 +198,121 @@ class StudioPreferencesTest {
         stores.values.isReadFailing = false
         assertEquals(selected, preferences.load(DefaultRunSettings))
     }
+
+    @Test
+    fun `last accepted receipt wins over delayed disk IO and survives service recreation`() = runTest {
+        val stores = PreferenceStores()
+        val profile = PreferenceProfile(backgroundScope)
+        val started = KeyValueStudioLastStartedRun(stores, profile)
+        val first = StudioSessionSettings("exact-first", "native-high", ApprovalMode.AutoApprove)
+        val last = StudioSessionSettings("exact-last", null, ApprovalMode.Ask)
+        val writing = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        stores.values.beforeWrite = {
+            writing.complete(Unit)
+            release.await()
+        }
+        val screen = launch { started.capture(first) }
+        writing.await()
+        screen.cancelAndJoin()
+        started.capture(last)
+        assertEquals(last, started.latest())
+        assertEquals(last, started.observe().first())
+        release.complete(Unit)
+        runCurrent()
+        assertEquals(last, KeyValueStudioLastStartedRun(stores, profile).observe().first())
+    }
+
+    @Test
+    fun `failed persistence keeps receipt and repeated acceptance retries`() = runTest {
+        val stores = PreferenceStores()
+        val profile = PreferenceProfile(backgroundScope)
+        KeyValueStudioPreferences(stores, profile).save(selected, version)
+        val started = KeyValueStudioLastStartedRun(stores, profile)
+        assertEquals(null, started.observe().first())
+        val accepted = StudioSessionSettings("exact-route", "native-max")
+        stores.values.beforeWrite = { error("disk unavailable") }
+        started.capture(accepted)
+        runCurrent()
+        assertEquals(accepted, started.observe().first())
+        stores.values.beforeWrite = {}
+        started.capture(accepted)
+        runCurrent()
+        assertEquals(accepted, KeyValueStudioLastStartedRun(stores, profile).observe().first())
+        assertEquals(null, KeyValueStudioLastStartedRun(PreferenceStores("other"), profile).observe().first())
+    }
+
+    @Test
+    fun `restored defaults use last accepted exact route instead of unsent choices or another default`() = runTest {
+        val stores = PreferenceStores()
+        val profile = PreferenceProfile(backgroundScope)
+        val preferences = KeyValueStudioPreferences(stores, profile)
+        preferences.save(selected, version)
+        val first = EngineTarget(EngineId("engine"), EngineBindingId("disappeared"), ModelId("old"))
+        val neighbor = first.copy(binding = EngineBindingId("other"))
+        val accepted = StudioSessionSettings(first.studioModelId(), null, ApprovalMode.Ask)
+        val started = KeyValueStudioLastStartedRun(stores, profile)
+        started.capture(accepted)
+        runCurrent()
+        val selections = object : ModelSelections {
+            override fun observe() = kotlinx.coroutines.flow.flowOf(ModelSelection().withDefault(neighbor))
+            override suspend fun update(change: (ModelSelection) -> ModelSelection): ModelSelection = error("read only")
+        }
+        val efforts = object : EffortChoicesView {
+            override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
+        }
+        val restored = observeStudioDefaults(preferences, selections, efforts, started).first()
+        assertEquals(first.studioModelId(), restored.modelId)
+        assertEquals(StudioEffortOverride(first.studioModelId(), null), restored.nativeEffort)
+        preferences.save(selected.copy(modelId = "unsent-change"), version.copy(revision = 2))
+        assertEquals(restored, observeStudioDefaults(preferences, selections, efforts, started).first())
+    }
+
+    @Test
+    fun `new page freezes native default before another page changes the profile effort`() = runTest {
+        val stores = PreferenceStores()
+        val profile = PreferenceProfile(backgroundScope)
+        val preferences = KeyValueStudioPreferences(stores, profile)
+        val target = EngineTarget(EngineId("engine"), EngineBindingId("connection"), ModelId("model"))
+        val selections = object : ModelSelections {
+            override fun observe() = kotlinx.coroutines.flow.flowOf(ModelSelection().withDefault(target))
+            override suspend fun update(change: (ModelSelection) -> ModelSelection): ModelSelection = error("read only")
+        }
+        val efforts = object : EffortChoicesView {
+            override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
+        }
+        val started = KeyValueStudioLastStartedRun(stores, profile)
+        val first = observeStudioDefaults(preferences, selections, efforts, started).first()
+        efforts.state.value = EffortConfigurationState.Ready(listOf(EffortChoice(target, "high")))
+        val second = observeStudioDefaults(preferences, selections, efforts, started).first()
+
+        assertEquals(StudioEffortOverride(target.studioModelId(), null), first.nativeEffort)
+        assertEquals(StudioEffortOverride(target.studioModelId(), "high"), second.nativeEffort)
+        assertEquals(StudioEffortOverride(target.studioModelId(), null), first.nativeEffort)
+    }
+
+    @Test
+    fun `profile closure cancels queued receipt writes without extending the storage owner`() = runTest {
+        val stores = PreferenceStores()
+        val profile = PreferenceProfile(backgroundScope)
+        val started = KeyValueStudioLastStartedRun(stores, profile)
+        started.capture(StudioSessionSettings("not-yet-persisted", null))
+        profile.closeAndJoin()
+        val reopened = KeyValueStudioLastStartedRun(stores, PreferenceProfile(backgroundScope))
+        assertEquals(null, reopened.observe().first())
+    }
 }
 
 private class PreferenceProfile(parent: CoroutineScope) : ScopeHandle {
     override val coroutineScope = CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job]))
     override val name = "preferences-test-profile"
     override val savedState: ScopeSavedState get() = error("unused")
-    override val isClosed = false
+    override var isClosed = false
+        private set
+    suspend fun closeAndJoin() {
+        isClosed = true
+        coroutineScope.coroutineContext[Job]?.cancelAndJoin()
+    }
     override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
 }
 

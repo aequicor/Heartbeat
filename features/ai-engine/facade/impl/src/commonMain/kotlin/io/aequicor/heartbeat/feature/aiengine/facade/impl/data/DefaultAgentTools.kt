@@ -415,6 +415,9 @@ internal class DefaultAgentTools(
         input: HostedInput,
         isAdapterOperated: Boolean = false,
     ): AgentToolResult {
+        if (hooks.context(context.session, context.request, context.turn)?.isTextOnlyService == true) {
+            return AgentToolResult("Text-only service sessions cannot call tools.", isError = true)
+        }
         val arguments = input.arguments
         val callId = context.callId?.value
         if (callId != null && !callsLock.withLock {

@@ -147,6 +147,7 @@ internal class ClaudeFixture(val scope: CoroutineScope) {
         bridge: AgentToolBridge = UnavailableAgentToolBridge,
         native: ClaudeNativeSupport = MissingClaudeNativeSupport,
         isReadOnly: Boolean = false,
+        admission: ClaudeRuntimeAdmission? = null,
     ): ClaudeRuntime {
         val revision = account.inspect().check.revision
         return ClaudeRuntime(
@@ -163,6 +164,7 @@ internal class ClaudeFixture(val scope: CoroutineScope) {
             inputSupport = { inputSupport },
             efforts = { efforts(it) },
             isReadOnly = isReadOnly,
+            admission = admission,
         )
     }
 }

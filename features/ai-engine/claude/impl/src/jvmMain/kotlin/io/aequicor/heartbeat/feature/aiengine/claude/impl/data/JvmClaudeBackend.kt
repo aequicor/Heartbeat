@@ -17,10 +17,16 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeAuthentication
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeLogin
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.data.runtime.ClaudeCandidates
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.data.runtime.ClaudeCompatibility
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.data.runtime.UnsupportedClaudeCandidates
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.data.runtime.UnsupportedClaudeCompatibility
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -39,6 +45,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -48,6 +56,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.TimeMark
 
 @ContributesBinding(ProfileScope::class, binding = binding<ClaudeBackend>())
 @ContributesBinding(ProfileScope::class, binding = binding<ClaudeAuthentication>())
@@ -64,6 +73,8 @@ internal class JvmClaudeBackend(
     private val native: ClaudeNativeSupport = MissingClaudeNativeSupport,
     private val resources: ResourceResolver = ResourceResolver { null },
     private val resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
+    private val compatibility: ClaudeCompatibility = UnsupportedClaudeCompatibility,
+    private val candidates: ClaudeCandidates = UnsupportedClaudeCandidates,
 ) : ClaudeBackend {
     /** Sources of configured bindings; the CLI resolves the login itself, so only ids are kept. */
     private val routes = mutableMapOf<EngineBindingId, AuthSourceId>()
@@ -96,6 +107,16 @@ internal class JvmClaudeBackend(
         val login = account.inspect()
         if (login.check.verdict != AuthVerdict.Authenticated) authFailure(AuthFailureReason.NotAuthenticated)
         return login.source.info.revision
+    }
+
+    /** Researched policy of this connector build; a target without generated facts has no admission. */
+    override val runtimeRequirements: EngineCompatibilityRequirements? get() = compatibility.requirements()
+
+    override suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? = candidates.open(request, deadline) { executable, stamp ->
+        obtainRuntime(request.identity, stamp, executable)
     }
 
     /** An installation probe reports every adapter failure as availability; only cancellation escapes. */
@@ -162,7 +183,7 @@ internal class JvmClaudeBackend(
             var models: List<ModelInfo>? = null
             transport.run(
                 claudeArguments() + listOf("--input-format", "stream-json"),
-                INITIALIZE + "\n",
+                CLAUDE_MODELS_INITIALIZE + "\n",
                 context.workspace,
                 closeInput = false,
             ) { line ->
@@ -242,17 +263,33 @@ internal class JvmClaudeBackend(
         )
     }
 
-    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime =
-        open(identity, isRouteRequired = true)
+    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = obtainRuntime(identity, null, null)
+
+    /**
+     * Runtime entry point: [stamp] is non-null only for a facade admission of exactly that contract, and
+     * [admittedExecutable] is the executable its candidate verified. A runtime created outside admission keeps a
+     * null stamp, so the first admission replaces it instead of reusing it.
+     */
+    private suspend fun obtainRuntime(
+        identity: RuntimeIdentity,
+        stamp: EngineCompatibilityStamp?,
+        admittedExecutable: String?,
+    ): ClaudeRuntime = open(identity, isRouteRequired = true, stamp = stamp, admittedExecutable = admittedExecutable)
 
     /**
      * The pooled runtime of [identity]. Only a stored session opens without a bound route ([isRouteRequired] is
      * false): its identity comes from this profile's own catalog, and routes live in memory, so after a restart
      * they are empty until the facade binds them again, which it does before it resumes or sends anything.
      * While a live runtime of another identity exists, such a session gets a history-only reader instead of
-     * replacing it.
+     * replacing it. An admission adds [stamp]: only a live runtime that already proves exactly that contract is
+     * reused, so an unadmitted runtime is replaced instead of silently keeping the transfer.
      */
-    private suspend fun open(identity: RuntimeIdentity, isRouteRequired: Boolean): ClaudeRuntime = mutex.withLock {
+    private suspend fun open(
+        identity: RuntimeIdentity,
+        isRouteRequired: Boolean,
+        stamp: EngineCompatibilityStamp? = null,
+        admittedExecutable: String? = null,
+    ): ClaudeRuntime = mutex.withLock {
         enabled()
         val isRouteKnown = identity.source == ClaudeEngine.AuthSource || identity.source in routes.values
         if (identity.engine != ClaudeEngine.Id || (isRouteRequired && !isRouteKnown)) {
@@ -261,20 +298,37 @@ internal class JvmClaudeBackend(
         }
         val current = runtime
         when {
-            current != null && current.identity == identity && !current.isClosed -> current
+            current != null && current.identity == identity && !current.isClosed &&
+                (stamp == null || current.compatibilityStamp == stamp) -> current
 
             // A live runtime belongs to its turns: reading a stored session of another identity must not end them.
             !isRouteRequired && current != null && !current.isClosed -> reading(identity, current.identity.revision)
 
-            else -> replaceRuntime(current, identity)
+            else -> replaceRuntime(current, identity, stamp, admittedExecutable)
         }
     }
 
-    private suspend fun replaceRuntime(current: ClaudeRuntime?, identity: RuntimeIdentity): ClaudeRuntime {
+    private suspend fun replaceRuntime(
+        current: ClaudeRuntime?,
+        identity: RuntimeIdentity,
+        stamp: EngineCompatibilityStamp?,
+        admittedExecutable: String?,
+    ): ClaudeRuntime {
         restoreCapabilities(identity.revision)
         val pinnedTransport = transport.pinned()
+        // Compare the admitted artifact with the transport this runtime is about to pin before any process,
+        // account probe or user configuration access.
+        if (stamp != null) verifyAdmittedTransport(pinnedTransport, admittedExecutable, stamp)
         val pinnedAccount = account.pinned(pinnedTransport)
         pinnedAccount.validate(identity.revision)
+        // The ordinary process reports its version once; the candidate compares it with the assessed stamp.
+        val admission = stamp?.let {
+            ClaudeRuntimeAdmission(
+                stamp = it,
+                observedVersion = pinnedTransport.version(),
+                selectedExecutable = pinnedTransport.executable,
+            )
+        }
         when {
             current == null -> Unit
             current.identity != identity && !current.isClosed -> current.retire()
@@ -284,7 +338,23 @@ internal class JvmClaudeBackend(
         reader?.close()
         reader = null
         log.i { "Creating Claude profile runtime" }
-        return newRuntime(identity, pinnedTransport, pinnedAccount, isReadOnly = false).also { runtime = it }
+        return newRuntime(identity, pinnedTransport, pinnedAccount, isReadOnly = false, admission = admission)
+            .also { runtime = it }
+    }
+
+    /** The pinned transport must start the admitted executable whose bytes still match the assessed stamp. */
+    private suspend fun verifyAdmittedTransport(
+        transport: ClaudeTransport,
+        admittedExecutable: String?,
+        stamp: EngineCompatibilityStamp,
+    ) {
+        val executable = transport.executable
+        val isSelected = admittedExecutable != null && executable == admittedExecutable
+        val isDigest = isSelected && transport.executableSha256() == stamp.runtimeFingerprint
+        if (!isDigest) {
+            log.w { "Claude transport no longer starts the admitted executable" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+        }
     }
 
     /**
@@ -309,6 +379,7 @@ internal class JvmClaudeBackend(
         pinnedTransport: ClaudeTransport,
         pinnedAccount: ClaudeAccount,
         isReadOnly: Boolean,
+        admission: ClaudeRuntimeAdmission? = null,
     ) = ClaudeRuntime(
         identity,
         pinnedTransport,
@@ -329,6 +400,7 @@ internal class JvmClaudeBackend(
             )
         },
         isReadOnly = isReadOnly,
+        admission = admission,
     )
 
     override suspend fun session(ref: SessionRef): EngineSession {
@@ -359,7 +431,6 @@ private val CAPABILITY_KEYS = setOf(
 )
 
 private val VERSION = Regex("[0-9]+\\.[0-9]+\\.[0-9]+")
-private const val INITIALIZE = """{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}"""
 
 /** Effort levels a model advertises; unknown values are dropped so `--effort` never receives them. */
 private fun JsonObject.effortLevels(): List<String> = (this["supportedEffortLevels"] as? JsonArray).orEmpty()

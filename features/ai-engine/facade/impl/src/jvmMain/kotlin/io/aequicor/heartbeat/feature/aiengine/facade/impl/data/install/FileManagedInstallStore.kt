@@ -25,20 +25,24 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 import java.io.IOException
 import java.nio.channels.FileLock
 import java.nio.file.FileSystemException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+import java.util.HexFormat
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
  * [ManagedInstallStore] in [root]: `<engine>/versions/<version>-<sha8>` holds activated copies, `active.json` names
- * the active one (written to a temporary file and moved into place), `staging` and `downloads` hold work in
- * progress, and `trash` holds copies being removed. Operations of one engine are serialized in this process and
+ * the active one (written to a temporary file and moved into place) together with the verified release archive
+ * digest and the SHA-256 of the executable it contains, `staging` and `downloads` hold work in progress, and
+ * `trash` holds copies being removed. Operations of one engine are serialized in this process and
  * across Heartbeat processes by a file lock; a refresh sweeps leftovers only of engines it can lock. A replaced copy
  * that a running process still uses (Windows) stays where it is and is swept once nothing uses it. Pinned copies
  * have records in `retained` and survive activation and refresh until explicit uninstall. Paths and URLs
@@ -102,7 +106,14 @@ internal class FileManagedInstallStore(
             progress(InstallStep.Verified)
             progress(InstallStep.Unpacking)
             val executable = withContext(io) { unpack(plan, download, staging) }
-            val candidate = ManagedInstall(plan.version, executable.toString(), clock.now())
+            val executableSha256 = executableDigest(executable)
+            val candidate = ManagedInstall(
+                plan.version,
+                executable.toString(),
+                clock.now(),
+                plan.sha256,
+                executableSha256,
+            )
             withContext(NonCancellable) { withContext(io) { deleteQuietly(download) } }
             currentCoroutineContext().ensureActive()
             log.i { "release staged engine=${engine.value} version=${plan.version}" }
@@ -208,12 +219,37 @@ internal class FileManagedInstallStore(
         return executable
     }
 
+    /**
+     * SHA-256 of the unpacked executable, read in bounded blocks with a cancellation check between them. Neither the
+     * digest nor the file is logged: a read failure reports only its kind.
+     */
+    // The file system message names the user's path, so it is replaced by the failure kind and is not the cause.
+    @Suppress("SwallowedException")
+    private suspend fun executableDigest(file: Path): String = try {
+        withContext(io) {
+            val digest = MessageDigest.getInstance("SHA-256")
+            Files.newInputStream(file).use { input ->
+                val buffer = ByteArray(READ_BLOCK)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            HexFormat.of().formatHex(digest.digest())
+        }
+    } catch (e: IOException) {
+        log.w(e.withoutDetails()) { "installed executable could not be read" }
+        throw installFailure(InstallFailureReason.Storage, e.withoutDetails())
+    }
+
     private suspend fun switchTo(directory: Path, staged: StagedInstall): ManagedInstall {
-        val sha256 = staged.sha256
+        val archiveSha256 = staged.sha256
         val staging = directory.resolve(STAGING).resolve(staged.token)
-        val name = "${staged.candidate.version.filter { it.isLetterOrDigit() || it in VersionSymbols }}-${sha256.take(
-            8,
-        )}" + if (staged.isRetainedForRollback) "-${staged.token}" else ""
+        val version = staged.candidate.version.filter { it.isLetterOrDigit() || it in VersionSymbols }
+        val suffix = if (staged.isRetainedForRollback) "-${staged.token}" else ""
+        val name = "$version-${archiveSha256.take(8)}$suffix"
         val target = directory.resolve(VERSIONS).resolve(name)
         val previous = readRecord(directory)
         val history = retainedRecords(directory)
@@ -222,15 +258,18 @@ internal class FileManagedInstallStore(
         if (Files.exists(target)) moveToTrash(directory, target)
         storage { Files.createDirectories(target.parent) }
         storage { Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE) }
+        val executable = target.resolve(relative)
+        val executableSha256 = executableDigest(executable)
         val installedAt = clock.now()
         val record = ActiveRecord(
-            staged.candidate.version,
-            name,
-            relative,
-            sha256,
-            installedAt,
-            staged.target,
-            generation,
+            version = staged.candidate.version,
+            directory = name,
+            executable = relative,
+            sha256 = archiveSha256,
+            installedAt = installedAt,
+            target = staged.target,
+            generation = generation,
+            executableSha256 = executableSha256,
         )
         if (staged.isRetainedForRollback) writeRecord(directory, record, "$RETAINED/$name.json")
         writeRecord(directory, record)
@@ -239,7 +278,13 @@ internal class FileManagedInstallStore(
         if (previous != null && previous.directory != name && previous.directory !in retained) {
             putAside(directory, directory.resolve(VERSIONS).resolve(previous.directory))
         }
-        return ManagedInstall(staged.candidate.version, target.resolve(relative).toString(), installedAt)
+        return ManagedInstall(
+            staged.candidate.version,
+            executable.toString(),
+            installedAt,
+            archiveSha256,
+            executableSha256,
+        )
     }
 
     /** Moves a copy that is no longer active to the trash in one attempt; one still in use is swept later. */
@@ -309,7 +354,13 @@ internal class FileManagedInstallStore(
             log.w { "active managed copy is missing or outside its folder; ignored" }
             return null
         }
-        return ManagedInstall(record.version, executable.toString(), record.installedAt)
+        return ManagedInstall(
+            record.version,
+            executable.toString(),
+            record.installedAt,
+            record.sha256,
+            record.executableSha256,
+        )
     }
 
     private fun retainedRecords(directory: Path): List<ActiveRecord> {
@@ -324,7 +375,7 @@ internal class FileManagedInstallStore(
         val file = directory.resolve(name)
         if (!Files.exists(file)) return null
         return try {
-            RecordJson.decodeFromString(ActiveRecord.serializer(), Files.readString(file)).also { record ->
+            RecordJson.decodeFromString(serializer<ActiveRecord>(), Files.readString(file)).also { record ->
                 validateRecord(directory, record)
             }
         } catch (e: SerializationException) {
@@ -355,7 +406,7 @@ internal class FileManagedInstallStore(
         val temporary = destination.resolveSibling("${destination.fileName}.${Uuid.random().toHexString()}.tmp")
         storage {
             Files.createDirectories(destination.parent)
-            Files.writeString(temporary, RecordJson.encodeToString(ActiveRecord.serializer(), record))
+            Files.writeString(temporary, RecordJson.encodeToString(serializer<ActiveRecord>(), record))
             Files.move(
                 temporary,
                 destination,
@@ -429,6 +480,8 @@ internal class FileManagedInstallStore(
         val installedAt: Instant,
         val target: String? = null,
         val generation: Long = 0,
+        /** Digest of the extracted executable; absent in records written before it was recorded. */
+        val executableSha256: String? = null,
     )
 
     private companion object {
@@ -441,6 +494,7 @@ internal class FileManagedInstallStore(
         const val TOKEN_LENGTH = 16
         const val MOVE_ATTEMPTS = 5
         const val MOVE_RETRY_MILLIS = 200L
+        const val READ_BLOCK = 1 shl 16
         val EngineName = Regex("[a-z0-9][a-z0-9_.-]*")
         val VersionSymbols = setOf('.', '-', '_', '+')
         val RecordJson = Json { ignoreUnknownKeys = true }

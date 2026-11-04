@@ -13,10 +13,25 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.stream.Stream
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class KimiProcessProbeTest {
+    @Test
+    fun `unavailable descendant listing still stops root without confirming all termination`() = runTest {
+        val process = object : ProbeProcess(isFinished = true) {
+            override fun descendants(): Stream<ProcessHandle> = throw SecurityException("Fixture forbids descendants")
+        }
+        var isStopped = false
+        assertFailsWith<SecurityException> {
+            probeKimiProcess(dispatchers, 5_000, { isStopped = true }) { process }
+        }
+        assertTrue(process.isDestroyed.get())
+        assertFalse(isStopped)
+    }
+
     @Test
     fun `successful probe returns exit code and releases resources`() = runTest {
         val process = ProbeProcess(isFinished = true)
@@ -54,7 +69,7 @@ class KimiProcessProbeTest {
     }
 }
 
-internal class ProbeProcess(isFinished: Boolean = false) : Process() {
+internal open class ProbeProcess(isFinished: Boolean = false) : Process() {
     val isDestroyed = AtomicBoolean()
     private val finished = CountDownLatch(if (isFinished) 0 else 1)
     override fun getOutputStream() = ByteArrayOutputStream()

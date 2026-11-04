@@ -9,17 +9,22 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbBadge
+import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
@@ -68,6 +73,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.setting
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_disconnect_confirm
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_disconnect_title
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_dismiss
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_edit_connection
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_edit_pending
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_enabled_models
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_engines
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_manage_engine
@@ -130,9 +137,9 @@ internal fun EngineConnectionsContent(
     modifier: Modifier = Modifier,
     onManageEngine: (engine: String) -> Unit = {},
 ) {
-    val selected = state.engines.firstOrNull { it.id == state.selectedEngine }
     // Input follows the actual write immediately; only its visual feedback waits to avoid a brief flash.
     val isSavingVisible = rememberHbBusyReveal(state.isSaving)
+    val editFocus = rememberEditFocus(state)
     HbColumn(
         modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).testTag("engine-connections"),
         gap = HbTheme.spacing.none,
@@ -142,21 +149,94 @@ internal fun EngineConnectionsContent(
             HbColumn(
                 Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxWidth()
                     .hbVerticalScroll(rememberScrollState())
-                    .padding(HbTheme.spacing.xl),
+                    .padding(if (state.fixedEngine == null) HbTheme.spacing.xl else HbTheme.spacing.none),
                 gap = HbTheme.spacing.xxl,
             ) {
-                ConnectionsToolbar(onAddEngine = { onAddConnection(null) })
-                SettingsStatus(state, onIntent, isSavingVisible = isSavingVisible)
-                EnginesSection(state, onIntent, isSavingVisible = isSavingVisible)
-                if (selected != null && state.isManaged) EngineControlLink(selected, { onManageEngine(selected.id) })
-                selected?.preparation?.let { EnginePreparationStatus(it) }
-                ConnectionsSection(state, onIntent, onAddConnection)
-                ModelsSection(state, onIntent, onOpenDescription, isSavingVisible = isSavingVisible)
+                ConnectionsBody(
+                    state,
+                    onIntent,
+                    onAddConnection,
+                    onOpenDescription,
+                    onManageEngine,
+                    editFocus,
+                    isSavingVisible,
+                )
             }
         }
     }
+    state.checkDetails?.let { details ->
+        ModelCheckDetailsDialog(
+            details,
+            isBusy = state.isSaving,
+            onRetry = { onIntent(EngineConnectionsScreenIntent.RetryModelCheck) },
+            onDismiss = { onIntent(EngineConnectionsScreenIntent.DismissCheckDetails) },
+        )
+    }
     val confirming = state.connections.firstOrNull { it.id == state.confirmDisconnect }
     if (confirming != null) DisconnectDialog(confirming.label, isEnabled = !state.isSaving, onIntent)
+}
+
+@Composable
+private fun rememberEditFocus(state: EngineConnectionsScreenState): FocusRequester {
+    val requester = remember { FocusRequester() }
+    var isRestorePending by remember { mutableStateOf(false) }
+    LaunchedEffect(state.editDraft != null) {
+        if (state.editDraft != null) {
+            isRestorePending = true
+        } else if (isRestorePending) {
+            isRestorePending = false
+            if (state.canRestoreEditFocus()) {
+                withFrameNanos { }
+                requester.requestFocus()
+            }
+        }
+    }
+    return requester
+}
+
+private fun EngineConnectionsScreenState.canRestoreEditFocus(): Boolean = models != null &&
+    engines.any { it.id == selectedEngine && it.isEnabled } &&
+    connections.any { it.id == selectedConnection && it.isEditable }
+
+@Composable
+private fun ConnectionsBody(
+    state: EngineConnectionsScreenState,
+    onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    onAddConnection: (String?) -> Unit,
+    onOpenDescription: (String, String) -> Unit,
+    onManageEngine: (String) -> Unit,
+    editFocus: FocusRequester,
+    isSavingVisible: Boolean,
+) {
+    if (state.editDraft != null) {
+        ConnectionEditContent(state, onIntent)
+    } else {
+        if (state.fixedEngine == null) ConnectionsToolbar(onAddEngine = { onAddConnection(null) })
+        if (state.isEditOutcomePending) {
+            HbBanner(stringResource(Res.string.settings_edit_pending), Modifier.testTag("settings-edit-pending"))
+        }
+        SettingsStatus(state, onIntent, isSavingVisible = isSavingVisible)
+        ConnectionsEngineHeader(state, onIntent, onManageEngine, isSavingVisible)
+        ConnectionsSection(state, onIntent, onAddConnection)
+        ModelsSection(state, onIntent, onOpenDescription, editFocus, isSavingVisible = isSavingVisible)
+    }
+}
+
+@Composable
+private fun ConnectionsEngineHeader(
+    state: EngineConnectionsScreenState,
+    onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    onManageEngine: (String) -> Unit,
+    isSavingVisible: Boolean,
+) {
+    val selected = state.engines.firstOrNull { it.id == state.selectedEngine }
+    if (state.fixedEngine == null) {
+        EnginesSection(state, onIntent, isSavingVisible = isSavingVisible)
+        if (selected != null && state.isManaged) EngineControlLink(selected, { onManageEngine(selected.id) })
+        selected?.preparation?.let { EnginePreparationStatus(it) }
+    } else if (selected == null) {
+        HbEmptyState(stringResource(Res.string.wizard_engines_empty))
+    }
 }
 
 @Composable
@@ -186,7 +266,11 @@ private fun SettingsStatus(
         state.failure != null -> FailurePanel(
             state.failure,
             modifier,
-            onRetry = { onIntent(EngineConnectionsScreenIntent.RetryFailed) },
+            onRetry = if (state.isEditFailure) {
+                null
+            } else {
+                { onIntent(EngineConnectionsScreenIntent.RetryFailed) }
+            },
             retryEnabled = !state.isSaving,
             retryVisualEnabled = !isSavingVisible,
         ) {
@@ -351,6 +435,7 @@ private fun ModelsSection(
     state: EngineConnectionsScreenState,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     onOpenDescription: (engine: String, model: String) -> Unit,
+    editFocus: FocusRequester,
     modifier: Modifier = Modifier,
     isSavingVisible: Boolean = state.isSaving,
 ) {
@@ -362,7 +447,13 @@ private fun ModelsSection(
             HbEmptyState(stringResource(Res.string.settings_select_connection))
             return@HbSettingsSection
         }
-        ConnectionControls(connection, isEnabled = !state.isSaving, onIntent, visualEnabled = !isSavingVisible)
+        ConnectionControls(
+            connection,
+            isEnabled = !state.isSaving,
+            onIntent,
+            editFocus,
+            visualEnabled = !isSavingVisible,
+        )
         HbDivider()
         val engine = state.selectedEngine
         val onOpenModel = { id: String -> engine?.let { onOpenDescription(it, id) } ?: Unit }
@@ -381,11 +472,23 @@ private fun ConnectionControls(
     connection: ConnectionRowUi,
     isEnabled: Boolean,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    editFocus: FocusRequester,
     modifier: Modifier = Modifier,
     visualEnabled: Boolean = isEnabled,
 ) {
     val active = stringResource(Res.string.settings_connection_active)
     HbSettingsRow(active, modifier, description = connection.origin) {
+        if (connection.isEditable) {
+            HbButton(
+                stringResource(Res.string.settings_edit_connection),
+                { onIntent(EngineConnectionsScreenIntent.StartEdit) },
+                Modifier.focusRequester(editFocus).testTag("settings-edit-connection"),
+                HbButtonStyle.Ghost,
+                isEnabled,
+                HbButtonSize.Small,
+                visualEnabled = visualEnabled,
+            )
+        }
         HbButton(
             stringResource(Res.string.settings_refresh_models),
             { onIntent(EngineConnectionsScreenIntent.RefreshModels) },
@@ -488,6 +591,11 @@ private fun ModelsList(
                     enabled = enabled,
                     onEnabledChange = { onIntent(EngineConnectionsScreenIntent.SetModelEnabled(model.id, it)) },
                 ) {
+                    ModelCheckInfo(
+                        model,
+                        isOpen = model.check != null && state.checkDetails?.check?.target == model.check.target,
+                        onOpen = { check -> onIntent(EngineConnectionsScreenIntent.ShowCheckDetails(check.target)) },
+                    )
                     ModelActions(model, { onOpenDescription(model.id) })
                 }
             }

@@ -4,11 +4,13 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeModelDiscovery
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,7 +26,9 @@ import kotlinx.serialization.Serializable
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import kotlin.time.TimeSource
 
 /** Last successful discovery for one engine and binding, made by an adapter of catalog [revision]. */
 @Serializable
@@ -61,6 +65,7 @@ class ModelCatalogService(
     private val routes: RouteResolver,
     private val context: FacadeContext,
     private val freshFor: Duration = 1.days,
+    private val runtimePool: RuntimePool? = null,
 ) : ModelCatalog {
     private val log = Log.tag("ModelCatalog")
     private val mutex = Mutex()
@@ -76,10 +81,16 @@ class ModelCatalogService(
 
     override suspend fun refresh(engine: EngineId, binding: EngineBindingId): ModelCatalogSnapshot {
         log.i { "discover models engine=${engine.value} binding=${binding.value}" }
-        val resolved = routes.resolve(engine, binding)
+        val checked = routes.resolveSession(engine, binding)
+        val isAdmissionRequired = checked.registration.factory.value.isAdmittedRuntimeRequiredForModels
+        val resolved = if (isAdmissionRequired) checked else routes.resolve(engine, binding)
         val discovered = try {
             withContext(context.io) {
-                resolved.registration.factory.value.discoverModels(resolved.source, resolved.context)
+                if (isAdmissionRequired) {
+                    discoverAdmitted(resolved)
+                } else {
+                    resolved.registration.factory.value.discoverModels(resolved.source, resolved.context)
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -110,6 +121,20 @@ class ModelCatalogService(
         }
         log.i { "models cached engine=${engine.value} count=${models.size}" }
         return snapshot(entry)
+    }
+
+    private suspend fun discoverAdmitted(resolved: ResolvedRoute): List<ModelInfo> {
+        val pool = runtimePool ?: fail(EngineFailure.Engine(EngineFailureReason.CompatibilityUnknown))
+        val runtime = pool.sessionRuntime(
+            resolved,
+            TimeSource.Monotonic.markNow() + 30.seconds,
+            recheck = { routes.recheckSession(resolved) },
+            prepare = { routes.bindAdmitted(resolved) },
+        )
+        routes.recheckSession(resolved)
+        val models = runtime.features.resolve(RuntimeModelDiscovery).orFail().discover(resolved.binding.id)
+        routes.recheckSession(resolved)
+        return models
     }
 
     /** Rediscovers an outdated entry once per binding for the profile session; a failure keeps the old entry. */

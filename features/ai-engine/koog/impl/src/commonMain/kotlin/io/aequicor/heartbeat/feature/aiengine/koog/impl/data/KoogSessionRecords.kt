@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.serializer
 
 /** The model sees [summary] instead of the transcript up to and including the notice [boundary]. */
 @Serializable
@@ -37,7 +38,12 @@ internal data class KoogRecord(
     val coverage: HistoryCoverage = HistoryCoverage.Complete,
     val reasoningEffort: String? = null,
     val context: KoogContextSummary? = null,
-)
+    val schemaRevision: Int = KoogHistoryFormat.LEGACY_REVISION,
+) {
+    init {
+        require(KoogHistoryFormat.isReadable(schemaRevision)) { "Unsupported Koog history revision" }
+    }
+}
 
 internal interface KoogSessionRecords {
     suspend fun list(): List<KoogRecord>
@@ -58,7 +64,7 @@ private val SessionsSpec = KeyValueSpec("ai_koog_sessions")
 internal class StoredKoogSessionRecords(
     @ForScope(ProfileScope::class) stores: DataStores,
 ) : KoogSessionRecords {
-    private val records = StoredJsonList(stores.keyValue(SessionsSpec), "sessions", KoogRecord.serializer())
+    private val records = StoredJsonList(stores.keyValue(SessionsSpec), "sessions", serializer<KoogRecord>())
     private val mutex = Mutex()
 
     override suspend fun list(): List<KoogRecord> = records.items()

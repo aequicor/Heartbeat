@@ -4,27 +4,42 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbMotion
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSecretId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.DescribedModel
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectionEditDraft
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CredentialForm
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.editModel
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.managedSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.settingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.scopeFor
 import kotlinx.collections.immutable.persistentSetOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,6 +47,76 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class EngineConnectionsUiTest {
     private val loaded = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(settingsSnapshot()))
+
+    @Test
+    fun `a failed edit cannot be retried against the stale snapshot`() = runSkikoComposeUiTest {
+        val source = AuthSource.ManagedKey(
+            AuthSourceInfo(AuthSourceId("home-source"), "Work", AuthRevision.Known("r1")),
+            ApiKeyMethod.scopeFor(),
+            AuthSecretId("key"),
+        )
+        val draft = ConnectionEditDraft("home", source, ApiKeyMethod, CredentialForm("Work", source.scope.origin.value))
+        val state = loaded.copy(editDraft = draft, failure = FailureUi.ConnectionChanged, isEditFailure = true)
+        setContent { HbTheme { EngineConnectionsContent(state, {}, {}, null, { _, _ -> }) } }
+        onNodeWithTag("settings-edit-save").assertIsNotEnabled()
+        onNodeWithTag("settings-edit-cancel").assertIsEnabled()
+    }
+
+    @Test
+    fun `edit form protects the key and restores focus to its trigger on cancel`() = runSkikoComposeUiTest {
+        val source = AuthSource.ManagedKey(
+            AuthSourceInfo(AuthSourceId("home-source"), "Work", AuthRevision.Known("r1")),
+            ApiKeyMethod.scopeFor(),
+            AuthSecretId("key"),
+        )
+        val draft = ConnectionEditDraft("home", source, ApiKeyMethod, CredentialForm("Work", source.scope.origin.value))
+        var state by mutableStateOf(loaded)
+        val intents = mutableListOf<EngineConnectionsScreenIntent>()
+        setContent {
+            HbTheme {
+                EngineConnectionsContent(state, {
+                    intents += it
+                    when (it) {
+                        EngineConnectionsScreenIntent.StartEdit -> state = state.copy(editDraft = draft)
+                        EngineConnectionsScreenIntent.CancelEdit -> state = state.copy(editDraft = null)
+                        else -> Unit
+                    }
+                }, {}, null, { _, _ -> })
+            }
+        }
+        onNodeWithTag("settings-edit-connection").performClick()
+        onNodeWithTag("settings-edit-origin").assertIsNotEnabled()
+        onNodeWithTag("settings-edit-key").performTextInput("new-key")
+        onNodeWithTag("settings-edit-key").performKeyInput { pressKey(Key.Escape) }
+        onNodeWithTag("settings-edit-connection").assertIsFocused()
+        runOnIdle {
+            assertEquals<List<EngineConnectionsScreenIntent>>(
+                listOf(
+                    EngineConnectionsScreenIntent.StartEdit,
+                    EngineConnectionsScreenIntent.EditKey("new-key"),
+                    EngineConnectionsScreenIntent.CancelEdit,
+                ),
+                intents,
+            )
+        }
+    }
+
+    @Test
+    fun `an engine panel omits the global engine picker and recursive management link`() = runSkikoComposeUiTest {
+        val scoped = EngineConnectionsScreenState(fixedEngine = "koog").reflect(
+            EngineConnectionsState.Active(managedSettingsSnapshot()),
+        )
+        val wizard = mutableListOf<String?>()
+        setContent {
+            HbTheme { EngineConnectionsContent(scoped, {}, wizard::add, null, { _, _ -> }) }
+        }
+        onNodeWithTag("settings-add-engine").assertDoesNotExist()
+        onNodeWithTag("settings-engine:koog").assertDoesNotExist()
+        onNodeWithTag("settings-engine:codex").assertDoesNotExist()
+        onNodeWithTag("settings-connection-dropdown").assertExists()
+        onNodeWithTag("settings-add-connection").performClick()
+        runOnIdle { assertEquals(listOf<String?>("koog"), wizard) }
+    }
 
     @Test
     fun `engine, connection and model levels are shown together`() = runSkikoComposeUiTest {
@@ -50,7 +135,7 @@ class EngineConnectionsUiTest {
         onNodeWithTag("settings-add-engine").performClick()
         runOnIdle {
             assertEquals(
-                listOf(
+                listOf<EngineConnectionsScreenIntent>(
                     EngineConnectionsScreenIntent.SelectConnection("work"),
                     EngineConnectionsScreenIntent.SetModelEnabled("qwen", true),
                 ),

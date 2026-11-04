@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import java.io.File
 import java.nio.file.Files
@@ -60,6 +61,24 @@ class CodexLaunchTest {
         val system = resolveCodexLaunch(LaunchContext(), config, mac)
         assertEquals(executable to InstallSource.System, system.executable to system.source)
         assertEquals(InstallSource.Missing, resolveCodexLaunch(LaunchContext(), config, host()).source)
+    }
+
+    @Test
+    fun `explicit system and managed selections never replace each other`() {
+        val executable = File("/opt/homebrew/bin/codex").path
+        val mac = host(available = setOf(executable))
+        val system = LaunchContext(LaunchSettings(runtime = RuntimePreference.System), managed)
+        val systemResult = resolveCodexLaunch(system, config, mac)
+        assertEquals(executable to InstallSource.System, systemResult.executable to systemResult.source)
+        val own = LaunchContext(LaunchSettings(runtime = RuntimePreference.Managed), managed)
+        val managedResult = resolveCodexLaunch(own, config, mac)
+        assertEquals(managed.executable to InstallSource.Managed, managedResult.executable to managedResult.source)
+        val missing = resolveCodexLaunch(own.copy(managed = null), config, mac)
+        assertEquals(InstallSource.Missing, missing.source)
+        assertFalse(missing.isRunnable)
+        val noSystem = resolveCodexLaunch(system, config, host())
+        assertEquals(InstallSource.Missing, noSystem.source)
+        assertFalse(noSystem.isRunnable)
     }
 
     @Test

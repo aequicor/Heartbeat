@@ -20,6 +20,7 @@ internal data class DeepSeekStartup(
 /** Host facts the startup resolution reads; tests replace them. */
 internal data class DeepSeekHost(
     val osName: String = System.getProperty("os.name").orEmpty(),
+    val osArch: String = System.getProperty("os.arch").orEmpty(),
     val path: String? = System.getenv("PATH"),
     val userHome: String = System.getProperty("user.home").orEmpty(),
     val localAppData: String = System.getenv("LOCALAPPDATA").orEmpty(),

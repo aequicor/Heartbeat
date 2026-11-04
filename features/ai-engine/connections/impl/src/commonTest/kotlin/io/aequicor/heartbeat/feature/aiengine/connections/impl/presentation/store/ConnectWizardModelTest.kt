@@ -60,6 +60,8 @@ class ConnectWizardModelTest {
         machine.state.value = ConnectWizardState.ChoosingMethod(engineInfo())
         val model = model()
         val screen = subscribe(model.store)
+        model.store.intent(ConnectWizardScreenIntent.SelectGroup(AccessGroupUi.Provider))
+        model.store.intent(ConnectWizardScreenIntent.SelectMethod(ApiKeyMethod.id.value))
         model.store.intent(ConnectWizardScreenIntent.EditKey("sk-1"))
         model.store.intent(ConnectWizardScreenIntent.Connect)
         runCurrent()
@@ -75,6 +77,8 @@ class ConnectWizardModelTest {
         machine.state.value = ConnectWizardState.ChoosingMethod(engineInfo())
         val model = model()
         val screen = subscribe(model.store)
+        model.store.intent(ConnectWizardScreenIntent.SelectGroup(AccessGroupUi.Provider))
+        model.store.intent(ConnectWizardScreenIntent.SelectMethod(ApiKeyMethod.id.value))
         machine.result = SendResult.Ignored
         model.store.intent(ConnectWizardScreenIntent.EditKey("sk-1"))
         model.store.intent(ConnectWizardScreenIntent.Connect)
@@ -90,6 +94,8 @@ class ConnectWizardModelTest {
         machine.state.value = ConnectWizardState.ChoosingMethod(engineInfo())
         val model = model()
         val screen = subscribe(model.store)
+        model.store.intent(ConnectWizardScreenIntent.SelectGroup(AccessGroupUi.Provider))
+        model.store.intent(ConnectWizardScreenIntent.SelectMethod(ApiKeyMethod.id.value))
         model.store.intent(ConnectWizardScreenIntent.Connect)
         runCurrent()
         assertEquals(FormError.MissingKey, screen.states.value.formError)
@@ -103,6 +109,47 @@ class ConnectWizardModelTest {
         model.store.intent(ConnectWizardScreenIntent.SystemBack)
         runCurrent()
         assertEquals(ConnectWizardIntent.Public.Dismiss, machine.sent.last())
+    }
+
+    @Test
+    fun `back through access groups clears the key before leaving the method`() = runTest {
+        machine.state.value = ConnectWizardState.ChoosingMethod(engineInfo())
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ConnectWizardScreenIntent.SelectGroup(AccessGroupUi.Provider))
+        model.store.intent(ConnectWizardScreenIntent.SelectMethod(ApiKeyMethod.id.value))
+        model.store.intent(ConnectWizardScreenIntent.EditKey("sk-secret"))
+        model.store.intent(ConnectWizardScreenIntent.SystemBack)
+        runCurrent()
+        assertEquals(AccessGroupUi.Provider, screen.states.value.selectedGroup)
+        assertEquals(null, screen.states.value.selectedMethod)
+        assertEquals("", screen.states.value.form.key.value)
+        model.store.intent(ConnectWizardScreenIntent.SystemBack)
+        runCurrent()
+        assertEquals(null, screen.states.value.selectedGroup)
+        model.store.intent(ConnectWizardScreenIntent.SystemBack)
+        runCurrent()
+        assertEquals(ConnectWizardIntent.Public.Dismiss, machine.sent.last())
+    }
+
+    @Test
+    fun `a category with one method opens its form and back clears it`() = runTest {
+        val engine = engineInfo().let {
+            it.copy(
+                descriptor = it.descriptor.copy(connectionMethods = listOf(ApiKeyMethod)),
+            )
+        }
+        machine.state.value = ConnectWizardState.ChoosingMethod(engine)
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ConnectWizardScreenIntent.SelectGroup(AccessGroupUi.Provider))
+        runCurrent()
+        assertEquals(ApiKeyMethod.id.value, screen.states.value.selectedMethod)
+        model.store.intent(ConnectWizardScreenIntent.EditKey("secret"))
+        model.store.intent(ConnectWizardScreenIntent.Back)
+        runCurrent()
+        assertEquals(null, screen.states.value.selectedGroup)
+        assertEquals("", screen.states.value.form.key.value)
     }
 
     @Test

@@ -69,6 +69,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_too_long
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_unsupported
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_auto
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_bundled
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_host_app
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_managed
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_system
@@ -303,6 +304,8 @@ private fun HostRuntimeVersion(
 @Composable
 private fun runtimeLabel(choice: RuntimePreferenceUi, hostApp: String?): String = when (choice) {
     RuntimePreferenceUi.Auto -> stringResource(Res.string.engine_runtime_auto)
+
+    RuntimePreferenceUi.Bundled -> stringResource(Res.string.engine_runtime_bundled)
 
     RuntimePreferenceUi.Managed -> stringResource(Res.string.engine_runtime_managed)
 

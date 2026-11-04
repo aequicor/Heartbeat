@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardEffec
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperationId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEffect
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsIntent
@@ -25,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.claudeManagement
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -45,8 +47,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.scopeFor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -57,16 +62,49 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("LargeClass") // Shared fixture covers the wizard and its conditional management operations.
 class ConnectionEffectsTest {
     private val facade = FakeEngineFacade()
     private val sources = FakeAuthSources()
     private val selections = FakeModelSelections()
     private val management = FakeEngineManagement()
     private val services = EngineServices(facade, sources, management)
-    private val wizard = ConnectWizardEffects(services, selections)
-    private val settings = EngineConnectionsEffects(services, selections)
+    private val wizard = ConnectWizardEffects(services, selections, FakeModelChecks())
+    private val settings = EngineConnectionsEffects(services, selections, FakeModelChecks())
     private val wizardScope = RecordingScope<ConnectWizardIntent>()
     private val settingsScope = RecordingScope<EngineConnectionsIntent>()
+
+    @Test
+    fun `editing revokes existing checks and closes the key after saving`() = runTest {
+        val checks = FakeModelChecks()
+        val effects = EngineConnectionsEffects(services, selections, checks)
+        val initial = Secret("old".toCharArray())
+        val source = sources.addManagedKey("Work", ApiKeyMethod.scopeFor(), initial)
+        initial.close()
+        val binding = facade.bindings.connect(KoogId, source.info.id)
+        val key = Secret("new".toCharArray())
+        val request = ConnectionEdit(binding.id, ApiKeyMethod.id, source, "Work", ApiKeyMethod.origin, key = key)
+        facade.editSource = { edit, receipt ->
+            edit.key?.reveal { assertEquals("new", it.concatToString()) }
+            receipt(edit.expected)
+        }
+
+        effects.handle(
+            EngineConnectionsEffect.Edit(request, ConnectionOperationId(1), emptySet(), setOf(binding.id)),
+            settingsScope,
+        )
+
+        assertEquals(listOf(binding.id), checks.revokedBindings)
+        assertEquals(listOf(emptySet()), checks.started)
+        assertEquals(
+            listOf<EngineConnectionsIntent>(
+                EngineConnectionsIntent.Internal.Checking(ConnectionOperationId(1)),
+                EngineConnectionsIntent.Internal.Applied(ConnectionOperationId(1)),
+            ),
+            settingsScope.intents,
+        )
+        assertFailsWith<IllegalStateException> { key.reveal {} }
+    }
 
     @Test
     fun `closing settings cancels first use preparation during model refresh`() = runTest {
@@ -122,7 +160,7 @@ class ConnectionEffectsTest {
     }
 
     @Test
-    fun `a host application connection waits for the inspection management publishes later`() = runTest {
+    fun `a host application connection uses its result before management publishes it`() = runTest {
         management.state.value = claudeManagement(LaunchSettings(runtime = RuntimePreference.HostApp))
         management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
         management.publisher = backgroundScope
@@ -130,10 +168,77 @@ class ConnectionEffectsTest {
 
         wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
 
-        // Already on the host runtime: nothing to save, and the engine's availability is not probed first.
-        assertEquals(listOf<EngineCommand>(EngineCommand.Inspect), management.commands)
+        // Even an unchanged choice is checked atomically before accepting the connection.
+        assertEquals(
+            listOf(EngineCommand.Inspect, EngineCommand.Configure(LaunchSettings(runtime = RuntimePreference.HostApp))),
+            management.commands,
+        )
         assertEquals(listOf("connect"), facade.calls)
         assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
+    }
+
+    @Test
+    fun `host runtime selection preserves launch settings from the exact inspection`() = runTest {
+        val stale = LaunchSettings(executable = "/old")
+        val inspected = LaunchSettings(executable = "/new", homeDirectory = "/profile", hostRuntimeVersion = "2.1.299")
+        management.state.value = claudeManagement(stale)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        management.inspectedLaunch = io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState(inspected)
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+
+        val saved = inspected.copy(executable = null, runtime = RuntimePreference.HostApp)
+        assertEquals(EngineCommand.Configure(saved), management.commands.last())
+        assertEquals(saved, management.state.value.engines.single().launch.settings)
+    }
+
+    @Test
+    fun `a delayed stale host state cannot replace the current inspection result`() = runTest {
+        val stale = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val old = claudeManagement()
+        management.state.value = old.copy(engines = old.engines.map { it.copy(hostApp = stale) })
+        management.inspectedHostApp = HostAppState(isInstalled = false)
+        management.publisher = backgroundScope
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        val failure = assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertTrue(facade.calls.isEmpty())
+    }
+
+    @Test
+    fun `a stale host inspection cannot authorize a new connection after a timeout`() = runTest {
+        val stale = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val old = claudeManagement()
+        management.state.value = old.copy(engines = old.engines.map { it.copy(hostApp = stale) })
+        management.suppressInspections = true
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        val failure = assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        assertEquals(EngineFailure.Transport(TransportFailureReason.Timeout), failure.failure)
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertTrue(facade.calls.isEmpty())
+    }
+
+    @Test
+    fun `cancelling while inspection is unpublished creates no connection`() = runTest {
+        management.state.value = claudeManagement()
+        management.suppressInspections = true
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+        val job = launch {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        runCurrent()
+        job.cancelAndJoin()
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertTrue(facade.calls.isEmpty())
+        assertTrue(wizardScope.intents.isEmpty())
     }
 
     @Test
@@ -164,7 +269,12 @@ class ConnectionEffectsTest {
         val saved = LaunchSettings(runtime = RuntimePreference.HostApp)
         val commands = management.commands.filterNot { it == EngineCommand.Inspect }
         assertEquals(
-            listOf(EngineCommand.Configure(saved), EngineCommand.Start(EngineAction.Login()), EngineCommand.Dismiss),
+            listOf(
+                EngineCommand.Configure(saved),
+                EngineCommand.Start(EngineAction.Login()),
+                EngineCommand.Dismiss,
+                EngineCommand.Configure(saved),
+            ),
             commands,
         )
         assertEquals(1, facade.bindingsState.value.size)
@@ -194,6 +304,44 @@ class ConnectionEffectsTest {
 
         assertTrue(management.commands.contains(EngineCommand.Cancel))
         assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
+    }
+
+    @Test
+    fun `a changed launch before sign-in is rejected without reverting the new selection`() = runTest {
+        management.state.value = claudeManagement(login = LoginState.SignedOut)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val replacement = LaunchSettings(executable = "/new/cli")
+        management.beforeConditionalLogin = { management.execute(ClaudeId, EngineCommand.Configure(replacement)) }
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        val failure = assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), failure.failure)
+        assertEquals(replacement, management.state.value.engines.single().launch.settings)
+        assertTrue(management.commands.none { it is EngineCommand.Start })
+        assertTrue(facade.bindingsState.value.isEmpty())
+    }
+
+    @Test
+    fun `cancellation during login handoff cancels the exact owned job`() = runTest {
+        management.state.value = claudeManagement(login = LoginState.SignedOut)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val started = CompletableDeferred<Unit>()
+        management.afterLoginStarted = {
+            started.complete(Unit)
+            kotlinx.coroutines.awaitCancellation()
+        }
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+        val worker = launch {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        started.await()
+        worker.cancelAndJoin()
+
+        assertTrue(management.commands.contains(EngineCommand.Cancel))
+        assertTrue(facade.bindingsState.value.isEmpty())
     }
 
     @Test
@@ -349,11 +497,11 @@ class ConnectionEffectsTest {
     }
 
     @Test
-    fun `choosing an engine probes each one and a failed probe keeps the list`() = runTest {
+    fun `observing the engine list never probes an engine`() = runTest {
         facade.refreshFailure = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
         val observation = launch { wizard.handle(ConnectWizardEffect.ObserveEngines, wizardScope) }
         runCurrent()
-        assertEquals(listOf("refresh"), facade.calls)
+        assertTrue(facade.calls.isEmpty())
         assertIs<ConnectWizardIntent.Internal.EnginesChanged>(wizardScope.intents.single())
         observation.cancel()
     }
@@ -366,7 +514,7 @@ class ConnectionEffectsTest {
         assertEquals(ConnectWizardIntent.Internal.ModelsLoaded(models), wizardScope.intents.single())
         wizard.handle(ConnectWizardEffect.SaveModels(binding, setOf(ModelId("gpt-a"))), wizardScope)
         assertEquals(setOf(ModelId("gpt-a")), selections.state.value.enabled(binding))
-        assertEquals(ConnectWizardIntent.Internal.Saved, wizardScope.intents.last())
+        assertEquals(ConnectWizardIntent.Internal.Saved(ConnectionOperationId(1)), wizardScope.intents.last())
     }
 
     @Test
@@ -427,7 +575,7 @@ class ConnectionEffectsTest {
         assertTrue(facade.bindingsState.value.isEmpty())
         assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
         assertEquals(null, selections.state.value.defaultTarget)
-        assertEquals(EngineConnectionsIntent.Internal.Applied, settingsScope.intents.last())
+        assertEquals(EngineConnectionsIntent.Internal.Applied(ConnectionOperationId(1)), settingsScope.intents.last())
     }
 
     @Test
@@ -474,7 +622,7 @@ class ConnectionEffectsTest {
         assertEquals(2, facade.calls.count { it == "disconnect" })
         assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
         assertTrue(selections.state.value.bindings.isEmpty())
-        assertEquals(EngineConnectionsIntent.Internal.Applied, settingsScope.intents.last())
+        assertEquals(EngineConnectionsIntent.Internal.Applied(ConnectionOperationId(1)), settingsScope.intents.last())
     }
 
     @Test
@@ -526,7 +674,7 @@ class ConnectionEffectsTest {
         settings.handle(disconnect, settingsScope)
         assertTrue(selections.state.value.bindings.isEmpty())
         assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
-        assertEquals(EngineConnectionsIntent.Internal.Applied, settingsScope.intents.last())
+        assertEquals(EngineConnectionsIntent.Internal.Applied(ConnectionOperationId(1)), settingsScope.intents.last())
     }
 
     @Test

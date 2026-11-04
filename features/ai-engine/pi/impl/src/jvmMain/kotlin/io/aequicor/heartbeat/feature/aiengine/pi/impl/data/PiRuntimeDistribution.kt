@@ -29,6 +29,9 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.StandardOpenOption.CREATE_NEW
+import java.nio.file.StandardOpenOption.READ
+import java.security.MessageDigest
+import java.util.HexFormat
 import java.util.UUID
 
 /**
@@ -56,6 +59,7 @@ internal class PiRuntimeDistribution(
 
     @Volatile
     private var validated: Path? = null
+    private var trustedInventory: Map<String, String>? = null
 
     /** Cheap presence check for management and requirements; actual execution calls [prepare] to verify inventory. */
     fun executable(): Path? = try {
@@ -80,21 +84,52 @@ internal class PiRuntimeDistribution(
      */
     suspend fun prepare(progress: suspend (EnginePreparation) -> Unit): Path = mutex.withLock {
         val pin = checkNotNull(release) { "Pi runtime pin is unavailable" }
-        val cached = withContext(dispatchers.io) { existing(pin) }
+        var archive: ByteArray? = null
+        val expected = trustedInventory ?: run {
+            val verified = artifacts.prepare(pin.artifact) { bytes, total ->
+                progress(EnginePreparation.Downloading(bytes, total))
+            }
+            val snapshot = withContext(dispatchers.io) { piArchiveSnapshot(verified, pin.artifact.download.sha256) }
+            archive = snapshot
+            val inventory = withContext(dispatchers.io) { PiRuntimeArchive().inventory(snapshot, root, pin.isZip) }
+            trustedInventory = inventory
+            inventory
+        }
+        val cached = withContext(dispatchers.io) { existing(pin, expected) }
         if (cached != null) {
             validated = cached
             return@withLock cached.resolve(pin.executable)
         }
         progress(EnginePreparation.Installing)
         log.i { "Preparing pinned Pi runtime version=${pin.version}" }
-        val archive = artifacts.prepare(
-            pin.artifact,
-        ) { bytes, total -> progress(EnginePreparation.Downloading(bytes, total)) }
+        val source = archive ?: run {
+            val verified = artifacts.prepare(pin.artifact) { bytes, total ->
+                progress(EnginePreparation.Downloading(bytes, total))
+            }
+            withContext(dispatchers.io) { piArchiveSnapshot(verified, pin.artifact.download.sha256) }
+        }
         progress(EnginePreparation.Installing)
-        val installed = withContext(dispatchers.io) { install(pin, archive) }
+        val installed = withContext(dispatchers.io) { install(pin, source, expected) }
         validated = installed
         log.i { "Pinned Pi runtime ready version=${pin.version}" }
         installed.resolve(pin.executable)
+    }
+
+    /**
+     * Re-verifies [executable] against the inventory of the already prepared pinned runtime, without downloading,
+     * installing or repairing anything. False means the admitted bytes are no longer there: another runtime
+     * directory was published, the file changed or no inventory was ever verified.
+     */
+    suspend fun verifyInventory(executable: Path): Boolean = mutex.withLock {
+        val pin = release ?: return@withLock false
+        val expected = trustedInventory ?: return@withLock false
+        val digest = expected[pin.executable] ?: return@withLock false
+        val directory = withContext(dispatchers.io) { activeDirectory(pin) } ?: return@withLock false
+        val file = directory.resolve(pin.executable)
+        if (file != executable) return@withLock false
+        withContext(dispatchers.io) {
+            Files.isRegularFile(file, NOFOLLOW_LINKS) && piRuntimeDigest(file) == digest
+        }
     }
 
     private fun versionRoot(pin: PiRuntimeRelease): Path = root.resolve(pin.artifact.download.sha256)
@@ -109,8 +144,8 @@ internal class PiRuntimeDistribution(
         return parent.resolve(name).takeIf(::isRuntimeDirectory)
     }
 
-    private suspend fun existing(pin: PiRuntimeRelease): Path? = try {
-        activeDirectory(pin)?.takeIf { verify(it, pin) }
+    private suspend fun existing(pin: PiRuntimeRelease, expected: Map<String, String>): Path? = try {
+        activeDirectory(pin)?.takeIf { verify(it, pin, expected) }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -118,7 +153,7 @@ internal class PiRuntimeDistribution(
         null
     }
 
-    private suspend fun verify(directory: Path, pin: PiRuntimeRelease): Boolean {
+    private suspend fun verify(directory: Path, pin: PiRuntimeRelease, expected: Map<String, String>): Boolean {
         val marker = directory.resolve(MARKER)
         if (!Files.isRegularFile(marker, NOFOLLOW_LINKS) || Files.size(marker) > MAX_MARKER_BYTES) return false
         val metadata = Json.parseToJsonElement(Files.readString(marker)).jsonObject
@@ -127,6 +162,7 @@ internal class PiRuntimeDistribution(
         ) { "Pi cache version differs" }
         val files = metadata.getValue("files").jsonObject
         require(files.isNotEmpty() && files.size <= MAX_FILES) { "Invalid Pi cache inventory" }
+        require(files.mapValues { it.value.jsonPrimitive.content } == expected) { "Pi cache inventory is untrusted" }
         val actual = Files.walk(directory).use { paths ->
             paths.filter { it != directory }.map { path ->
                 require(!isRuntimeLink(path)) { "Pi cache contains a link" }
@@ -148,7 +184,7 @@ internal class PiRuntimeDistribution(
         return Files.isExecutable(directory.resolve(pin.executable))
     }
 
-    private suspend fun install(pin: PiRuntimeRelease, archive: Path): Path {
+    private suspend fun install(pin: PiRuntimeRelease, archive: ByteArray, expected: Map<String, String>): Path {
         Files.createDirectories(root)
         require(isRuntimeDirectory(root)) { "Pi cache root is not a directory" }
         val parent = Files.createDirectories(versionRoot(pin))
@@ -157,6 +193,7 @@ internal class PiRuntimeDistribution(
         try {
             val files = PiRuntimeArchive().extract(archive, staging, pin.isZip)
             require(MARKER !in files && pin.executable in files) { "Pi archive misses its executable" }
+            require(files == expected) { "Pi archive changed during preparation" }
             if (!pin.isZip) {
                 check(staging.resolve(pin.executable).toFile().setExecutable(true, false)) { "Pi cannot execute" }
             }
@@ -207,6 +244,27 @@ private const val MARKER = ".heartbeat-runtime.json"
 private const val MAX_POINTER_BYTES = 128
 private const val MAX_MARKER_BYTES = 2L * 1024 * 1024
 private const val MAX_FILES = 10_000
+private const val MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+
+/** Hash exactly the bounded bytes subsequently read by both archive operations. */
+internal suspend fun piArchiveSnapshot(path: Path, expected: String): ByteArray {
+    val length = Files.size(path)
+    require(length in 1..MAX_ARCHIVE_BYTES.toLong()) { "Pi archive size is unsupported" }
+    val bytes = ByteArray(length.toInt())
+    Files.newInputStream(path, READ, NOFOLLOW_LINKS).use { input ->
+        var offset = 0
+        while (offset < bytes.size) {
+            currentCoroutineContext().ensureActive()
+            val count = input.read(bytes, offset, bytes.size - offset)
+            require(count > 0) { "Pi archive changed during reading" }
+            offset += count
+        }
+        require(input.read() == -1) { "Pi archive changed during reading" }
+    }
+    val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
+    require(actual == expected) { "Pi archive digest differs" }
+    return bytes
+}
 
 /** NOFOLLOW_LINKS alone treats Windows junctions as ordinary directories. */
 private fun isRuntimeDirectory(path: Path): Boolean = Files.isDirectory(path, NOFOLLOW_LINKS) && !isRuntimeLink(path)

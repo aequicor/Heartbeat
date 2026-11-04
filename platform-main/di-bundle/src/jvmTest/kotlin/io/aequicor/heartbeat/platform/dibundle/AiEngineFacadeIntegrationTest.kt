@@ -32,6 +32,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityEvidence
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -46,6 +49,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
@@ -82,11 +86,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.declaresCompatibleProviders
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hasCompatibleProviders
+import io.aequicor.heartbeat.feature.aiengine.facade.api.identity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimePromotion
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
@@ -112,6 +120,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.TimeMark
 
 /** Profile entry points of the AI-engine services, for this test only. */
 @ContributesTo(ProfileScope::class)
@@ -147,6 +156,18 @@ interface TestEngineToggleContribution {
 object TestAdapter {
     val engine = EngineId("itest")
     val toggle = FeatureToggle.Flag("itest.engine", "Integration test engine")
+
+    // Fictional graph-test engine contract, not evidence for a bundled production connector.
+    val compatibilityStamp = EngineCompatibilityStamp(
+        engine, "itest-host", "itest-connector", "1.0.0", EngineProtocolIdentity.Negotiated("itest", 1),
+        1, 1, "itest-target", "itest-digest",
+    )
+    private val runtimePolicy = EngineCompatibilityRequirements(
+        engine, setOf("itest-host"), setOf("itest-connector"), "1.0.0",
+        protocols = setOf(compatibilityStamp.protocol), configurationSchemas = setOf(1), historySchemas = setOf(1),
+        nativeTargets = setOf("itest-target"), baselineCapabilities = setOf("cancel"),
+        verified = setOf(compatibilityStamp),
+    )
     val runtimes = mutableListOf<TestRuntime>()
     val preparation = MutableStateFlow<EnginePreparation>(EnginePreparation.Ready)
     private val nativeIds = AtomicInteger()
@@ -178,6 +199,32 @@ object TestAdapter {
         lazyOf(
             object : EngineFactory {
                 override val preparation get() = TestAdapter.preparation
+                override val runtimeRequirements = runtimePolicy
+
+                override suspend fun openRuntimeCandidate(
+                    request: EngineRuntimeCandidateRequest,
+                    deadline: TimeMark,
+                ): EngineRuntimeCandidate = object : EngineRuntimeCandidate {
+                    override val request = request
+                    override val evidence = EngineCompatibilityEvidence(
+                        identity = compatibilityStamp.identity(),
+                        isBaselineConfirmed = true,
+                        isProvenanceConfirmed = true,
+                        capabilities = setOf("cancel"),
+                    )
+                    private var isPromoted = false
+
+                    override suspend fun promote(
+                        expected: EngineCompatibilityStamp,
+                        deadline: TimeMark,
+                    ): EngineRuntimePromotion {
+                        check(!isPromoted && expected == compatibilityStamp)
+                        isPromoted = true
+                        return EngineRuntimePromotion(createRuntime(request.identity), expected)
+                    }
+
+                    override suspend fun close() = Unit
+                }
 
                 override suspend fun checkRequirements() = EngineAvailability.Available
 
@@ -212,6 +259,7 @@ class TestRuntime(
     isTrustSupported: Boolean = false,
     isConfigurationFailureEnabled: Boolean = false,
 ) : EngineRuntime {
+    override val compatibilityStamp = TestAdapter.compatibilityStamp
     val natives = mutableListOf<TestNative>()
     val createdRequests = mutableListOf<CreateSessionRequest>()
 

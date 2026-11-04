@@ -22,8 +22,10 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEffortOverride
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
+import io.aequicor.heartbeat.feature.aistudio.api.settingsForPane
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAutoContinuePort
@@ -175,7 +177,7 @@ class AiStudioModel(
         initial = AiStudioScreenState(
             now = clock.now(),
             harnessChoices = HarnessChoicesUi(isReady = harnesses === StudioHarnesses.None),
-        ).reflectMachine(machine.state.value),
+        ).reflectMachine(machine.state.value, efforts.state.value.studioEfforts()),
         // Failures are logged by the store factory; the workspace stays usable instead of a dead-end error.
         onError = { this },
     ) {
@@ -195,7 +197,7 @@ class AiStudioModel(
         }
         reflect(machine, onOutput = { output ->
             handleStudioSubmissionOutput(this, machine.state.value, harnesses, output)
-        }) { reflectMachine(it) }
+        }) { reflectMachine(it, efforts.state.value.studioEfforts()) }
         init { launch { attachmentInputs.observe(this@init) } }
         install {
             name = "project-trust"
@@ -284,6 +286,9 @@ class AiStudioModel(
                 } else {
                     buildSet {
                         add(ready.settings.modelId)
+                        ready.panes.filter { it.sessionId == null }.forEach { pane ->
+                            add(ready.settingsForPane(pane.id).modelId)
+                        }
                         val visible = ready.panes.mapNotNull { it.sessionId }.toSet()
                         visible.forEach { id ->
                             val model = ready.configurations[id]?.applied?.modelId ?: workspace.session(id)?.modelId
@@ -303,7 +308,19 @@ class AiStudioModel(
 
     private suspend fun observeEfforts(pipeline: StudioPipeline) {
         with(pipeline) {
-            efforts.state.collect { updateState { copy(settings = settings.copy(engineEfforts = it.studioEfforts())) } }
+            efforts.state.collect { observed ->
+                updateState {
+                    val override = (machine.state.value as? AiStudioState.Ready)?.settings?.nativeEffort
+                    val choices = observed.studioEfforts()
+                    val drafts = (machine.state.value as? AiStudioState.Ready)?.panes.orEmpty().associateBy { it.id }
+                    copy(
+                        settings = settings.copy(engineEfforts = override.applyTo(choices)),
+                        panes = panes.map { pane ->
+                            pane.copy(settings = drafts[pane.id]?.settings?.toUi(choices))
+                        }.toImmutableList(),
+                    )
+                }
+            }
         }
     }
 
@@ -359,7 +376,7 @@ class AiStudioModel(
             shown.id != ready.focusedPaneId -> AiStudioScreenIntent.FocusPane(shown.id)
             else -> null
         }
-        if (navigation != null) navigate(pipeline, navigation)
+        if (navigation != null) navigate(machine, backend, pipeline, navigation)
     }
 
     private suspend fun observeWorktrees(pipeline: StudioPipeline) = with(pipeline) {
@@ -468,7 +485,7 @@ class AiStudioModel(
             is AiStudioScreenIntent.DismissNotice -> pipeline.updateState { dismissNotice(intent) }
             is AiStudioScreenIntent.CardFocusApplied -> pipeline.updateState { withCardFocusApplied(intent) }
             is AiStudioScreenIntent.OpenApp, is AiStudioScreenIntent.OpenFileLink -> beside(pipeline, intent)
-            is AiStudioScreenIntent.Navigation -> navigate(pipeline, intent)
+            is AiStudioScreenIntent.Navigation -> navigate(machine, backend, pipeline, intent)
             is AiStudioScreenIntent.Composer -> compose(pipeline, intent, environment)
             is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent, environment)
             is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
@@ -500,33 +517,6 @@ class AiStudioModel(
 
     private suspend fun installAppUpdate() {
         if (host == StudioScreenHost.Window) appUpdate.install()
-    }
-
-    private suspend fun navigate(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Navigation) = with(pipeline) {
-        val command = when (intent) {
-            AiStudioScreenIntent.Retry -> AiStudioIntent.Public.Retry
-
-            is AiStudioScreenIntent.AddProject -> AiStudioIntent.Public.AddProject(intent.paneId)
-
-            is AiStudioScreenIntent.NewSession -> AiStudioIntent.Public.NewSession(intent.projectId)
-
-            is AiStudioScreenIntent.SelectProject -> AiStudioIntent.Public.SelectProject(
-                intent.paneId,
-                intent.projectId,
-            )
-
-            is AiStudioScreenIntent.OpenSession -> AiStudioIntent.Public.OpenSession(intent.sessionId)
-
-            is AiStudioScreenIntent.OpenBeside -> AiStudioIntent.Public.OpenBeside(intent.sessionId)
-
-            is AiStudioScreenIntent.ClosePane -> AiStudioIntent.Public.ClosePane(intent.paneId)
-
-            is AiStudioScreenIntent.FocusPane -> AiStudioIntent.Public.FocusPane(intent.paneId)
-        }
-        val previous = machine.state.value
-        val result = sendTo(machine, command)
-        val replaced = navigationReplacedPanes(intent, previous, machine.state.value)
-        if (result == SendResult.Accepted) updateState { afterNavigation(intent, replaced) }
     }
 
     private suspend fun usage(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Usage) = with(pipeline) {
@@ -701,13 +691,29 @@ class AiStudioModel(
     private suspend fun selectEngineEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEngineEffort) =
         with(pipeline) {
             log.i { "select effort: ${intent.effort ?: "default"}" }
-            if (changeSessionSetting(pipeline, intent.paneId, StudioSettingChange.Effort(intent.effort))) return@with
+            if (changeSessionSetting(
+                    pipeline,
+                    intent.paneId,
+                    StudioSettingChange.Effort(intent.effort),
+                    expectedModelId = intent.modelId,
+                    expectedSessionId = intent.expectedSessionId,
+                )
+            ) {
+                return@with
+            }
+            val ready = machine.state.value as? AiStudioState.Ready ?: return@with
+            val pane = ready.panes.firstOrNull { it.id == (intent.paneId ?: ready.focusedPaneId) } ?: return@with
+            if (!ready.acceptsEffortSelection(pane.id, intent.pageId, intent.modelId)) return@with
             val target = studioModelTarget(intent.modelId) ?: return@with log.w {
                 "effort selection ignored: model is not an engine route"
             }
+            val result = updateSettings(machine, efforts, pipeline, intent.paneId, intent.pageId, intent.modelId) {
+                copy(nativeEffort = StudioEffortOverride(intent.modelId, intent.effort))
+            }
+            if (result != SendResult.Accepted) return@with
             val select = EffortConfigurationIntent.Public.Select(target, intent.effort)
-            val result = machines.send(EffortConfigurationMachineKey, select)
-            if (result != SendResult.Accepted) log.w { "effort selection not applied: $result" }
+            val saved = machines.send(EffortConfigurationMachineKey, select)
+            if (saved != SendResult.Accepted) log.w { "effort selection not applied: $saved" }
         }
 
     private suspend fun selectSetting(
@@ -719,7 +725,7 @@ class AiStudioModel(
         changeDefault: RunSettings.() -> RunSettings,
     ) {
         if (!changeSessionSetting(pipeline, paneId, change, expectedModelId, expectedSessionId)) {
-            updateSettings(pipeline, changeDefault)
+            updateSettings(machine, efforts, pipeline, paneId, change = changeDefault)
         }
     }
 
@@ -757,21 +763,82 @@ class AiStudioModel(
     }
 
     private suspend fun edit(pipeline: StudioPipeline, sessionId: String, edit: SessionEdit) = with(pipeline) {
-        sendTo(machine, AiStudioIntent.Public.Edit(sessionId, edit))
+        val accepted = if (edit is SessionEdit.SetArchived && edit.isArchived) backend.latestAccepted() else null
+        sendTo(machine, AiStudioIntent.Public.Edit(sessionId, edit, accepted))
     }
+}
 
-    private suspend fun updateSettings(pipeline: StudioPipeline, change: RunSettings.() -> RunSettings) = with(
-        pipeline,
-    ) {
-        withState {
-            val current = RunSettings(
-                settings.modelId,
-                settings.effort.toDomain(),
-                settings.approval.toDomain(),
-            )
-            sendTo(machine, AiStudioIntent.Public.UpdateSettings(current.change()))
-        }
+private suspend fun navigate(
+    machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
+    backend: StudioBackend,
+    pipeline: StudioPipeline,
+    intent: AiStudioScreenIntent.Navigation,
+) = with(pipeline) {
+    val command = when (intent) {
+        AiStudioScreenIntent.Retry -> AiStudioIntent.Public.Retry
+
+        is AiStudioScreenIntent.AddProject -> AiStudioIntent.Public.AddProject(intent.paneId)
+
+        is AiStudioScreenIntent.NewSession -> AiStudioIntent.Public.NewSession(
+            intent.projectId,
+            accepted = backend.latestAccepted(),
+        )
+
+        is AiStudioScreenIntent.SelectProject -> AiStudioIntent.Public.SelectProject(
+            intent.paneId,
+            intent.projectId,
+        )
+
+        is AiStudioScreenIntent.OpenSession -> AiStudioIntent.Public.OpenSession(intent.sessionId)
+
+        is AiStudioScreenIntent.OpenBeside -> AiStudioIntent.Public.OpenBeside(
+            intent.sessionId,
+            accepted = if (intent.sessionId == null) backend.latestAccepted() else null,
+        )
+
+        is AiStudioScreenIntent.ClosePane -> AiStudioIntent.Public.ClosePane(intent.paneId)
+
+        is AiStudioScreenIntent.FocusPane -> AiStudioIntent.Public.FocusPane(intent.paneId)
     }
+    val previous = machine.state.value
+    val result = sendTo(machine, command)
+    val replaced = navigationReplacedPanes(intent, previous, machine.state.value)
+    if (result == SendResult.Accepted) updateState { afterNavigation(intent, replaced) }
+}
+
+private suspend fun updateSettings(
+    machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
+    efforts: EffortChoicesView,
+    pipeline: StudioPipeline,
+    paneId: Int?,
+    expectedPageId: Long? = null,
+    expectedModelId: String? = null,
+    change: RunSettings.() -> RunSettings,
+) = with(pipeline) {
+    val ready = machine.state.value as? AiStudioState.Ready ?: return@with SendResult.Ignored
+    val current = ready.settingsForPane(paneId)
+    val changed = current.change()
+    val next = if (changed.modelId == current.modelId) {
+        changed
+    } else {
+        val target = studioModelTarget(changed.modelId)
+        val value = if (target == null) {
+            null
+        } else {
+            StudioEffortOverride(
+                changed.modelId,
+                (efforts.state.value as? EffortConfigurationState.Ready)?.effortFor(target),
+            )
+        }
+        changed.copy(nativeEffort = value)
+    }
+    sendTo(machine, AiStudioIntent.Public.UpdateSettings(next, paneId, expectedPageId, expectedModelId))
+}
+
+private fun AiStudioState.Ready.acceptsEffortSelection(paneId: Int, pageId: Long?, modelId: String): Boolean {
+    val pane = panes.firstOrNull { it.id == paneId } ?: return false
+    return pane.sessionId == null && !pane.isCreating && pane.pageId == pageId &&
+        settingsForPane(paneId).modelId == modelId
 }
 
 /** Stored choices keyed by studio model id; empty until the effort machine is ready. */

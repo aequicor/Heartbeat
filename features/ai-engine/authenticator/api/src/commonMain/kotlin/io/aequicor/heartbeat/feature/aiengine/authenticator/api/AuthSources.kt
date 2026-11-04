@@ -62,6 +62,23 @@ public interface AuthSources {
     /** Replaces the value of a managed key; the source keeps its id and receives a new revision. */
     public suspend fun replaceManagedKey(id: AuthSourceId, key: Secret): AuthSource.ManagedKey
 
+    /**
+     * Updates an owned key or no-auth source only while [expected] still matches the saved source. The provider type
+     * cannot change. A null [key] retains the existing key; a new key is staged separately before the metadata swap.
+     * A no-auth source cannot receive a key. The caller validates the method's endpoint policy before invoking this.
+     *
+     * [onSaved] receives the confirmed saved source synchronously, even if the caller is cancelled or later cleanup
+     * fails. It must not block or throw. Failure before this receipt can have an unknown storage outcome; callers
+     * must re-read rather than retry or compensate blindly. The caller retains ownership of [key].
+     */
+    public suspend fun editIfUnchanged(
+        expected: AuthSource,
+        label: String,
+        scope: AuthScope,
+        key: Secret?,
+        onSaved: (AuthSource) -> Unit,
+    ): Unit = throw UnsupportedOperationException("Source editing is unavailable")
+
     /** Registers an independent reference to credentials owned elsewhere. */
     public suspend fun register(draft: AuthSourceDraft): AuthSource
 

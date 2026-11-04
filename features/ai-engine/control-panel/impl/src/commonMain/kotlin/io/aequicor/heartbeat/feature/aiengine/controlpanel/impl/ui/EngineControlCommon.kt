@@ -51,6 +51,7 @@ internal fun ControlColumn(
     scrollState: ScrollState = rememberScrollState(),
     pinned: (@Composable () -> Unit)? = null,
     headerActions: (@Composable RowScope.() -> Unit)? = null,
+    isContentScrollable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     HbColumn(modifier.fillMaxSize().background(HbTheme.surfaces.backdrop), gap = HbTheme.spacing.none) {
@@ -65,9 +66,13 @@ internal fun ControlColumn(
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            val contentSize = if (isContentScrollable) {
+                Modifier.fillMaxWidth().hbVerticalScroll(scrollState)
+            } else {
+                Modifier.fillMaxSize()
+            }
             HbColumn(
-                Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxWidth()
-                    .hbVerticalScroll(scrollState)
+                Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).then(contentSize)
                     .padding(HbTheme.spacing.xl),
                 gap = HbTheme.spacing.xxl,
                 content = content,

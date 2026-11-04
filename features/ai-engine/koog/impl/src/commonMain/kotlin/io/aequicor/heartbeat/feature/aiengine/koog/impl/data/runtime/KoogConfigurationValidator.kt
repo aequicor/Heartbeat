@@ -26,7 +26,7 @@ internal class KoogConfigurationValidator(
         return when (change) {
             is SessionConfigurationChange.Model -> {
                 val levels = koogCall {
-                    access.open(connection, change.model.value).use { client ->
+                    access.open(connection, change.model.value).useAndAwait { client ->
                         if (client.models().none { it.id == change.model.value }) {
                             fail(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
                         }

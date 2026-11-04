@@ -37,10 +37,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.serializer
 
 /** Profile key-value store of engine management; launch settings may name user folders, so values are not logged. */
 internal val EngineManagementSpec = KeyValueSpec("aiengine_management")
-private val PreferencesKey = jsonKey("preferences", StoredEnginePreferences.serializer())
+private val PreferencesKey = jsonKey("preferences", serializer<StoredEnginePreferences>())
 
 /** [EnginePreferences] in the profile key-value store; logs only counts. */
 class EngineManagementStorage(private val store: KeyValueStore) : EnginePreferences {

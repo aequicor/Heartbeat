@@ -6,15 +6,27 @@ import java.security.MessageDigest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class KimiControlledRuntimeTest {
+    @Test
+    fun `independent release pin binds digest to exact target`() {
+        val hash = "56da8b554a4de311e80d8642d1c85bc6ec2fe2b73d65e1e2e6a0603959b24e00"
+        val known = KimiControlledRuntime("unused", hash, "darwin-arm64")
+        assertTrue(isKnownKimiRelease(known))
+        assertFalse(isKnownKimiRelease(known.copy(target = "darwin-x64")))
+        assertFalse(isKnownKimiRelease(known.copy(target = "unknown")))
+        assertFalse(isKnownKimiRelease(known.copy(fingerprint = "0".repeat(64))))
+    }
+
     @Test
     fun `missing bundle never falls back to installed CLI`() {
         assertFailsWith<EngineException> { kimiControlledExecutable(null) }
     }
 
     @Test
-    fun `packaged executable requires pinned provenance and matching bytes`() {
+    fun `packaged executable checks pin metadata and matching bytes`() {
         val directory = Files.createTempDirectory("heartbeat-kimi-runtime").toFile()
         try {
             val runtime = directory.resolve("kimi").apply { mkdirs() }

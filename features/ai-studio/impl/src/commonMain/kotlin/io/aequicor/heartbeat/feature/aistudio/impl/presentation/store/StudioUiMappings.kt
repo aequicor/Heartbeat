@@ -35,6 +35,8 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
 
@@ -66,7 +68,7 @@ internal fun StudioModel.toUi(): ModelUi = ModelUi(
     engineRoute = studioModelTarget(id)?.let { "${it.engine.value}/${it.binding.value}" },
 )
 
-internal fun StudioPane.toUi(): PaneUi = PaneUi(
+internal fun StudioPane.toUi(engineEfforts: ImmutableMap<String, String> = persistentMapOf()): PaneUi = PaneUi(
     id = id,
     sessionId = sessionId,
     projectId = projectId,
@@ -75,16 +77,19 @@ internal fun StudioPane.toUi(): PaneUi = PaneUi(
     isOrganism = isOrganism,
     isSandbox = isSandbox,
     isPlanning = isPlanning,
+    settings = settings?.toUi(engineEfforts),
+    pageId = pageId,
 )
 internal fun StudioEnvironment.toUi(): EnvironmentUi = when (this) {
     StudioEnvironment.Local -> EnvironmentUi.Local
     StudioEnvironment.Cloud -> EnvironmentUi.Cloud
 }
 
-internal fun RunSettings.toUi(): SettingsUi = SettingsUi(
+internal fun RunSettings.toUi(engineEfforts: ImmutableMap<String, String> = persistentMapOf()): SettingsUi = SettingsUi(
     modelId,
     effort.toUi(),
     approval.toUi(),
+    engineEfforts = nativeEffort.applyTo(engineEfforts),
 )
 
 internal fun ReasoningEffort.toUi(): EffortUi = when (this) {

@@ -19,12 +19,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -80,6 +83,10 @@ public object KimiBindings {
             install = InstallSupport.Managed,
             login = LoginSupport.Cli,
             isRuntimePreparedOnLogin = true,
+            launch = LaunchSpec(
+                options = setOf(LaunchOption.Runtime),
+                runtimes = setOf(RuntimePreference.Managed, RuntimePreference.Bundled),
+            ),
         ),
         factory = lazy { backend.value },
         manager = lazy { backend.value },

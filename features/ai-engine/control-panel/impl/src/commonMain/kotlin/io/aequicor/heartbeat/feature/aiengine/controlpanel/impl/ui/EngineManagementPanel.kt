@@ -390,19 +390,19 @@ private fun JobBlock(
             ActionButton(
                 stringResource(Res.string.control_cancel),
                 "engine-job-cancel",
-                !isSaving,
-                visualEnabled = !isSavingVisible,
+                !isSaving && job.handle != null,
+                visualEnabled = !isSavingVisible && job.handle != null,
             ) {
-                onIntent(EngineManagementIntent.CancelEngineJob)
+                job.handle?.let { onIntent(EngineManagementIntent.CancelEngineJob(it)) }
             }
         } else {
             ActionButton(
                 stringResource(Res.string.control_dismiss),
                 "engine-job-dismiss",
-                !isSaving,
-                visualEnabled = !isSavingVisible,
+                !isSaving && job.handle != null,
+                visualEnabled = !isSavingVisible && job.handle != null,
             ) {
-                onIntent(EngineManagementIntent.DismissEngineJob)
+                job.handle?.let { onIntent(EngineManagementIntent.DismissEngineJob(it)) }
             }
         }
     }

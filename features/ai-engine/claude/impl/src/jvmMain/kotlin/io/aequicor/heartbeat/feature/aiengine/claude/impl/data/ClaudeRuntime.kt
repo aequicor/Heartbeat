@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
@@ -33,7 +34,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -72,10 +72,20 @@ internal class ClaudeRuntime(
     },
     /** A runtime that only shows the history of stored sessions: their resumption is left to the owning runtime. */
     private val isReadOnly: Boolean = false,
-) : EngineRuntime,
+    /** Admission facts of exactly the assessed contract; null for a runtime created or used outside admission. */
+    admission: ClaudeRuntimeAdmission? = null,
+) : ClaudeAdmittedRuntime,
     CreatesSessions,
     AttachesSessions,
     SessionTrees {
+    /** Contract the facade admitted; null for a runtime created outside admission. */
+    override val compatibilityStamp: EngineCompatibilityStamp? = admission?.stamp
+
+    /** Version the ordinary pinned CLI reported when this runtime was admitted; null outside admission. */
+    override val observedVersion: String? = admission?.observedVersion
+
+    /** Exact executable this runtime's pinned transport starts; null outside admission. */
+    override val selectedExecutable: String? = admission?.selectedExecutable
     private val log = Log.tag("ClaudeRuntime")
     private val nativeStore = transport.nativeStore
     private val owner = SupervisorJob(parent.coroutineContext[Job])

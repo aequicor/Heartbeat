@@ -14,10 +14,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioLastStartedRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.browserMentionDirective
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
@@ -33,6 +35,7 @@ internal class StudioConfiguredSubmission(
     private val origins: StudioRequestOrigins,
     private val security: StudioSecurityPolicy,
     private val assists: ComposerAssists,
+    private val lastStarted: StudioLastStartedRun,
     private val rollovers: StudioRolloverObserver = StudioRolloverObserver { _, _ -> },
     private val planning: StudioPlanning = StudioPlanning.None,
 ) {
@@ -52,8 +55,15 @@ internal class StudioConfiguredSubmission(
         val stored = configurations()[id]?.applied ?: record.configuration
         val isTrustSupported = models().isTrustSupported(target)
         val supported = models().reasoningEfforts(target)
+        val isOrdinary = request.isUserPrompt && record.helper == null && record.organismId == null &&
+            request.compaction == null && !request.isRollover && !request.isHandoff
         val effort = turnEffort(stored, record.helper, supported) {
-            efforts.state.value.effectiveEffort(target, supported)
+            val override = request.settings.nativeEffort?.takeIf { isOrdinary && it.modelId == target.studioModelId() }
+            if (override != null) {
+                override.effort?.takeIf { it in supported }
+            } else {
+                efforts.state.value.effectiveEffort(target, supported)
+            }
         }
         log.i { "Submitting prompt length=${request.prompt.length}" }
         // The plan and its read-only rule follow the chat into the session before anything of the turn changes.
@@ -71,7 +81,7 @@ internal class StudioConfiguredSubmission(
         // A handoff retires configuration observation because its session is never reflected again.
         if (request.isHandoff) controller.retire(id, active)
         val reviewTarget = record.helper?.model?.reviewTarget
-        val submitted = send(access, active, target, constrained, effort, reviewTarget) {
+        val submitted = send(access, active, target, constrained, effort, reviewTarget, isOrdinary) {
             turnPolicy(isTrustSupported)
         }
         consumeCarriedContext(access, record, request, carried)
@@ -148,6 +158,7 @@ internal class StudioConfiguredSubmission(
         request: StudioTurnRequest,
         reasoningEffort: String?,
         reviewTarget: EngineTarget?,
+        isOrdinary: Boolean,
         policy: suspend () -> StudioPromptPolicy,
     ): SubmittedPrompt {
         log.i { "Send the reserved native request" }
@@ -180,9 +191,23 @@ internal class StudioConfiguredSubmission(
             }
             // A helper receipt must not stay Submitting when the engine refused the request before acceptance.
             val turn = if (helper != null) helper.send(native) else native()
+            if (isOrdinary) captureStarted(active, target, reasoningEffort, finalPolicy.trust)
             SubmittedPrompt(turn, finalPolicy.trust)
         }
         return if (helper == null) submit() else helper.withPreparation(active.ref, active.route.workspace, submit)
+    }
+
+    /** Snapshot before checkpoint IO; failures never change the result of native acceptance. */
+    private fun captureStarted(active: ActiveSession, target: EngineTarget, effort: String?, trust: TrustLevel?) {
+        try {
+            val native = active.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available
+            val accepted = native?.feature?.configuration?.value ?: SessionConfiguration(target.model, effort, trust)
+            lastStarted.capture(accepted.studio(target))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.e(error) { "Accepted chat defaults could not be captured; retain native ownership" }
+        }
     }
 
     private suspend fun carryLedger(record: StudioChatRecord, active: ActiveSession) {

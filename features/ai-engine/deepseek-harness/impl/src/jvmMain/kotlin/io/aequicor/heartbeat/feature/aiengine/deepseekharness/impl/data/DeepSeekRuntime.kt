@@ -18,9 +18,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -68,11 +70,16 @@ internal class DeepSeekRuntime(
     internal val resources: ResourceResolver = ResourceResolver { null },
     private val capabilities: JsonObject = JsonObject(emptyMap()),
     private val ownedScope: Job? = null,
+    private val observedRuntimeVersion: String? = null,
+    private val observedProtocol: EngineProtocolIdentity? = null,
+    override val selectedExecutable: String? = null,
+    override val compatibilityStamp: EngineCompatibilityStamp? = null,
     sessionTrees: SessionTrees? = null,
     private val bridge: AgentToolBridge = UnavailableAgentToolBridge,
     internal val isSingleSession: Boolean = false,
     private val onRetired: suspend (DeepSeekRuntime) -> Unit = {},
 ) : EngineRuntime,
+    DshAdmittedRuntime,
     CreatesSessions,
     AttachesSessions,
     AcpClientHandler {
@@ -86,6 +93,10 @@ internal class DeepSeekRuntime(
         } else {
             PromptInputSupport()
         }
+
+    /** Reports what this process's own ACP `initialize` established; IO-free, so promotion can compare it. */
+    override suspend fun observeOrdinaryStartup(): DshProcessObservation? =
+        DshProcessObservation(observedRuntimeVersion, observedProtocol, selectedExecutable)
 
     /** The read-only tree capability is optional: a runtime created without a store does not expose it. */
     override val features = sessionTrees?.let { trees ->
@@ -391,6 +402,8 @@ internal class DeepSeekRuntime(
             bridge: AgentToolBridge = UnavailableAgentToolBridge,
             isSingleSession: Boolean = false,
             onRetired: suspend (DeepSeekRuntime) -> Unit = {},
+            compatibilityStamp: EngineCompatibilityStamp? = null,
+            selectedExecutable: String? = null,
         ): DeepSeekRuntime {
             val runtime = MutableStateFlow<DeepSeekRuntime?>(null)
             val disconnected = MutableStateFlow(false)
@@ -433,18 +446,24 @@ internal class DeepSeekRuntime(
             try {
                 val initialization = initializeConnection(connection)
                 return DeepSeekRuntime(
-                    identity,
-                    connection,
-                    runtimeScope,
-                    directory,
-                    tools,
-                    resources,
-                    initialization.agentCapabilities,
-                    runtimeScope.coroutineContext[Job],
-                    sessionTrees,
-                    bridge,
-                    isSingleSession,
-                    onRetired,
+                    identity = identity,
+                    connection = connection,
+                    scope = runtimeScope,
+                    directory = directory,
+                    tools = tools,
+                    resources = resources,
+                    capabilities = initialization.agentCapabilities,
+                    ownedScope = runtimeScope.coroutineContext[Job],
+                    observedRuntimeVersion = initialization.agentInfo?.version,
+                    observedProtocol = initialization.protocolVersion.takeIf { it > 0 }?.let {
+                        EngineProtocolIdentity.Negotiated("acp", it)
+                    },
+                    selectedExecutable = selectedExecutable,
+                    compatibilityStamp = compatibilityStamp,
+                    sessionTrees = sessionTrees,
+                    bridge = bridge,
+                    isSingleSession = isSingleSession,
+                    onRetired = onRetired,
                 ).also { created ->
                     runtime.value = created
                     if (disconnected.value) {

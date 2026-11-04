@@ -3,10 +3,12 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCandidateInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
@@ -14,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineCandidateInspector
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
@@ -22,29 +25,48 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * [PiEngineManager] of the desktop: the bundled Pi is the verified one, a newer official release is installed as
- * Heartbeat's own copy and reported as unverified until a Heartbeat build ships that version.
+ * Desktop [PiEngineManager]. Its legacy version comparison is display metadata, not runtime admission evidence.
  */
 @Inject
 @SingleIn(ProfileScope::class)
-@ContributesBinding(ProfileScope::class)
+@ContributesBinding(ProfileScope::class, binding = binding<PiEngineManager>())
 internal class DesktopPiManager(private val processes: PiProcessLauncher, private val dispatchers: DispatcherProvider) :
-    PiEngineManager {
+    PiEngineManager,
+    EngineCandidateInspector {
     private val log = Log.tag("PiManager")
 
     /** The bundled version last read; [compatibility] compares against it. */
     @Volatile
     private var bundled: String? = null
 
+    /**
+     * File metadata only: no process or user configuration is opened and compatibility remains unknown. A managed
+     * copy whose executable no longer matches the digest the installation store recorded is reported as not
+     * runnable.
+     */
+    override suspend fun inspectCandidate(launch: LaunchContext): EngineCandidateInspection? {
+        val inspection =
+            withContext(dispatchers.io) { inspectPiCandidateMetadata(launch, processes.startup(launch)) } ?: return null
+        val managed = launch.managed ?: return inspection
+        if (inspection.installation.source != InstallSource.Managed ||
+            verifyPiManagedCopy(managed, dispatchers.io) != false
+        ) {
+            return inspection
+        }
+        log.w { "Selected managed copy differs from its recorded executable digest" }
+        return inspection.copy(installation = inspection.installation.copy(isRunnable = false))
+    }
+
+    /** Inspection never executes the selected runtime; a stored version is display metadata, not an observation. */
     override suspend fun inspect(launch: LaunchContext): Installation = withContext(dispatchers.io) {
         val startup = processes.startup(launch)
         val executable = startup.executable
         val isPresent = executable != null && Files.isRegularFile(executable) && Files.isExecutable(executable)
-        val isRunnable = isPresent || isPiPendingDownload(startup.source, executable, processes.canPrepare())
+        val isRunnable = isPresent || isPiPendingDownload(startup.source, executable, processes.canPrepare(launch))
         val version = when {
             executable == null || !isPresent -> null
-            startup.source == InstallSource.Bundled -> processes.bundledVersion() ?: readPiRuntimeVersion(startup)
-            else -> startup.runtimeVersion ?: readPiRuntimeVersion(startup)
+            startup.source == InstallSource.Bundled -> processes.bundledVersion()
+            else -> startup.runtimeVersion
         }
         log.i { "Pi located source=${startup.source} version=${version ?: "unknown"}" }
         Installation(startup.source, version, executable?.toString(), isRunnable)

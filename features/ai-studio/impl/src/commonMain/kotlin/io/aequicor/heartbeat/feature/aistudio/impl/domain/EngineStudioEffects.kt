@@ -51,12 +51,9 @@ class EngineStudioEffects(
                 )
             }
 
-            AiStudioEffect.ObserveRuntime -> observeRuntime(machine)
+            AiStudioEffect.ObserveDefaults, AiStudioEffect.ObserveModels -> observeDefaultsOrModels(effect, machine)
 
-            AiStudioEffect.ObserveModels -> repository.observeModels()
-                .map { models -> models.map { it.id } }
-                .distinctUntilChanged()
-                .collect { machine.send(AiStudioIntent.Internal.ModelsChanged(it)) }
+            AiStudioEffect.ObserveRuntime -> observeRuntime(machine)
 
             is AiStudioEffect.ChatOptions -> observeOptions(effect, machine)
 
@@ -81,6 +78,20 @@ class EngineStudioEffects(
             }
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+        }
+    }
+
+    private suspend fun observeDefaultsOrModels(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
+        if (effect == AiStudioEffect.ObserveDefaults) {
+            runtime.observeDefaults().distinctUntilChanged().collect {
+                machine.send(AiStudioIntent.Internal.DefaultsObserved(it))
+            }
+        } else {
+            check(effect == AiStudioEffect.ObserveModels) { "Unexpected observation effect" }
+            repository.observeModels()
+                .map { models -> models.map { it.id } }
+                .distinctUntilChanged()
+                .collect { machine.send(AiStudioIntent.Internal.ModelsChanged(it, runtime.snapshotEfforts(it))) }
         }
     }
 

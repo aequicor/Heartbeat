@@ -270,7 +270,10 @@ class AiStudioWorktreeTest {
             ),
             nextCreateRequestId = 18,
         )
-        val replaced = creating.copy(panes = listOf(StudioPane(0, projectId = "other")))
+        val replaced = creating.copy(
+            panes = listOf(StudioPane(0, projectId = "other", settings = settings, pageId = 1)),
+            nextPageId = 2,
+        )
         AiStudioMachineSpec.assertTransition(creating, AiStudioIntent.Public.NewSession("other"), replaced)
         AiStudioMachineSpec.assertIgnored(
             replaced,
@@ -284,7 +287,16 @@ class AiStudioWorktreeTest {
             replaced,
             AiStudioIntent.Public.Submit(0, "Next"),
             replaced.copy(
-                panes = listOf(StudioPane(0, projectId = "other", isCreating = true, createRequestId = 18)),
+                panes = listOf(
+                    StudioPane(
+                        0,
+                        projectId = "other",
+                        isCreating = true,
+                        createRequestId = 18,
+                        settings = settings,
+                        pageId = 1,
+                    ),
+                ),
                 nextCreateRequestId = 19,
             ),
             effects = listOf(

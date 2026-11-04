@@ -27,6 +27,7 @@ class KimiLocalApiLiveTest {
                 client,
                 dispatchers,
                 KimiRuntimeSetup(NoManagedKimiRuntime, dispatchers),
+                io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig.Default,
                 KimiConfiguration(),
             )
             val limits = api.modelLimits()

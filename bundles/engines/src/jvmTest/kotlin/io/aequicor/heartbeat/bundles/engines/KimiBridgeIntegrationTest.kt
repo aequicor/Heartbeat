@@ -170,7 +170,7 @@ class KimiBridgeIntegrationTest {
                 val target = EngineTarget(KimiEngine.Id, EngineBindingId("binding"), ModelId("kimi-for-coding"))
                 val creating = async { runtime.create(CreateSessionRequest(target, areDetachedToolsEnabled = true)) }
                 val request = wire.next()
-                wire.reply(request, """{"sessionId":"native"}""")
+                wire.replyWithConfiguredSession(request)
                 val session = creating.await()
                 wire.input.close()
                 session.state.first { it == ActiveSessionState.Closed }
@@ -218,7 +218,7 @@ class KimiBridgeIntegrationTest {
                     "headers",
                 ).jsonArray.single().jsonObject.getValue("value").jsonPrimitive.content
                 assertTrue(mcpInitialize(url, token).contains("Instructions"))
-                wire.reply(newSession, """{"sessionId":"native"}""")
+                wire.replyWithConfiguredSession(newSession)
                 val session = creating.await()
                 val sender = (session.features.resolve(SendsPrompts) as FeatureAccess.Available).feature
                 val sending = async {
@@ -307,6 +307,16 @@ private class TestWire : AcpTransport {
     suspend fun next(): JsonObject = Json.parseToJsonElement(output.receive()).jsonObject
     suspend fun reply(request: JsonObject, result: String) {
         input.send("""{"jsonrpc":"2.0","id":${request.getValue("id")},"result":$result}""")
+    }
+    suspend fun replyWithConfiguredSession(request: JsonObject) {
+        reply(
+            request,
+            """{"sessionId":"native","configOptions":[{"id":"model","category":"model","options":[""" +
+                """{"value":"kimi-code/kimi-for-coding"}]}]}""",
+        )
+        val config = next()
+        assertEquals("session/set_config_option", config["method"]?.jsonPrimitive?.content)
+        reply(config, """{"configOptions":[{"id":"model","currentValue":"kimi-code/kimi-for-coding"}]}""")
     }
 }
 

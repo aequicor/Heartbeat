@@ -1,0 +1,211 @@
+# Соответствие коннекторов connect-engine
+
+Аудит исходников базы `b410de582`, продолжение PR #645 от 2026-11-02. Это исходная матрица работ, а не подтверждение живого регресса. Источник контрактов — KDoc API; стандарт — `.claude/skills/connect-engine/SKILL.md`, согласованный UI — `README.md` и `COMPOSE.md` в этом каталоге.
+
+## Область и доказательства
+
+Полный Desktop-редизайн и применимые контракты всех шести зарегистрированных коннекторов. Android/iOS: встроенный Koog и явный отказ desktop-процессов; этот PR не добавляет мобильный ACP-транспорт. ACP-interface — общий транспорт, не седьмой коннектор. Целевые версии Heartbeat и коннекторов пока определяются коммитом, отдельной compatibility manifest нет.
+
+В колонке «Реализовано» отмечен только найденный путь исполнения. Наличие кода или теста не означает, что тест выполнен на текущем head. Для каждой строки §9 ниже результат сейчас BLOCKED до воспроизводимого исполнения; отсутствие реализации остаётся пробелом. N/A применяется только к доказанно отсутствующему отдельному бинарю Koog либо отсутствующей Managed-установке External DSH. Условные model capabilities не считаются N/A без проверки точного маршрута.
+
+## Наблюдения после исходного аудита
+
+2026-11-02: Kimi получил явный restricted Inspect через общий ACP-клиент: повторная проверка выбранного артефакта,
+SHA-256 с отменой, пустые временные home/work, отдельный `KIMI_CODE_HOME`, очищенное окружение и только `initialize`.
+Версия берётся из ответа процесса, а не из выбранного pin. Неизвестные policy/identity dimensions и behavioral baseline
+не заполняются догадками: такой отчёт остаётся Unknown. Отсутствующий ABI либо конфликт версии с проверенным
+manifest — Incompatible. Это ещё не общий допуск connect/create/resume.
+
+Живой протокольный smoke на macOS arm64: опубликованный `runtime-kimi-2.4.0-hb7`, SHA-256 архива
+`598a8cae2fa388ca7a30f28dd353527efe0f2beecdf20709e629874e0aee1c2a`, бинаря
+`56da8b554a4de311e80d8642d1c85bc6ec2fe2b73d65e1e2e6a0603959b24e00`; `initialize` вернул ACP 1,
+runtime `2.4.0-hb7`, `permissionGate=1`, `hostedCallBinding=1` за 2133 мс. Использован отдельный пустой home/work;
+процесс принудительно остановлен и дождались его выхода; login/session/prompt не отправлялись, расход модели — 0.
+Это ручная проверка wire-ответа, а не живой прогон Kotlin `KimiCompatibilityProbe` через DI и не полный сценарий §9.
+
+Общий stdio-транспорт дополнен bounded `closeAndAwait`: остановка процесса, обнаруженных при закрытии потомков и IO
+подтверждается до удаления временных данных. При неподтверждённой остановке отчёт не возвращается, изолированный
+каталог сохраняется без пользовательских credentials. Windows/Linux lifecycle остаётся непроверенным живьём.
+
+2026-11-03: явная локальная `:platform-main:di-bundle:deepSeekLiveMetadataTest` через production graph
+наблюдает установленный Desktop DSH `0.2.1-rc.5`: Available, Authenticated с основанием Local. Профиль Heartbeat
+временный; CLI-вход остаётся во владении DSH. Отчёт содержит только enum-статусы, без account/path/credential
+материала. Нативные сессии, каталог и model prompts не запускались; это prerequisite, не PASS строки §9.
+Вход подключён к AuthChecks по точному owner/location/provider/origin/basePath. Device id не доказывает
+account identity: revision остаётся Unknown и не разрешает runtime admission. Серверная авторизация не проверена.
+
+2026-11-04: Koog — первый коннектор с полным безопасным путём «политика → изолированный baseline → допуск»
+(`81374f004`). Политика объявлена в `KoogJvmCompatibility` и целиком построена на фактах этой сборки:
+`heartbeat`/`connector` — generated `EmbeddedEngineBuild.compiledFacade`/`connector`, `runtime` — закреплённый
+SDK из version catalog, protocol — объявленная ревизия `koog-http`/`1`, профильная конфигурация — ревизия `0`,
+история — `{0, 1}`, native target — только Desktop-хосты. Производственный кандидат подтверждает ровно те
+возможности, которые реально подтвердили socket-free SDK/native/wire проверки выбранного провайдера; conclusively
+failed отклоняет baseline, unobserved оставляет его неизвестным. `verified` пуст, поэтому решение — **Unverified**:
+допуск к baseline есть, автоматических Managed-обновлений нет. Provenance — компилируемый build-контракт, а не
+отпечаток другого артефакта; promotion отдаёт обычный `KoogRuntime` только за точный assessed stamp и один раз.
+Android/iOS политики не имеют и сохраняют явный Unsupported-путь. Этим **не** доказаны: loaded classpath,
+живой сетевой/модельный ход, platform privacy на Native/Android, поведение за пределами offline-фикстур.
+
+Codex (`3b12b8f03`, `e92ce307b`): версия берётся из `initialize`-handshake уже удерживаемого metadata-процесса того
+же зафиксированного launch, а не пробой `--version`; legacy restricted launch восстановлен для наблюдённой версии
+≥ 0.160.0, неизвестная/некорректная версия по-прежнему отказывает до старта второго app-server. Кандидат панели и
+мастера проверяется metadata-only, без процесса и без заявления совместимости.
+
+2026-11-04: Codex получил тот же путь «политика → baseline → допуск», что и Koog/Pi.
+`CodexJvmCompatibility` объявляет heartbeat/connector из generated `CodexBuildContract`, protocol
+`ProbedSchema("codex-app-server", "1")`, floor app-server `0.160.0` (как в `CodexNativeOff.requireVersion`),
+ревизии конфигурации `0` (типизированные `-c`-переопределения Heartbeat) и истории `0` (`CodexTurnSnapshot` в
+`ai_codex_turns`), native target — точный `codexReleaseTarget()` хоста; `verified` пуст, решение — **Unverified**.
+Кандидат не подменяет источник: Custom/System без pin остаются Unknown, managed-копия сверяется с
+`ManagedInstall.executableSha256`, а не с digest архива. Чистый `CODEX_HOME` запускает app-server: `initialize`
+даёт версию, `config/read` — capabilities; conclusive failure отклоняет baseline, unobserved остаётся
+inconclusive. Promotion отдаёт обычный `CodexRuntime` за точный stamp один раз и после старта metadata-процесса
+сверяет handshake-версию и digest файла; при расхождении рантайм закрывается. Android/iOS политики не имеют и
+сохраняют Unsupported-путь. Этим **не** доказаны: живой ход на реальном app-server, Windows/Linux lifecycle,
+retained resume и полный §9.
+
+2026-11-04: Claude получил тот же путь «политика → baseline → допуск».
+`ClaudeJvmCompatibility` объявляет heartbeat/connector из generated `ClaudeBuildContract`, protocol
+`ProbedSchema("claude-cli-stream", "1")`, floor `2.1.285` — нижнюю границу, на которую опирается гейт адаптера
+(`supportsClaudeNativeGate`; 2.1.285 прошла живой macOS initialize/hook/permission probe), ревизии конфигурации `0`
+(флаги и переопределения запуска, которые Heartbeat пишет в каждый процесс) и истории `0` (`ClaudeRecord` в
+`claude_sessions`, наблюдённый журнал хода), native target — `claudeReleasePlatform()` хоста; `verified` пуст,
+решение — **Unverified**. Кандидат не подменяет источник: managed-копия сверяется с
+`ManagedInstall.executableSha256`, а не с digest архива; System/Custom/HostApp и копии без digest остаются Unknown
+и допуска не получают. Baseline — тот же stream-json `initialize`, что и discovery: временные home/config/work,
+очищенное окружение, без входа и без промпта модели; conclusive failure отклоняет baseline, unobserved остаётся
+inconclusive. Promotion отдаёт обычный `ClaudeRuntime` за точный stamp один раз и после обычного процесса сверяет
+наблюдённую версию, выбранный executable и digest файла; при расхождении рантайм закрывается. Android/iOS политики
+не имеют и сохраняют Unsupported-путь. Этим **не** доказаны: живой `initialize` на реальном CLI без входа,
+Windows/Linux lifecycle, pin для System/HostApp и полный §9.
+
+2026-11-04: Kimi получил тот же путь «политика → baseline → допуск».
+`KimiJvmCompatibility` объявляет heartbeat/connector из generated `KimiBuildContract`, protocol
+`Negotiated("acp", 1)` (общий ACP-клиент действительно согласует v1), `minimumRuntime` — закреплённый
+`2.4.0-hb7` без выдуманной верхней границы, ревизии конфигурации `0` (launch/runtime contract: `kimi acp`,
+рабочий каталог, managed/bundled pin и `runtime.properties`) и истории `0` (наблюдённый журнал и записи ходов
+`KimiHistory`/`KimiSession`; профильного транскрипта адаптер не пишет), native targets — ровно пять целей
+опубликованного manifest. `verified` пуст, решение — **Unverified**. Кандидат не подменяет источник: выбранная
+managed/bundled копия должна совпасть с опубликованным digest pin (тот же preflight `isKnownKimiRelease`), а при
+записанном `ManagedInstall.executableSha256` — и с ним; System/Custom/retained без pin остаются Unknown и допуска
+не получают. Baseline — существующий restricted ACP `initialize` inspect: временные home/work, очищенное
+окружение, без login, `session/new`, промпта и записи истории; conclusive failure отклоняет baseline, timeout
+остаётся inconclusive. Promotion отдаёт обычный `KimiRuntime` за точный stamp один раз и после старта процесса
+сверяет наблюдённую версию runtime, negotiated ACP и digest файла; при расхождении рантайм закрывается.
+Android/iOS политики не имеют и сохраняют Unsupported-путь. Вне допуска остаются открытые вопросы Kimi:
+неизвестный исход `session/new` и владение сессией по cwd; кандидат не создаёт native-сессию. Этим **не**
+доказаны: живой ход на реальном runtime, Windows/Linux lifecycle, retained history после отката и полный §9.
+
+Предпосылки допуска по коннекторам (без переноса доказательств между ними):
+
+| Коннектор | Что уже есть | Чего не хватает для допуска |
+|---|---|---|
+| Koog | политика из build facts, offline baseline, promotion (`81374f004`) | живой сетевой ход и loaded-classpath proof; platform privacy на Native/Android |
+| Pi | pinned distribution и SHA-256 архива, RPC-сессии, конфигуратор, сверка Managed-копии с digest в candidate inspection (`4d4ae3942`) | сверка при самом запуске, привязка процесса к проверенному артефакту; ревизии протокола/конфигурации/истории |
+| Codex | политика из build facts, clean-home `initialize`/`config/read` baseline, digest-проверка и promotion | живой ход на реальном app-server; Windows/Linux lifecycle; retained resume и полный §9 |
+| Claude | политика из build facts, stream-json `initialize` baseline без входа, digest-проверка managed-копии и promotion | живой CLI без входа и с входом; Windows/Linux lifecycle; pin для System/HostApp; полный §9 |
+| Kimi | pin `2.4.0-hb7`, ACP v1 negotiation, restricted Inspect, `session/delete`, политика из build facts, `initialize` baseline, digest-проверка и promotion | живой ход на реальном runtime; Windows/Linux lifecycle; неизвестный исход `session/new` и владение сессией по cwd; retained history после отката и полный §9 |
+| DSH | проверяемая линия `0.2.1-rc.5`, ACP v1, scoped MCP | единая compatibility-политика и stamp сессии; live-проверка нативных сессий |
+
+## Версии, платформы, установка и доступ
+
+| Коннектор | Runtime / транспорт | Desktop | Android / iOS | Источники runtime | Доступ и каталог |
+|---|---|---|---|---|---|
+| Koog | `1.3.0` из `gradle/libs.versions.toml`; HTTP clients в процессе | macOS, Windows, Linux | Объявлены обе; нужны платформенные проверки | BuiltIn, без отдельного бинаря | OpenAI, Anthropic, Qwen Token Plan, compatible Chat Completions/Messages, Ollama; discovery по точному binding |
+| Pi | `0.87.1` из version catalog; RPC/stdio | macOS, Windows, Linux | Unsupported managers/configurators | Bundled, Managed update, custom executable; hash-проверка pinned архива | API-ключи и пресеты, Z.ai Coding Plan/Qwen Token Plan, оба compatible протокола; Pi catalog |
+| Codex | app-server; единого runtime pin в регистрации нет | macOS, Windows, Linux | Unsupported transport | Managed, system, custom; upstream release feed | Собственный CLI login OpenAI/ChatGPT; app-server discovery |
+| Claude | Claude Code CLI streaming; политика с floor 2.1.285, единого runtime pin нет | macOS, Windows, Linux | Unsupported manager/backend | Managed, system, custom, HostApp; стабильный upstream manifest | CLI login, в том числе runtime приложения Claude; login приложения не импортируется |
+| Kimi | `2.4.0-hb7`; source `f26e4d91ef8d5d233f6c20b42a150f96924d4f5e`, permissionGate 1; ACP v1 | macOS, Windows, Linux; пять native targets | Mobile backend отказывает | Только контролируемый Managed pin; retained lookup по версии/target | Собственный CLI login; `kimi-for-coding`, capability-dependent resume |
+| DeepSeek Harness | Проверяемая линия `0.2.1-rc.5`; ACP v1 + process overlay MCP | macOS, Windows, Linux | Unsupported backend/manager | External; коннектор не устанавливает/не обновляет DSH | Собственный CLI login; точные модели/режимы из ACP |
+
+Регистрации и платформенные ограничения:
+- koog: `features/ai-engine/koog/impl/src/commonMain/kotlin/io/aequicor/heartbeat/feature/aiengine/koog/impl/di/KoogBindings.kt`; настройки установки — соответствующий `*ManagementSpec` в том же модуле.
+- pi: `features/ai-engine/pi/impl/src/commonMain/kotlin/io/aequicor/heartbeat/feature/aiengine/pi/impl/di/PiBindings.kt`; настройки установки — соответствующий `*ManagementSpec` в том же модуле.
+- codex: `features/ai-engine/codex/impl/src/commonMain/kotlin/io/aequicor/heartbeat/feature/aiengine/codex/impl/data/CodexBindings.kt`; настройки установки — соответствующий `*ManagementSpec` в том же модуле.
+- claude: `features/ai-engine/claude/impl/src/commonMain/kotlin/io/aequicor/heartbeat/feature/aiengine/claude/impl/di/ClaudeBindings.kt`; настройки установки — соответствующий `*ManagementSpec` в том же модуле.
+- kimi: `features/ai-engine/kimi/impl/src/commonMain/kotlin/io/aequicor/heartbeat/feature/aiengine/kimi/impl/di/KimiBindings.kt`; настройки установки — соответствующий `*ManagementSpec` в том же модуле.
+- deepseek-harness: `features/ai-engine/deepseek-harness/impl/src/commonMain/kotlin/io/aequicor/heartbeat/feature/aiengine/deepseekharness/impl/di/DeepSeekBindings.kt`; настройки установки — соответствующий `*ManagementSpec` в том же модуле.
+
+## Возможности и найденные пробелы
+
+| Коннектор | Реализовано в исходниках | Требуется до объявления соответствия |
+|---|---|---|
+| Koog | `KoogBindings`, `DefaultKoogEngineAdapter`: multi-provider binding/discovery, session/history, cancel, trust, usage, compact, runtime configuration | Provider/model MIME/effort и isolated tool-deny доказать по точному маршруту; diagnostics M18, effective provenance; отсутствие отдельного бинаря не отменяет auth/студийные сценарии |
+| Pi | `PiBindings`, `DesktopPiManager`, `DesktopPiConfigurator`: pinned distribution, checksum, profile/project config, MCP/resources с trust и bounds, RPC sessions | Версия Bundled сравнивается в `piCompatibility`; нет полной связки/решения, newest-compatible вместо latest и session stamp; native MCP и hooks требуют регресса |
+| Codex | `CodexBindings`, `CodexManagement`, `LocalCodexTransport`: app-server, session trees, native gate, CLI login/install, read-only project assists; admission policy, clean-home baseline, digest-checked promotion | `EngineManager.compatibility` остаётся Unknown (metadata inspect — не допуск); живой регресс, Windows/Linux и retained resume требуют проверки |
+| Claude | `ClaudeBindings`, `JvmClaudeManager`: выбор источника без подмены, HostApp discovery, login, observed history/trees, tools bridge, project assists; admission policy, isolated baseline, digest-checked promotion | `EngineManager.compatibility` остаётся Unknown (нет `inspectCompatibility`); stable manifest не доказывает newest-compatible; полный native planning и resume/history проверить отдельно |
+| Kimi | `KimiRuntimeRelease`, `KimiRuntimeSetup`, `JvmKimiBackend`: manifest/source/hash/native target, pinned/retained runtime, ACP capability negotiation; admission policy, `initialize` baseline и digest-checked promotion | `EngineManager.compatibility(version)` остаётся legacy display metadata, а не admission; живой ход, Windows/Linux lifecycle и retained history после отката требуют проверки |
+| DeepSeek Harness | `JvmDeepSeekManager`, `DeepSeekRuntime`, `DeepSeekHosted`: bounded version probe, ACP, scoped hosted attachment, one-shot correlation | Общая compatibility пока Unknown; fixed supported line не оформлена единым compatibility decision; сохранение native session stamp, capabilities и External fingerprint |
+
+Конфигурация: Pi объявляет полноценный configurator; Codex/Claude подключают `ProjectAssistReader.Schema` (это не эквивалент всех настроек CLI). Koog/Kimi/DSH не объявляют полноценного configurator в регистрации. Отсутствие настройки в UI не доказывает, что upstream не имеет такой возможности.
+
+Общие пробелы:
+
+- `facade:api/EngineManagement.kt`: только Verified/Unverified/Unknown; нет typed Incompatible с доказательством и единой readiness для inspect/connect/create/resume.
+- `facade:api/spi/ReleaseFeeds.kt` и managers: resolveRelease возвращает один latest/stable candidate, не перебирает доказанно совместимые кандидаты.
+- `facade:impl/SessionIndex.kt`, `RoomSessionIndex.kt`: нет полной connector/runtime/protocol/config/history связки сессии; rollback нельзя объявлять безопасным для всех коннекторов по retained installer одного Kimi.
+- `acp-interface:impl/DefaultAcpConnection.kt` уже проверяет protocol v1 и loadSession capability. Переиспользовать эти факты; не создавать второй ACP клиент.
+- `connections`: нет edit-operation ключа/endpoint и revision-bound двухаспектных отчётов; сохранение моделей и catalog refresh не являются M18.
+- `facade:impl/data/safety/IsolatedServiceTurns.kt`: queue/cleanup входят не во все внешние timeout; перед M18 требуется отдельный lifetime и обязательный tool-deny без feature hooks.
+- Нет достоверного общего effective/provenance merge; чтение проекта для сравнения сначала требует trust gate. Секреты и чувствительные инструкции в таблицу не попадают.
+- `control-panel` пока имеет две вкладки; connections и ресурсы ещё не объединены. `COMPOSE.md` сохраняет список UI-пробелов и ссылки на утверждённые кадры.
+- Studio допускает кешированный Unknown; простое скрытие навсегда уберёт восстановленные модели. Требуется явный cancellable refresh владельца без IO из чтения списка.
+- M17 не доказан для macOS DMG/Windows/Linux способов удаления. Нельзя обещать автоматическое удаление runtime с приложением без проверки дистрибутива.
+
+## Регресс §9: применимость и текущий результат
+
+Колонки относятся к Desktop каждой регистрации, отдельно macOS/Windows/Linux. Все BLOCKED ниже означают «живой сценарий ещё не выполнен на текущем head», а не отсутствие поддержки у upstream. Модель, авторизация и runtime-source фиксируются при фактическом прогоне; сейчас они не выбраны. Мобильные процессные сценарии — проверка явного Unsupported, не запуск CLI.
+
+| ID | Koog | Pi | Codex | Claude | Kimi | DSH | Доказательство / зависимость |
+|---|---|---|---|---|---|---|
+| M01 | N/A: без бинаря | BLOCKED | BLOCKED | BLOCKED | BLOCKED | N/A: External | Installer: `ManagedEngineRuntimeInstallerTest`, `FileManagedInstallStoreTest`; нужны реальные staged install/progress/restart. |
+| M02 | N/A: без бинаря | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Startup/manager tests каждого процесса; проверить явный поиск без IO при чтении списка. |
+| M03 | N/A: без бинаря | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Launch validation есть; нужен системный picker, неверный путь, отмена и сохранение источника. |
+| M04 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | `connections:api/impl` tests; нет полного edit credentials/endpoint и M18. |
+| M05 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Проверить stop/unbind и неизменность внешних файлов/login; Koog проверяет отключение binding без удаления provider данных. |
+| M06 | N/A: без бинаря | BLOCKED | BLOCKED | BLOCKED | BLOCKED | N/A: External | Installer removal tests; проверить UI confirmation, active turn и сохранение истории/config. |
+| M07 | N/A: без бинаря | BLOCKED | BLOCKED | BLOCKED | BLOCKED | N/A: External | Кандидат staging/hash покрыт installer tests; live update/rollback и protocol baseline не доказаны. |
+| M08 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Pi configurator и MCP; Codex/Claude launch MCP; ACP routes проверять по negotiated возможностям. Условную неприменимость пока не доказывали. |
+| M09 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | `EngineConfigValidationTest`, configurator и credentials; application time и unique fields требуют наблюдения. |
+| M10 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Трёх состояний API недостаточно; сначала structured compatibility/admission. |
+| M11 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | `AcpConnectionTest` проверяет v1 mismatch/omitted loadSession; для остальных транспортов определить эквивалент baseline. |
+| M12 | N/A: без бинаря | BLOCKED | BLOCKED | BLOCKED | BLOCKED | N/A: External | Pin/hash/retained Kimi tests; нужны изолированный home и контроль внешних файлов для каждого Managed runtime. |
+| M13 | N/A: без бинаря | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Перепроверить fingerprint/version при новом запуске; старый inspect не является разрешением. |
+| M14 | N/A: без бинаря | BLOCKED | BLOCKED | BLOCKED | BLOCKED | N/A: External | Нет общего candidate list/newest-compatible; сначала facade/SPI и policy коннектора. |
+| M15 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | История/attach реализованы неодинаково; сначала stamp и admission resume, затем retained/read-only/handoff. |
+| M16 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Installer retained не доказывает совместимость mutable home/config; нужен сценарий отката коннектора. |
+| M17 | N/A: без бинаря | BLOCKED | BLOCKED | BLOCKED | BLOCKED | N/A: External | Нужна отдельная изолированная установка/удаление каждого способа распространения приложения. |
+| M18 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | ModelChecks отсутствует; две изолированные пробы, revisions и общий бюджет от клика до дедлайна не реализованы. |
+| E01 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Реальный target/model, несколько ходов, hosted/native tools и проверяемый результат. |
+| E02 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Native gate/permission tests существуют; нужны Ask/Automatic/Deny без опасного действия. |
+| E03 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Safety command tests; временный проект и безопасные команды bash/git/python. |
+| E04 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | PromptInputSupport и тесты вложений; скрытая визуальная метка на точной multimodal модели. |
+| E05 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Нужна подтверждённая передача video resource точным runtime/model; изображение не является доказательством. |
+| E06 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Codex/Claude trees и DSH subsessions наблюдаются по-разному; проверить parent/child/transcript и полноту. |
+| E07 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Наблюдать фактическую модель следующего хода; изменение подписи не является подтверждением. |
+| E08 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Каталоги effort Pi/Koog/Claude/Codex; ACP — по capabilities. Проверить request и следующий ход. |
+| E09 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Usage/context/quota контракты и tests; Unknown должен оставаться Unknown для точного binding. |
+| E10 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Временный Git-проект; проверить cwd/files/commands и неизменность исходного checkout. |
+| E11 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Изолированные клетки и hosted tools; нужны реальные permissions/lifecycle и результат. |
+| E12 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | `ai-session-engine-transfer` tests; live handoff между каждым применимым маршрутом без повтора хода. |
+| E13 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Native+hosted mapping; Koog hosted tools не доказывают наличие отдельного native семейства, применимость уточнить. |
+| E14 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | `auto-continue` tests; live done/needs_user/permission/unknown без повторного submit. |
+| E15 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Нативный planning и HasModes надо исследовать для каждого runtime; host planning не считать native. |
+| E16 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Cancel/reconciliation tests; реальный stop/restart/disconnect без дубликатов и ложного terminal. |
+| E17 | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | Проверить пересчёт inputs/effort и сохранение истории после смены модели. |
+
+## Внешние основания
+
+- [ACP v1 Initialization](https://agentclientprotocol.com/protocol/v1/initialization), обращение 2026-11-02: общая major protocol version обязательна, omitted capabilities считаются unsupported. Существующий `DefaultAcpConnection` уже проверяет v1.
+- [SemVer 2.0.0](https://semver.org/), обращение 2026-11-02: номер версии описывает контракт издателя, но не доказывает совместимость всей связки Heartbeat. Hard ranges по каждому коннектору ещё требуют закреплённых источников и тестов.
+
+## Порядок реализации и проверки
+
+1. Общий typed compatibility/readiness контракт и тесты hard-range/denylist/malformed/protocol/baseline/native target. Диапазоны каждого runtime исследовать по закреплённым upstream-источникам; не угадывать их по SemVer.
+2. Связать admission с фактическими transport negotiation, installation candidate selection и session stamps/retained resume. Только затем включать новое поведение панели/мастера.
+3. ModelChecks и effective/provenance — самостоятельные контракты до их UI. Не раскрывать feature hooks/проект для служебных проб.
+4. Утверждённые вкладки/мастер/диалоги и dropdown без автоматической подмены; classic start и параметры последнего принятого рабочего чата.
+5. JVM compilation/tests, detekt с типами и DI; iOS common consumers локально на macOS; Windows/Linux отличия через существующий module-build при необходимости.
+6. Живые проверки в тестовом профиле/временном проекте и визуальная сверка обеих тем. Разрешение пользователя на короткие запросы с квотой получено 2026-11-02; это не разрешает опасные действия над данными или новые workflow.
+
+Проверки этой матрицы: локальная проверка ссылок на файлы и политика размера коммита; Gradle для документационного шага не требуется. Исторические зелёные результаты `COMPOSE.md` не перенесены на будущую реализацию.

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionAccessGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -103,6 +104,7 @@ public object KoogBindings {
                     ConnectionMethodId(KoogProvider.AlibabaQwen.id.value),
                     ProviderInfo(KoogProvider.AlibabaQwen.id, "Alibaba Qwen (Token Plan)"),
                     KoogProvider.AlibabaQwen.origin,
+                    accessGroup = ConnectionAccessGroup.Subscription,
                 ),
                 CompatibleProtocol.OpenAI.method,
                 CompatibleProtocol.Anthropic.method,

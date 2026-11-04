@@ -103,7 +103,8 @@ private fun AiStudioScreenState.focusedChat(): FocusedChat? {
     val session = pane.sessionId?.let(::session)
     // A project no longer in the saved list has nothing to decide.
     val projectId = (session?.projectId ?: pane.projectId)?.takeIf { project(it) != null } ?: return null
-    val modelId = session?.let { configurations[it.id]?.modelId ?: it.modelId } ?: settings.modelId
+    val modelId = session?.let { configurations[it.id]?.modelId ?: it.modelId }
+        ?: pane.settings?.modelId ?: settings.modelId
     val engine = studioModelTarget(modelId)?.engine ?: return null
     return FocusedChat(WorkspaceRef(projectId), engine, project(projectId)?.name.orEmpty())
 }

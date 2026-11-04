@@ -41,6 +41,7 @@ class EngineConnectionsComponent(
     @ForScope(EngineConnectionsScope::class) scope: ScopeHandle,
 ) : ComponentContext by context {
     private val log = Log.tag("EngineConnectionsComponent")
+    private val fixedEngine = route.engine
 
     private val mutablePresentation = MutableStateFlow(
         if (route.isEmbedded) ConnectionsPresentation.Embedded else ConnectionsPresentation.Pending,
@@ -72,7 +73,7 @@ class EngineConnectionsComponent(
     /** Opens the wizard, skipping the engine step when [engine] is given. */
     fun openWizard(engine: String?) {
         log.i { "open connection wizard preselected=${engine != null}" }
-        navigator.navigate(ConnectEngineRoute(engine?.let(::EngineId)))
+        navigator.navigate(ConnectEngineRoute(fixedEngine ?: engine?.let(::EngineId)))
     }
 
     /** Opens the engine control panel of [engine]: switching on, installation, sign-in and launch settings. */

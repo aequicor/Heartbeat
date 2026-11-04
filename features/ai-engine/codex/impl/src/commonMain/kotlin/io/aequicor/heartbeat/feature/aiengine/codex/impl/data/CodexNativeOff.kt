@@ -9,6 +9,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+/** Documented app-server floor shared by the restricted launch policy and compatibility admission. */
+internal const val CODEX_APP_SERVER_FLOOR: String = "0.160.0"
+
 /**
  * The only native execution overrides supported by this adapter. An absent restriction preserves the captured
  * launch configuration; it never writes an On value. Both process flags and cold-resume config carry restrictions.
@@ -41,9 +44,11 @@ internal data class CodexNativeOff(
 
     /**
      * Legacy restrictions (without the offline inventory probe) rely on the 0.160.0 protocol baseline: older,
-     * 0.160.0 prereleases, malformed and unknown versions are refused before an app-server starts. The number is a
-     * floor, not proof of isolation: effective config and sessionFlags are still audited on every connection.
-     * Protected launches ([isVerifiedInventoryRequired]) are judged by the probe instead and skip this check.
+     * 0.160.0 prereleases, malformed and unknown versions are refused before this app-server starts. The version
+     * is the one the captured launch's already held metadata process reported in its own handshake; the selected
+     * file is never executed for a version probe. The number is a floor, not proof of isolation: effective config
+     * and sessionFlags are still audited on every connection. Protected launches
+     * ([isVerifiedInventoryRequired]) are judged by the probe instead and skip this check.
      */
     fun requireVersion(version: String?) {
         if (!isRestricted || isVerifiedInventoryRequired) return

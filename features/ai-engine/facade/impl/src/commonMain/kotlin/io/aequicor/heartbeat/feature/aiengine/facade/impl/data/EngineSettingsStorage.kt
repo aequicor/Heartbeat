@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ModelCache
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.serializer
 
 /** Profile key-value store of engine settings: bindings hold only ids, so values are safe to log. */
 internal val EngineSettingsSpec = KeyValueSpec("aiengine_settings", areValuesLogged = true)
@@ -18,7 +19,7 @@ private val BindingsKey = jsonKey("bindings", ListSerializer(EngineBinding.seria
 
 /** Profile key-value store of discovered models; lists can be long, so values are not logged. */
 internal val ModelCacheSpec = KeyValueSpec("aiengine_models")
-private val ModelsKey = jsonKey("models", ListSerializer(CachedModels.serializer()))
+private val ModelsKey = jsonKey("models", ListSerializer(serializer<CachedModels>()))
 
 /** [BindingStore] in the profile key-value store. */
 class BindingStorage(private val store: KeyValueStore) : BindingStore {

@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -25,7 +26,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import kotlinx.coroutines.CancellationException
@@ -53,7 +53,9 @@ internal class CodexRuntime(
      */
     val isSearchToolsEnabled: Boolean,
     private val launch: PreparedCodexLaunch,
-) : EngineRuntime,
+    /** Artifact/contract the facade admitted; null for a runtime created outside admission. */
+    override val compatibilityStamp: EngineCompatibilityStamp? = null,
+) : CodexAdmittedRuntime,
     CreatesSessions,
     AttachesSessions {
     private val config get() = host.config
@@ -61,6 +63,12 @@ internal class CodexRuntime(
     private val toggles get() = host.toggles
     val dispatchers get() = host.dispatchers
     val profile get() = host.profile
+
+    /** Version the already held metadata process reported in its own `initialize` handshake. */
+    override val handshakeVersion: String? get() = rpc.engineVersion
+
+    /** Executable the metadata process was started from; null when the launch has no external artifact. */
+    override val selectedExecutable: String? get() = launch.executable
     private val log = Log.tag("CodexRuntime")
     private val providerUsage = CodexProviderUsage(dispatchers.main) {
         if (usageEnabled()) {

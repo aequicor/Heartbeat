@@ -249,9 +249,10 @@ private fun AiStudioScreenState.rejectDraft(id: String, sessionId: String): AiSt
 
 /** What the model of pane [paneId] accepts as attachments, or `null` when unknown. */
 fun AiStudioScreenState.attachmentSupport(paneId: Int): InputSupportUi? {
-    val sessionId = panes.firstOrNull { it.id == paneId }?.sessionId
+    val pane = panes.firstOrNull { it.id == paneId }
+    val sessionId = pane?.sessionId
     val modelId = organisms[sessionId]?.modelId ?: configurations[sessionId]?.modelId
-        ?: session(sessionId)?.modelId ?: settings.modelId
+        ?: session(sessionId)?.modelId ?: pane?.settings?.modelId ?: settings.modelId
     return models.firstOrNull { it.id == modelId }?.inputSupport
 }
 

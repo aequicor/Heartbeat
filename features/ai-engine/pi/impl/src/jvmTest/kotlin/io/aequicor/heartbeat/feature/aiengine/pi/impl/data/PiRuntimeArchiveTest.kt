@@ -63,6 +63,11 @@ class PiRuntimeArchiveTest {
             PiRuntimeArchive().extract(archive, output, true)
             assertEquals("pi.exe", Files.readString(output.resolve("pi.exe")))
             assertEquals("helper.wasm", Files.readString(output.resolve("helper.wasm")))
+            val snapshot = Files.readAllBytes(archive)
+            val snapshotOutput = Files.createDirectory(root.resolve("snapshot"))
+            val inventory = PiRuntimeArchive().inventory(snapshot, snapshotOutput, true)
+            assertEquals(inventory, PiRuntimeArchive().extract(snapshot, snapshotOutput, true))
+            assertEquals("helper.wasm", Files.readString(snapshotOutput.resolve("helper.wasm")))
 
             for (mode in listOf(0xA1FF, 0x11FF)) {
                 ZipArchiveOutputStream(archive).use { zip ->

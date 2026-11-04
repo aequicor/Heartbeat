@@ -73,14 +73,25 @@ internal class ClaudeNativeWorkspace(private val path: String?) {
 
 private fun specOf(name: String) = ClaudeNativeCatalog.singleOrNull { it.name == name && it.isGated }
 
+private const val MINIMUM_MAJOR = 2
+private const val MINIMUM_MINOR = 1
+private const val MINIMUM_PATCH = 285
+
 /** 2.1.285 passed the real macOS CLI initialize, hook deny and ask/allow/deny protocol probe. */
 internal fun supportsClaudeNativeGate(version: String?): Boolean {
     val parts = version?.takeIf { it.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+")) }
         ?.split('.')?.map { it.toIntOrNull() ?: return false } ?: return false
-    return parts[0] > 2 || (parts[0] == 2 && (parts[1] > 1 || (parts[1] == 1 && parts[2] >= MINIMUM_PATCH)))
+    if (parts[0] != MINIMUM_MAJOR) return parts[0] > MINIMUM_MAJOR
+    return parts[1] > MINIMUM_MINOR || (parts[1] == MINIMUM_MINOR && parts[2] >= MINIMUM_PATCH)
 }
 
-private const val MINIMUM_PATCH = 285
+/**
+ * Lowest Claude Code version the adapter documents and relies on: [supportsClaudeNativeGate] accepts this build and
+ * refuses older ones, and it is the version that passed the live macOS initialize/hook/permission protocol probe.
+ * Admission uses it as the runtime floor instead of inventing a range.
+ */
+internal const val CLAUDE_NATIVE_GATE_FLOOR: String = "$MINIMUM_MAJOR.$MINIMUM_MINOR.$MINIMUM_PATCH"
+
 private const val MAX_MCP_TOOL_NAME_LENGTH = 512
 
 /** Heartbeat's exact MCP prefixes retain their own hosted/search authorization. */

@@ -208,8 +208,16 @@ private fun lost(effect: AutoContinueEffect.Deliver): AutoContinueIntent =
     Internal.DeliveryFailed(effect.chat, effect.seq)
 
 private fun IsolatedPromptFailure.toFailure(): ContinuerFailure = when (this) {
-    IsolatedPromptFailure.Unsupported, IsolatedPromptFailure.Closing -> ContinuerFailure.Unavailable
+    IsolatedPromptFailure.Unsupported, IsolatedPromptFailure.Closing,
+    IsolatedPromptFailure.IsolationUnproven, IsolatedPromptFailure.TokenLimitUnproven,
+    IsolatedPromptFailure.SourceChanged,
+    -> ContinuerFailure.Unavailable
+
     IsolatedPromptFailure.Busy -> ContinuerFailure.Busy
+
     IsolatedPromptFailure.Timeout -> ContinuerFailure.Timeout
-    IsolatedPromptFailure.Incomplete, IsolatedPromptFailure.Failed -> ContinuerFailure.Failed
+
+    IsolatedPromptFailure.Incomplete, IsolatedPromptFailure.Failed,
+    IsolatedPromptFailure.ResponseTooLarge,
+    -> ContinuerFailure.Failed
 }

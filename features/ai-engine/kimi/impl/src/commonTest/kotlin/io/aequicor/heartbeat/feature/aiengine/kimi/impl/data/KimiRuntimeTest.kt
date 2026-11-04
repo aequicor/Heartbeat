@@ -31,9 +31,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineProtocolIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -55,6 +57,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -67,9 +70,13 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -87,6 +94,537 @@ import kotlin.test.assertTrue
 
 @Suppress("LargeClass") // Shared runtime fixture exercises the complete session lifecycle.
 class KimiRuntimeTest {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `cancelled resume closes late loaded session without deleting history`() = runTest {
+        val response = CompletableDeferred<Unit>()
+        val connection = FakeConnection().apply { loadSessionBarrier = response }
+        val capabilities = buildJsonObject {
+            put("loadSession", true)
+            put("sessionCapabilities", JsonObject(mapOf("close" to JsonObject(emptyMap()))))
+        }
+        val runtime = runtime(connection, this, capabilities)
+        val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, "native")
+
+        val task = async { runtime.attach(ref, ResumeSessionRequest(target)) }
+        runCurrent()
+        assertEquals(1, connection.loadedSessions)
+        task.cancel()
+        runCurrent()
+        assertFalse(task.isCompleted)
+        response.complete(Unit)
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertEquals("native", connection.closedSession)
+        assertNull(connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `unknown resumed session outcome retires runtime after bounded wait`() = runTest {
+        val connection = FakeConnection().apply { loadSessionBarrier = CompletableDeferred() }
+        val runtime = runtime(connection, this, buildJsonObject { put("loadSession", true) })
+        val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, "native")
+
+        val task = async { runtime.attach(ref, ResumeSessionRequest(target)) }
+        runCurrent()
+        task.cancel()
+        testScheduler.advanceTimeBy(60_001)
+        runCurrent()
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertTrue(runtime.isClosed)
+        assertTrue(connection.closed)
+        assertNull(connection.deletedSession)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `unknown new session outcome retires runtime after bounded wait`() = runTest {
+        val connection = FakeConnection().apply { newSessionBarrier = CompletableDeferred() }
+        val runtime = runtime(connection, this)
+
+        val task = async { runtime.create(CreateSessionRequest(target)) }
+        runCurrent()
+        task.cancel()
+        testScheduler.advanceTimeBy(60_001)
+        runCurrent()
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertTrue(runtime.isClosed)
+        assertTrue(connection.closed)
+        assertNull(connection.deletedSession)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `cancelled creation waits for late native identity and deletes that session`() = runTest {
+        val response = CompletableDeferred<Unit>()
+        val connection = FakeConnection().apply { newSessionBarrier = response }
+        val capability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to capability)))
+
+        val task = async { runtime.create(CreateSessionRequest(target)) }
+        runCurrent()
+        assertEquals(1, connection.newSessions)
+        task.cancel()
+        runCurrent()
+        assertFalse(task.isCompleted)
+        response.complete(Unit)
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @Test
+    fun `cancellation before new session handoff deletes only the new session`() = runTest {
+        val connection = FakeConnection().apply {
+            beforeConfigResponse = { kotlinx.coroutines.currentCoroutineContext().cancel() }
+        }
+        val capability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to capability)))
+
+        val task = async { runtime.create(CreateSessionRequest(target)) }
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @Test
+    fun `cancellation before resumed session handoff preserves user history`() = runTest {
+        val connection = FakeConnection().apply {
+            beforeConfigResponse = { kotlinx.coroutines.currentCoroutineContext().cancel() }
+        }
+        val capabilities = buildJsonObject {
+            put("loadSession", true)
+            put("sessionCapabilities", JsonObject(mapOf("close" to JsonObject(emptyMap()))))
+        }
+        val runtime = runtime(connection, this, capabilities)
+        val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, "native")
+
+        val task = async { runtime.attach(ref, ResumeSessionRequest(target)) }
+        task.join()
+
+        assertTrue(task.isCancelled)
+        assertEquals("native", connection.closedSession)
+        assertNull(connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @Test
+    fun `model update during configuration prevents session handoff`() = runTest {
+        val connection = FakeConnection().apply {
+            beforeConfigResponse = {
+                update(
+                    """{"sessionUpdate":"config_option_update","configOptions":[
+                        {"id":"model","currentValue":"other"}]}""",
+                )
+            }
+        }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+
+        val error = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), error.failure)
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @Test
+    fun `matching model update during configuration permits session handoff`() = runTest {
+        val connection = FakeConnection().apply {
+            beforeConfigResponse = {
+                update(
+                    """{"sessionUpdate":"config_option_update","configOptions":[
+                        {"id":"model","currentValue":"kimi-code/kimi-for-coding"}]}""",
+                )
+            }
+        }
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+    }
+
+    @Test
+    fun `failed resumed session configuration closes but never deletes user history`() = runTest {
+        val connection = FakeConnection().apply {
+            beforeConfigResponse = {
+                update(
+                    """{"sessionUpdate":"config_option_update","configOptions":[
+                        {"id":"model","currentValue":"other"}]}""",
+                )
+            }
+        }
+        val sessionCapabilities = JsonObject(mapOf("close" to JsonObject(emptyMap())))
+        val capabilities = buildJsonObject {
+            put("loadSession", true)
+            put("sessionCapabilities", sessionCapabilities)
+        }
+        val runtime = runtime(connection, this, capabilities)
+        val ref = SessionRef(KimiEngine.Id, KimiEngine.SessionSource, "native")
+
+        val error = assertFailsWith<EngineException> { runtime.attach(ref, ResumeSessionRequest(target)) }
+
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), error.failure)
+        assertEquals("native", connection.closedSession)
+        assertNull(connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @Test
+    fun `duplicate native identity never deletes an existing session`() = runTest {
+        val connection = FakeConnection()
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+        runtime.create(CreateSessionRequest(target))
+
+        assertFailsWith<IllegalStateException> { runtime.create(CreateSessionRequest(target)) }
+
+        assertNull(connection.deletedSession)
+        assertTrue(runtime.isClosed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `external model change prevents a new turn and retires runtime`() = runTest {
+        val connection = FakeConnection()
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        connection.update(
+            """{"sessionUpdate":"config_option_update","configOptions":[
+                {"id":"model","currentValue":"other"}]}""",
+        )
+
+        assertFailsWith<EngineException> { session.sender().send(prompt("wrong-model")) }
+        assertTrue(connection.content.isEmpty())
+        testScheduler.runCurrent()
+        assertTrue(runtime.isClosed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `missing model in config update retires an active runtime`() = runTest {
+        val connection = FakeConnection()
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        session.sender().send(prompt("active"))
+        connection.update("""{"sessionUpdate":"config_option_update","configOptions":[]}""")
+        testScheduler.runCurrent()
+
+        assertTrue(runtime.isClosed)
+        assertEquals(ActiveSessionState.Closed, session.state.value)
+    }
+
+    @Test
+    fun `thinking change that substitutes model is rejected before prompt`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]},
+                    {"id":"thinking","category":"thought_level","options":[{"value":"high"}]}]}""",
+            ).jsonObject
+        }
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        connection.reportedModelAfterThinking = "other"
+
+        val error = assertFailsWith<EngineException> {
+            session.sender().send(prompt("selected-model").copy(reasoningEffort = "high"))
+        }
+
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), error.failure)
+        assertTrue(connection.content.isEmpty())
+        assertTrue(runtime.isClosed)
+    }
+
+    @Test
+    fun `thinking change with a different effective effort is rejected before prompt`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]},
+                    {"id":"thinking","category":"thought_level","options":[{"value":"high"}]}]}""",
+            ).jsonObject
+        }
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        connection.reportedThinking = "low"
+
+        val error = assertFailsWith<EngineException> {
+            session.sender().send(prompt("selected-effort").copy(reasoningEffort = "high"))
+        }
+
+        assertIs<EngineFailure.Request>(error.failure)
+        assertTrue(connection.content.isEmpty())
+        assertTrue(runtime.isClosed)
+    }
+
+    @Test
+    fun `cancelling an in-flight thinking change retires the uncertain runtime`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]},
+                    {"id":"thinking","category":"thought_level","options":[{"value":"high"}]}]}""",
+            ).jsonObject
+        }
+        val runtime = runtime(connection, this)
+        val session = runtime.create(CreateSessionRequest(target))
+        val entered = CompletableDeferred<Unit>()
+        connection.beforeConfigResponse = {
+            entered.complete(Unit)
+            kotlinx.coroutines.awaitCancellation()
+        }
+        val sending = launch { session.sender().send(prompt("cancel-effort").copy(reasoningEffort = "high")) }
+        entered.await()
+        sending.cancelAndJoin()
+
+        assertTrue(connection.content.isEmpty())
+        assertTrue(runtime.isClosed)
+    }
+
+    @Test
+    fun `new session rejects a model substituted by the runtime`() = runTest {
+        val connection = FakeConnection().apply { reportedModel = "other" }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+        val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+        assertEquals("native", connection.deletedSession)
+    }
+
+    @Test
+    fun `new session rejects a model changed while setting the mode`() = runTest {
+        val connection = FakeConnection().apply {
+            reportedModelAfterMode = "other"
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]},{"id":"mode"}]}""",
+            ).jsonObject
+        }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+        val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+        assertEquals("native", connection.deletedSession)
+    }
+
+    @Test
+    fun `new session refuses an unadvertised model and deletes the created session`() = runTest {
+        val inputs = listOf(
+            """{}""",
+            """{"configOptions":[{"id":"model","category":"model","options":[{"value":"other"}]}]}""",
+        )
+        for (input in inputs) {
+            val connection = FakeConnection().apply { metadata = Json.parseToJsonElement(input).jsonObject }
+            val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+            val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+            val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+            assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+            assertEquals("native", connection.deletedSession)
+            assertFalse(runtime.isClosed)
+            assertTrue(connection.configuration.isEmpty())
+        }
+    }
+
+    @Test
+    fun `failed cleanup of a rejected new session retires its runtime`() = runTest {
+        val connection = FakeConnection().apply {
+            metadata = JsonObject(emptyMap())
+            deleteSessionFailure = IllegalStateException("delete failed")
+        }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+        val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+        assertTrue(runtime.isClosed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `concurrent catalog requests share a session without sharing caller cancellation`() = runTest {
+        val barrier = CompletableDeferred<Unit>()
+        val connection = FakeConnection().apply { newSessionBarrier = barrier }
+        connection.metadata = Json.parseToJsonElement(
+            """{"configOptions":[{"category":"model","options":[{"value":"model"}]}]}""",
+        ).jsonObject
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+        val first = async { runtime.discover(EngineBindingId("binding")) }
+        val second = async { runtime.discover(EngineBindingId("binding")) }
+        runCurrent()
+        assertEquals(1, connection.newSessions)
+        first.cancelAndJoin()
+        barrier.complete(Unit)
+        assertTrue(second.await().isNotEmpty())
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+        runtime.discover(EngineBindingId("binding"))
+        assertEquals(2, connection.newSessions)
+    }
+
+    @Test
+    fun `model discovery returns the native catalog for the requested binding and deletes its session`() = runTest {
+        val connection = FakeConnection()
+        connection.metadata = Json.parseToJsonElement(
+            """{"configOptions":[
+                {"id":"model","category":"model","options":[{"value":"kimi-code/k3","name":"K3"}]}
+            ]}""",
+        ).jsonObject
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+        val binding = EngineBindingId("other-binding")
+
+        val models = runtime.discover(binding)
+
+        assertEquals(listOf("kimi-code/k3"), models.map { it.target.model.value })
+        assertTrue(models.all { it.target.binding == binding && it.target.engine == KimiEngine.Id })
+        assertEquals("native", connection.deletedSession)
+    }
+
+    @Test
+    fun `model discovery does not invent a model when the native catalog is empty`() = runTest {
+        val connection = FakeConnection()
+        connection.metadata = JsonObject(emptyMap())
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
+
+        assertTrue(runtime.discover(EngineBindingId("binding")).isEmpty())
+        assertEquals("native", connection.deletedSession)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `model discovery deletes its temporary session after caller cancellation`() = runTest {
+        val connection = FakeConnection()
+        val barrier = CompletableDeferred<Unit>()
+        connection.newSessionBarrier = barrier
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+        val discovery = async { runtime.discover(EngineBindingId("binding")) }
+        runCurrent()
+        discovery.cancel()
+        barrier.complete(Unit)
+        discovery.cancelAndJoin()
+        runCurrent()
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @Test
+    fun `model discovery refuses to create a session when deletion is unsupported`() = runTest {
+        val connection = FakeConnection()
+        val runtime = runtime(connection, this)
+        assertFailsWith<EngineException> { runtime.discover(EngineBindingId("binding")) }
+        assertEquals(0, connection.newSessions)
+    }
+
+    @Test
+    fun `model discovery retires runtime when session deletion fails`() = runTest {
+        val connection = FakeConnection().apply { deleteSessionFailure = IllegalStateException("delete failed") }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+        assertFailsWith<IllegalStateException> { runtime.discover(EngineBindingId("binding")) }
+        assertTrue(runtime.isClosed)
+        assertTrue(connection.closed)
+    }
+
+    @Test
+    fun `model discovery deletes its session when catalog metadata is malformed`() = runTest {
+        val connection = FakeConnection()
+        connection.metadata = Json.parseToJsonElement("""{"configOptions":"invalid"}""").jsonObject
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+
+        assertFailsWith<IllegalArgumentException> { runtime.discover(EngineBindingId("binding")) }
+
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `model discovery owner waits after caller timeout then retires a stuck runtime`() = runTest {
+        val connection = FakeConnection().apply { newSessionBarrier = CompletableDeferred() }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+        assertFailsWith<kotlinx.coroutines.TimeoutCancellationException> {
+            runtime.discover(EngineBindingId("binding"))
+        }
+        assertFalse(runtime.isClosed)
+        testScheduler.advanceTimeBy(50_001L)
+        runCurrent()
+        assertTrue(runtime.isClosed)
+        assertTrue(connection.closed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `model discovery owner deletes a session returned after caller timeout`() = runTest {
+        val barrier = CompletableDeferred<Unit>()
+        val connection = FakeConnection().apply { newSessionBarrier = barrier }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+        assertFailsWith<kotlinx.coroutines.TimeoutCancellationException> {
+            runtime.discover(EngineBindingId("binding"))
+        }
+        assertNull(connection.deletedSession)
+        barrier.complete(Unit)
+        runCurrent()
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `model discovery owner waits for deletion after caller timeout`() = runTest {
+        val barrier = CompletableDeferred<Unit>()
+        val connection = FakeConnection().apply { deleteSessionBarrier = barrier }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+        assertFailsWith<kotlinx.coroutines.TimeoutCancellationException> {
+            runtime.discover(EngineBindingId("binding"))
+        }
+        assertNull(connection.deletedSession)
+        barrier.complete(Unit)
+        runCurrent()
+        assertEquals("native", connection.deletedSession)
+        assertFalse(runtime.isClosed)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `model discovery owner retires runtime when deletion never completes`() = runTest {
+        val connection = FakeConnection().apply { deleteSessionBarrier = CompletableDeferred() }
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val capabilities = JsonObject(mapOf("sessionCapabilities" to deleteCapability))
+        val runtime = runtime(connection, this, capabilities)
+        assertFailsWith<kotlinx.coroutines.TimeoutCancellationException> {
+            runtime.discover(EngineBindingId("binding"))
+        }
+        assertFalse(runtime.isClosed)
+        testScheduler.advanceTimeBy(50_001L)
+        runCurrent()
+        assertTrue(runtime.isClosed)
+        assertNull(connection.deletedSession)
+    }
+
     @Test
     fun `hosted admissions are bound to one call and expire with the turn`() = runTest {
         val connection = FakeConnection()
@@ -353,7 +891,8 @@ class KimiRuntimeTest {
     fun `failed session configuration revokes bridge capability`() = runTest {
         val connection = FakeConnection().apply {
             metadata = Json.parseToJsonElement(
-                """{"configOptions":[{"id":"model"}]}""",
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]}]}""",
             ).jsonObject
             configFailure = IllegalStateException("configuration failed")
         }
@@ -802,7 +1341,7 @@ class KimiRuntimeTest {
         val connection = FakeConnection().apply {
             metadata = Json.parseToJsonElement(
                 """{"configOptions":[
-                    {"id":"model","options":[]},
+                    {"id":"model","category":"model","options":[{"value":"kimi-code/kimi-for-coding"}]},
                     {"id":"thinking","category":"thought_level","options":[{"value":"low"},{"value":"max"}]},
                     {"id":"mode","options":[]}
                 ]}""",
@@ -811,7 +1350,10 @@ class KimiRuntimeTest {
         val runtime = runtime(connection, this)
         val session = runtime.create(CreateSessionRequest(target))
         connection.beforeConfigResponse = {
-            connection.update("""{"sessionUpdate":"config_option_update","configOptions":[]}""")
+            connection.update(
+                """{"sessionUpdate":"config_option_update","configOptions":[
+                    {"id":"model","currentValue":"kimi-code/kimi-for-coding"}]}""",
+            )
             connection.update("""{"sessionUpdate":"usage_update","used":1200,"size":262144}""")
         }
         withTimeout(1000) { session.sender().send(prompt("effort").copy(reasoningEffort = "max")) }
@@ -825,10 +1367,14 @@ class KimiRuntimeTest {
     @Test
     fun `session configuration failure maps to an engine failure`() = runTest {
         val connection = FakeConnection().apply {
-            metadata = Json.parseToJsonElement("""{"configOptions":[{"id":"model","options":[]}]}""").jsonObject
+            metadata = Json.parseToJsonElement(
+                """{"configOptions":[{"id":"model","category":"model",
+                    "options":[{"value":"kimi-code/kimi-for-coding"}]}]}""",
+            ).jsonObject
             configFailure = AcpException.Remote(-32602, "Invalid params")
         }
-        val runtime = runtime(connection, this)
+        val deleteCapability = JsonObject(mapOf("delete" to JsonObject(emptyMap())))
+        val runtime = runtime(connection, this, JsonObject(mapOf("sessionCapabilities" to deleteCapability)))
         val failure = assertFailsWith<EngineException> { runtime.create(CreateSessionRequest(target)) }
         assertIs<EngineFailure.Transport>(failure.failure)
         connection.configFailure = null
@@ -839,6 +1385,33 @@ class KimiRuntimeTest {
         testScheduler.advanceUntilIdle()
     }
 
+    @Test
+    fun `admitted runtime exposes the stamp and the observed handshake facts`() = runTest {
+        val stamp = EngineCompatibilityStamp(
+            KimiEngine.Id,
+            "heartbeat",
+            "connector",
+            "2.4.0-hb7",
+            EngineProtocolIdentity.Negotiated("acp", 1),
+            0,
+            0,
+            "darwin-arm64",
+            "a".repeat(64),
+        )
+        val runtime = runtime(
+            FakeConnection(),
+            this,
+            agentInfo = AcpImplementation("Kimi Code CLI", "2.4.0-hb7"),
+            compatibilityStamp = stamp,
+            selectedExecutable = "/data/kimi",
+        )
+        assertEquals(stamp, runtime.compatibilityStamp)
+        assertEquals("2.4.0-hb7", runtime.observedRuntimeVersion)
+        assertEquals(EngineProtocolIdentity.Negotiated("acp", 1), runtime.observedProtocol)
+        assertEquals("/data/kimi", runtime.selectedExecutable)
+        runtime.close()
+    }
+
     private fun prompt(id: String) = PromptRequest(RequestId(id), listOf(ContentPart.Text("Hello")))
 
     private fun runtime(
@@ -847,16 +1420,21 @@ class KimiRuntimeTest {
         capabilities: JsonObject = JsonObject(emptyMap()),
         tools: ProfileAgentTools = TestAgentTools,
         bridge: AgentToolBridge = UnavailableAgentToolBridge,
+        agentInfo: AcpImplementation? = null,
+        compatibilityStamp: EngineCompatibilityStamp? = null,
+        selectedExecutable: String? = null,
     ): KimiRuntime {
         val runtime = KimiRuntime(
             RuntimeIdentity(KimiEngine.Id, KimiEngine.AuthSource, AuthRevision.Known("one")),
             connection,
             CoroutineScope(scope.coroutineContext + Job((scope as TestScope).backgroundScope.coroutineContext[Job])),
-            AcpInitialization(1, capabilities),
+            AcpInitialization(1, capabilities, agentInfo = agentInfo),
             directory = { "/workspace" },
             toggles = TestToggles(),
             tools = tools,
             bridge = bridge,
+            compatibilityStamp = compatibilityStamp,
+            selectedExecutable = selectedExecutable,
         )
         connection.runtime = runtime
         return runtime
@@ -890,22 +1468,49 @@ private class TestBridge : AgentToolBridge {
 }
 
 private class FakeConnection : AcpConnection {
+    var newSessionBarrier: CompletableDeferred<Unit>? = null
+    var loadSessionBarrier: CompletableDeferred<Unit>? = null
+    var newSessions = 0
+    var loadedSessions = 0
+    var deletedSession: String? = null
+    var closedSession: String? = null
+    var deleteSessionFailure: Exception? = null
+    var deleteSessionBarrier: CompletableDeferred<Unit>? = null
     var prompt = CompletableDeferred<AcpPromptResult>()
     var servers: List<JsonObject> = emptyList()
     var turnToken = ""
     var cancelled: String? = null
     var submissionBarrier: CompletableDeferred<Unit>? = null
     var cancellationBarrier: CompletableDeferred<Unit>? = null
-    var metadata = JsonObject(emptyMap())
+    var metadata = Json.parseToJsonElement(
+        """{"configOptions":[{"id":"model","category":"model",
+            "options":[{"value":"kimi-code/kimi-for-coding"}]}]}""",
+    ).jsonObject
     var content = listOf<JsonObject>()
     var configFailure: Exception? = null
+    var reportedModel: String? = null
+    var reportedModelAfterMode: String? = null
+    var reportedModelAfterThinking: String? = null
+    var reportedThinking: String? = null
     var beforeConfigResponse: (suspend () -> Unit)? = null
     val configuration = mutableMapOf<String, String>()
     lateinit var runtime: KimiRuntime
 
     override suspend fun initialize(client: AcpImplementation) = initialization?.await() ?: AcpInitialization(1)
     override suspend fun authenticate(methodId: String) = Unit
-    override suspend fun newSession(cwd: String) = AcpSession("native", metadata)
+    override suspend fun newSession(cwd: String): AcpSession {
+        newSessions++
+        newSessionBarrier?.await()
+        return AcpSession("native", metadata)
+    }
+    override suspend fun deleteSession(sessionId: String) {
+        deleteSessionBarrier?.await()
+        deleteSessionFailure?.let { throw it }
+        deletedSession = sessionId
+    }
+    override suspend fun closeSession(sessionId: String) {
+        closedSession = sessionId
+    }
     override suspend fun newSession(cwd: String, servers: List<JsonObject>): AcpSession {
         this.servers = servers
         return newSession(cwd)
@@ -914,7 +1519,11 @@ private class FakeConnection : AcpConnection {
         this.servers = servers
         return loadSession(sessionId, cwd)
     }
-    override suspend fun loadSession(sessionId: String, cwd: String) = AcpSession(sessionId, metadata)
+    override suspend fun loadSession(sessionId: String, cwd: String): AcpSession {
+        loadedSessions++
+        loadSessionBarrier?.await()
+        return AcpSession(sessionId, metadata)
+    }
     override suspend fun prompt(sessionId: String, content: List<JsonObject>, metadata: JsonObject): AcpPromptResult {
         turnToken = metadata["heartbeatTurn"]?.toString()?.trim('"').orEmpty()
         return prompt(sessionId, content)
@@ -929,6 +1538,36 @@ private class FakeConnection : AcpConnection {
         configFailure?.let { throw it }
         configuration[optionId] = value
         beforeConfigResponse?.invoke()
+    }
+
+    override suspend fun setConfigOptionObserved(sessionId: String, optionId: String, value: String): JsonObject {
+        setConfigOption(sessionId, optionId, value)
+        return buildJsonObject {
+            put(
+                "configOptions",
+                kotlinx.serialization.json.buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("id", "model")
+                            val actual = when (optionId) {
+                                "mode" -> reportedModelAfterMode
+                                "thinking" -> reportedModelAfterThinking
+                                else -> reportedModel
+                            }
+                            put("currentValue", actual ?: configuration["model"] ?: value)
+                        },
+                    )
+                    configuration["thinking"]?.let { thinking ->
+                        add(
+                            buildJsonObject {
+                                put("id", "thinking")
+                                put("currentValue", reportedThinking ?: thinking)
+                            },
+                        )
+                    }
+                },
+            )
+        }
     }
     override suspend fun cancel(sessionId: String) {
         cancellationBarrier?.await()

@@ -17,6 +17,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DiscoveryStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityRequirements
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCompatibilityStamp
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -25,6 +27,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
@@ -48,6 +52,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SourceDiscovery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntimeCandidateRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineAdapter
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
@@ -57,6 +63,7 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -65,6 +72,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.time.TimeMark
 import kotlin.uuid.Uuid
 
 @SingleIn(ProfileScope::class)
@@ -77,6 +85,8 @@ internal class DefaultKoogEngineAdapter(
     private val search: SearchEngine,
     private val workspaces: KoogWorkspaces,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val compatibility: KoogCompatibility = UnsupportedKoogCompatibility,
+    private val candidates: KoogCandidates = UnsupportedKoogCandidates,
 ) : KoogEngineAdapter {
     private val log = Log.tag("KoogEngine")
     private val mutex = Mutex()
@@ -93,6 +103,46 @@ internal class DefaultKoogEngineAdapter(
     }
 
     override suspend fun checkRequirements(): EngineAvailability = EngineAvailability.Available
+
+    /** Researched policy of this build; a target without generated facts reports null and keeps the legacy path. */
+    override val runtimeRequirements: EngineCompatibilityRequirements? get() = compatibility.requirements()
+
+    override suspend fun openRuntimeCandidate(
+        request: EngineRuntimeCandidateRequest,
+        deadline: TimeMark,
+    ): EngineRuntimeCandidate? = onMain {
+        coroutineScope {
+            val operation = currentCoroutineContext().job
+            val registration = profile.onClose { operation.cancel() }
+            try {
+                // Only lifetime is checked here: no toggle, connection, vault, history or config reads.
+                currentCoroutineContext().ensureActive()
+                candidates.open(request, deadline) { stamp -> promoteRuntime(request.identity, stamp) }
+            } finally {
+                registration.dispose()
+            }
+        }
+    }
+
+    /**
+     * Creates and registers the ordinary runtime for one exact admitted stamp. Only a promotion of the assessed
+     * candidate calls this; close of an unadmitted runtime is unaffected.
+     */
+    private suspend fun promoteRuntime(identity: RuntimeIdentity, stamp: EngineCompatibilityStamp): EngineRuntime =
+        onMain {
+            mutex.withLock {
+                access.source(identity)
+                access.checkEnabled()
+                val current = runtimes[identity.source]
+                val reusable = current?.takeIf {
+                    !it.isClosed && it.identity == identity && it.compatibilityStamp == stamp
+                }
+                if (reusable != null) return@withLock reusable
+                current?.close()
+                log.i { "Creating admitted profile runtime" }
+                newRuntime(identity, stamp).also { runtimes[identity.source] = it }
+            }
+        }
 
     override fun accepts(source: AuthSource, context: EngineContext): Boolean =
         context.engine == KoogEngineId && koogProvider(source) != null
@@ -118,7 +168,7 @@ internal class DefaultKoogEngineAdapter(
             log.i { "Discovering provider models" }
             val provider = requireNotNull(koogProvider(connection.source))
             koogCall {
-                access.open(connection).use { client ->
+                access.open(connection).useAndAwait { client ->
                     val models = client.models().distinctBy { it.id }
                     if (access.usageEnabled()) access.contextWindows.record(connection, models)
                     val ids = models.map { it.id }
@@ -144,6 +194,14 @@ internal class DefaultKoogEngineAdapter(
         }
     }
 
+    override suspend fun answerIsolated(
+        prompt: IsolatedPrompt,
+        source: AuthSource,
+        context: EngineContext,
+        deadline: TimeMark,
+        beforeDispatch: suspend () -> Unit,
+    ): IsolatedAnswer = KoogIsolatedPrompts(access).answer(prompt, source, context, deadline, beforeDispatch)
+
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = onMain {
         mutex.withLock {
             access.source(identity)
@@ -152,11 +210,13 @@ internal class DefaultKoogEngineAdapter(
             current?.close()
             access.checkEnabled()
             log.i { "Creating profile runtime" }
-            KoogRuntime(identity, access, records, profile.coroutineScope, cache, search, workspaces).also {
-                runtimes[identity.source] = it
-            }
+            newRuntime(identity).also { runtimes[identity.source] = it }
         }
     }
+
+    /** Unadmitted runtimes carry no stamp; only [promoteRuntime] attaches the identity of a checked build. */
+    private fun newRuntime(identity: RuntimeIdentity, stamp: EngineCompatibilityStamp? = null): KoogRuntime =
+        KoogRuntime(identity, access, records, profile.coroutineScope, cache, search, workspaces, stamp)
 
     override suspend fun get(ref: SessionRef): EngineSession = onMain {
         access.checkEnabled()

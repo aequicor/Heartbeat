@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.sto
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.connections.api.isConnectable
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionAccessGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -30,6 +31,9 @@ enum class FailureUi {
 /** How a method authenticates. */
 enum class MethodKindUi { ApiKey, CliLogin, NoAuth }
 
+/** Presentation categories for declared access methods. */
+enum class AccessGroupUi { Subscription, Provider, OpenAiCompatible, AnthropicCompatible }
+
 /** Engine row of the wizard and of the settings space; [isEnabled] is false for an engine switched off. */
 @Immutable
 data class EngineRowUi(
@@ -53,6 +57,7 @@ data class MethodRowUi(
     val isPathEditable: Boolean,
     /** Host application whose runtime the connection uses, for a host application sign-in. */
     val hostApp: String? = null,
+    val accessGroup: AccessGroupUi = AccessGroupUi.Provider,
 )
 
 /** Model row; [isEnabled] means offered to model pickers; [description] is null while descriptions are off. */
@@ -64,6 +69,7 @@ data class ModelRowUi(
     val isEnabled: Boolean,
     val isDefault: Boolean = false,
     val description: ModelDescriptionUi? = null,
+    val check: ModelCheckUi? = null,
 )
 
 /** Whether a model has a description for adaptive subagents. */
@@ -90,7 +96,15 @@ internal fun ConnectionMethod.toRow(): MethodRowUi = MethodRowUi(
     isOriginEditable = isOriginEditable,
     isPathEditable = isPathEditable,
     hostApp = (this as? ConnectionMethod.CliLogin)?.hostApp?.title,
+    accessGroup = accessGroup.toUi(),
 )
+
+private fun ConnectionAccessGroup.toUi(): AccessGroupUi = when (this) {
+    ConnectionAccessGroup.Subscription -> AccessGroupUi.Subscription
+    ConnectionAccessGroup.Provider -> AccessGroupUi.Provider
+    ConnectionAccessGroup.OpenAiCompatible -> AccessGroupUi.OpenAiCompatible
+    ConnectionAccessGroup.AnthropicCompatible -> AccessGroupUi.AnthropicCompatible
+}
 
 internal fun ModelInfo.toRow(isEnabled: Boolean, isDefault: Boolean = false): ModelRowUi =
     ModelRowUi(target.model.value, title, contextLimitTokens, isEnabled, isDefault)
@@ -122,7 +136,9 @@ internal fun EngineFailure.toUi(): FailureUi = when (this) {
     is EngineFailure.Engine -> when (reason) {
         EngineFailureReason.UnsupportedCapability -> FailureUi.Rejected
 
-        EngineFailureReason.Unavailable, EngineFailureReason.RequirementsNotMet, EngineFailureReason.Crashed ->
+        EngineFailureReason.Unavailable, EngineFailureReason.RequirementsNotMet, EngineFailureReason.Crashed,
+        EngineFailureReason.CompatibilityUnknown, EngineFailureReason.Incompatible,
+        ->
             FailureUi.EngineUnavailable
     }
 

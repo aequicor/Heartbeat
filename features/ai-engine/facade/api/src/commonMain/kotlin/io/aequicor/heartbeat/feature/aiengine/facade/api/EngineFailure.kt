@@ -10,7 +10,18 @@ public enum class AccessFailureReason { ModelAccessDenied, OperationNotAllowed }
 
 /** Runtime and installation failures. */
 @Serializable
-public enum class EngineFailureReason { Unavailable, RequirementsNotMet, Crashed, UnsupportedCapability }
+public enum class EngineFailureReason {
+    Unavailable,
+    RequirementsNotMet,
+    Crashed,
+    UnsupportedCapability,
+
+    /** Required launch policy, identity or safe baseline is not established. */
+    CompatibilityUnknown,
+
+    /** Observed launch bundle positively violates the connector policy. */
+    Incompatible,
+}
 
 /** Stored-session failures. A busy session must not silently queue another prompt. */
 @Serializable

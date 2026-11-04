@@ -21,11 +21,14 @@ import kotlinx.coroutines.withContext
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
 @Inject
-internal class NativeDesktopFileDialogs(
-    platform: PlatformInfo,
-    private val dispatchers: DispatcherProvider,
-    private val dialogs: NativeDialogs = nativeDialogsFor(platform.host),
-) : DesktopFileDialogs {
+public class NativeDesktopFileDialogs(platform: PlatformInfo, private val dispatchers: DispatcherProvider) :
+    DesktopFileDialogs {
+    private var dialogs: NativeDialogs = nativeDialogsFor(platform.host)
+
+    internal constructor(platform: PlatformInfo, dispatchers: DispatcherProvider, dialogs: NativeDialogs) :
+        this(platform, dispatchers) {
+        this.dialogs = dialogs
+    }
     private val log = Log.tag("DesktopFileDialogs")
     private val dialogMutex = Mutex()
 

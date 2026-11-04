@@ -51,7 +51,7 @@ class AlibabaKoogTransportTest {
             )
         }
         HttpClient(engine).use { http ->
-            SdkKoogTransport(http).open(KoogProvider.AlibabaQwen, "mock-alibaba-key").use { client ->
+            SdkKoogTransport(http, TestKoogPlatform).open(KoogProvider.AlibabaQwen, "mock-alibaba-key").use { client ->
                 assertEquals(listOf("qwen-test"), client.models().map { it.id })
             }
             assertTrue(http.coroutineContext[kotlinx.coroutines.Job]?.isActive == true)
@@ -66,7 +66,10 @@ class AlibabaKoogTransportTest {
             override val supportedCapabilities = super.supportedCapabilities + SSECapability
         }
         HttpClient(engine).use { http ->
-            SdkKoogTransport(http).open(KoogProvider.AlibabaQwen, "mock-alibaba-key", "qwen-test").use { client ->
+            SdkKoogTransport(
+                http,
+                TestKoogPlatform,
+            ).open(KoogProvider.AlibabaQwen, "mock-alibaba-key", "qwen-test").use { client ->
                 val frames = client.executor.executeStreaming(
                     prompt("research") { user("Find Kotlin docs") },
                     KoogProvider.AlibabaQwen.textModel("qwen-test", tools = true),
@@ -112,7 +115,7 @@ class AlibabaKoogTransportTest {
             )
         }
         HttpClient(engine).use { http ->
-            SdkKoogTransport(http).open(KoogProvider.AlibabaQwen, "mock-alibaba-key").use { client ->
+            SdkKoogTransport(http, TestKoogPlatform).open(KoogProvider.AlibabaQwen, "mock-alibaba-key").use { client ->
                 val error = assertFailsWith<EngineException> { koogCall { client.models() } }
                 val auth = assertIs<EngineFailure.Authentication>(error.failure)
                 assertEquals(AuthFailureReason.CredentialsRejected, auth.reason.reason)

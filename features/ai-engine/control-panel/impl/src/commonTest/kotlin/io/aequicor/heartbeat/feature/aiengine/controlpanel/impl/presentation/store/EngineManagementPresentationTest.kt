@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineOwnedJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppSpec
@@ -42,6 +43,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -242,6 +244,54 @@ class EngineManagementPresentationTest {
         )
         val saved = selected(managedCodex().copy(launch = LaunchState(proxy.toSettings())))
         assertFalse(saved.panel!!.launch!!.isDirty)
+    }
+
+    @Test
+    fun `job commands retain the clicked handle when another job is visible`() {
+        val old = object : EngineOwnedJob {
+            override suspend fun await(): JobPhase = JobPhase.Cancelled
+            override suspend fun cancel(): JobPhase = JobPhase.Cancelled
+        }
+        val next = object : EngineOwnedJob {
+            override suspend fun await(): JobPhase = JobPhase.Cancelled
+            override suspend fun cancel(): JobPhase = JobPhase.Cancelled
+        }
+        val state = selected(
+            managedCodex(job = EngineJob(EngineAction.Install, JobPhase.Preparing, Instant.DISTANT_PAST, next)),
+        )
+        assertEquals(
+            EngineCommand.CancelOwned(old),
+            state.commandFor(EngineManagementIntent.CancelEngineJob(old)),
+        )
+        assertEquals(
+            EngineCommand.DismissOwned(old),
+            state.commandFor(EngineManagementIntent.DismissEngineJob(old)),
+        )
+    }
+
+    @Test
+    fun `stale actions and confirmations do not start jobs after their capabilities disappear`() {
+        val initial = selected(managedCodexWithCopy())
+        val actions = listOf(
+            EngineActionUi.Install to EngineActionKindUi.Install,
+            EngineActionUi.Update to EngineActionKindUi.Update,
+            EngineActionUi.Uninstall to EngineActionKindUi.Uninstall,
+            EngineActionUi.Login to EngineActionKindUi.Login,
+            EngineActionUi.Logout to EngineActionKindUi.Logout,
+            EngineActionUi.SyncPackages to EngineActionKindUi.Packages,
+            EngineActionUi.UpdatePackages to EngineActionKindUi.Packages,
+        )
+        for ((action, kind) in actions) {
+            val unavailable = initial.copy(panel = initial.panel!!.copy(actions = persistentSetOf()))
+            assertNull(unavailable.commandFor(EngineManagementIntent.RequestEngineAction(action)), action.name)
+            assertNull(unavailable.copy(confirmAction = action).commandFor(EngineManagementIntent.ConfirmEngineAction))
+            val busy = initial.copy(isSaving = true, panel = initial.panel!!.copy(actions = persistentSetOf(kind)))
+            assertNull(busy.commandFor(EngineManagementIntent.RequestEngineAction(action)), action.name)
+        }
+        assertNull(
+            initial.copy(panel = initial.panel!!.copy(loginMethods = persistentListOf(LoginMethodUi.Browser)))
+                .commandFor(EngineManagementIntent.RequestEngineAction(EngineActionUi.Login, LoginMethodUi.DeviceCode)),
+        )
     }
 
     @Test
